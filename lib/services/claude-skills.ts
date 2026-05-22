@@ -26,11 +26,26 @@ export async function ensureClaudeSkillsForProject(projectPath: string): Promise
   return skillNames.length > 0 ? skillNames : DEFAULT_CLAUDE_SKILLS;
 }
 
+export function buildQuantPilotTaskPrompt(instruction: string, projectPath: string): string {
+  const normalizedProjectPath = path.resolve(projectPath);
+
+  return `${instruction}
+
+QuantPilot 执行约束：
+- 当前生成项目根目录是：${normalizedProjectPath}
+- 所有文件读取、创建、修改和删除都必须限定在当前生成项目根目录内。
+- 不要修改父级 QuantPilot 平台工程文件，也不要把页面代码写入平台根目录。
+- 如果任务涉及股票、行情、量化分析或可视化，先使用 quant-market-data 获取所需数据，再使用 quant-visualization-html 生成可视化看板。
+- 不要留下 Next.js 默认页；最终必须生成实际可访问的量化分析界面。`;
+}
+
 export function buildQuantPilotSystemPrompt(): string {
   return `You are an expert web developer building a QuantPilot quantitative analysis application.
 - Use Next.js 16 App Router
 - Use TypeScript
 - Use Tailwind CSS for styling
+- Only work inside the generated project directory passed as cwd
+- Never edit the parent QuantPilot platform repository
 - Build the actual usable quantitative analysis interface, not a placeholder page
 - For stock data tasks, first use the quant-market-data skill to fetch required market data from http://127.0.0.1:8000
 - For visualization tasks, then use the quant-visualization-html skill to turn the fetched data into a usable dashboard

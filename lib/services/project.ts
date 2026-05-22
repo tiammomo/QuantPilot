@@ -7,6 +7,7 @@ import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/ba
 import fs from 'fs/promises';
 import path from 'path';
 import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
+import { ensureClaudeSkillsForProject } from '@/lib/services/claude-skills';
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
@@ -49,6 +50,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   // Create project directory
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
+  await ensureClaudeSkillsForProject(projectPath);
 
   // Create project in database
   const project = await prisma.project.create({

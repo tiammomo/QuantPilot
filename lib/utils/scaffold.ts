@@ -30,7 +30,7 @@ export async function scaffoldBasicNextApp(
       lint: 'next lint',
     },
     dependencies: {
-      next: '15.1.0',
+      next: '^16.2.6',
       react: '19.0.0',
       'react-dom': '19.0.0',
     },
@@ -39,7 +39,7 @@ export async function scaffoldBasicNextApp(
       '@types/react': '^19.0.0',
       '@types/node': '^22.10.0',
       eslint: '^9.17.0',
-      'eslint-config-next': '15.1.0',
+      'eslint-config-next': '^16.2.6',
     },
   };
 
@@ -92,7 +92,7 @@ module.exports = nextConfig;
 /// <reference types="next/navigation-types/navigation" />
 /// <reference types="next/image-types/global" />
 
-// NOTE: This file should not be edited
+// 注意：此文件由 Next.js 自动维护，通常不需要手动编辑。
 // see https://nextjs.org/docs/basic-features/typescript for more information.
 `
   );
@@ -104,7 +104,7 @@ import './globals.css';
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body>{children}</body>
     </html>
   );

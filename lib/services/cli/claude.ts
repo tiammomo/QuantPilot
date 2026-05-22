@@ -14,7 +14,11 @@ import { CLAUDE_DEFAULT_MODEL, normalizeClaudeModelId, getClaudeModelDisplayName
 import path from 'path';
 import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
-import { buildQuantPilotSystemPrompt, ensureClaudeSkillsForProject } from '@/lib/services/claude-skills';
+import {
+  buildQuantPilotSystemPrompt,
+  buildQuantPilotTaskPrompt,
+  ensureClaudeSkillsForProject,
+} from '@/lib/services/claude-skills';
 import {
   markUserRequestAsRunning,
   markUserRequestAsCompleted,
@@ -727,13 +731,14 @@ export async function executeClaude(
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
     console.log(`[ClaudeService] 🧩 Skills: ${availableSkills.join(', ') || 'none'}`);
     const response = query({
-      prompt: instruction,
+      prompt: buildQuantPilotTaskPrompt(instruction, absoluteProjectPath),
       options: {
-        workingDirectory: absoluteProjectPath, // 只允许在项目目录内工作，保护 QuantPilot 根目录
+        cwd: absoluteProjectPath,
         additionalDirectories: [absoluteProjectPath],
         model: resolvedModel,
         resume: sessionId, // Resume previous session
         permissionMode: 'bypassPermissions', // Auto-approve commands and edits
+        allowDangerouslySkipPermissions: true,
         settingSources: ['project'],
         skills: availableSkills,
         systemPrompt: buildQuantPilotSystemPrompt(),
