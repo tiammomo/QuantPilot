@@ -7,7 +7,7 @@ import uvicorn
 
 def main() -> None:
     host = os.getenv("QUANTPILOT_MARKET_HOST", "127.0.0.1")
-    port = int(os.getenv("QUANTPILOT_MARKET_PORT", "8010"))
+    port = int(os.getenv("QUANTPILOT_MARKET_PORT", "8000"))
     uvicorn.run(
         "quantpilot_market_data.api:app",
         host=host,

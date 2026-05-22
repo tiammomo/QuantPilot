@@ -23,7 +23,7 @@ uv run quantpilot-market-api
 默认地址：
 
 ```text
-http://127.0.0.1:8010
+http://127.0.0.1:8000
 ```
 
 可选环境变量：
@@ -31,7 +31,7 @@ http://127.0.0.1:8010
 ```bash
 # 服务监听地址
 export QUANTPILOT_MARKET_HOST=127.0.0.1
-export QUANTPILOT_MARKET_PORT=8010
+export QUANTPILOT_MARKET_PORT=8000
 
 # 东方财富主备域名，按顺序失败重试
 export EASTMONEY_BASE_URLS=https://push2.eastmoney.com,https://push2delay.eastmoney.com
@@ -42,21 +42,21 @@ export EASTMONEY_BASE_URLS=https://push2.eastmoney.com,https://push2delay.eastmo
 ### 健康检查
 
 ```bash
-curl http://127.0.0.1:8010/health
+curl http://127.0.0.1:8000/health
 ```
 
 ### 单只股票实时行情
 
 ```bash
-curl 'http://127.0.0.1:8010/api/v1/quotes/realtime/600519'
-curl 'http://127.0.0.1:8010/api/v1/quotes/realtime/000001'
-curl 'http://127.0.0.1:8010/api/v1/quotes/realtime/1.600519'
+curl 'http://127.0.0.1:8000/api/v1/quotes/realtime/600519'
+curl 'http://127.0.0.1:8000/api/v1/quotes/realtime/000001'
+curl 'http://127.0.0.1:8000/api/v1/quotes/realtime/1.600519'
 ```
 
 ### 批量股票实时行情
 
 ```bash
-curl -X POST 'http://127.0.0.1:8010/api/v1/quotes/realtime' \
+curl -X POST 'http://127.0.0.1:8000/api/v1/quotes/realtime' \
   -H 'Content-Type: application/json' \
   -d '{"symbols":["600519","000001","300750"]}'
 ```
