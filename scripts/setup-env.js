@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Development environment bootstrapper.
- * - Ensures .env and .env.local exist
- * - Finds an available localhost port for the Next.js dev server
- * - Syncs NEXT_PUBLIC_APP_URL, PORT, and WEB_PORT across env files
+ * 开发环境初始化脚本。
+ * - 确保 .env 和 .env.local 存在
+ * - 主应用默认优先使用 3000 端口
+ * - 同步 NEXT_PUBLIC_APP_URL、PORT、WEB_PORT 等本地配置
  */
 
 const fs = require('fs');
@@ -238,15 +238,8 @@ async function ensureEnvironment(options = {}) {
     return val;
   };
 
-  const preferredPortCandidates = [
-    sanitizeWebCandidate(overridePreferred),
-    sanitizeWebCandidate(parsePortValue(process.env.WEB_PORT)),
-    sanitizeWebCandidate(parsePortValue(process.env.PORT)),
-    sanitizeWebCandidate(extractPort(envContents, ['PORT', 'WEB_PORT'])),
-  ];
-
-  let preferredPort =
-    preferredPortCandidates.find((value) => value !== null) ?? DEFAULT_WEB_PORT;
+  const explicitPreferredPort = sanitizeWebCandidate(overridePreferred);
+  const preferredPort = explicitPreferredPort ?? DEFAULT_WEB_PORT;
 
   // Compute scan window for WEB app: stay below preview range when possible
   let webRangeStart = preferredPort;
