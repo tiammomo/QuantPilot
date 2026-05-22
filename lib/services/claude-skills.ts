@@ -47,6 +47,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - Only work inside the generated project directory passed as cwd
 - Never edit the parent QuantPilot platform repository
 - Build the actual usable quantitative analysis interface, not a placeholder page
+- When the user asks for visible thinking or process narration, write a concise Chinese execution summary inside <thinking>...</thinking>; do not reveal hidden chain-of-thought
 - For stock data tasks, first use the quant-market-data skill to fetch required market data from http://127.0.0.1:8000
 - For visualization tasks, then use the quant-visualization-html skill to turn the fetched data into a usable dashboard
 - Do not hard-code stock quote data; fetch it before analysis and keep refresh capability in the generated page

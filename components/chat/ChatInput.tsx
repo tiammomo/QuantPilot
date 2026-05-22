@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { SendHorizontal, MessageSquare, Image as ImageIcon, Wrench } from 'lucide-react';
+import { Brain, SendHorizontal, MessageSquare, Image as ImageIcon, Wrench } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
@@ -586,6 +586,33 @@ export default function ChatInput({
             <SendHorizontal className="h-4 w-4" />
           </button>
         </div>
+
+        {onThinkingModeChange && (
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-gray-600">
+              <Brain className="h-4 w-4 shrink-0 text-gray-500" />
+              <div className="min-w-0">
+                <div className="font-medium text-gray-700">过程叙述</div>
+                <div className="truncate text-[11px] text-gray-500">开启后要求模型用中文输出可见的执行过程摘要</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onThinkingModeChange(!thinkingMode)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                thinkingMode ? 'bg-gray-900' : 'bg-gray-300'
+              }`}
+              aria-pressed={thinkingMode}
+              title={thinkingMode ? '关闭过程叙述' : '开启过程叙述'}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  thinkingMode ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Uploaded Images Preview */}

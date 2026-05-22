@@ -1692,6 +1692,15 @@ const persistProjectPreferences = useCallback(
       finalMessage = finalMessage + "\n\nDo not modify code, only answer to the user's request.";
     }
 
+    if (thinkingMode) {
+      finalMessage = `${finalMessage}
+
+请在正式回答前输出一个简短的中文过程叙述，并使用如下格式包裹：
+<thinking>
+用 3 到 6 条短句说明你将如何理解任务、获取数据、选择文件和验证结果。这里写面向用户的执行摘要，不要展开隐藏推理链。
+</thinking>`;
+    }
+
     // Create request fingerprint for deduplication
     const requestFingerprint = JSON.stringify({
       message: finalMessage.trim(),

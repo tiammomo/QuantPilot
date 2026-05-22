@@ -2532,14 +2532,14 @@ const ToolResultMessage = ({
       case 'system':
         return (
           <div>
-            System connected (Model: {log.data.model || 'Unknown'})
+            系统已连接（模型：{log.data.model || '未知'}）
           </div>
         );
 
       case 'act_start':
         return (
           <div>
-            Starting task: {shortenPath(log.data.instruction)}
+            开始执行任务：{shortenPath(log.data.instruction)}
           </div>
         );
 
@@ -2566,14 +2566,14 @@ const ToolResultMessage = ({
       case 'thinking':
         return (
           <div className="italic">
-            Thinking: {shortenPath(log.data.content)}
+            过程叙述：{shortenPath(log.data.content)}
           </div>
         );
 
       case 'tool_start':
         return (
           <div>
-            Using tool: {shortenPath(log.data.summary || log.data.tool_name)}
+            正在使用工具：{shortenPath(log.data.summary || log.data.tool_name)}
           </div>
         );
 
@@ -2581,7 +2581,7 @@ const ToolResultMessage = ({
         const isError = log.data.is_error;
         return (
           <div>
-            {shortenPath(log.data.summary)} {isError ? 'failed' : 'completed'}
+            {shortenPath(log.data.summary)} {isError ? '失败' : '已完成'}
           </div>
         );
 
