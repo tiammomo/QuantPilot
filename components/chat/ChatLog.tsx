@@ -629,6 +629,17 @@ const mergeMessageRecord = (existing: ChatMessage, incoming: ChatMessage): ChatM
   const resolvedCreatedAt = (() => {
     if (!existing.createdAt) return incoming.createdAt ?? existing.createdAt;
     if (!incoming.createdAt) return existing.createdAt;
+
+    const incomingIsDurable =
+      !incoming.isOptimistic &&
+      (!incoming.isStreaming || incoming.isFinal);
+    const replacesTransient =
+      existing.isOptimistic || (existing.isStreaming && !existing.isFinal);
+
+    if (incomingIsDurable && replacesTransient) {
+      return incoming.createdAt;
+    }
+
     return new Date(incoming.createdAt).getTime() < new Date(existing.createdAt).getTime()
       ? incoming.createdAt
       : existing.createdAt;
@@ -664,6 +675,7 @@ const mergeMessageRecord = (existing: ChatMessage, incoming: ChatMessage): ChatM
 
   const unchanged =
     merged.content === existing.content &&
+    merged.createdAt === existing.createdAt &&
     merged.updatedAt === existing.updatedAt &&
     merged.isStreaming === existing.isStreaming &&
     merged.isFinal === existing.isFinal &&
@@ -984,6 +996,11 @@ interface ActiveSession {
   durationSeconds?: number;
 }
 
+interface MessageCursor {
+  id: string;
+  createdAt: string;
+}
+
 interface ChatLogProps {
   projectId: string;
   onSessionStatusChange?: (isRunning: boolean) => void;
@@ -1012,6 +1029,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const historyPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const latestMessageCursorRef = useRef<MessageCursor | null>(null);
+  const isHistorySyncingRef = useRef(false);
   const hasLoadedInitialDataRef = useRef(false);
   const sseFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoggedSseFallbackRef = useRef(false);
@@ -1024,6 +1043,39 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
   useEffect(() => {
     messagesRef.current = messages;
+
+    let latestCursor: MessageCursor | null = null;
+    let latestTime = Number.NEGATIVE_INFINITY;
+
+    messages.forEach((message) => {
+      if (!message.id || !message.createdAt || message.isOptimistic) {
+        return;
+      }
+
+      // 游标只落在已完成消息上，避免流式消息断开后跳过数据库里的最终版本。
+      if (message.isStreaming && !message.isFinal) {
+        return;
+      }
+
+      const timestamp = new Date(message.createdAt).getTime();
+      if (!Number.isFinite(timestamp)) {
+        return;
+      }
+
+      if (
+        !latestCursor ||
+        timestamp > latestTime ||
+        (timestamp === latestTime && message.id > latestCursor.id)
+      ) {
+        latestTime = timestamp;
+        latestCursor = {
+          id: message.id,
+          createdAt: message.createdAt,
+        };
+      }
+    });
+
+    latestMessageCursorRef.current = latestCursor;
   }, [messages]);
 
   const ensureStableMessageId = useCallback((message: ChatMessage): string => {
@@ -1246,29 +1298,11 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   }, [projectId]);
 
   // Message recovery mechanism for network interruptions
-  const recoverMissingMessages = useCallback(async () => {
-    if (!projectId) return;
+  const recoverMissingMessages = useCallback(() => {
+    if (!projectId || !hasLoadedInitialDataRef.current) return;
 
-    try {
-      console.log('[ChatLog] Checking for missing messages due to network interruption...');
-
-      const currentMessageCount = messagesRef.current.length;
-
-      // Get actual message count from database
-      const response = await fetch(`/api/chat/${projectId}/messages?limit=1&offset=0`);
-      if (!response.ok) return;
-
-      const data = await response.json();
-      const totalMessages = data.totalCount || 0;
-
-      // If database has more messages than UI state, trigger a reload flag
-      if (totalMessages > currentMessageCount) {
-        console.log(`[ChatLog] Detected ${totalMessages - currentMessageCount} missing messages. Refreshing silently...`);
-        setNeedsHistoryRefresh(true);
-      }
-    } catch (error) {
-      console.error('[ChatLog] Error checking for missing messages:', error);
-    }
+    console.log('[ChatLog] Recovering possible missing messages after realtime transport change...');
+    setNeedsHistoryRefresh(true);
   }, [projectId]);
 
   const handleRealtimeMessage = useCallback((message: unknown) => {
@@ -1436,7 +1470,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
   const handleRealtimeError = useCallback((error: Error) => {
     console.error('🔌 [Realtime] Error:', error);
-    setEnableSseFallback(true);
   }, []);
 
   const handleRealtimeEnvelope = useCallback(
@@ -1529,9 +1562,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       recoverMissingMessages();
     },
     onDisconnect: () => {
-      console.log('🔌 [Transport] WebSocket disconnected, preparing SSE fallback');
-      setEnableSseFallback(true);
-      activeTransport.current = null; // Reset transport to allow SSE to take over
+      console.log('🔌 [Transport] WebSocket disconnected, waiting before SSE fallback');
+      activeTransport.current = null;
     },
     onError: handleRealtimeError,
   });
@@ -1879,7 +1911,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const loadChatHistory = useCallback(
     async ({ showLoading }: { showLoading?: boolean } = {}) => {
       const shouldShowLoading = showLoading ?? !hasLoadedInitialDataRef.current;
-      let didSucceed = false;
       if (shouldShowLoading) {
         setIsLoading(true);
       }
@@ -1888,7 +1919,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         // Load more messages per request to reduce pagination needs
         const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?limit=200&offset=0`);
         if (response.ok) {
-          didSucceed = true;
           const payload = await response.json();
           const chatMessages = Array.isArray(payload)
             ? payload
@@ -1944,16 +1974,64 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     [projectId, ensureStableMessageId]
   );
 
+  const syncNewMessages = useCallback(async () => {
+    if (!projectId || isHistorySyncingRef.current) {
+      return;
+    }
+
+    isHistorySyncingRef.current = true;
+
+    try {
+      const cursor = latestMessageCursorRef.current;
+      if (!cursor) {
+        await loadChatHistory({ showLoading: false });
+        return;
+      }
+
+      const params = new URLSearchParams({
+        limit: '100',
+        after: cursor.createdAt,
+        afterId: cursor.id,
+      });
+      const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?${params.toString()}`);
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = await response.json();
+      const chatMessages = Array.isArray(payload)
+        ? payload
+        : payload?.data ?? payload?.messages ?? [];
+      const normalized = Array.isArray(chatMessages)
+        ? expandMessagesList(chatMessages.map(toChatMessage), ensureStableMessageId)
+        : [];
+
+      if (payload.pagination) {
+        setTotalMessageCount(payload.totalCount || 0);
+      }
+
+      if (normalized.length > 0) {
+        setMessages((prev) => integrateMessages(prev, normalized));
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[ChatLog] Incremental history sync failed:', error);
+      }
+    } finally {
+      isHistorySyncingRef.current = false;
+    }
+  }, [projectId, ensureStableMessageId, loadChatHistory]);
+
   useEffect(() => {
     if (!needsHistoryRefresh) {
       return;
     }
     const timer = setTimeout(() => {
       setNeedsHistoryRefresh(false);
-      void loadChatHistory({ showLoading: false });
+      void syncNewMessages();
     }, 250);
     return () => clearTimeout(timer);
-  }, [needsHistoryRefresh, loadChatHistory]);
+  }, [needsHistoryRefresh, syncNewMessages]);
 
   // Load older messages (pagination)
   const loadOlderMessages = useCallback(async () => {
@@ -2070,11 +2148,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     }
   }, [projectId, onSessionStatusChange, startSessionPolling]);
 
-  // Enhanced polling system to prevent conflicts with real-time connections
+  // 兜底轮询只做增量补漏，避免断线时反复重载整段聊天历史。
   useEffect(() => {
     if (!projectId) return;
 
-    // Don't poll if we have active real-time connections
     if (isConnected || isSseConnected) {
       if (historyPollIntervalRef.current) {
         clearInterval(historyPollIntervalRef.current);
@@ -2102,13 +2179,13 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       return;
     }
 
-    // Clear any existing interval
     if (historyPollIntervalRef.current) {
       clearInterval(historyPollIntervalRef.current);
     }
 
+    const intervalMs = isWaitingForResponse ? 2000 : 5000;
+
     historyPollIntervalRef.current = setInterval(() => {
-      // Double-check connection status before polling
       if (isConnected || isSseConnected) {
         console.debug(`[ChatLog] Stopping polling due to active connection: WebSocket=${isConnected}, SSE=${isSseConnected}`);
         if (historyPollIntervalRef.current) {
@@ -2118,12 +2195,12 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         return;
       }
 
-      console.debug(`[ChatLog] Polling for chat history updates...`);
-      loadChatHistory({ showLoading: false }).catch(() => {
+      console.debug(`[ChatLog] Polling for incremental chat updates...`);
+      syncNewMessages().catch(() => {
         // Suppress polling errors; realtime channels may still recover.
         console.debug(`[ChatLog] Polling completed with errors (suppressed)`);
       });
-    }, 3000); // Consistent 3-second interval when polling
+    }, intervalMs);
 
     return () => {
       if (historyPollIntervalRef.current) {
@@ -2131,7 +2208,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         historyPollIntervalRef.current = null;
       }
     };
-  }, [projectId, isConnected, isSseConnected, enableSseFallback, loadChatHistory]);
+  }, [projectId, isConnected, isSseConnected, enableSseFallback, isWaitingForResponse, syncNewMessages]);
 
   // Initial load
   useEffect(() => {
@@ -2168,6 +2245,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     setMessages([]);
     setLogs([]);
     setExpandedToolMessages({});
+    latestMessageCursorRef.current = null;
+    isHistorySyncingRef.current = false;
     fallbackMessageIdRef.current.clear();
     visibleToolMessageIdsRef.current.clear();
   }, [projectId]);

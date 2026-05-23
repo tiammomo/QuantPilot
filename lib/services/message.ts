@@ -40,8 +40,39 @@ export async function getMessagesByProjectId(
 ): Promise<Message[]> {
   const messages = await prisma.message.findMany({
     where: { projectId },
-    orderBy: { createdAt: 'asc' },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     skip: offset,
+    take: limit,
+  });
+
+  return messages.map(mapPrismaMessage);
+}
+
+/**
+ * 按游标增量获取项目消息，用于实时通道断线后的轻量补漏。
+ */
+export async function getMessagesByProjectIdAfter(
+  projectId: string,
+  afterCreatedAt: Date,
+  afterId?: string,
+  limit: number = 100
+): Promise<Message[]> {
+  const messages = await prisma.message.findMany({
+    where: {
+      projectId,
+      OR: [
+        { createdAt: { gt: afterCreatedAt } },
+        ...(afterId
+          ? [
+              {
+                createdAt: afterCreatedAt,
+                id: { gt: afterId },
+              },
+            ]
+          : []),
+      ],
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     take: limit,
   });
 

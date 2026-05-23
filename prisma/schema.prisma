@@ -102,6 +102,7 @@ model Message {
   @@index([projectId])
   @@index([sessionId])
   @@index([createdAt])
+  @@index([projectId, createdAt])
   @@index([cliSource])
   @@index([requestId])
   @@map("messages")

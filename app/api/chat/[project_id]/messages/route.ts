@@ -4,7 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getMessagesByProjectId, createMessage, deleteMessagesByProjectId, getMessagesCountByProjectId } from '@/lib/services/message';
+import {
+  getMessagesByProjectId,
+  getMessagesByProjectIdAfter,
+  createMessage,
+  deleteMessagesByProjectId,
+  getMessagesCountByProjectId,
+} from '@/lib/services/message';
 import type { CreateMessageInput } from '@/types/backend';
 import { serializeMessages, serializeMessage } from '@/lib/serializers/chat';
 
@@ -23,8 +29,56 @@ export async function GET(
   try {
     const { project_id } = await params;
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const rawLimit = Number.parseInt(searchParams.get('limit') || '50', 10);
+    const rawOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 50, 1), 500);
+    const offset = Math.max(Number.isFinite(rawOffset) ? rawOffset : 0, 0);
+    const after = searchParams.get('after');
+    const afterId = searchParams.get('afterId') ?? undefined;
+
+    if (after) {
+      const afterCreatedAt = new Date(after);
+      if (Number.isNaN(afterCreatedAt.getTime())) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Invalid after cursor',
+          },
+          { status: 400 }
+        );
+      }
+
+      const [messages, totalCount] = await Promise.all([
+        getMessagesByProjectIdAfter(project_id, afterCreatedAt, afterId, limit),
+        getMessagesCountByProjectId(project_id),
+      ]);
+      const serialized = serializeMessages(messages);
+      const latest = serialized[serialized.length - 1] ?? null;
+
+      const res = NextResponse.json({
+        success: true,
+        data: serialized,
+        totalCount,
+        pagination: {
+          mode: 'incremental',
+          limit,
+          offset: null,
+          count: serialized.length,
+          hasMore: serialized.length === limit,
+          cursor: latest
+            ? {
+                id: latest.id,
+                createdAt: latest.createdAt,
+              }
+            : {
+                id: afterId ?? null,
+                createdAt: after,
+              },
+        },
+      });
+      res.headers.set('Cache-Control', 'no-store');
+      return res;
+    }
 
     const [messages, totalCount] = await Promise.all([
       getMessagesByProjectId(project_id, limit, offset),
