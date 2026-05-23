@@ -29,6 +29,7 @@ import {
   markUserRequestAsProcessing,
 } from '@/lib/services/user-requests';
 import { writeInitialRunPlan } from '@/lib/quant/workspace';
+import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
 import {
   buildQuantValidationRepairInstruction,
   validateQuantProject,
@@ -500,7 +501,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const existingSelected = normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined);
 
     try {
-      await writeInitialRunPlan({
+      const runPlan = await writeInitialRunPlan({
         projectPath,
         instruction: finalInstruction,
         requestId,
@@ -510,8 +511,27 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           coerceString((body as Record<string, unknown>).capabilityId) ??
           coerceString(legacyBody['capability_id']),
       });
+      const prefetch = await prefetchQuantDataForRunPlan({
+        projectPath,
+        plan: runPlan,
+      });
+      if (!prefetch.skipped) {
+        streamManager.publish(project_id, {
+          type: 'status',
+          data: {
+            status: 'quant_data_prefetched',
+            message: prefetch.summary,
+            requestId,
+            metadata: {
+              symbol: prefetch.symbol,
+              finalDataPath: prefetch.finalDataPath,
+              rawFiles: prefetch.rawFiles,
+            },
+          },
+        });
+      }
     } catch (error) {
-      console.error('[API] Failed to write QuantPilot run plan:', error);
+      console.error('[API] Failed to prepare QuantPilot run plan or data prefetch:', error);
     }
 
     if (

@@ -1,12 +1,47 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 MarketCode = Literal["SH", "SZ", "BJ", "UNKNOWN"]
+DataQualityStatus = Literal["ok", "warning", "error"]
+
+
+class DataQuality(BaseModel):
+    """统一数据质量摘要，供 Agent 和前端判断数据是否可直接使用。"""
+
+    status: DataQualityStatus = Field(default="ok", description="数据质量状态")
+    missing_fields: list[str] = Field(default_factory=list, description="缺失字段")
+    warnings: list[str] = Field(default_factory=list, description="质量警告")
+
+
+def _merge_data_quality(
+    current: DataQuality,
+    *,
+    missing_fields: list[str] | None = None,
+    warnings: list[str] | None = None,
+    status: DataQualityStatus | None = None,
+) -> DataQuality:
+    merged_missing = list(dict.fromkeys([*current.missing_fields, *(missing_fields or [])]))
+    merged_warnings = list(dict.fromkeys([*current.warnings, *(warnings or [])]))
+    inferred_status: DataQualityStatus = "ok"
+    if current.status == "error" or status == "error":
+        inferred_status = "error"
+    elif current.status == "warning" or status == "warning" or merged_missing or merged_warnings:
+        inferred_status = "warning"
+
+    return DataQuality(
+        status=inferred_status,
+        missing_fields=merged_missing,
+        warnings=merged_warnings,
+    )
+
+
+def _missing_field_names(values: dict[str, Any]) -> list[str]:
+    return [key for key, value in values.items() if value is None or value == ""]
 
 
 class RealtimeQuote(BaseModel):
@@ -15,8 +50,11 @@ class RealtimeQuote(BaseModel):
     symbol: str = Field(description="证券代码，例如 600519")
     secid: str = Field(description="东方财富 secid，例如 1.600519")
     name: str | None = Field(default=None, description="证券名称")
+    asset_type: str = Field(default="stock", description="资产类型")
     market: MarketCode = Field(default="UNKNOWN", description="交易市场")
     source: str = Field(default="eastmoney", description="数据源")
+    currency: str = Field(default="CNY", description="计价货币")
+    timezone: str = Field(default="Asia/Shanghai", description="交易时区")
 
     price: Decimal | None = Field(default=None, description="最新价")
     open: Decimal | None = Field(default=None, description="开盘价")
@@ -31,7 +69,26 @@ class RealtimeQuote(BaseModel):
     float_market_cap: Decimal | None = Field(default=None, description="流通市值")
 
     quote_time: datetime | None = Field(default=None, description="行情时间")
+    as_of: datetime | str | None = Field(default=None, description="数据对应时间")
     fetched_at: datetime = Field(description="本服务获取时间")
+    data_quality: DataQuality = Field(default_factory=DataQuality, description="数据质量摘要")
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            self.as_of = self.quote_time or self.fetched_at
+
+        missing = _missing_field_names(
+            {
+                "symbol": self.symbol,
+                "secid": self.secid,
+                "price": self.price,
+                "quote_time": self.quote_time,
+                "fetched_at": self.fetched_at,
+            }
+        )
+        self.data_quality = _merge_data_quality(self.data_quality, missing_fields=missing)
+        return self
 
 
 class BatchQuoteRequest(BaseModel):
@@ -40,6 +97,28 @@ class BatchQuoteRequest(BaseModel):
 
 class BatchQuoteResponse(BaseModel):
     quotes: list[RealtimeQuote]
+    asset_type: str = "stock"
+    source: str = "eastmoney"
+    currency: str = "CNY"
+    timezone: str = "Asia/Shanghai"
+    as_of: datetime | str | None = None
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None and self.quotes:
+            self.as_of = self.quotes[0].as_of
+
+        missing = [] if self.quotes else ["quotes"]
+        warnings = [] if self.quotes else ["批量行情未返回任何证券数据。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing else None,
+        )
+        return self
 
 
 class DataProviderInfo(BaseModel):
@@ -67,7 +146,26 @@ class SymbolResolveResult(BaseModel):
 
 class SymbolResolveResponse(BaseModel):
     results: list[SymbolResolveResult]
+    asset_type: str = "stock"
+    source: str = "eastmoney"
+    timezone: str = "Asia/Shanghai"
+    as_of: datetime | str | None = None
     fetched_at: datetime = Field(description="获取时间")
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            self.as_of = self.fetched_at
+        missing = [] if self.results else ["results"]
+        warnings = [] if self.results else ["证券解析未返回匹配结果。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing else None,
+        )
+        return self
 
 
 KlinePeriod = Literal[
@@ -101,12 +199,39 @@ class KlineResponse(BaseModel):
     symbol: str
     name: str | None = None
     secid: str
+    asset_type: str = "stock"
     market: MarketCode = "UNKNOWN"
     source: str = "eastmoney"
+    currency: str = "CNY"
+    timezone: str = "Asia/Shanghai"
     period: KlinePeriod
     adjustment: Adjustment
     bars: list[KlineBar]
+    as_of: datetime | str | None = None
     fetched_at: datetime
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            self.as_of = self.bars[-1].date if self.bars else self.fetched_at
+
+        missing = _missing_field_names(
+            {
+                "symbol": self.symbol,
+                "secid": self.secid,
+                "bars": self.bars,
+                "fetched_at": self.fetched_at,
+            }
+        )
+        warnings = [] if self.bars else ["历史 K 线未返回样本。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing else None,
+        )
+        return self
 
 
 class FinancialReportItem(BaseModel):
@@ -129,8 +254,29 @@ class FinancialReportItem(BaseModel):
 
 class FinancialReportsResponse(BaseModel):
     symbol: str
+    asset_type: str = "stock"
+    source: str = "eastmoney"
+    currency: str = "CNY"
+    timezone: str = "Asia/Shanghai"
     reports: list[FinancialReportItem]
+    as_of: datetime | str | None = None
     fetched_at: datetime
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            self.as_of = self.reports[0].report_date if self.reports else self.fetched_at
+
+        missing = [] if self.reports else ["reports"]
+        warnings = [] if self.reports else ["财务摘要未返回报告期数据。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing else None,
+        )
+        return self
 
 
 class AnnouncementItem(BaseModel):
@@ -149,5 +295,26 @@ class AnnouncementItem(BaseModel):
 
 class AnnouncementResponse(BaseModel):
     symbol: str
+    asset_type: str = "stock"
+    source: str = "eastmoney"
+    timezone: str = "Asia/Shanghai"
     announcements: list[AnnouncementItem]
+    as_of: datetime | str | None = None
     fetched_at: datetime
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            first = self.announcements[0] if self.announcements else None
+            self.as_of = first.notice_date or first.display_time if first else self.fetched_at
+
+        missing = [] if self.announcements else ["announcements"]
+        warnings = [] if self.announcements else ["公告接口未返回近期公告。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing else None,
+        )
+        return self

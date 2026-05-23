@@ -249,7 +249,10 @@ function buildStatus(datasets: DatasetEvidence[]): EvidenceStatus {
   return 'ok';
 }
 
-export async function ensureBaselineEvidenceFiles(projectPath: string): Promise<BaselineEvidenceResult> {
+export async function ensureBaselineEvidenceFiles(
+  projectPath: string,
+  options: { force?: boolean } = {}
+): Promise<BaselineEvidenceResult> {
   await ensureQuantWorkspace(projectPath);
 
   const sourcesPath = path.join(projectPath, SOURCES_RELATIVE_PATH);
@@ -257,7 +260,7 @@ export async function ensureBaselineEvidenceFiles(projectPath: string): Promise<
   const existingSources = await readJsonRecord(sourcesPath);
   const existingQuality = await readJsonRecord(qualityPath);
 
-  if (isUsableSourcesEvidence(existingSources) && isUsableQualityEvidence(existingQuality)) {
+  if (!options.force && isUsableSourcesEvidence(existingSources) && isUsableQualityEvidence(existingQuality)) {
     const sourceCount = Array.isArray(existingSources.sources) ? existingSources.sources.length : undefined;
     const status = typeof existingQuality.status === 'string' ? (existingQuality.status as EvidenceStatus) : undefined;
     return { created: false, status, sourceCount };

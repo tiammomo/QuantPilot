@@ -2,6 +2,24 @@
 
 这个子模块用于给量化分析 Agent 提供基础行情、财务和事件数据能力。当前以东方财富为主数据源，已接入实时行情、证券解析、财务摘要和公告事件；历史 K 线接口已预留，但外部源偶发断连，后续会继续接入 AKShare/Tushare 作为降级源。
 
+所有核心响应会保留原有业务字段，同时补充统一数据契约字段，方便 Agent 判断来源和质量：
+
+```json
+{
+  "asset_type": "stock",
+  "source": "eastmoney",
+  "as_of": "2026-05-22T08:11:47Z",
+  "fetched_at": "2026-05-23T09:46:28Z",
+  "currency": "CNY",
+  "timezone": "Asia/Shanghai",
+  "data_quality": {
+    "status": "ok",
+    "missing_fields": [],
+    "warnings": []
+  }
+}
+```
+
 ## 环境要求
 
 - Python 3.14

@@ -244,6 +244,18 @@ curl "http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8"
 
 生成项目中如果要从浏览器请求后端，优先使用同源代理，例如 `/api/market/quotes/realtime/600519`，再由生成项目的 API route 转发到 `http://127.0.0.1:8000/api/v1/...`，这样可以减少跨端口 CORS 和浏览器网络限制问题。
 
+量化任务开始时，平台会根据 `.quantpilot/run_plan.json` 先调用 `8000` 后端预取真实数据，并落盘到生成项目：
+
+- `data_file/raw/<run_id>/quote.json`
+- `data_file/raw/<run_id>/kline-daily-qfq.json`
+- `data_file/raw/<run_id>/financials.json`
+- `data_file/raw/<run_id>/announcements.json`
+- `data_file/final/dashboard-data.json`
+- `evidence/sources.json`
+- `evidence/data_quality.json`
+
+Claude Code 随后基于这些确定性产物生成或更新页面，避免只依赖模型临时执行 curl。
+
 ## Skills 集中管理
 
 Claude Code 使用的项目级 skills 统一放在 `.claude/skills/`，生成项目时会被复制到对应项目目录中，方便 Agent 在任务执行过程中读取和调用。
@@ -259,7 +271,7 @@ Claude Code 使用的项目级 skills 统一放在 `.claude/skills/`，生成项
 - `quant-data-quality`：在取数后生成 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、时间戳、缺失字段、警告和限制。
 - `quant-visualization-html`：基于已获取的数据生成可视化 HTML/Next.js 看板。
 
-量化分析任务的推荐链路是：先解析标的，再获取所需数据，然后生成数据来源与质量证据，最后调用可视化 skill 生成页面。涉及 A 股走势时，可视化应优先包含 K 线、成交量、均线、涨跌幅、关键指标和数据表，并遵循 A 股红涨绿跌的颜色习惯。
+量化分析任务的推荐链路是：先生成 run plan，再由平台预取真实数据和证据文件，然后调用可视化 skill 生成页面。涉及 A 股走势时，可视化应优先包含 K 线、成交量、均线、涨跌幅、关键指标和数据表，并遵循 A 股红涨绿跌的颜色习惯。
 
 ## 自动验证链路
 
