@@ -11,6 +11,7 @@ description: Use this skill to fetch A-share financial summary metrics such as r
 
 ```bash
 curl 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8'
+curl 'http://127.0.0.1:8000/api/v1/indicators/fundamental/600519?limit=8'
 ```
 
 返回重点字段：
@@ -31,8 +32,9 @@ curl 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8'
 1. 必要时先用 `quant-symbol-resolver`。
 2. 获取最近多个报告期，默认 8 期。
 3. 分析收入、利润、ROE、毛利率、同比增速的方向和稳定性。
-4. 结合实时价格和历史行情时，分别调用对应 skill。
-5. 可视化时优先展示季度趋势、同比变化和核心财务指标卡。
+4. 优先调用 `indicators/fundamental` 获取后端标准化净利率、平均 ROE、平均毛利率等衍生指标。
+5. 结合实时价格和历史行情时，分别调用对应 skill。
+6. 可视化时优先展示季度趋势、同比变化和核心财务指标卡。
 
 ## 禁止事项
 

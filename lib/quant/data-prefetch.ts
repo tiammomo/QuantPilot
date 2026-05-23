@@ -140,6 +140,7 @@ function finalDataFromResponses(params: {
   kline?: JsonRecord | null;
   technicalIndicators?: JsonRecord | null;
   financials?: JsonRecord | null;
+  fundamentalIndicators?: JsonRecord | null;
   announcements?: JsonRecord | null;
 }): JsonRecord {
   const quote = params.quote;
@@ -178,6 +179,7 @@ function finalDataFromResponses(params: {
     kline,
     technicalIndicators: params.technicalIndicators ?? null,
     financials,
+    fundamentalIndicators: params.fundamentalIndicators ?? null,
     announcements,
     computedMetrics: calculateMetrics(kline),
   };
@@ -217,6 +219,7 @@ export async function prefetchQuantDataForRunPlan(params: {
   let kline: JsonRecord | null = null;
   let technicalIndicators: JsonRecord | null = null;
   let financials: JsonRecord | null = null;
+  let fundamentalIndicators: JsonRecord | null = null;
   let announcements: JsonRecord | null = null;
   const warnings: string[] = [];
 
@@ -255,6 +258,17 @@ export async function prefetchQuantDataForRunPlan(params: {
     }
   }
 
+  if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/indicators/fundamental/'))) {
+    try {
+      fundamentalIndicators = await fetchJson(`/api/v1/indicators/fundamental/${symbol}?limit=8`);
+      const filePath = path.join(rawDir, 'fundamental-indicators.json');
+      await writeJson(filePath, fundamentalIndicators);
+      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+    } catch (error) {
+      warnings.push(`财务衍生指标预取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/events/announcements/'))) {
     try {
       announcements = await fetchJson(`/api/v1/events/announcements/${symbol}?limit=20`);
@@ -272,6 +286,7 @@ export async function prefetchQuantDataForRunPlan(params: {
     kline,
     technicalIndicators,
     financials,
+    fundamentalIndicators,
     announcements,
   });
   const finalPath = path.join(params.projectPath, 'data_file', 'final', 'dashboard-data.json');

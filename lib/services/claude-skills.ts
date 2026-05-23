@@ -13,6 +13,7 @@ export const DEFAULT_CLAUDE_SKILLS = [
   'quant-a-share-history',
   'quant-technical-indicators',
   'quant-fundamental-financials',
+  'quant-fundamental-indicators',
   'quant-announcement-events',
   'quant-visualization-html',
 ];
@@ -124,6 +125,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - Use quant-a-share-history for historical K-line analysis
 - Use quant-technical-indicators for moving averages, returns, drawdown, volatility, and volume metrics
 - Use quant-fundamental-financials for revenue, profit, ROE, margin, and growth analysis
+- Use quant-fundamental-indicators for derived profitability, margin, ROE, and financial quality metrics
 - Use quant-announcement-events for announcement/event-driven context
 - For visualization tasks, use the quant-visualization-html skill and actually edit app/page.tsx into a usable dashboard
 - A-share visualization dashboards must include real chart panels; for trend tasks include candlestick/OHLC or an explicit K-line error panel, volume, moving averages, and risk metrics

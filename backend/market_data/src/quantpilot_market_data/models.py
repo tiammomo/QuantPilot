@@ -341,6 +341,61 @@ class FinancialReportsResponse(BaseModel):
         return self
 
 
+class FundamentalIndicatorPoint(BaseModel):
+    report_date: datetime | None = None
+    data_type: str | None = None
+    revenue: Decimal | None = None
+    parent_net_profit: Decimal | None = None
+    revenue_yoy: Decimal | None = None
+    net_profit_yoy: Decimal | None = None
+    gross_margin: Decimal | None = None
+    weighted_roe: Decimal | None = None
+    net_margin: Decimal | None = Field(default=None, description="归母净利率，单位：%")
+
+
+class FundamentalIndicatorSummary(BaseModel):
+    latest_report_date: datetime | None = None
+    latest_revenue: Decimal | None = None
+    latest_parent_net_profit: Decimal | None = None
+    latest_revenue_yoy: Decimal | None = None
+    latest_net_profit_yoy: Decimal | None = None
+    latest_gross_margin: Decimal | None = None
+    latest_weighted_roe: Decimal | None = None
+    latest_net_margin: Decimal | None = None
+    avg_roe: Decimal | None = None
+    avg_gross_margin: Decimal | None = None
+    avg_net_margin: Decimal | None = None
+    report_count: int = 0
+
+
+class FundamentalIndicatorsResponse(BaseModel):
+    symbol: str
+    asset_type: str = "stock"
+    source: str = "eastmoney"
+    currency: str = "CNY"
+    timezone: str = "Asia/Shanghai"
+    points: list[FundamentalIndicatorPoint]
+    summary: FundamentalIndicatorSummary
+    as_of: datetime | str | None = None
+    fetched_at: datetime
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if self.as_of is None:
+            self.as_of = self.points[0].report_date if self.points else self.fetched_at
+
+        missing = [] if self.points else ["points"]
+        warnings = [] if len(self.points) >= 4 else ["财务指标样本少于 4 期，趋势解释需谨慎。"]
+        self.data_quality = _merge_data_quality(
+            self.data_quality,
+            missing_fields=missing,
+            warnings=warnings,
+            status="warning" if missing or warnings else None,
+        )
+        return self
+
+
 class AnnouncementItem(BaseModel):
     art_code: str
     title: str

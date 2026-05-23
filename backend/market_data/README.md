@@ -115,6 +115,14 @@ curl 'http://127.0.0.1:8000/api/v1/indicators/technical/600519?period=daily&adju
 curl 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8'
 ```
 
+### 财务衍生指标
+
+```bash
+curl 'http://127.0.0.1:8000/api/v1/indicators/fundamental/600519?limit=8'
+```
+
+返回净利率、平均 ROE、平均毛利率、平均净利率和最近报告期核心指标。
+
 ### 公告事件
 
 ```bash

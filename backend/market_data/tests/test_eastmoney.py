@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantpilot_market_data.fundamentals import build_fundamental_indicators
 from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.providers.eastmoney import (
     normalize_secid,
@@ -230,6 +231,52 @@ def test_parse_financial_reports_payload() -> None:
     assert reports[0].revenue == Decimal("54702912385.23")
     assert reports[0].parent_net_profit == Decimal("27242512886.45")
     assert reports[0].report_date == datetime(2026, 3, 31, tzinfo=UTC)
+
+
+def test_build_fundamental_indicators_from_reports() -> None:
+    reports = parse_financial_reports_payload(
+        "600519",
+        {
+            "success": True,
+            "result": {
+                "data": [
+                    {
+                        "SECURITY_CODE": "600519",
+                        "SECURITY_NAME_ABBR": "贵州茅台",
+                        "REPORTDATE": "2026-03-31 00:00:00",
+                        "DATATYPE": "2026年 一季报",
+                        "TOTAL_OPERATE_INCOME": 100,
+                        "PARENT_NETPROFIT": 50,
+                        "WEIGHTAVG_ROE": 10,
+                        "XSMLL": 90,
+                        "YSTZ": 6,
+                        "SJLTZ": 2,
+                    },
+                    {
+                        "SECURITY_CODE": "600519",
+                        "SECURITY_NAME_ABBR": "贵州茅台",
+                        "REPORTDATE": "2025-12-31 00:00:00",
+                        "DATATYPE": "2025年 年报",
+                        "TOTAL_OPERATE_INCOME": 200,
+                        "PARENT_NETPROFIT": 80,
+                        "WEIGHTAVG_ROE": 20,
+                        "XSMLL": 80,
+                    },
+                ]
+            },
+        },
+    )
+
+    indicators = build_fundamental_indicators("600519", reports)
+
+    assert indicators.symbol == "600519"
+    assert len(indicators.points) == 2
+    assert indicators.points[0].net_margin == Decimal("50.0000")
+    assert indicators.summary.latest_report_date == datetime(2026, 3, 31, tzinfo=UTC)
+    assert indicators.summary.latest_revenue == Decimal("100")
+    assert indicators.summary.avg_roe == Decimal("15.0000")
+    assert indicators.summary.avg_gross_margin == Decimal("85.0000")
+    assert indicators.data_quality.status == "warning"
 
 
 def test_parse_announcements_payload() -> None:

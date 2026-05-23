@@ -162,11 +162,13 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
   const quote = asRecord(data.quote);
   const kline = asRecord(data.kline) ?? asRecord(data.history);
   const financials = asRecord(data.financials) ?? asRecord(data.fundamentals);
+  const fundamentalIndicators = asRecord(data.fundamentalIndicators);
   const announcements = asRecord(data.announcements) ?? asRecord(data.events);
   const technicalIndicators = asRecord(data.technicalIndicators) ?? asRecord(data.indicators);
   const bars = firstArray(kline?.bars, kline?.data, data.bars, data.history);
   const indicatorPoints = firstArray(technicalIndicators?.points, technicalIndicators?.data);
   const reports = firstArray(financials?.reports, financials?.data, data.reports);
+  const fundamentalPoints = firstArray(fundamentalIndicators?.points, fundamentalIndicators?.data);
   const announcementRows = firstArray(announcements?.announcements, announcements?.data, data.announcements);
 
   const firstBar = asRecord(bars[0]);
@@ -178,6 +180,9 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
   const requiresTechnicalIndicators =
     Boolean(technicalIndicators) ||
     runPlanRequirements.some((requirement) => requirement.includes('/indicators/technical/'));
+  const requiresFundamentalIndicators =
+    Boolean(fundamentalIndicators) ||
+    runPlanRequirements.some((requirement) => requirement.includes('/indicators/fundamental/'));
 
   const datasets: DatasetEvidence[] = [
     buildDataset({
@@ -264,6 +269,31 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
           ...missingRequiredGroups(asRecord(indicatorPoints.at(-1)), [
             { label: 'date', keys: ['date'] },
             { label: 'ma5/ma20', keys: ['ma5', 'ma20'] },
+          ]),
+        ],
+      })
+    );
+  }
+
+  if (requiresFundamentalIndicators) {
+    const announcementsIndex = datasets.findIndex((dataset) => dataset.id === 'announcements');
+    datasets.splice(
+      announcementsIndex >= 0 ? announcementsIndex : datasets.length,
+      0,
+      buildDataset({
+        id: 'fundamental_indicators',
+        name: '财务衍生指标',
+        record: fundamentalIndicators,
+        rowCount: fundamentalPoints.length,
+        source: pickString(fundamentalIndicators?.source, rootSource) ?? rootSource,
+        endpoint: `GET /api/v1/indicators/fundamental/${symbol}`,
+        critical: critical.has('financials'),
+        generatedAt,
+        missingFields: [
+          ...missingRequiredGroups(fundamentalIndicators, [{ label: 'fetched_at', keys: ['fetched_at', 'as_of'] }]),
+          ...missingRequiredGroups(asRecord(fundamentalPoints[0]), [
+            { label: 'report_date', keys: ['report_date'] },
+            { label: 'net_margin/roe', keys: ['net_margin', 'weighted_roe'] },
           ]),
         ],
       })

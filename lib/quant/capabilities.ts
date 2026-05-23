@@ -48,6 +48,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
       'quant-a-share-history',
       'quant-technical-indicators',
       'quant-fundamental-financials',
+      'quant-fundamental-indicators',
       'quant-announcement-events',
       'quant-data-quality',
       'quant-visualization-html',
@@ -58,6 +59,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
       'GET /api/v1/fundamentals/financials/{symbol}',
+      'GET /api/v1/indicators/fundamental/{symbol}',
       'GET /api/v1/events/announcements/{symbol}',
     ],
     expectedArtifacts: [
@@ -140,6 +142,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
       'quant-symbol-resolver',
       'quant-market-data',
       'quant-fundamental-financials',
+      'quant-fundamental-indicators',
       'quant-announcement-events',
       'quant-data-quality',
       'quant-visualization-html',
@@ -148,6 +151,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
       'GET /api/v1/symbols/resolve',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/fundamentals/financials/{symbol}',
+      'GET /api/v1/indicators/fundamental/{symbol}',
       'GET /api/v1/events/announcements/{symbol}',
     ],
     expectedArtifacts: [

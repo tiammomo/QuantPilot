@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from quantpilot_market_data.fundamentals import build_fundamental_indicators
 from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.models import (
     Adjustment,
@@ -14,6 +15,7 @@ from quantpilot_market_data.models import (
     DataProviderInfo,
     DataRegistryResponse,
     FinancialReportsResponse,
+    FundamentalIndicatorsResponse,
     KlinePeriod,
     KlineResponse,
     RealtimeQuote,
@@ -65,6 +67,14 @@ DATA_PROVIDERS = [
         status="available",
         description="上市公司主要财务指标、营收、归母净利润、ROE、毛利率等。",
         endpoints=["/api/v1/fundamentals/financials/{symbol}"],
+    ),
+    DataProviderInfo(
+        id="quantpilot-fundamental-indicators",
+        name="QuantPilot 财务衍生指标",
+        category="fundamental",
+        status="available",
+        description="基于财务摘要计算净利率、平均 ROE、平均毛利率和最近报告期核心指标。",
+        endpoints=["/api/v1/indicators/fundamental/{symbol}"],
     ),
     DataProviderInfo(
         id="eastmoney-announcements",
@@ -189,6 +199,22 @@ def create_app() -> FastAPI:
                 reports=reports,
                 fetched_at=datetime.now(UTC),
             )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except EastMoneyError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/indicators/fundamental/{symbol}",
+        response_model=FundamentalIndicatorsResponse,
+    )
+    async def get_fundamental_indicators(
+        symbol: str,
+        limit: int = 8,
+    ) -> FundamentalIndicatorsResponse:
+        try:
+            reports = await client.get_financial_reports(symbol, limit=max(1, min(limit, 40)))
+            return build_fundamental_indicators(symbol, reports)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         except EastMoneyError as error:
