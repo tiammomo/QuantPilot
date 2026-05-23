@@ -5,6 +5,7 @@ import { serializeMessage } from '@/lib/serializers/chat';
 import { createMessage } from '@/lib/services/message';
 import { previewManager } from '@/lib/services/preview';
 import { streamManager } from '@/lib/services/stream';
+import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
 
 export type QuantValidationCheckStatus = 'passed' | 'failed' | 'warning';
@@ -53,6 +54,8 @@ const BUILD_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_BUILD
 const PREVIEW_HTTP_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_HTTP_TIMEOUT_MS ?? '', 10) || 45_000;
 const FETCH_TIMEOUT_MS = 5_000;
 const OUTPUT_TAIL_LIMIT = 12_000;
+const SENSITIVE_EVIDENCE_PATTERN =
+  /sk-[a-z0-9_-]{12,}|authorization|bearer\s+[a-z0-9._-]{12,}|api[_-]?key|auth[_-]?token|cookie|set-cookie/i;
 
 function validationReportPath(projectPath: string) {
   return path.join(projectPath, VALIDATION_REPORT_RELATIVE_PATH);
@@ -449,6 +452,127 @@ async function checkFinalDataFile(
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function hasAnyKeyDeep(value: unknown, keys: string[]): boolean {
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasAnyKeyDeep(entry, keys));
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return false;
+  }
+  return Object.entries(record).some(([key, nestedValue]) => keys.includes(key) || hasAnyKeyDeep(nestedValue, keys));
+}
+
+type EvidenceJsonResult =
+  | { ok: true; parsed: unknown; raw: string; absolutePath: string }
+  | { ok: false; error: string; absolutePath: string };
+
+async function readEvidenceJson(
+  projectPath: string,
+  relativePath: string
+): Promise<EvidenceJsonResult> {
+  const absolutePath = path.join(projectPath, relativePath);
+  const raw = await readTextFile(absolutePath);
+  if (!raw) {
+    return { ok: false, error: `未找到或为空：${relativePath}`, absolutePath };
+  }
+  try {
+    return { ok: true, parsed: JSON.parse(raw), raw, absolutePath };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `${relativePath} JSON 解析失败：${error instanceof Error ? error.message : String(error)}`,
+      absolutePath,
+    };
+  }
+}
+
+async function checkEvidenceFiles(
+  projectPath: string
+): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
+  const baseline = await ensureBaselineEvidenceFiles(projectPath);
+  const sources = await readEvidenceJson(projectPath, path.join('evidence', 'sources.json'));
+  const quality = await readEvidenceJson(projectPath, path.join('evidence', 'data_quality.json'));
+  const errors: string[] = [];
+
+  if (!sources.ok || !quality.ok) {
+    const fileErrors = [
+      sources.ok ? null : sources.error,
+      quality.ok ? null : quality.error,
+    ].filter((error): error is string => Boolean(error));
+    return {
+      status: 'failed',
+      summary: '缺少数据来源或数据质量证据文件。',
+      details: fileErrors.join('\n'),
+    };
+  }
+
+  const sourcesRaw = sources.raw;
+  const qualityRaw = quality.raw;
+  const combined = `${sourcesRaw}\n${qualityRaw}`;
+  if (SENSITIVE_EVIDENCE_PATTERN.test(combined)) {
+    return {
+      status: 'failed',
+      summary: 'evidence 文件疑似包含敏感信息。',
+      details: '请移除 token、cookie、authorization header、api key 等敏感内容，仅保留数据来源、端点、时间戳和质量摘要。',
+    };
+  }
+
+  const sourceEntries = asRecord(sources.parsed)?.sources;
+  if (!Array.isArray(sourceEntries) || sourceEntries.length === 0) {
+    errors.push('evidence/sources.json 必须包含非空 sources 数组。');
+  }
+
+  const serializedSources = JSON.stringify(sources.parsed);
+  if (!/source|eastmoney|tencent|endpoint|fetched_at|as_of|quote_time|artifact_path/i.test(serializedSources)) {
+    errors.push('evidence/sources.json 未检测到 source、endpoint、fetched_at/as_of 或 artifact_path 等来源字段。');
+  }
+
+  const qualityRecord = asRecord(quality.parsed);
+  const qualityStatus = typeof qualityRecord?.status === 'string' ? qualityRecord.status : null;
+  if (!qualityStatus || !['ok', 'warning', 'error'].includes(qualityStatus)) {
+    errors.push('evidence/data_quality.json 必须包含 status，取值为 ok、warning 或 error。');
+  }
+
+  const hasQualitySignals =
+    hasAnyKeyDeep(quality.parsed, ['datasets', 'checks', 'missing_fields', 'warnings', 'limitations', 'row_count', 'fetched_at']) ||
+    /row_count|missing_fields|warnings|limitations|fetched_at|样本|缺失|限制/i.test(JSON.stringify(quality.parsed));
+  if (!hasQualitySignals) {
+    errors.push('evidence/data_quality.json 未检测到数据集、检查项、缺失字段、警告或限制说明。');
+  }
+
+  if (errors.length > 0) {
+    return {
+      status: 'failed',
+      summary: '数据来源或质量证据不完整。',
+      details: errors.join('\n'),
+    };
+  }
+
+  const warningSummary = qualityStatus === 'warning' ? '数据质量存在警告，页面应展示限制说明。' : undefined;
+  return {
+    status: qualityStatus === 'error' ? 'failed' : qualityStatus === 'warning' ? 'warning' : 'passed',
+    summary: baseline.created
+      ? `已根据最终数据自动生成数据来源和质量证据文件，状态：${qualityStatus}。`
+      : warningSummary ?? '已找到数据来源和质量证据文件。',
+    metadata: {
+      sources: 'evidence/sources.json',
+      dataQuality: 'evidence/data_quality.json',
+      qualityStatus,
+      sourceCount: Array.isArray(sourceEntries) ? sourceEntries.length : 0,
+      baselineCreated: baseline.created,
+      baselineReason: baseline.reason,
+    },
+  };
+}
+
 async function checkDashboardBinding(
   projectPath: string
 ): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
@@ -699,10 +823,11 @@ ${failedSummary || '无失败项，但验证报告状态为失败，请重新检
 2. 不要只回复说明，必须实际修改文件并让页面可访问。
 3. 不允许把取到的行情、K 线、财务、公告数据整段硬编码到 app/page.tsx；即使是真实数据，整段内联到页面代码也视为失败。
 4. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
-5. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
-6. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-7. 修复后确保 npm run build、预览 HTTP 200、数据文件、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
-8. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+5. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
+6. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
+7. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
+8. 修复后确保 npm run build、预览 HTTP 200、数据文件、evidence、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
+9. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(
@@ -755,7 +880,7 @@ export async function validateQuantProject(params: ValidateQuantProjectParams): 
     stage: 'validation',
     status: 'pending',
     run_id: params.requestId ?? undefined,
-    summary: '开始自动验证：build、HTTP 200、最终数据文件、图表和 /api/market 代理。',
+    summary: '开始自动验证：build、HTTP 200、最终数据文件、evidence、图表和 /api/market 代理。',
     created_at: now,
   });
 
@@ -763,7 +888,7 @@ export async function validateQuantProject(params: ValidateQuantProjectParams): 
     type: 'status',
     data: {
       status: 'validation_running',
-      message: '正在执行自动验证：build、HTTP 200、数据文件、图表和 /api/market 代理。',
+      message: '正在执行自动验证：build、HTTP 200、数据文件、evidence、图表和 /api/market 代理。',
       requestId: params.requestId ?? undefined,
     },
   });
@@ -772,6 +897,7 @@ export async function validateQuantProject(params: ValidateQuantProjectParams): 
   checks.push(await safeRunCheck('next_build', 'Next.js build', () => checkBuild(projectPath)));
   checks.push(await safeRunCheck('preview_http_200', '预览 HTTP 200', () => checkPreviewHttp(params.projectId)));
   checks.push(await safeRunCheck('final_data_file', '最终数据文件', () => checkFinalDataFile(projectPath)));
+  checks.push(await safeRunCheck('evidence_files', '数据证据文件', () => checkEvidenceFiles(projectPath)));
   checks.push(await safeRunCheck('dashboard_data_binding', '页面数据绑定', () => checkDashboardBinding(projectPath)));
   checks.push(await safeRunCheck('chart_presence', '金融图表存在性', () => checkChartPresence(projectPath)));
   checks.push(await safeRunCheck('market_proxy', '/api/market 代理', () => checkMarketProxy(projectPath, params.projectId)));

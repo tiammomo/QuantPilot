@@ -22,7 +22,7 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 3. 如果用户问的是股票、行情或趋势，页面必须包含真实图表区域，不允许只用指标卡替代图表。
 4. 如果历史 K 线接口失败，页面必须显示真实错误和降级视图，但仍要保留 K 线面板和重试能力。
 5. 数据必须来自 QuantPilot 本地后端或已经获取到的真实结果，不得编造行情、财报或 K 线。
-6. 完成后必须能通过平台自动验证：Next.js build、预览 HTTP 200、`data_file/final/dashboard-data.json`、金融图表存在性和 `/api/market` 代理检查。
+6. 完成后必须能通过平台自动验证：Next.js build、预览 HTTP 200、`data_file/final/dashboard-data.json`、`evidence/sources.json`、`evidence/data_quality.json`、金融图表存在性和 `/api/market` 代理检查。
 
 ## 标准工作流
 
@@ -36,8 +36,9 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 3. 设计看板信息架构：先展示结论和核心指标，再展示图表和数据表。
 4. 实现页面文件并确保有加载、错误、空数据、刷新状态。
 5. 页面刷新数据时优先创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
-6. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
-7. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
+6. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
+7. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
+8. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
 
 ## A 股行情看板最低标准
 

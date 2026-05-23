@@ -114,6 +114,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean): string[]
       ...common,
       '获取实时行情和历史 K 线。',
       '计算区间涨跌、均线、波动率、最大回撤等技术指标。',
+      '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成技术分析数据文件和可视化页面。',
       '验证页面、图表和数据来源。',
     ];
@@ -124,6 +125,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean): string[]
       ...common,
       '获取实时行情、财务摘要和公告事件。',
       '分析营收、利润、ROE、毛利率、现金流质量和增长变化。',
+      '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成基本面分析数据文件和可视化页面。',
       '验证页面、报告期、数据来源和缺失字段说明。',
     ];
@@ -133,6 +135,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean): string[]
     ...common,
     '获取实时行情、历史 K 线、财务摘要和公告事件。',
     '综合分析价格趋势、量价、财务质量和事件风险。',
+    '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
     '生成个股诊断数据文件和可视化页面。',
     '验证页面、图表、数据来源和更新时间。',
   ];

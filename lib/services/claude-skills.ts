@@ -7,6 +7,7 @@ const SKILLS_DIR = path.join(process.cwd(), '.claude', 'skills');
 export const DEFAULT_CLAUDE_SKILLS = [
   'quant-run-planner',
   'quant-data-registry',
+  'quant-data-quality',
   'quant-symbol-resolver',
   'quant-market-data',
   'quant-a-share-history',
@@ -97,6 +98,7 @@ QuantPilot 执行约束：
 - 如果当前任务是量化分析，先基于当前量化能力生成或更新 .quantpilot/run_plan.json，记录标的、时间范围、所需数据、预期图表和验证项。
 - 获取数据、生成 final 数据、修改页面、验证结果时，将可见摘要追加到 .quantpilot/events.jsonl。
 - 如果任务涉及股票、行情、量化分析或可视化，先使用对应数据 skill 获取真实数据，再使用 quant-visualization-html 生成可视化看板。
+- 获取真实数据后、生成看板前，必须使用 quant-data-quality 写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、时间、缺失字段和限制。
 - 如果用户要求可视化或看板，必须实际修改 app/page.tsx，不能只输出文字说明。
 - A 股趋势类页面必须优先包含 K 线/量价/均线/风险指标；历史接口失败时也要生成 K 线面板、真实错误和重试入口。
 - 最终数据优先写入 data_file/final/dashboard-data.json，页面应读取真实数据或同源 API，不得硬编码样例行情。
@@ -116,6 +118,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - For quantitative analysis tasks, first use the quant-run-planner skill and update .quantpilot/run_plan.json before fetching data or editing app/page.tsx
 - For stock data tasks, first use the quant-market-data skill to fetch required market data from http://127.0.0.1:8000
 - For broad financial data tasks, first use quant-data-registry to select the right data endpoint
+- After fetching market, K-line, financial, or event data, use quant-data-quality before visualization and write evidence/sources.json plus evidence/data_quality.json
 - Resolve ambiguous stock names or tickers with quant-symbol-resolver before fetching data
 - Use quant-a-share-history for historical K-line analysis
 - Use quant-fundamental-financials for revenue, profit, ROE, margin, and growth analysis

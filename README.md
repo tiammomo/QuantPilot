@@ -256,19 +256,23 @@ Claude Code 使用的项目级 skills 统一放在 `.claude/skills/`，生成项
 - `quant-a-share-history`：获取 A 股历史 K 线、成交量、均线和阶段表现数据。
 - `quant-fundamental-financials`：获取营收、利润、现金流、ROE 等财务指标。
 - `quant-announcement-events`：获取上市公司公告和事件信息。
+- `quant-data-quality`：在取数后生成 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、时间戳、缺失字段、警告和限制。
 - `quant-visualization-html`：基于已获取的数据生成可视化 HTML/Next.js 看板。
 
-量化分析任务的推荐链路是：先解析标的，再获取所需数据，最后调用可视化 skill 生成页面。涉及 A 股走势时，可视化应优先包含 K 线、成交量、均线、涨跌幅、关键指标和数据表，并遵循 A 股红涨绿跌的颜色习惯。
+量化分析任务的推荐链路是：先解析标的，再获取所需数据，然后生成数据来源与质量证据，最后调用可视化 skill 生成页面。涉及 A 股走势时，可视化应优先包含 K 线、成交量、均线、涨跌幅、关键指标和数据表，并遵循 A 股红涨绿跌的颜色习惯。
 
 ## 自动验证链路
 
 Agent 执行完成后，QuantPilot 会自动对生成项目执行一轮验收，并把摘要写回聊天记录。验证报告保存在生成项目的 `.quantpilot/validation.json`，同时会在 `.quantpilot/events.jsonl` 记录 `validation_started` 和 `validation_completed` 事件。
+
+验证阶段会优先检查 Agent 写入的 evidence 文件；如果缺失或结构不完整，但 `data_file/final/dashboard-data.json` 已包含真实数据，平台会自动生成一份基础 evidence，保证后续验证和页面追溯有确定性。
 
 当前验证项：
 
 - `npm run build`，并在验证时固定 `NODE_ENV=production`。
 - 生成项目预览首页返回 HTTP 200。
 - `data_file/final/dashboard-data.json` 或 `data_file/final/*.json` 存在，且包含真实行情、K 线、财务或来源字段。
+- `evidence/sources.json` 与 `evidence/data_quality.json` 存在，且包含来源、端点、时间戳、样本长度、缺失字段、警告或限制说明。
 - `app/page.tsx` 已绑定最终数据文件或同源 `/api/market` 接口，没有停留在 Next.js 默认页。
 - 页面中存在金融图表实现，例如 SVG/canvas/K 线/成交量/财务趋势。
 - 生成项目提供 `/api/market/**` 同源代理，并能访问本地 `8000` 后端实时行情。
