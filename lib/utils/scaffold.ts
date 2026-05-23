@@ -51,13 +51,25 @@ export async function scaffoldBasicNextApp(
   await writeFileIfMissing(
     path.join(projectPath, 'next.config.js'),
     `/** @type {import('next').NextConfig} */
+const projectRoot = __dirname;
+
 const nextConfig = {
-  experimental: {
-    typedRoutes: true,
+  typedRoutes: true,
+  outputFileTracingRoot: projectRoot,
+  turbopack: {
+    root: projectRoot,
   },
 };
 
 module.exports = nextConfig;
+`
+  );
+
+  await writeFileIfMissing(
+    path.join(projectPath, 'postcss.config.js'),
+    `module.exports = {
+  plugins: {},
+};
 `
   );
 
@@ -314,9 +326,20 @@ function resolvePort(preferredPort) {
 
   console.log(\`🚀 Starting Next.js dev server on \${url}\`);
 
+  const hasBundlerFlag = passthrough.some((arg) =>
+    ['--webpack', '--turbopack'].includes(arg)
+  );
+
   const child = spawn(
     'npx',
-    ['next', 'dev', '--port', String(port), ...passthrough],
+    [
+      'next',
+      'dev',
+      '--port',
+      String(port),
+      ...(hasBundlerFlag ? [] : ['--webpack']),
+      ...passthrough,
+    ],
     {
       cwd: projectRoot,
       stdio: 'inherit',

@@ -43,6 +43,8 @@ description: Use this skill to generate a visual HTML/Next.js dashboard after ma
 
 - 使用 Next.js App Router。
 - 优先实现 `app/page.tsx` 和 `app/globals.css`。
+- 默认使用普通 CSS，不要为了样式额外安装 Tailwind/PostCSS 依赖。
+- 除非当前生成项目已经有本地可用的 Tailwind 配置，否则不要写 `@import "tailwindcss"`。
 - 页面必须是实际可用界面，不要留下 Next.js 默认页。
 - 前端可以直接调用：
 

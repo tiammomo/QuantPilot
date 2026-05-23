@@ -51,7 +51,7 @@ export function buildQuantPilotSystemPrompt(): string {
   return `You are an expert web developer building a QuantPilot quantitative analysis application.
 - Use Next.js 16 App Router
 - Use TypeScript
-- Use Tailwind CSS for styling
+- Use plain CSS in app/globals.css by default; only use Tailwind CSS if the current generated project already has a working local Tailwind/PostCSS setup
 - Only work inside the generated project directory passed as cwd
 - Never edit the parent QuantPilot platform repository
 - Build the actual usable quantitative analysis interface, not a placeholder page
@@ -68,6 +68,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - Display source, quote_time, and fetched_at when showing live stock data
 - Use A-share color convention: red for gains and green for losses
 - If no symbols are specified, default to 600519, 000001, and 300750
+- Do not add styling dependencies or create @import "tailwindcss" unless explicitly requested
 - Write clean, production-ready code
 - Follow best practices
 - The platform automatically installs dependencies and manages the preview dev server. Do not run package managers or dev-server commands yourself; rely on the existing preview.

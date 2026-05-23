@@ -486,16 +486,31 @@ async function ensureProjectRootStructure(
 async function waitForPreviewReady(
   url: string,
   log: (chunk: Buffer | string) => void,
-  timeoutMs = 30_000,
-  intervalMs = 1_000
+  timeoutMs = PREVIEW_CONFIG.STARTUP_TIMEOUT,
+  intervalMs = PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
+  requestTimeoutMs = 3_000
 ) {
   const start = Date.now();
   let attempts = 0;
 
+  const requestWithTimeout = async (method: 'HEAD' | 'GET') => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+    try {
+      return await fetch(url, {
+        method,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   while (Date.now() - start < timeoutMs) {
     attempts += 1;
     try {
-      const response = await fetch(url, { method: 'HEAD' });
+      const response = await requestWithTimeout('HEAD');
       if (response.ok) {
         log(
           Buffer.from(
@@ -505,7 +520,7 @@ async function waitForPreviewReady(
         return true;
       }
       if (response.status === 405 || response.status === 501) {
-        const getResponse = await fetch(url, { method: 'GET' });
+        const getResponse = await requestWithTimeout('GET');
         if (getResponse.ok) {
           log(
             Buffer.from(
@@ -902,15 +917,33 @@ class PreviewManager {
       log(Buffer.from(`Preview process failed: ${error.message}`));
     });
 
-    await waitForPreviewReady(previewProcess.url, log).catch(() => {
-      // wait function already logged; ignore errors
-    });
-
     await updateProject(projectId, {
       previewUrl: previewProcess.url,
       previewPort: previewProcess.port,
       status: 'running',
     });
+
+    void waitForPreviewReady(previewProcess.url, log)
+      .then((ready) => {
+        if (!ready) {
+          return;
+        }
+
+        return updateProject(projectId, {
+          previewUrl: previewProcess.url,
+          previewPort: previewProcess.port,
+          status: 'running',
+        });
+      })
+      .catch((error) => {
+        log(
+          Buffer.from(
+            `[PreviewManager] Preview readiness check failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          )
+        );
+      });
 
     return this.toInfo(previewProcess);
   }
