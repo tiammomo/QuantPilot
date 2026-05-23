@@ -593,21 +593,21 @@ export default function ChatInput({
               <Brain className="h-4 w-4 shrink-0 text-gray-500" />
               <div className="min-w-0">
                 <div className="font-medium text-gray-700">过程叙述</div>
-                <div className="truncate text-[11px] text-gray-500">开启后要求模型用中文输出可见的执行过程摘要</div>
+                <div className="truncate text-[11px] text-gray-500">开启后要求模型输出可见的执行过程摘要</div>
               </div>
             </div>
             <button
               type="button"
               onClick={() => onThinkingModeChange(!thinkingMode)}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-offset-2 ${
                 thinkingMode ? 'bg-gray-900' : 'bg-gray-300'
               }`}
               aria-pressed={thinkingMode}
               title={thinkingMode ? '关闭过程叙述' : '开启过程叙述'}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                  thinkingMode ? 'translate-x-5' : 'translate-x-0.5'
+                className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  thinkingMode ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>

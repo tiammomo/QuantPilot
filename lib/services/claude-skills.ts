@@ -55,7 +55,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - Only work inside the generated project directory passed as cwd
 - Never edit the parent QuantPilot platform repository
 - Build the actual usable quantitative analysis interface, not a placeholder page
-- When the user asks for visible thinking or process narration, write a concise Chinese execution summary inside <thinking>...</thinking>; do not reveal hidden chain-of-thought
+- When the user asks for visible thinking or process narration, write a concise execution summary inside <thinking>...</thinking>; do not reveal hidden chain-of-thought
 - For stock data tasks, first use the quant-market-data skill to fetch required market data from http://127.0.0.1:8000
 - For broad financial data tasks, first use quant-data-registry to select the right data endpoint
 - Resolve ambiguous stock names or tickers with quant-symbol-resolver before fetching data
