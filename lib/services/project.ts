@@ -8,11 +8,97 @@ import fs from 'fs/promises';
 import path from 'path';
 import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
 import { ensureClaudeSkillsForProject } from '@/lib/services/claude-skills';
+import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
   : path.resolve(process.cwd(), PROJECTS_DIR);
+
+function mergeProjectSettings(existing: string | null | undefined, quantCapabilityId?: string | null): string {
+  let parsed: Record<string, unknown> = {};
+
+  if (existing) {
+    try {
+      const value = JSON.parse(existing);
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        parsed = value as Record<string, unknown>;
+      }
+    } catch {
+      parsed = {};
+    }
+  }
+
+  return JSON.stringify({
+    ...parsed,
+    quant: buildQuantProjectSettings(quantCapabilityId),
+  });
+}
+
+async function writeQuantPilotManifest(params: {
+  projectPath: string;
+  projectId: string;
+  projectName: string;
+  preferredCli: string;
+  selectedModel: string;
+  quantCapabilityId?: string | null;
+}) {
+  const capability = getQuantCapability(params.quantCapabilityId);
+  const quantPilotDir = path.join(params.projectPath, '.quantpilot');
+  await fs.mkdir(quantPilotDir, { recursive: true });
+  await Promise.all([
+    fs.mkdir(path.join(params.projectPath, 'data_file', 'raw'), { recursive: true }),
+    fs.mkdir(path.join(params.projectPath, 'data_file', 'intermediate'), { recursive: true }),
+    fs.mkdir(path.join(params.projectPath, 'data_file', 'final'), { recursive: true }),
+    fs.mkdir(path.join(params.projectPath, 'evidence'), { recursive: true }),
+    fs.mkdir(path.join(params.projectPath, 'scripts'), { recursive: true }),
+    fs.mkdir(path.join(params.projectPath, 'dashboard'), { recursive: true }),
+  ]);
+
+  const manifest = {
+    schemaVersion: 1,
+    projectId: params.projectId,
+    projectName: params.projectName,
+    platform: 'QuantPilot',
+    createdAt: new Date().toISOString(),
+    runtime: {
+      cli: params.preferredCli,
+      model: params.selectedModel,
+    },
+    quant: buildQuantProjectSettings(capability.id),
+  };
+
+  await fs.writeFile(
+    path.join(quantPilotDir, 'manifest.json'),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    'utf8'
+  );
+  await fs.writeFile(
+    path.join(quantPilotDir, 'run_plan.json'),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        status: 'pending',
+        capabilityId: capability.id,
+        question: null,
+        symbols: [],
+        timeRange: null,
+        dataRequirements: capability.dataEndpoints,
+        expectedArtifacts: capability.expectedArtifacts,
+        validationRules: capability.validationRules,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  await fs.writeFile(
+    path.join(quantPilotDir, 'events.jsonl'),
+    '',
+    { encoding: 'utf8', flag: 'a' }
+  );
+}
 
 /**
  * Retrieve all projects
@@ -51,6 +137,20 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
   await ensureClaudeSkillsForProject(projectPath);
+  const preferredCli = input.preferredCli || 'claude';
+  const selectedModel = normalizeModelId(
+    preferredCli,
+    input.selectedModel ?? getDefaultModelForCli(preferredCli)
+  );
+  const quantCapability = getQuantCapability(input.quantCapabilityId);
+  await writeQuantPilotManifest({
+    projectPath,
+    projectId: input.project_id,
+    projectName: input.name,
+    preferredCli,
+    selectedModel,
+    quantCapabilityId: quantCapability.id,
+  });
 
   // Create project in database
   const project = await prisma.project.create({
@@ -60,8 +160,9 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       description: input.description,
       initialPrompt: input.initialPrompt,
       repoPath: projectPath,
-      preferredCli: input.preferredCli || 'claude',
-      selectedModel: normalizeModelId(input.preferredCli || 'claude', input.selectedModel ?? getDefaultModelForCli(input.preferredCli || 'claude')),
+      preferredCli,
+      selectedModel,
+      settings: mergeProjectSettings(undefined, quantCapability.id),
       status: 'idle',
       templateType: 'nextjs',
       lastActiveAt: new Date(),

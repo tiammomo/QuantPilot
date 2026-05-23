@@ -1,4 +1,5 @@
 import type { CLIType } from './cli';
+import type { QuantCapabilityId } from '@/lib/quant/capabilities';
 
 export type ProjectStatus =
   | 'idle'
@@ -38,10 +39,12 @@ export interface Project {
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
   fallbackEnabled?: boolean;
+  quantCapabilityId?: QuantCapabilityId | null;
 }
 
 export interface ProjectSettings {
   preferredCli: CLIType;
   fallbackEnabled: boolean;
   selectedModel?: string | null;
+  quantCapabilityId?: QuantCapabilityId | null;
 }

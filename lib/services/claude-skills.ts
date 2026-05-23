@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { getQuantCapability } from '@/lib/quant/capabilities';
 
 const SKILLS_DIR = path.join(process.cwd(), '.claude', 'skills');
 
@@ -34,18 +35,70 @@ export async function ensureClaudeSkillsForProject(projectPath: string): Promise
   return skillNames.length > 0 ? skillNames : DEFAULT_CLAUDE_SKILLS;
 }
 
-export function buildQuantPilotTaskPrompt(instruction: string, projectPath: string): string {
+type QuantManifest = {
+  quant?: {
+    capabilityId?: string;
+    agentType?: string;
+    subAgentKey?: string;
+    requiredSkills?: string[];
+    dataEndpoints?: string[];
+    expectedArtifacts?: string[];
+    validationRules?: string[];
+  };
+};
+
+export async function readQuantPilotManifest(projectPath: string): Promise<QuantManifest | null> {
+  try {
+    const content = await fs.readFile(path.join(projectPath, '.quantpilot', 'manifest.json'), 'utf8');
+    const parsed = JSON.parse(content);
+    return parsed && typeof parsed === 'object' ? (parsed as QuantManifest) : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildCapabilityContext(manifest: QuantManifest | null): string {
+  const quant = manifest?.quant;
+  const capability = getQuantCapability(quant?.capabilityId);
+  const requiredSkills = quant?.requiredSkills?.length ? quant.requiredSkills : capability.requiredSkills;
+  const dataEndpoints = quant?.dataEndpoints?.length ? quant.dataEndpoints : capability.dataEndpoints;
+  const expectedArtifacts = quant?.expectedArtifacts?.length ? quant.expectedArtifacts : capability.expectedArtifacts;
+  const validationRules = quant?.validationRules?.length ? quant.validationRules : capability.validationRules;
+
+  return `当前量化能力：
+- capability_id: ${capability.id}
+- agent_type: ${quant?.agentType ?? capability.agentType}
+- sub_agent_key: ${quant?.subAgentKey ?? capability.subAgentKey}
+- 名称：${capability.name}
+- 说明：${capability.description}
+- 必需 skills：${requiredSkills.join(', ')}
+- 可用数据接口：${dataEndpoints.join('；')}
+- 预期产物：${expectedArtifacts.join('；')}
+- 验证规则：${validationRules.join('；')}
+- 能力指导：${capability.promptGuidance.join('；')}`;
+}
+
+export function buildQuantPilotTaskPrompt(
+  instruction: string,
+  projectPath: string,
+  manifest: QuantManifest | null = null
+): string {
   const normalizedProjectPath = path.resolve(projectPath);
+  const capabilityContext = buildCapabilityContext(manifest);
 
   return `${instruction}
 
 QuantPilot 执行约束：
 - 当前生成项目根目录是：${normalizedProjectPath}
+- ${capabilityContext}
 - 所有文件读取、创建、修改和删除都必须限定在当前生成项目根目录内。
 - 不要修改父级 QuantPilot 平台工程文件，也不要把页面代码写入平台根目录。
+- 如果当前任务是量化分析，先基于当前量化能力生成或更新 .quantpilot/run_plan.json，记录标的、时间范围、所需数据、预期图表和验证项。
+- 获取数据、生成 final 数据、修改页面、验证结果时，将可见摘要追加到 .quantpilot/events.jsonl。
 - 如果任务涉及股票、行情、量化分析或可视化，先使用对应数据 skill 获取真实数据，再使用 quant-visualization-html 生成可视化看板。
 - 如果用户要求可视化或看板，必须实际修改 app/page.tsx，不能只输出文字说明。
 - A 股趋势类页面必须优先包含 K 线/量价/均线/风险指标；历史接口失败时也要生成 K 线面板、真实错误和重试入口。
+- 最终数据优先写入 data_file/final/dashboard-data.json，页面应读取真实数据或同源 API，不得硬编码样例行情。
 - 不要留下 Next.js 默认页；最终必须生成实际可访问的量化分析界面。`;
 }
 

@@ -10,6 +10,7 @@ import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
 import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
+import { getQuantCapability } from '@/lib/quant/capabilities';
 
 /**
  * GET /api/projects
@@ -33,6 +34,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const preferredCli = String(body.preferredCli || body.preferred_cli || 'claude').toLowerCase();
     const requestedModel = body.selectedModel || body.selected_model;
+    const quantCapability = getQuantCapability(
+      body.quantCapabilityId || body.quant_capability_id || body.capabilityId || body.capability_id
+    );
 
     const input: CreateProjectInput = {
       project_id: body.project_id,
@@ -41,6 +45,7 @@ export async function POST(request: NextRequest) {
       preferredCli,
       selectedModel: normalizeModelId(preferredCli, requestedModel ?? getDefaultModelForCli(preferredCli)),
       description: body.description,
+      quantCapabilityId: quantCapability.id,
     };
 
     // Validation

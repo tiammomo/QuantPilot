@@ -18,6 +18,7 @@ import {
   buildQuantPilotSystemPrompt,
   buildQuantPilotTaskPrompt,
   ensureClaudeSkillsForProject,
+  readQuantPilotManifest,
 } from '@/lib/services/claude-skills';
 import {
   markUserRequestAsRunning,
@@ -725,13 +726,14 @@ export async function executeClaude(
     publishStatus('ready', 'Project verified. Starting AI...');
 
     const availableSkills = await ensureClaudeSkillsForProject(absoluteProjectPath);
+    const quantManifest = await readQuantPilotManifest(absoluteProjectPath);
 
     // Start Claude Agent SDK query
     console.log(`[ClaudeService] 🤖 Querying Claude Agent SDK...`);
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
     console.log(`[ClaudeService] 🧩 Skills: ${availableSkills.join(', ') || 'none'}`);
     const response = query({
-      prompt: buildQuantPilotTaskPrompt(instruction, absoluteProjectPath),
+      prompt: buildQuantPilotTaskPrompt(instruction, absoluteProjectPath, quantManifest),
       options: {
         cwd: absoluteProjectPath,
         additionalDirectories: [absoluteProjectPath],

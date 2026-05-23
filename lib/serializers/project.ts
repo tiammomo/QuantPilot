@@ -1,5 +1,16 @@
 import type { Project as ProjectEntity } from '@/types/backend';
 import type { Project } from '@/types';
+import { getQuantCapability } from '@/lib/quant/capabilities';
+
+function readQuantCapabilityId(settings?: string | null) {
+  if (!settings) return null;
+  try {
+    const parsed = JSON.parse(settings) as { quant?: { capabilityId?: string } };
+    return getQuantCapability(parsed.quant?.capabilityId).id;
+  } catch {
+    return null;
+  }
+}
 
 export function serializeProject(project: ProjectEntity): Project {
   return {
@@ -16,6 +27,7 @@ export function serializeProject(project: ProjectEntity): Project {
     preferredCli: (project.preferredCli ?? null) as Project['preferredCli'],
     selectedModel: project.selectedModel ?? null,
     fallbackEnabled: project.fallbackEnabled,
+    quantCapabilityId: readQuantCapabilityId(project.settings),
   };
 }
 

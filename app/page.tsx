@@ -22,6 +22,12 @@ import {
   sanitizeActiveCli,
   type ActiveCliId,
 } from '@/lib/utils/cliOptions';
+import {
+  DEFAULT_QUANT_CAPABILITY_ID,
+  QUANT_CAPABILITIES,
+  getQuantCapability,
+  type QuantCapabilityId,
+} from '@/lib/quant/capabilities';
 
 // Ensure fetch is available
 const fetchAPI = globalThis.fetch || fetch;
@@ -79,10 +85,12 @@ export default function HomePage() {
       preferredCli: preferred as ProjectSummary['preferredCli'],
       selectedModel: selected,
       fallbackEnabled: project.fallbackEnabled ?? project.fallback_enabled ?? false,
+      quantCapabilityId: getQuantCapability(project.quantCapabilityId ?? project.quant_capability_id).id,
     };
   }, [sanitizeAssistant, normalizeModelForAssistant]);
   const [selectedAssistant, setSelectedAssistant] = useState<ActiveCliId>(DEFAULT_ASSISTANT);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [selectedCapability, setSelectedCapability] = useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cliStatus, setCLIStatus] = useState<CLIStatus>({});
@@ -487,7 +495,8 @@ export default function HomePage() {
           name: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
           initialPrompt: prompt.trim(),
           preferredCli: selectedAssistant,
-          selectedModel
+          selectedModel,
+          quantCapabilityId: selectedCapability,
         })
       });
       
@@ -560,7 +569,8 @@ export default function HomePage() {
               images: imageData,
               isInitialPrompt: true,
               cliPreference: selectedAssistant,
-              selectedModel
+              selectedModel,
+              quantCapabilityId: selectedCapability,
             })
           });
           
@@ -852,6 +862,14 @@ export default function HomePage() {
                                 </span>
                               </div>
                             )}
+                            {project.quantCapabilityId && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-gray-400 text-xs">•</span>
+                                <span className="text-xs text-gray-500">
+                                  {getQuantCapability(project.quantCapabilityId).shortName}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
@@ -1082,6 +1100,25 @@ export default function HomePage() {
                   )}
                 </div>
                 
+                {/* Quant Capability Selector */}
+                <div className="flex items-center gap-1 rounded-full border border-gray-200/50 bg-transparent p-0.5 shadow-sm">
+                  {QUANT_CAPABILITIES.map((capability) => (
+                    <button
+                      key={capability.id}
+                      type="button"
+                      onClick={() => setSelectedCapability(capability.id)}
+                      title={capability.description}
+                      className={`h-7 rounded-full px-3 text-sm font-medium transition-colors ${
+                        selectedCapability === capability.id
+                          ? 'bg-gray-900 text-white'
+                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      }`}
+                    >
+                      {capability.shortName}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Model Selector */}
                 <div className="relative z-[200]" ref={modelDropdownRef}>
                   <button
@@ -1145,29 +1182,37 @@ export default function HomePage() {
             <div className="flex flex-wrap gap-2 justify-center mt-8">
               {[
                 { 
-                  text: '策略看板',
-                  prompt: '为 QuantPilot 设计一个专业的量化策略看板，展示策略收益曲线、回撤、夏普比率、胜率、持仓分布和最近信号。界面要适合投研人员长期使用，信息密度高但层次清晰，支持桌面端和移动端。'
+                  text: '个股诊断',
+                  capabilityId: 'stock_diagnosis' as QuantCapabilityId,
+                  prompt: '分析贵州茅台最近的行情、K 线、财务和公告，生成一个个股诊断看板。需要展示数据来源、更新时间、关键指标、K 线/成交量和财务摘要。'
                 },
                 { 
-                  text: '因子研究',
-                  prompt: '创建一个因子研究工作台，用于查看因子 IC、Rank IC、分组收益、换手率、相关性矩阵和因子衰减。需要支持选择市场、周期、行业中性化方式和回测区间。'
+                  text: '技术分析',
+                  capabilityId: 'technical_analysis' as QuantCapabilityId,
+                  prompt: '分析宁德时代最近 120 个交易日的走势，生成技术分析看板。需要包含 K 线、成交量、均线、阶段涨跌、波动率和最大回撤。'
                 },
                 { 
-                  text: '回测分析',
-                  prompt: '设计一个回测分析页面，包含净值曲线、基准对比、年度收益、月度热力图、交易明细、风险指标和参数配置区域。整体风格要克制、专业、便于快速定位策略问题。'
+                  text: '基本面',
+                  capabilityId: 'fundamental_analysis' as QuantCapabilityId,
+                  prompt: '分析贵州茅台最近几个报告期的基本面情况，生成财务质量看板。需要展示营收、利润、利润率、ROE、现金流和公告事件摘要。'
                 },
                 { 
-                  text: '交易信号',
-                  prompt: '创建一个交易信号监控页面，展示多策略实时信号、触发原因、目标仓位、风控状态、信号置信度和执行建议。需要有清晰的状态颜色、筛选和搜索。'
+                  text: '银行对比',
+                  capabilityId: 'fundamental_analysis' as QuantCapabilityId,
+                  prompt: '对比招商银行和平安银行的盈利能力、估值和最近财务表现，生成多标的基本面对比看板。'
                 },
                 { 
-                  text: '风险监控',
-                  prompt: '构建一个组合风险监控界面，包含敞口、杠杆、行业集中度、个股集中度、VaR、最大回撤预警和风险事件时间线。界面需要适合盘中快速浏览。'
+                  text: '指数趋势',
+                  capabilityId: 'technical_analysis' as QuantCapabilityId,
+                  prompt: '生成沪深 300 最近一年的趋势分析看板，包含走势、成交量、均线、波动和阶段回撤。'
                 }
               ].map((example) => (
                 <button
                   key={example.text}
-                  onClick={() => setPrompt(example.prompt)}
+                  onClick={() => {
+                    setPrompt(example.prompt);
+                    setSelectedCapability(example.capabilityId);
+                  }}
                   disabled={isCreatingProject}
                   className="px-4 py-2 text-sm font-medium text-gray-500 bg-transparent border border-[#DE7356]/10 rounded-full hover:bg-gray-50 hover:border-[#DE7356]/15 hover:text-gray-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >

@@ -6,6 +6,11 @@ import { MotionDiv, MotionP } from '@/lib/motion';
 import { getModelDefinitionsForCli, getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
 import type { CLIStatus } from '@/types/cli';
+import {
+  DEFAULT_QUANT_CAPABILITY_ID,
+  QUANT_CAPABILITIES,
+  type QuantCapabilityId,
+} from '@/lib/quant/capabilities';
 
 import type { CreateProjectCLIOption, GlobalSettings } from '@/types/client';
 
@@ -123,6 +128,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const [prompt, setPrompt] = useState('');
   const [selectedCLI, setSelectedCLI] = useState<string>('claude');
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
+  const [selectedCapability, setSelectedCapability] = useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
   // Fallback is removed but kept for backward compatibility
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
   const [useDefaultSettings, setUseDefaultSettings] = useState(true);
@@ -331,6 +337,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     setShowImageInput(false);
     setShowWebsiteInput(false);
     setUseDefaultSettings(true);
+    setSelectedCapability(DEFAULT_QUANT_CAPABILITY_ID);
     setImageError('');
     setShowInitialization(false);
     setInitializingProjectId(null);
@@ -431,6 +438,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         preferredCli: finalCLI,
         fallbackEnabled,
         selectedModel: finalModel,
+        quantCapabilityId: selectedCapability,
         cli_settings: {
           [finalCLI]: {
             model: finalModel
@@ -588,6 +596,36 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
               />
             </div>
 
+          </div>
+
+          {/* Quant Capability */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              量化能力
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {QUANT_CAPABILITIES.map((capability) => (
+                <button
+                  key={capability.id}
+                  type="button"
+                  onClick={() => setSelectedCapability(capability.id)}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    selectedCapability === capability.id
+                      ? 'border-gray-900 bg-gray-900 text-white'
+                      : 'border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="text-sm font-semibold">{capability.name}</div>
+                  <div
+                    className={`mt-1 text-xs leading-relaxed ${
+                      selectedCapability === capability.id ? 'text-gray-200' : 'text-gray-500'
+                    }`}
+                  >
+                    {capability.description}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Project Description */}

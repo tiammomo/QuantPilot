@@ -37,6 +37,7 @@ export interface CreateProjectInput {
   preferredCli?: string;
   selectedModel?: string;
   description?: string;
+  quantCapabilityId?: string;
 }
 
 export interface UpdateProjectInput {
