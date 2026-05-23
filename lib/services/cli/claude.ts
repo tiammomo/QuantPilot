@@ -4,7 +4,7 @@
  * Interacts with projects using the Claude Agent SDK.
  */
 
-import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type PermissionResult, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ClaudeSession, ClaudeResponse } from '@/types/backend';
 import { streamManager } from '../stream';
 import { serializeMessage, createRealtimeMessage } from '@/lib/serializers/chat';
@@ -61,6 +61,66 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   todo: 'Generated',
   plan_write: 'Generated',
 };
+
+function readPositiveMsEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function pickCommandFromToolInput(input: Record<string, unknown>): string | null {
+  const keys = ['command', 'cmd', 'shellCommand', 'shell_command'];
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function getBlockedBashReason(command: string): string | null {
+  const compact = command.replace(/\s+/g, ' ').trim();
+  const blockedPatterns: Array<{ pattern: RegExp; reason: string }> = [
+    {
+      pattern: /(^|[;&|]\s*|\bxargs\s+)kill\b|\bpkill\b|\bkillall\b|\bfuser\b[^;&|]*\s-k\b/i,
+      reason: '不能杀进程或清理 dev server，这会影响 QuantPilot 平台自身。',
+    },
+    {
+      pattern: /\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?dev\b|\bnpm\s+exec\s+next\s+dev\b|\bnext\s+dev\b/i,
+      reason: '不能自行启动 Next.js dev server，预览由 QuantPilot 统一托管。',
+    },
+    {
+      pattern: /\bscripts\/run-(?:web|dev)\.js\b|\bnode\s+scripts\/run-(?:web|dev)\.js\b/i,
+      reason: '不能绕过平台启动脚本，预览端口由 QuantPilot 统一分配。',
+    },
+    {
+      pattern: /\buvicorn\b|\bfastapi\s+dev\b|\bflask\s+run\b|\bpython(?:3)?\s+-m\s+http\.server\b|\bserve\b(?:\s|$)/i,
+      reason: '不能在生成项目中启动长驻服务，HTTP 验证由平台自动执行。',
+    },
+  ];
+
+  return blockedPatterns.find(({ pattern }) => pattern.test(compact))?.reason ?? null;
+}
+
+async function guardClaudeToolUse(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
+  const normalizedToolName = toolName.toLowerCase();
+  const isShellTool = normalizedToolName.includes('bash') || normalizedToolName.includes('shell');
+
+  if (isShellTool) {
+    const command = pickCommandFromToolInput(input);
+    if (command) {
+      const blockedReason = getBlockedBashReason(command);
+      if (blockedReason) {
+        return {
+          behavior: 'deny',
+          message: `QuantPilot 已拦截该命令：${blockedReason} 请只修改生成项目文件并运行 npm run build；预览、HTTP 200 和端口管理由平台自动完成。`,
+        };
+      }
+    }
+  }
+
+  return { behavior: 'allow' };
+}
 
 const normalizeAction = (value: unknown): ToolAction | undefined => {
   if (typeof value !== 'string') return undefined;
@@ -596,6 +656,17 @@ export async function executeClaude(
   const maxOutputTokens = Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
     ? configuredMaxTokens
     : 4000;
+  const configuredMaxTurns = Number(process.env.CLAUDE_CODE_MAX_TURNS);
+  const maxTurns = Number.isFinite(configuredMaxTurns) && configuredMaxTurns > 0
+    ? configuredMaxTurns
+    : 50;
+  const idleTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
+  const totalTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
+  const abortController = new AbortController();
+  let response: ReturnType<typeof query> | null = null;
+  let idleTimer: NodeJS.Timeout | null = null;
+  let totalTimer: NodeJS.Timeout | null = null;
+  let abortReason: string | null = null;
 
   let hasMarkedTerminalStatus = false;
   let emittedCompletedStatus = false;
@@ -640,6 +711,41 @@ export async function executeClaude(
         ...(requestId ? { requestId } : {}),
       },
     });
+  };
+
+  const clearExecutionTimers = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    if (totalTimer) {
+      clearTimeout(totalTimer);
+      totalTimer = null;
+    }
+  };
+
+  const abortClaudeExecution = (message: string) => {
+    if (abortReason) return;
+    abortReason = message;
+    console.warn(`[ClaudeService] ${message}`);
+    publishStatus('agent_timeout', message);
+    try {
+      abortController.abort(new Error(message));
+    } catch {
+      abortController.abort();
+    }
+    response?.close();
+  };
+
+  const refreshIdleTimer = () => {
+    if (idleTimeoutMs <= 0) return;
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+    }
+    idleTimer = setTimeout(() => {
+      abortClaudeExecution(`Claude Code 超过 ${Math.round(idleTimeoutMs / 1000)} 秒没有返回执行事件，已自动终止本次执行。`);
+    }, idleTimeoutMs);
+    idleTimer.unref?.();
   };
 
   // Send start notification via SSE
@@ -732,19 +838,29 @@ export async function executeClaude(
     console.log(`[ClaudeService] 🤖 Querying Claude Agent SDK...`);
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
     console.log(`[ClaudeService] 🧩 Skills: ${availableSkills.join(', ') || 'none'}`);
-    const response = query({
+    if (totalTimeoutMs > 0) {
+      totalTimer = setTimeout(() => {
+        abortClaudeExecution(`Claude Code 执行超过 ${Math.round(totalTimeoutMs / 1000)} 秒，已自动终止本次执行。`);
+      }, totalTimeoutMs);
+      totalTimer.unref?.();
+    }
+    refreshIdleTimer();
+
+    response = query({
       prompt: buildQuantPilotTaskPrompt(instruction, absoluteProjectPath, quantManifest),
       options: {
+        abortController,
         cwd: absoluteProjectPath,
         additionalDirectories: [absoluteProjectPath],
         model: resolvedModel,
         resume: sessionId, // Resume previous session
-        permissionMode: 'bypassPermissions', // Auto-approve commands and edits
-        allowDangerouslySkipPermissions: true,
+        permissionMode: 'default',
+        canUseTool: guardClaudeToolUse,
         settingSources: ['project'],
         skills: availableSkills,
         systemPrompt: buildQuantPilotSystemPrompt(),
         maxOutputTokens,
+        maxTurns,
         // Capture SDK stderr so we can surface real errors instead of just exit code
         stderr: (data: string) => {
           const line = String(data).trimEnd();
@@ -772,6 +888,7 @@ export async function executeClaude(
 
     // Handle streaming response
     for await (const message of response) {
+      refreshIdleTimer();
       console.log('[ClaudeService] Message type:', message.type);
 
       if (message.type === 'stream_event') {
@@ -1092,6 +1209,9 @@ export async function executeClaude(
     }
 
     console.log('[ClaudeService] Streaming completed');
+    if (abortReason) {
+      throw new Error(abortReason);
+    }
     await safeMarkCompleted();
     if (!emittedCompletedStatus) {
       publishStatus('completed');
@@ -1100,9 +1220,9 @@ export async function executeClaude(
   } catch (error) {
     console.error(`[ClaudeService] Failed to execute Claude:`, error);
 
-    let errorMessage = 'Unknown error';
+    let errorMessage = abortReason ?? 'Unknown error';
 
-    if (error instanceof Error) {
+    if (!abortReason && error instanceof Error) {
       errorMessage = error.message;
 
       // Detect Claude Code CLI not installed
@@ -1151,6 +1271,8 @@ export async function executeClaude(
     });
 
     throw new Error(errorMessage);
+  } finally {
+    clearExecutionTimers();
   }
 }
 

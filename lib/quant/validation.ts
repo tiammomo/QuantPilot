@@ -482,10 +482,14 @@ async function checkDashboardBinding(
     'fetch(',
   ];
   const hasBindingSignal = bindingSignals.some((signal) => page.includes(signal));
+  const hardcodedDataSignals = [
+    /const\s+DASHBOARD_DATA\s*[:=]\s*\{/,
+    /const\s+(?:STATIC_|MOCK_|SAMPLE_)?(?:QUOTE|QUOTES|HISTORY|KLINE|KLINES|FINANCIALS|REPORTS|ANNOUNCEMENTS|DASHBOARD_DATA)\s*[:=]\s*(?:\[|\{)/,
+    /(?:bars|reports|announcements)\s*:\s*\[\s*\{[\s\S]{0,80}(?:open|close|report_date|notice_date|title)\s*:/,
+  ];
   const hasStaticSmell =
-    /const\s+(?:quote|quotes|history|kline|financial|reports|dashboardData|data)\s*=\s*(?:\[|\{)/i.test(page) &&
-    !page.includes('dashboard-data.json') &&
-    !page.includes('/api/market');
+    hardcodedDataSignals.some((signal) => signal.test(page)) ||
+    (page.match(/(?:trade_date|report_date|notice_date|change_percent)\s*:/g)?.length ?? 0) > 30;
 
   if (!hasBindingSignal) {
     return {
@@ -498,7 +502,8 @@ async function checkDashboardBinding(
   if (hasStaticSmell) {
     return {
       status: 'failed',
-      summary: '页面疑似直接硬编码数据，未绑定最终数据文件或行情代理。',
+      summary: '页面疑似直接硬编码大段行情/财务数据，未形成可复用的数据绑定。',
+      details: '请让 app/page.tsx 读取 data_file/final/dashboard-data.json，或通过 /api/market/** 获取数据；不要把完整数据对象内联到页面代码。',
     };
   }
 
@@ -544,6 +549,17 @@ async function checkMarketProxy(
   projectPath: string,
   projectId: string
 ): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
+  const marketDir = path.join(projectPath, 'app', 'api', 'market');
+  const marketEntries = await fs.readdir(marketDir).catch(() => []);
+  const escapedRouteEntry = marketEntries.find((entry) => entry.includes('\\[') || entry.includes('\\]'));
+  if (escapedRouteEntry) {
+    return {
+      status: 'failed',
+      summary: '/api/market 动态路由目录名称不正确。',
+      details: `检测到目录 ${path.posix.join('app/api/market', escapedRouteEntry)}。请使用 app/api/market/[...path]/route.ts，不要在目录名中写入反斜杠。`,
+    };
+  }
+
   const routeCandidates = [
     path.join(projectPath, 'app', 'api', 'market', '[...path]', 'route.ts'),
     path.join(projectPath, 'app', 'api', 'market', '[[...path]]', 'route.ts'),
@@ -647,6 +663,46 @@ function buildValidationSummary(report: QuantValidationReport): string {
   }
 
   return lines.join('\n');
+}
+
+function truncateForPrompt(value: string, limit = 1_500): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, limit)}\n...内容已截断...`;
+}
+
+export function buildQuantValidationRepairInstruction(
+  report: QuantValidationReport,
+  options: { originalInstruction?: string } = {}
+): string {
+  const failedChecks = report.checks.filter((check) => check.status === 'failed');
+  const failedSummary = failedChecks
+    .map((check, index) => {
+      const details = check.details ? `\n   细节：${truncateForPrompt(check.details)}` : '';
+      return `${index + 1}. ${check.name}（${check.id}）：${check.summary}${details}`;
+    })
+    .join('\n');
+
+  const original = options.originalInstruction
+    ? `\n原始用户需求：\n${truncateForPrompt(options.originalInstruction, 1_000)}\n`
+    : '';
+
+  return `QuantPilot 自动验证未通过，请修复失败项并保持已有真实数据与分析内容。${original}
+
+失败项：
+${failedSummary || '无失败项，但验证报告状态为失败，请重新检查产物。'}
+
+修复要求：
+1. 只修改当前生成项目目录内的文件，不要修改父级 QuantPilot 平台工程。
+2. 不要只回复说明，必须实际修改文件并让页面可访问。
+3. 不允许把取到的行情、K 线、财务、公告数据整段硬编码到 app/page.tsx；即使是真实数据，整段内联到页面代码也视为失败。
+4. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
+5. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
+6. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
+7. 修复后确保 npm run build、预览 HTTP 200、数据文件、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
+8. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(

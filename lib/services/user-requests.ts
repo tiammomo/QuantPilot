@@ -6,7 +6,32 @@ export interface ActiveRequestSummary {
   activeCount: number;
 }
 
+const ACTIVE_REQUEST_STALE_MS =
+  Number.parseInt(process.env.QUANTPILOT_ACTIVE_REQUEST_STALE_MS ?? '', 10) || 30 * 60 * 1000;
+
+async function expireStaleActiveRequests(projectId: string): Promise<void> {
+  const staleBefore = new Date(Date.now() - ACTIVE_REQUEST_STALE_MS);
+  await prisma.userRequest.updateMany({
+    where: {
+      projectId,
+      status: {
+        in: ['pending', 'processing', 'active', 'running'],
+      },
+      createdAt: {
+        lt: staleBefore,
+      },
+    },
+    data: {
+      status: 'failed',
+      completedAt: new Date(),
+      errorMessage: '请求超过平台活动窗口未结束，已自动标记为失败。请重新发起任务。',
+    },
+  });
+}
+
 export async function getActiveRequests(projectId: string): Promise<ActiveRequestSummary> {
+  await expireStaleActiveRequests(projectId);
+
   const count = await prisma.userRequest.count({
     where: {
       projectId,

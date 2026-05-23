@@ -29,7 +29,10 @@ import {
   markUserRequestAsProcessing,
 } from '@/lib/services/user-requests';
 import { writeInitialRunPlan } from '@/lib/quant/workspace';
-import { validateQuantProject } from '@/lib/quant/validation';
+import {
+  buildQuantValidationRepairInstruction,
+  validateQuantProject,
+} from '@/lib/quant/validation';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -72,25 +75,124 @@ function resolveProjectRoot(projectId: string, repoPath?: string | null): string
 
 function runValidationAfterExecution(params: {
   execution: Promise<void>;
+  repairExecutor: (
+    projectId: string,
+    projectPath: string,
+    instruction: string,
+    model: string,
+    sessionId?: string,
+    requestId?: string
+  ) => Promise<void>;
   projectId: string;
   projectPath: string;
+  instruction: string;
+  selectedModel: string;
+  sessionId?: string;
   requestId: string;
   conversationId?: string | null;
   cliSource?: string | null;
 }) {
-  params.execution
-    .then(() =>
-      validateQuantProject({
-        projectId: params.projectId,
-        projectPath: params.projectPath,
-        requestId: params.requestId,
-        conversationId: params.conversationId,
-        cliSource: params.cliSource,
-      })
-    )
-    .catch((error) => {
-      console.error('[API] Agent execution or automatic validation failed:', error);
+  const validateAndRepair = async (executionError?: unknown) => {
+    const firstReport = await validateQuantProject({
+      projectId: params.projectId,
+      projectPath: params.projectPath,
+      requestId: params.requestId,
+      conversationId: params.conversationId,
+      cliSource: params.cliSource,
     });
+
+    if (firstReport.passed) {
+      if (executionError) {
+        streamManager.publish(params.projectId, {
+          type: 'status',
+          data: {
+            status: 'validation_passed_after_agent_error',
+            message: 'Agent 执行异常结束，但产物自动验证已通过。',
+            requestId: params.requestId,
+          },
+        });
+      }
+      return;
+    }
+
+    const repairRequestId = `${params.requestId}-validation-repair`;
+    const repairInstruction = buildQuantValidationRepairInstruction(firstReport, {
+      originalInstruction: params.instruction,
+    });
+    streamManager.publish(params.projectId, {
+      type: 'status',
+      data: {
+        status: 'validation_repairing',
+        message: executionError
+          ? 'Agent 执行异常结束，正在基于自动验证失败项触发修复。'
+          : '自动验证未通过，正在让 Agent 根据失败项修复产物。',
+        requestId: params.requestId,
+        metadata: {
+          repairRequestId,
+          failedChecks: firstReport.checks
+            .filter((check) => check.status === 'failed')
+            .map((check) => ({ id: check.id, summary: check.summary })),
+        },
+      },
+    });
+
+    try {
+      await upsertUserRequest({
+        id: repairRequestId,
+        projectId: params.projectId,
+        instruction: repairInstruction,
+        cliPreference: params.cliSource,
+      });
+      await markUserRequestAsProcessing(repairRequestId);
+    } catch (error) {
+      console.error('[API] Failed to record validation repair request:', error);
+    }
+
+    try {
+      await params.repairExecutor(
+        params.projectId,
+        params.projectPath,
+        repairInstruction,
+        params.selectedModel,
+        params.sessionId,
+        repairRequestId
+      );
+    } catch (error) {
+      console.error('[API] Validation repair execution failed:', error);
+      streamManager.publish(params.projectId, {
+        type: 'status',
+        data: {
+          status: 'validation_repair_failed',
+          message: '自动修复执行失败，正在保留最终验证报告用于排查。',
+          requestId: repairRequestId,
+        },
+      });
+    }
+
+    await validateQuantProject({
+      projectId: params.projectId,
+      projectPath: params.projectPath,
+      requestId: repairRequestId,
+      conversationId: params.conversationId,
+      cliSource: params.cliSource,
+    });
+  };
+
+  void (async () => {
+    let executionError: unknown;
+    try {
+      await params.execution;
+    } catch (error) {
+      executionError = error;
+      console.error('[API] Agent execution or automatic validation failed:', error);
+    }
+
+    try {
+      await validateAndRepair(executionError);
+    } catch (validationError) {
+      console.error('[API] Automatic validation after agent execution failed:', validationError);
+    }
+  })();
 }
 
 async function mirrorAssetToPublic(
@@ -458,8 +560,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
       runValidationAfterExecution({
         execution,
+        repairExecutor:
+          cliPreference === 'codex'
+            ? applyCodexChanges
+            : cliPreference === 'cursor'
+            ? applyCursorChanges
+            : cliPreference === 'qwen'
+            ? applyQwenChanges
+            : cliPreference === 'glm'
+            ? applyGLMChanges
+            : applyClaudeChanges,
         projectId: project_id,
         projectPath,
+        instruction: finalInstruction,
+        selectedModel,
         requestId,
         conversationId,
         cliSource: cliPreference,
@@ -493,8 +607,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
       runValidationAfterExecution({
         execution,
+        repairExecutor: executor,
         projectId: project_id,
         projectPath,
+        instruction: finalInstruction,
+        selectedModel,
+        sessionId,
         requestId,
         conversationId,
         cliSource: cliPreference,
