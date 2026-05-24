@@ -1,8 +1,41 @@
+const withRspack = require('next-rspack');
+
+const isStandaloneBuild = process.env.QUANTPILOT_STANDALONE_BUILD === '1';
+const skipRouteOutputTracing = process.env.QUANTPILOT_SKIP_ROUTE_TRACING !== '0' && !isStandaloneBuild;
+const projectRoot = __dirname;
+const tracingExcludes = [
+  './.git/**',
+  './.next/**',
+  './.turbo/**',
+  './.ruff_cache/**',
+  './data/**',
+  './tmp/**',
+  './backend/market_data/.venv/**',
+  './backend/**/.venv/**',
+  './backend/**/.ruff_cache/**',
+  './coverage/**',
+  './dist/**',
+  './build/**',
+  './out/**',
+  './node_modules/.cache/**',
+];
+const tracePluginIgnores = [
+  '**/.git/**',
+  '**/.next/**',
+  '**/.turbo/**',
+  '**/.ruff_cache/**',
+  '**/data/**',
+  '**/tmp/**',
+  '**/backend/market_data/.venv/**',
+  '**/backend/**/.venv/**',
+  '**/backend/**/.ruff_cache/**',
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
-  output: 'standalone',
+  ...(isStandaloneBuild ? { output: 'standalone' } : {}),
   // Agent、数据库和本地进程管理只在 Node.js API Route 中运行，构建时保持外部依赖。
   serverExternalPackages: [
     '@anthropic-ai/claude-agent-sdk',
@@ -14,23 +47,37 @@ const nextConfig = {
   experimental: {
     optimizeCss: false,
     scrollRestoration: true,
+    webpackMemoryOptimizations: true,
+    webpackBuildWorker: true,
   },
-  // 生成项目、数据快照和本地缓存不属于主应用运行时，避免 standalone tracing 误扫。
+  outputFileTracingRoot: projectRoot,
+  // 工作区数据、历史项目、本地缓存和 Git 元数据不属于构建产物，避免 trace 扫全仓库。
   outputFileTracingExcludes: {
-    '*': [
-      './data/projects/**/.next/**',
-      './data/projects/**/node_modules/**',
-      './data/projects/**/data_file/**',
-      './data/projects/**/evidence/**',
-      './backend/market_data/.venv/**',
-      './tmp/**',
-    ],
+    '*': tracingExcludes,
+    '/api/**': tracingExcludes,
+  },
+  webpack(config, { isServer }) {
+    if (isServer) {
+      config.plugins = (config.plugins || []).filter((plugin) => {
+        if (plugin?.constructor?.name !== 'TraceEntryPointsPlugin') {
+          return true;
+        }
+        if (skipRouteOutputTracing) {
+          return false;
+        }
+        if (plugin?.constructor?.name === 'TraceEntryPointsPlugin' && Array.isArray(plugin.traceIgnores)) {
+          plugin.traceIgnores.push(...tracePluginIgnores);
+        }
+        return true;
+      });
+    }
+    return config;
   },
   // 注入项目根路径，供前端读取当前工作区信息。避免在配置里调用 process.cwd()，
-  // 防止 Turbopack 输出追踪误判为需要扫描整个仓库。
+  // 防止输出追踪误判为需要扫描整个仓库。
   env: {
     NEXT_PUBLIC_PROJECT_ROOT: process.env.NEXT_PUBLIC_PROJECT_ROOT || '',
   },
 };
 
-module.exports = nextConfig;
+module.exports = withRspack(nextConfig);

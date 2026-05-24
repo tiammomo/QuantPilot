@@ -3,8 +3,8 @@
 /**
  * 安全的 Next.js 生产构建入口。
  *
- * dev server 和 next build 都会写入 .next。两者同时运行时，webpack 很容易在
- * compile 阶段长时间等待，所以构建前先停止根项目的 3000 开发服务。
+ * dev server 和 next build 都会写入 .next。两者同时运行时容易互相影响，
+ * 所以构建前先停止根项目的 3000 开发服务。
  */
 
 const { execFile, spawn } = require('child_process');
@@ -88,7 +88,22 @@ async function stopRootDevServer() {
   }
 }
 
-async function runNextBuild(args) {
+function parseBuildArgs(argv) {
+  const args = [];
+  let standalone = process.env.QUANTPILOT_STANDALONE_BUILD === '1';
+
+  for (const arg of argv) {
+    if (arg === '--standalone') {
+      standalone = true;
+      continue;
+    }
+    args.push(arg);
+  }
+
+  return { args, standalone };
+}
+
+async function runNextBuild(args, { standalone } = {}) {
   await new Promise((resolve, reject) => {
     const child = spawn(
       path.join(rootDir, 'node_modules', '.bin', isWindows ? 'next.cmd' : 'next'),
@@ -99,6 +114,10 @@ async function runNextBuild(args) {
         shell: isWindows,
         env: {
           ...process.env,
+          TURBOPACK: process.env.TURBOPACK || 'auto',
+          QUANTPILOT_STANDALONE_BUILD: standalone ? '1' : '0',
+          QUANTPILOT_SKIP_ROUTE_TRACING:
+            process.env.QUANTPILOT_SKIP_ROUTE_TRACING || (standalone ? '0' : '1'),
           NEXT_TELEMETRY_DISABLED: '1',
           NEXT_PUBLIC_PROJECT_ROOT: process.env.NEXT_PUBLIC_PROJECT_ROOT || rootDir,
         },
@@ -117,8 +136,9 @@ async function runNextBuild(args) {
 }
 
 async function main() {
+  const { args, standalone } = parseBuildArgs(process.argv.slice(2));
   await stopRootDevServer();
-  await runNextBuild(process.argv.slice(2));
+  await runNextBuild(args, { standalone });
 }
 
 main().catch((error) => {

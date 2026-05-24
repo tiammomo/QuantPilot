@@ -141,15 +141,21 @@ async function startWebDevServer({
 
   console.log(`🚀 Starting Next.js dev server on ${resolvedUrl}`);
 
+  const bundlerEnv = {
+    ...process.env,
+    NEXT_RSPACK: process.env.NEXT_RSPACK || 'true',
+  };
+  delete bundlerEnv.TURBOPACK;
+
   const child = spawn(
     'npx',
-    ['next', 'dev', '--webpack', '--port', resolvedPort.toString(), ...passthrough],
+    ['next', 'dev', '--port', resolvedPort.toString(), ...passthrough],
     {
       cwd: rootDir,
       stdio,
       shell: isWindows,
       env: {
-        ...process.env,
+        ...bundlerEnv,
         PORT: resolvedPort.toString(),
         WEB_PORT: resolvedPort.toString(),
         NEXT_PUBLIC_APP_URL: resolvedUrl,

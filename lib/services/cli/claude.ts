@@ -273,6 +273,7 @@ const buildToolMetadata = (block: Record<string, unknown>): Record<string, unkno
 
   if (toolName) {
     metadata.toolName = toolName;
+    metadata.tool_name = toolName;
   }
 
   if (toolInput !== undefined) {
@@ -912,11 +913,17 @@ export async function executeClaude(
           case 'content_block_start': {
             const contentBlock = event.content_block;
             if (contentBlock && typeof contentBlock === 'object' && contentBlock.type === 'tool_use') {
-              const metadata = buildToolMetadata(contentBlock as Record<string, unknown>);
+              const toolUseBlock = contentBlock as Record<string, unknown>;
+              const metadata = buildToolMetadata(toolUseBlock);
+              const toolUseId = pickFirstString(toolUseBlock.id);
+              if (toolUseId) {
+                metadata.toolCallId = toolUseId;
+                metadata.tool_call_id = toolUseId;
+              }
               await dispatchToolMessage({
                 projectId,
                 metadata,
-                content: `Using tool: ${contentBlock.name ?? 'tool'}`,
+                content: `Using tool: ${toolUseBlock.name ?? 'tool'}`,
                 requestId,
                 persist: false,
                 isStreaming: true,
@@ -1158,6 +1165,11 @@ export async function executeClaude(
 
             if (safeBlock.type === 'tool_use') {
               const metadata = buildToolMetadata(safeBlock as Record<string, unknown>);
+              const toolUseId = pickFirstString(safeBlock.id);
+              if (toolUseId) {
+                metadata.toolCallId = toolUseId;
+                metadata.tool_call_id = toolUseId;
+              }
               const name = typeof safeBlock.name === 'string' ? safeBlock.name : pickFirstString(safeBlock.name);
               const toolContent = `Using tool: ${name ?? 'tool'}`;
               await dispatchToolMessage({

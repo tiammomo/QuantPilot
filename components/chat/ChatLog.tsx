@@ -135,6 +135,23 @@ const pickFirstString = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const stringifyToolDetail = (value: unknown): string | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    const fallback = String(value).trim();
+    return fallback.length > 0 && fallback !== '[object Object]' ? fallback : undefined;
+  }
+};
+
 const extractPathFromInput = (input: unknown, action?: ToolAction): string | undefined => {
   if (!input || typeof input !== 'object') return undefined;
   const record = input as Record<string, unknown>;
@@ -238,7 +255,16 @@ const extractToolCallId = (
 
 const deriveToolInfoFromMetadata = (
   metadata?: Record<string, unknown> | null
-): { action?: ToolAction; filePath?: string; cleanContent?: string; toolName?: string; command?: string } => {
+): {
+  action?: ToolAction;
+  filePath?: string;
+  cleanContent?: string;
+  toolName?: string;
+  command?: string;
+  input?: string;
+  output?: string;
+  status?: 'executing' | 'done';
+} => {
   if (!metadata) {
     return {};
   }
@@ -259,6 +285,14 @@ const deriveToolInfoFromMetadata = (
     pickFirstString(meta.target);
 
   const toolInput = meta.toolInput ?? meta.tool_input ?? meta.input;
+  const toolOutput =
+    meta.toolOutput ??
+    meta.tool_output ??
+    meta.output ??
+    meta.result ??
+    meta.diff ??
+    meta.diffInfo ??
+    meta.diff_info;
   let filePath = directPath ?? extractPathFromInput(toolInput, action);
 
   if (!filePath) {
@@ -287,6 +321,9 @@ const deriveToolInfoFromMetadata = (
     cleanContent,
     toolName,
     command: pickFirstString(meta.command) ?? (toolInput && typeof toolInput === 'object' ? pickFirstString((toolInput as Record<string, unknown>).command) : undefined),
+    input: stringifyToolDetail(toolInput),
+    output: stringifyToolDetail(toolOutput),
+    status: meta.isTransientToolMessage ? 'executing' : 'done',
   };
 };
 
@@ -783,7 +820,15 @@ const ToolMessage = ({
   onToggle?: (nextExpanded: boolean) => void;
 }) => {
   const metadataInfo = deriveToolInfoFromMetadata(metadata);
-  const lastStableValuesRef = useRef<{ action?: ToolAction; label?: string; content?: string }>({});
+  const lastStableValuesRef = useRef<{
+    action?: ToolAction;
+    label?: string;
+    content?: string;
+    toolName?: string;
+    input?: string;
+    output?: string;
+    status?: 'executing' | 'done';
+  }>({});
 
   const processToolContent = (rawContent: unknown) => {
     let action: ToolAction = metadataInfo.action ?? 'Executed';
@@ -955,6 +1000,18 @@ const ToolMessage = ({
   } else if (metadataContentCandidate) {
     lastStableValuesRef.current.content = metadataContentCandidate;
   }
+  if (toolName ?? metadataInfo.toolName) {
+    lastStableValuesRef.current.toolName = toolName ?? metadataInfo.toolName;
+  }
+  if (metadataInfo.input) {
+    lastStableValuesRef.current.input = metadataInfo.input;
+  }
+  if (metadataInfo.output ?? cleanedContent ?? metadataContentCandidate) {
+    lastStableValuesRef.current.output = metadataInfo.output ?? cleanedContent ?? metadataContentCandidate;
+  }
+  if (metadataInfo.status) {
+    lastStableValuesRef.current.status = metadataInfo.status;
+  }
 
   const persistedAction = lastStableValuesRef.current.action ?? finalAction ?? 'Executed';
   const persistedLabel =
@@ -965,12 +1022,24 @@ const ToolMessage = ({
     (cleanedContent && cleanedContent.trim().length > 0
       ? cleanedContent
       : metadataContentCandidate) ?? lastStableValuesRef.current.content;
+  const persistedToolName = toolName ?? metadataInfo.toolName ?? lastStableValuesRef.current.toolName;
+  const persistedInput = metadataInfo.input ?? lastStableValuesRef.current.input;
+  const persistedOutput =
+    metadataInfo.output ??
+    (cleanedContent && cleanedContent.trim().length > 0 ? cleanedContent : undefined) ??
+    metadataContentCandidate ??
+    lastStableValuesRef.current.output;
+  const persistedStatus = metadataInfo.status ?? lastStableValuesRef.current.status ?? 'done';
   
   return (
     <ToolResultItem
       action={persistedAction}
       filePath={persistedLabel}
       content={persistedContent}
+      toolName={persistedToolName}
+      input={persistedInput}
+      output={persistedOutput}
+      status={persistedStatus}
       isExpanded={isExpanded}
       onToggle={onToggle}
     />

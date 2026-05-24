@@ -6,7 +6,7 @@ QuantPilot 是基于 Claudable 2.0.0 改造的量化专精 AI 工作台。当前
 
 ## 当前定位
 
-- **项目底座**：Next.js 16 + React 19 + TypeScript。
+- **项目底座**：Next.js 16 + React 19 + TypeScript，前端构建切换为 Rspack。
 - **默认 Agent**：Claude Code。
 - **默认模型**：MiniMax M2.7。
 - **模型接入方式**：通过 `ANTHROPIC_BASE_URL` 指向 MiniMax Anthropic-compatible API。
@@ -171,6 +171,9 @@ npm run dev:desktop
 # 构建 Web 应用
 npm run build
 
+# 构建 standalone 产物，桌面打包和发布时使用
+npm run build:standalone
+
 # 启动生产构建
 npm run start
 
@@ -193,6 +196,14 @@ uv sync
 uv run quantpilot-market-api
 uv run pytest
 uv run ruff check
+```
+
+主应用和生成项目都会通过 `next-rspack` 接入 Rspack。启动和构建仍使用 Next.js 命令入口，避免再走 webpack；生成项目模板也会默认带上同样的 Rspack 配置。
+
+日常 `npm run build` 是快速验证构建，会跳过服务端 route 的 per-route output tracing，避免 Next 在 `.git`、`.next`、`data/projects` 等工作区目录上做耗时追踪；这个命令适合本地开发、CI 快速检查和修复页面 build error。桌面打包、发布或需要 `.next/standalone` 时使用 `npm run build:standalone`，它会保留完整 route tracing 和 standalone 输出。如果临时需要让普通 build 也执行完整追踪，可以运行：
+
+```bash
+QUANTPILOT_SKIP_ROUTE_TRACING=0 npm run build
 ```
 
 ## 初始化过程

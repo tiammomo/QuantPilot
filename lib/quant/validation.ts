@@ -135,6 +135,7 @@ async function runCommand(
         ...process.env,
         CI: '1',
         NODE_ENV: 'production',
+        TURBOPACK: process.env.TURBOPACK || 'auto',
         NEXT_TELEMETRY_DISABLED: '1',
       },
     });
@@ -295,6 +296,7 @@ async function checkBuild(projectPath: string): Promise<Omit<QuantValidationChec
 async function normalizeGeneratedProjectForValidation(projectPath: string) {
   await normalizePostCssConfig(projectPath);
   await normalizeBuildScript(projectPath);
+  await normalizeRspackConfig(projectPath);
 }
 
 async function normalizePostCssConfig(projectPath: string) {
@@ -341,10 +343,86 @@ async function normalizeBuildScript(projectPath: string) {
     return;
   }
 
+  let changed = false;
   const scriptMap = scripts as Record<string, unknown>;
-  if (scriptMap.build === 'next build') {
-    scriptMap.build = 'next build --webpack';
+  if (scriptMap.build === 'next build --webpack') {
+    scriptMap.build = 'next build';
+    changed = true;
+  }
+
+  if (
+    !packageJson.dependencies ||
+    typeof packageJson.dependencies !== 'object' ||
+    Array.isArray(packageJson.dependencies)
+  ) {
+    packageJson.dependencies = {};
+    changed = true;
+  }
+
+  const dependencies = packageJson.dependencies as Record<string, unknown>;
+  if (dependencies['next-rspack'] !== '^16.2.6') {
+    dependencies['next-rspack'] = '^16.2.6';
+    changed = true;
+  }
+
+  const devDependencies = packageJson.devDependencies;
+  if (
+    devDependencies &&
+    typeof devDependencies === 'object' &&
+    !Array.isArray(devDependencies) &&
+    (devDependencies as Record<string, unknown>)['next-rspack']
+  ) {
+    delete (devDependencies as Record<string, unknown>)['next-rspack'];
+    changed = true;
+  }
+
+  if (changed) {
     await fs.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+  }
+}
+
+async function normalizeRspackConfig(projectPath: string) {
+  const configPath = path.join(projectPath, 'next.config.js');
+  const content = await readTextFile(configPath);
+  const defaultConfig = `/** @type {import('next').NextConfig} */
+const withRspack = require('next-rspack');
+const projectRoot = __dirname;
+
+const nextConfig = {
+  typedRoutes: true,
+  outputFileTracingRoot: projectRoot,
+};
+
+module.exports = withRspack(nextConfig);
+`;
+
+  if (content === null || content.trim().length === 0) {
+    await fs.writeFile(configPath, defaultConfig, 'utf8');
+    return;
+  }
+
+  let nextContent = content;
+  nextContent = nextContent.replace(
+    /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
+    ''
+  );
+
+  if (
+    !nextContent.includes("require('next-rspack')") &&
+    !nextContent.includes('require("next-rspack")')
+  ) {
+    nextContent = `const withRspack = require('next-rspack');\n${nextContent}`;
+  }
+
+  if (nextContent.includes('module.exports = nextConfig')) {
+    nextContent = nextContent.replace(
+      /module\.exports\s*=\s*nextConfig\s*;?/g,
+      'module.exports = withRspack(nextConfig);'
+    );
+  }
+
+  if (nextContent !== content) {
+    await fs.writeFile(configPath, nextContent, 'utf8');
   }
 }
 

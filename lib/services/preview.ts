@@ -695,7 +695,12 @@ async function appendCommandLogs(
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env,
+      env: {
+        ...env,
+        NEXT_RSPACK: env.NEXT_RSPACK || 'true',
+        TURBOPACK: undefined,
+        NEXT_TELEMETRY_DISABLED: '1',
+      },
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -781,6 +786,7 @@ class PreviewManager {
 
     try {
       await fs.access(path.join(projectPath, 'package.json'));
+      await scaffoldBasicNextApp(projectPath, projectId);
     } catch {
       record(`Bootstrapping minimal Next.js app for project ${projectId}`);
       await scaffoldBasicNextApp(projectPath, projectId);
@@ -862,6 +868,7 @@ class PreviewManager {
 
     try {
       await fs.access(path.join(projectPath, 'package.json'));
+      await scaffoldBasicNextApp(projectPath, projectId);
     } catch {
       console.log(
         `[PreviewManager] Bootstrapping minimal Next.js app for project ${projectId}`
@@ -1033,7 +1040,12 @@ class PreviewManager {
       ['run', 'dev', '--', '--port', String(effectivePort)],
       {
         cwd: projectPath,
-        env,
+        env: {
+          ...env,
+          NEXT_RSPACK: env.NEXT_RSPACK || 'true',
+          TURBOPACK: undefined,
+          NEXT_TELEMETRY_DISABLED: '1',
+        },
         detached: process.platform !== 'win32',
         shell: process.platform === 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],

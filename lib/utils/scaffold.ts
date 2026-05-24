@@ -38,7 +38,122 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
     return !targetsQuantBackend && trimmed.length < 1_200;
   }
 
+  if (normalizedPath.endsWith('/scripts/run-dev.js')) {
+    return (
+      existing.includes('--webpack') ||
+      existing.includes('hasBundlerFlag') ||
+      !existing.includes("NEXT_RSPACK: process.env.NEXT_RSPACK || 'true'")
+    );
+  }
+
   return false;
+}
+
+type PackageJsonShape = {
+  scripts: Record<string, string>;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+};
+
+async function mergePackageJson(filePath: string, defaults: PackageJsonShape & Record<string, unknown>) {
+  let packageJson = defaults;
+
+  try {
+    packageJson = JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch {
+    // 文件缺失或 JSON 异常时，回写默认配置。
+  }
+
+  packageJson.scripts = {
+    ...defaults.scripts,
+    ...(packageJson.scripts ?? {}),
+    build: 'next build',
+  };
+  if (packageJson.scripts.build === 'next build --webpack') {
+    packageJson.scripts.build = 'next build';
+  }
+
+  packageJson.dependencies = {
+    ...(packageJson.dependencies ?? {}),
+    next: packageJson.dependencies?.next ?? defaults.dependencies.next,
+    'next-rspack': '^16.2.6',
+    react: packageJson.dependencies?.react ?? defaults.dependencies.react,
+    'react-dom':
+      packageJson.dependencies?.['react-dom'] ?? defaults.dependencies['react-dom'],
+  };
+
+  const existingDevDependencies =
+    packageJson.devDependencies &&
+    typeof packageJson.devDependencies === 'object' &&
+    !Array.isArray(packageJson.devDependencies)
+      ? packageJson.devDependencies
+      : {};
+
+  packageJson.devDependencies = {
+    ...(packageJson.devDependencies ?? {}),
+    typescript:
+      existingDevDependencies.typescript ?? defaults.devDependencies.typescript,
+    '@types/react':
+      existingDevDependencies['@types/react'] ?? defaults.devDependencies['@types/react'],
+    '@types/node':
+      existingDevDependencies['@types/node'] ?? defaults.devDependencies['@types/node'],
+    eslint: existingDevDependencies.eslint ?? defaults.devDependencies.eslint,
+    'eslint-config-next':
+      existingDevDependencies['eslint-config-next'] ?? defaults.devDependencies['eslint-config-next'],
+  };
+  delete packageJson.devDependencies['next-rspack'];
+
+  await fs.writeFile(
+    filePath,
+    `${JSON.stringify(packageJson, null, 2)}\n`,
+    'utf8'
+  );
+}
+
+async function ensureRspackNextConfig(filePath: string) {
+  const fallback = `/** @type {import('next').NextConfig} */
+const withRspack = require('next-rspack');
+const projectRoot = __dirname;
+
+const nextConfig = {
+  typedRoutes: true,
+  outputFileTracingRoot: projectRoot,
+};
+
+module.exports = withRspack(nextConfig);
+`;
+
+  let content: string;
+  try {
+    content = await fs.readFile(filePath, 'utf8');
+  } catch {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, fallback, 'utf8');
+    return;
+  }
+
+  let nextContent = content.replace(
+    /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
+    ''
+  );
+
+  if (
+    !nextContent.includes("require('next-rspack')") &&
+    !nextContent.includes('require("next-rspack")')
+  ) {
+    nextContent = `const withRspack = require('next-rspack');\n${nextContent}`;
+  }
+
+  if (nextContent.includes('module.exports = nextConfig')) {
+    nextContent = nextContent.replace(
+      /module\.exports\s*=\s*nextConfig\s*;?/g,
+      'module.exports = withRspack(nextConfig);'
+    );
+  }
+
+  if (nextContent !== content) {
+    await fs.writeFile(filePath, nextContent, 'utf8');
+  }
 }
 
 async function writeFileIfMissing(filePath: string, contents: string) {
@@ -67,12 +182,13 @@ export async function scaffoldBasicNextApp(
     version: '0.1.0',
     scripts: {
       dev: 'node scripts/run-dev.js',
-      build: 'next build --webpack',
+      build: 'next build',
       start: 'next start',
       lint: 'next lint',
     },
     dependencies: {
       next: '^16.2.6',
+      'next-rspack': '^16.2.6',
       react: '19.0.0',
       'react-dom': '19.0.0',
     },
@@ -85,26 +201,13 @@ export async function scaffoldBasicNextApp(
     },
   };
 
-  await writeFileIfMissing(
+  await mergePackageJson(
     path.join(projectPath, 'package.json'),
-    `${JSON.stringify(packageJson, null, 2)}\n`
+    packageJson
   );
 
-  await writeFileIfMissing(
-    path.join(projectPath, 'next.config.js'),
-    `/** @type {import('next').NextConfig} */
-const projectRoot = __dirname;
-
-const nextConfig = {
-  typedRoutes: true,
-  outputFileTracingRoot: projectRoot,
-  turbopack: {
-    root: projectRoot,
-  },
-};
-
-module.exports = nextConfig;
-`
+  await ensureRspackNextConfig(
+    path.join(projectPath, 'next.config.js')
   );
 
   await writeFileIfMissing(
@@ -307,53 +410,130 @@ function formatDate(value: unknown): string {
   return value.slice(0, 10);
 }
 
-function buildLinePath(bars: JsonRecord[]): string {
-  const closes = bars.map((bar) => numeric(bar.close)).filter((value): value is number => value !== null);
-  if (closes.length < 2) {
+function getComputedMetrics(data: JsonRecord | null): JsonRecord | null {
+  return asRecord(data?.computedMetrics);
+}
+
+function getTechnicalPoints(data: JsonRecord | null): JsonRecord[] {
+  const technical = asRecord(data?.technicalIndicators);
+  return asArray(technical?.points).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function movingAverage(values: Array<number | null>, windowSize: number, index: number): number | null {
+  if (index + 1 < windowSize) {
+    return null;
+  }
+  const windowValues = values.slice(index + 1 - windowSize, index + 1).filter((value): value is number => value !== null);
+  if (windowValues.length < windowSize) {
+    return null;
+  }
+  return windowValues.reduce((sum, value) => sum + value, 0) / windowValues.length;
+}
+
+function scaleY(value: number, min: number, max: number): number {
+  const range = Math.max(max - min, 0.000001);
+  return 86 - ((value - min) / range) * 70;
+}
+
+function buildLinePath(values: Array<number | null>, min: number, max: number): string {
+  const validCount = values.filter((value): value is number => value !== null).length;
+  if (validCount < 2) {
     return '';
   }
-  const min = Math.min(...closes);
-  const max = Math.max(...closes);
-  const range = Math.max(max - min, 1);
-  return closes
-    .map((close, index) => {
-      const x = (index / Math.max(closes.length - 1, 1)) * 100;
-      const y = 86 - ((close - min) / range) * 70;
-      return (index === 0 ? 'M ' : 'L ') + x.toFixed(2) + ' ' + y.toFixed(2);
+  let started = false;
+  return values
+    .map((value, index) => {
+      if (value === null) {
+        return '';
+      }
+      const x = (index / Math.max(values.length - 1, 1)) * 100;
+      const y = scaleY(value, min, max);
+      const segment = (started ? 'L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
+      started = true;
+      return segment;
     })
+    .filter(Boolean)
     .join(' ');
 }
 
 function TrendChart({ bars }: { bars: JsonRecord[] }) {
-  const pathData = buildLinePath(bars);
-  const latestBars = bars.slice(-24);
+  const visibleBars = bars.slice(-60);
+  const closes = visibleBars.map((bar) => numeric(bar.close));
+  const highs = visibleBars.map((bar) => numeric(bar.high) ?? numeric(bar.close)).filter((value): value is number => value !== null);
+  const lows = visibleBars.map((bar) => numeric(bar.low) ?? numeric(bar.close)).filter((value): value is number => value !== null);
+  const volumes = visibleBars.map((bar) => numeric(bar.volume) ?? 0);
+  const minPrice = lows.length ? Math.min(...lows) : 0;
+  const maxPrice = highs.length ? Math.max(...highs) : 1;
+  const maxVolume = Math.max(1, ...volumes);
+  const ma5 = closes.map((_, index) => movingAverage(closes, 5, index));
+  const ma10 = closes.map((_, index) => movingAverage(closes, 10, index));
+  const ma20 = closes.map((_, index) => movingAverage(closes, 20, index));
 
   return (
     <div className="chart-panel">
       <div className="panel-heading">
         <div>
-          <h2>K 线趋势</h2>
-          <p>收盘价、成交量、均线和阶段走势</p>
+          <h2>K 线与量价结构</h2>
+          <p>OHLC 蜡烛图、MA5/MA10/MA20、成交量和阶段走势</p>
         </div>
         <span>{bars.length} 条样本</span>
       </div>
-      <svg className="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="K 线趋势图">
+      <div className="chart-legend">
+        <span className="legend-price">K 线</span>
+        <span className="legend-ma5">MA5</span>
+        <span className="legend-ma10">MA10</span>
+        <span className="legend-ma20">MA20</span>
+      </div>
+      <svg className="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="K 线 OHLC 趋势图">
         <line x1="0" y1="86" x2="100" y2="86" className="axis" />
         <line x1="0" y1="16" x2="100" y2="16" className="axis muted" />
-        {pathData ? <path d={pathData} className="price-line" /> : null}
-        {latestBars.map((bar, index) => {
-          const change = numeric(bar.change_percent) ?? 0;
-          const height = Math.max(5, Math.min(28, Math.abs(change) * 3 + 5));
-          const x = 3 + index * 4;
-          const y = 91 - height;
+        {visibleBars.map((bar, index) => {
+          const open = numeric(bar.open) ?? numeric(bar.close);
+          const close = numeric(bar.close) ?? open;
+          const high = numeric(bar.high) ?? Math.max(open ?? 0, close ?? 0);
+          const low = numeric(bar.low) ?? Math.min(open ?? 0, close ?? 0);
+          if (open === null || close === null) {
+            return null;
+          }
+          const x = (index / Math.max(visibleBars.length - 1, 1)) * 100;
+          const yHigh = scaleY(high, minPrice, maxPrice);
+          const yLow = scaleY(low, minPrice, maxPrice);
+          const yOpen = scaleY(open, minPrice, maxPrice);
+          const yClose = scaleY(close, minPrice, maxPrice);
+          const candleTop = Math.min(yOpen, yClose);
+          const candleHeight = Math.max(Math.abs(yClose - yOpen), 0.8);
+          const up = close >= open;
+          return (
+            <g
+              key={String(bar.date ?? index)}
+              className={up ? 'candle-up' : 'candle-down'}
+            >
+              <line x1={x.toFixed(2)} x2={x.toFixed(2)} y1={yHigh.toFixed(2)} y2={yLow.toFixed(2)} />
+              <rect x={(x - 0.55).toFixed(2)} y={candleTop.toFixed(2)} width="1.1" height={candleHeight.toFixed(2)} />
+            </g>
+          );
+        })}
+        <path d={buildLinePath(ma5, minPrice, maxPrice)} className="ma-line ma5" />
+        <path d={buildLinePath(ma10, minPrice, maxPrice)} className="ma-line ma10" />
+        <path d={buildLinePath(ma20, minPrice, maxPrice)} className="ma-line ma20" />
+      </svg>
+
+      <svg className="volume-chart" viewBox="0 0 100 36" preserveAspectRatio="none" role="img" aria-label="成交量柱状图">
+        <line x1="0" y1="32" x2="100" y2="32" className="axis" />
+        {visibleBars.map((bar, index) => {
+          const open = numeric(bar.open) ?? numeric(bar.close) ?? 0;
+          const close = numeric(bar.close) ?? open;
+          const volume = numeric(bar.volume) ?? 0;
+          const height = Math.max(1, (volume / maxVolume) * 28);
+          const x = (index / Math.max(visibleBars.length - 1, 1)) * 100;
           return (
             <rect
               key={String(bar.date ?? index)}
-              x={x}
-              y={y}
-              width="2.4"
-              height={height}
-              className={change >= 0 ? 'volume-up' : 'volume-down'}
+              x={(x - 0.55).toFixed(2)}
+              y={(32 - height).toFixed(2)}
+              width="1.1"
+              height={height.toFixed(2)}
+              className={close >= open ? 'volume-up' : 'volume-down'}
             />
           );
         })}
@@ -554,11 +734,76 @@ function AnnouncementPanel({ announcements }: { announcements: JsonRecord[] }) {
   );
 }
 
+function SignalPanel({
+  quote,
+  latestBar,
+  summary,
+  computedMetrics,
+  data,
+}: {
+  quote: JsonRecord | null;
+  latestBar?: JsonRecord;
+  summary: JsonRecord | null;
+  computedMetrics: JsonRecord | null;
+  data: JsonRecord | null;
+}) {
+  const latestPrice = numeric(quote?.price ?? latestBar?.close);
+  const ma5 = numeric(summary?.ma5 ?? computedMetrics?.ma5);
+  const ma20 = numeric(summary?.ma20 ?? computedMetrics?.ma20);
+  const volume = numeric(latestBar?.volume);
+  const avgVolume = numeric(computedMetrics?.avgVolume20d);
+  const aboveMa20 = latestPrice !== null && ma20 !== null ? latestPrice >= ma20 : null;
+  const maTrend = ma5 !== null && ma20 !== null ? ma5 >= ma20 : null;
+  const volumeSignal = volume !== null && avgVolume !== null ? volume / Math.max(avgVolume, 1) : null;
+  const dataQuality = asRecord(data?.data_quality) ?? asRecord(asRecord(data?.kline)?.data_quality);
+  const warnings = asArray(dataQuality?.warnings).map(String);
+
+  return (
+    <article className="data-panel signal-panel">
+      <div className="panel-heading compact">
+        <div>
+          <h2>量化信号摘要</h2>
+          <p>价格位置、均线结构、量能和数据质量</p>
+        </div>
+        <span>{String(dataQuality?.status ?? 'ok')}</span>
+      </div>
+      <div className="signal-list">
+        <div>
+          <span>价格位置</span>
+          <strong className={aboveMa20 === null ? '' : aboveMa20 ? 'red' : 'green'}>
+            {aboveMa20 === null ? '待确认' : aboveMa20 ? '站上 MA20' : '低于 MA20'}
+          </strong>
+        </div>
+        <div>
+          <span>均线结构</span>
+          <strong className={maTrend === null ? '' : maTrend ? 'red' : 'green'}>
+            {maTrend === null ? '待确认' : maTrend ? '短多排列' : '短线偏弱'}
+          </strong>
+        </div>
+        <div>
+          <span>量能状态</span>
+          <strong>{volumeSignal === null ? '待确认' : volumeSignal >= 1.2 ? '放量' : volumeSignal <= 0.8 ? '缩量' : '常态'}</strong>
+        </div>
+      </div>
+      {warnings.length > 0 ? (
+        <ul className="warning-list">
+          {warnings.slice(0, 3).map((warning, index) => (
+            <li key={index}>{warning}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty-state">未检测到阻断性数据质量警告。</p>
+      )}
+    </article>
+  );
+}
+
 export default async function Home() {
   const data = await readDashboardData();
   const quote = asRecord(data?.quote);
   const bars = getBars(data);
   const summary = getIndicatorSummary(data);
+  const computedMetrics = getComputedMetrics(data);
   const fundamentalSummary = getFundamentalSummary(data);
   const reports = getReports(data);
   const announcements = getAnnouncements(data);
@@ -591,7 +836,7 @@ export default async function Home() {
       <section className="metric-grid">
         <article>
           <span>区间收益</span>
-          <strong>{formatPercent(summary?.period_return_pct)}</strong>
+          <strong>{formatPercent(summary?.period_return_pct ?? computedMetrics?.periodReturn)}</strong>
         </article>
         <article>
           <span>最大回撤</span>
@@ -599,15 +844,24 @@ export default async function Home() {
         </article>
         <article>
           <span>年化波动率</span>
-          <strong>{formatPercent(summary?.volatility_annualized_pct)}</strong>
+          <strong>{formatPercent(summary?.volatility_annualized_pct ?? computedMetrics?.volatility20d)}</strong>
         </article>
         <article>
           <span>MA20</span>
-          <strong>{formatNumber(summary?.ma20)}</strong>
+          <strong>{formatNumber(summary?.ma20 ?? computedMetrics?.ma20)}</strong>
         </article>
       </section>
 
-      <TrendChart bars={bars} />
+      <section className="main-grid">
+        <TrendChart bars={bars} />
+        <SignalPanel
+          quote={quote}
+          latestBar={latestBar}
+          summary={summary}
+          computedMetrics={computedMetrics}
+          data={data}
+        />
+      </section>
 
       <BacktestPanel backtest={backtest} />
 
@@ -644,14 +898,18 @@ export default async function Home() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>日期</th><th>收盘</th><th>涨跌幅</th><th>成交量</th></tr>
+                <tr><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>涨跌幅</th><th>成交额</th><th>成交量</th></tr>
               </thead>
               <tbody>
-                {bars.slice(-6).reverse().map((bar, index) => (
+                {bars.slice(-10).reverse().map((bar, index) => (
                   <tr key={String(bar.date ?? index)}>
                     <td>{String(bar.date ?? '-')}</td>
+                    <td>{formatNumber(bar.open)}</td>
+                    <td>{formatNumber(bar.high)}</td>
+                    <td>{formatNumber(bar.low)}</td>
                     <td>{formatNumber(bar.close)}</td>
                     <td className={(numeric(bar.change_percent) ?? 0) >= 0 ? 'red' : 'green'}>{formatPercent(bar.change_percent)}</td>
+                    <td>{formatMoney(bar.amount)}</td>
                     <td>{formatNumber(bar.volume, 0)}</td>
                   </tr>
                 ))}
@@ -837,6 +1095,17 @@ h2 {
   padding: 20px;
 }
 
+.main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.main-grid .chart-panel {
+  margin-top: 0;
+}
+
 .backtest-section {
   margin-top: 16px;
   padding: 20px;
@@ -883,6 +1152,51 @@ h2 {
   overflow: visible;
 }
 
+.volume-chart {
+  width: 100%;
+  height: 96px;
+  margin-top: 12px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend span::before {
+  content: "";
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.legend-price {
+  color: var(--ink);
+}
+
+.legend-ma5 {
+  color: var(--blue);
+}
+
+.legend-ma10 {
+  color: var(--gold);
+}
+
+.legend-ma20 {
+  color: #7c3aed;
+}
+
 .axis {
   stroke: var(--line);
   stroke-width: 0.6;
@@ -892,18 +1206,45 @@ h2 {
   opacity: 0.55;
 }
 
-.price-line {
-  fill: none;
-  stroke: var(--blue);
-  stroke-width: 2.2;
-  vector-effect: non-scaling-stroke;
-}
-
 .equity-line {
   fill: none;
   stroke: var(--gold);
   stroke-width: 2.4;
   vector-effect: non-scaling-stroke;
+}
+
+.candle-up line,
+.candle-up rect {
+  fill: color-mix(in srgb, var(--red) 86%, white);
+  stroke: var(--red);
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.candle-down line,
+.candle-down rect {
+  fill: color-mix(in srgb, var(--green) 86%, white);
+  stroke: var(--green);
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
+.ma-line {
+  fill: none;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ma5 {
+  stroke: var(--blue);
+}
+
+.ma10 {
+  stroke: var(--gold);
+}
+
+.ma20 {
+  stroke: #7c3aed;
 }
 
 .volume-up {
@@ -927,6 +1268,50 @@ h2 {
 
 .data-panel {
   padding: 20px;
+}
+
+.signal-panel {
+  margin-top: 0;
+}
+
+.signal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.signal-list div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.signal-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.signal-list strong {
+  font-size: 18px;
+}
+
+.warning-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.warning-list li {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, white);
+  border-radius: 8px;
+  color: #805600;
+  background: #fff8e5;
+  font-size: 13px;
 }
 
 .mini-metric-grid {
@@ -1104,6 +1489,7 @@ th {
   }
 
   .hero-band,
+  .main-grid,
   .detail-grid,
   .detail-grid.wide,
   .backtest-grid {
@@ -1227,10 +1613,6 @@ function resolvePort(preferredPort) {
 
   console.log(\`🚀 Starting Next.js dev server on \${url}\`);
 
-  const hasBundlerFlag = passthrough.some((arg) =>
-    ['--webpack', '--turbopack'].includes(arg)
-  );
-
   const child = spawn(
     'npx',
     [
@@ -1238,7 +1620,6 @@ function resolvePort(preferredPort) {
       'dev',
       '--port',
       String(port),
-      ...(hasBundlerFlag ? [] : ['--webpack']),
       ...passthrough,
     ],
     {
@@ -1247,6 +1628,8 @@ function resolvePort(preferredPort) {
       shell: isWindows,
       env: {
         ...process.env,
+        NEXT_RSPACK: process.env.NEXT_RSPACK || 'true',
+        TURBOPACK: undefined,
         PORT: String(port),
         WEB_PORT: String(port),
         NEXT_PUBLIC_APP_URL: url,

@@ -115,6 +115,11 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   assertCondition(page.includes('data_file/final/dashboard-data.json'), 'app/page.tsx 应读取 final 数据文件。', failures);
   assertCondition(page.includes('/api/market'), 'app/page.tsx 应声明 /api/market 数据入口。', failures);
   assertCondition(page.includes('<svg'), 'app/page.tsx 应包含 SVG 图表实现。', failures);
+  assertCondition(page.includes('K 线与量价结构'), 'app/page.tsx 应包含 K 线与量价结构面板。', failures);
+  assertCondition(page.includes('candle-up') && page.includes('candle-down'), 'app/page.tsx 应实现涨跌 K 线/OHLC 结构。', failures);
+  assertCondition(page.includes('volume-chart'), 'app/page.tsx 应包含成交量副图。', failures);
+  assertCondition(page.includes('SignalPanel'), 'app/page.tsx 应包含量化信号摘要面板。', failures);
+  assertCondition(page.includes('data_quality') || page.includes('数据质量'), 'app/page.tsx 应展示数据质量或限制信息。', failures);
 
   for (const expectedField of testCase.expectedFinalFields || []) {
     assertCondition(finalData[expectedField] !== undefined, `final 数据缺少字段 ${expectedField}`, failures);
