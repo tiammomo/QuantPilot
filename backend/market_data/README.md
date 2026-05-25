@@ -83,6 +83,24 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/api/v1/registry
 ```
 
+### 候选免费信源池
+
+候选信源不会直接替换主链路，先用于测试可达性、字段稳定性和数据质量：
+
+```bash
+curl http://127.0.0.1:8000/api/v1/provider-candidates
+curl http://127.0.0.1:8000/api/v1/provider-candidates/probe
+curl 'http://127.0.0.1:8000/api/v1/provider-candidates/probe?provider_id=tencent-a-share-kline'
+```
+
+当前候选方向：
+
+- 腾讯股票 K 线：免 key，可作为 A 股历史 K 线兜底。
+- 新浪财经实时行情：免 key，可作为 A 股实时行情兜底，后续需处理编码、Referer 和字段映射。
+- Stooq：免 key CSV，适合海外日线和离线回测样本。
+- Alpha Vantage / Finnhub / Twelve Data / Marketstack：免费层适合海外股票、ETF、外汇、宏观或公司资料测试，但需要 API key。
+- Nasdaq Data Link：适合宏观和公开数据集测试，具体数据集权限以官方为准。
+
 ### 证券代码/名称解析
 
 ```bash

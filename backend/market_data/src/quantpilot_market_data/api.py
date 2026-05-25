@@ -26,6 +26,13 @@ from quantpilot_market_data.models import (
     SymbolResolveResponse,
     TechnicalIndicatorsResponse,
 )
+from quantpilot_market_data.provider_candidates import (
+    CANDIDATE_PROVIDERS,
+    CandidateProviderProbeResponse,
+    CandidateProviderRegistry,
+    get_candidate_provider,
+    probe_candidate_provider,
+)
 from quantpilot_market_data.providers.eastmoney import EastMoneyClient, EastMoneyError
 
 QUOTE_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_QUOTE_CACHE_TTL_SECONDS", 5)
@@ -140,11 +147,12 @@ DATA_PROVIDERS = [
     ),
     DataProviderInfo(
         id="tushare-akshare-openbb",
-        name="Tushare / AKShare / OpenBB 扩展源",
+        name="免费/免费层候选信源测试池",
         category="planned-provider",
-        status="planned",
-        description="用于后续增强交易日历、指数、行业、宏观、海外资产等覆盖。",
-        endpoints=[],
+        status="available",
+        description="用于评估腾讯、新浪、Stooq、Alpha Vantage、Finnhub、Twelve Data 等候选信源。",
+        endpoints=["/api/v1/provider-candidates", "/api/v1/provider-candidates/probe"],
+        limitations=["候选源不会直接替换主链路，必须先通过探针和数据质量评估。"],
     ),
 ]
 
@@ -172,6 +180,24 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/registry", response_model=DataRegistryResponse)
     async def get_data_registry() -> DataRegistryResponse:
         return DataRegistryResponse(providers=DATA_PROVIDERS)
+
+    @app.get("/api/v1/provider-candidates", response_model=CandidateProviderRegistry)
+    async def get_provider_candidates() -> CandidateProviderRegistry:
+        return CandidateProviderRegistry(providers=CANDIDATE_PROVIDERS)
+
+    @app.get("/api/v1/provider-candidates/probe", response_model=CandidateProviderProbeResponse)
+    async def probe_provider_candidates(
+        provider_id: str | None = None,
+    ) -> CandidateProviderProbeResponse:
+        providers = CANDIDATE_PROVIDERS
+        if provider_id:
+            provider = get_candidate_provider(provider_id)
+            if provider is None:
+                raise HTTPException(status_code=404, detail=f"候选信源不存在：{provider_id}")
+            providers = [provider]
+
+        results = [await probe_candidate_provider(provider) for provider in providers]
+        return CandidateProviderProbeResponse(results=results)
 
     @app.get("/api/v1/symbols/resolve", response_model=SymbolResolveResponse)
     async def resolve_symbol(query: str, count: int = 5) -> SymbolResolveResponse:
