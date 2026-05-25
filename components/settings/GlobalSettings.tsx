@@ -23,7 +23,7 @@ interface CLIOption {
   name: string;
   icon: string;
   description: string;
-  models: { id: string; name: string; description?: string; provider?: string; external?: boolean; }[];
+  models: { id: string; name: string; description?: string; provider?: string; runtime?: string; external?: boolean; }[];
   color: string;
   brandColor: string;
   downloadUrl: string;
@@ -60,7 +60,14 @@ const CLI_OPTIONS: CLIOption[] = [
     downloadUrl: 'https://github.com/openai/codex',
     installCommand: 'npm install -g @openai/codex',
     enabled: true,
-    models: getModelDefinitionsForCli('codex').map(({ id, name, description }) => ({ id, name, description })),
+    models: getModelDefinitionsForCli('codex').map(({ id, name, description, provider, runtime, external }) => ({
+      id,
+      name,
+      description,
+      provider,
+      runtime,
+      external,
+    })),
   },
   {
     id: 'cursor',

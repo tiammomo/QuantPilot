@@ -1,24 +1,49 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import CreateProjectModal from '@/components/modals/CreateProjectModal';
-import DeleteProjectModal from '@/components/modals/DeleteProjectModal';
 import GlobalSettings from '@/components/settings/GlobalSettings';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
-import Image from 'next/image';
 import {
   ArrowUp,
-  ChevronDown,
   Image as ImageIcon,
   Menu,
+  PackageCheck,
   Pencil,
   Search,
   Settings,
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { Textarea } from '@/components/ui/textarea';
 import type { Project as ProjectSummary } from '@/types/project';
 import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
 import type { CLIStatus } from '@/types/cli';
@@ -44,34 +69,65 @@ const fetchAPI = globalThis.fetch || fetch;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
 // Define assistant brand colors
-const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name, icon }) => ({
+const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name }) => ({
   id,
   name,
-  icon,
 }));
 
 const assistantBrandColors = ACTIVE_CLI_BRAND_COLORS;
 
 const MODEL_OPTIONS_BY_ASSISTANT = ACTIVE_CLI_MODEL_OPTIONS;
 
-const CAPABILITY_PROMPTS: Record<QuantCapabilityId, string> = {
-  stock_diagnosis:
-    '分析贵州茅台最近的行情、K 线、财务和公告，生成一个个股诊断看板。需要展示数据来源、更新时间、关键指标、K 线/成交量和财务摘要。',
-  technical_analysis:
-    '分析宁德时代最近 120 个交易日的走势，生成技术分析看板。需要包含 K 线、成交量、均线、阶段涨跌、波动率和最大回撤。',
-  fundamental_analysis:
-    '分析贵州茅台最近几个报告期的基本面情况，生成财务质量看板。需要展示营收、利润、利润率、ROE、现金流和公告事件摘要。',
-  asset_comparison:
-    '对比贵州茅台、招商银行和 510300 的最近表现，生成多标的对比看板。需要先获取可用真实数据，并说明暂未完全接入的对比维度。',
-  sector_rotation:
-    '分析沪深300和创业板指最近一年的趋势和相对强弱，生成行业/指数观察看板。需要包含走势、成交量、均线、波动和阶段回撤。',
-  strategy_research:
-    '研究一个基于 20 日均线突破和成交量确认的 A 股趋势策略，先生成策略研究看板。需要定义信号、样本、风控和待回测指标。',
-  backtest_review:
-    '用最近一年的 20/60 日均线突破规则回测 510300，生成回测复盘看板。需要展示净值、回撤、交易次数、胜率、交易明细、费用参数和数据限制。',
-  portfolio_risk:
-    '分析一个贵州茅台、招商银行、510300 的组合风险，生成组合风控看板。需要先整理持仓、数据来源、风险维度和当前可计算的数据限制。',
-};
+const ROLE_MODULES: Array<{
+  id: string;
+  name: string;
+  description: string;
+  capabilityId: QuantCapabilityId;
+  inputPlaceholder: string;
+}> = [
+  {
+    id: 'holding-analysis',
+    name: '持仓分析',
+    description: '识别持仓结构、盈亏、集中度、回撤和调仓约束',
+    capabilityId: 'portfolio_risk',
+    inputPlaceholder: '描述你的持仓、成本、可用资金或上传持仓截图，我会按持仓分析角色生成风险与调仓看板',
+  },
+  {
+    id: 'stock-selection',
+    name: '选股分析',
+    description: '从候选标的中比较趋势、财务、估值、流动性和风险',
+    capabilityId: 'asset_comparison',
+    inputPlaceholder: '输入候选股票、行业方向或筛选条件，我会按选股分析角色拉取数据并生成对比看板',
+  },
+  {
+    id: 'single-stock-diagnosis',
+    name: '个股诊断',
+    description: '围绕单只股票整合行情、K 线、财务、公告和风险',
+    capabilityId: 'stock_diagnosis',
+    inputPlaceholder: '输入股票名称或代码，以及你关心的行情、财务、公告或风险问题',
+  },
+  {
+    id: 'timing-analysis',
+    name: '技术择时',
+    description: '分析价格趋势、均线结构、成交量、回撤和触发条件',
+    capabilityId: 'technical_analysis',
+    inputPlaceholder: '输入标的和时间范围，我会按技术择时角色生成 K 线、量价和趋势模板看板',
+  },
+  {
+    id: 'fundamental-research',
+    name: '基本面研究',
+    description: '研究盈利质量、现金流、ROE、公告事件和估值情景',
+    capabilityId: 'fundamental_analysis',
+    inputPlaceholder: '输入公司或行业，我会按基本面研究角色整理财务、公告、估值情景和数据质量',
+  },
+  {
+    id: 'strategy-backtest',
+    name: '策略回测',
+    description: '拆解信号规则、样本、参数、交易明细和回测限制',
+    capabilityId: 'backtest_review',
+    inputPlaceholder: '描述策略规则、标的和时间窗口，我会按策略回测角色生成可复盘的量化看板',
+  },
+];
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -123,10 +179,8 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
-  const [cliStatus, setCLIStatus] = useState<CLIStatus>({});
+  const [cliStatus, setCLIStatus] = useState<CLIStatus>(() => createCliStatusFallback());
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const selectedAssistantOption = ACTIVE_CLI_OPTIONS_MAP[selectedAssistant];
-  
   // 根据当前 Agent 获取可用模型
   const availableModels = MODEL_OPTIONS_BY_ASSISTANT[selectedAssistant] || [];
   
@@ -192,8 +246,6 @@ export default function HomePage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-  const [showAssistantDropdown, setShowAssistantDropdown] = useState(false);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<{ id: string; name: string; url: string; path: string; file?: File }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -201,26 +253,26 @@ export default function HomePage() {
   const router = useRouter();
   const prefetchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const assistantDropdownRef = useRef<HTMLDivElement>(null);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   const openTaskDrawer = useCallback(() => {
-    setShowAssistantDropdown(false);
-    setShowModelDropdown(false);
     setTaskDrawerOpen(true);
   }, []);
 
   // 检查 CLI 安装状态
   useEffect(() => {
+    const optimisticStatus = createCliStatusFallback();
     const checkingStatus = ASSISTANT_OPTIONS.reduce<CLIStatus>((acc, cli) => {
+      const previous = acc[cli.id] ?? {
+        installed: true,
+        available: true,
+        configured: true,
+      };
       acc[cli.id] = {
-        installed: false,
+        ...previous,
         checking: true,
-        available: false,
-        configured: false,
       };
       return acc;
-    }, {});
+    }, optimisticStatus);
     setCLIStatus(checkingStatus);
 
     fetchCliStatusSnapshot()
@@ -229,28 +281,6 @@ export default function HomePage() {
         console.error('Failed to check CLI status:', error);
         setCLIStatus(createCliStatusFallback());
       });
-  }, []);
-
-  // 点击下拉框外部时收起菜单
-  useEffect(() => {
-    const handleDocumentClick = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      const assistantEl = assistantDropdownRef.current;
-      if (assistantEl && !assistantEl.contains(target)) {
-        setShowAssistantDropdown(false);
-      }
-
-      const modelEl = modelDropdownRef.current;
-      if (modelEl && !modelEl.contains(target)) {
-        setShowModelDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleDocumentClick);
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentClick);
-    };
   }, []);
 
   // 格式化任务时间
@@ -694,30 +724,33 @@ export default function HomePage() {
   }, [selectedAssistant, handleFiles, load]);
 
   // Update models when assistant changes
+  const isAssistantSelectable = useCallback((assistant: string) => {
+    const status = cliStatus[assistant];
+    if (!status || status.checking) return true;
+    return Boolean(status.installed || status.available || status.configured);
+  }, [cliStatus]);
+
   const handleAssistantChange = (assistant: string) => {
-    // Don't allow selecting uninstalled CLIs
-    if (!cliStatus[assistant]?.installed) return;
+    if (!isAssistantSelectable(assistant)) return;
 
     const sanitized = sanitizeAssistant(assistant);
     setUsingGlobalDefaults(false);
     setIsInitialLoad(false);
     setSelectedAssistant(sanitized);
     setSelectedModel(getDefaultModelForCli(sanitized));
-
-    setShowAssistantDropdown(false);
   };
 
   const handleModelChange = (modelId: string) => {
     setUsingGlobalDefaults(false);
     setIsInitialLoad(false);
     setSelectedModel(normalizeModelForAssistant(selectedAssistant, modelId));
-    setShowModelDropdown(false);
   };
 
   const selectedModelLabel =
     availableModels.find((model) => model.id === selectedModel)?.name ??
     getModelDisplayName(selectedAssistant, selectedModel);
-  const selectedAssistantName = selectedAssistantOption?.name ?? 'Claude Code';
+  const selectedRoleModule =
+    ROLE_MODULES.find((role) => role.capabilityId === selectedCapability) ?? ROLE_MODULES[0];
   const runningProjects = projects.filter((project) => project.previewUrl || project.status === 'running').length;
   const recentProjects = projects.slice(0, 8);
   const filteredProjects = projects.filter((project) => {
@@ -733,39 +766,6 @@ export default function HomePage() {
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(keyword));
   });
-  const capabilityShortcuts = [
-    {
-      id: 'market',
-      name: '行情分析',
-      description: '价格、K 线、成交量、技术指标和阶段走势',
-      prompt: '分析一只股票最近的行情、K 线、成交量和技术指标，生成可视化看板。',
-    },
-    {
-      id: 'fundamental',
-      name: '基本面研究',
-      description: '财务报表、盈利质量、现金流和公告事件',
-      prompt: '分析一只股票最近的财务表现、盈利质量、现金流和公告事件，生成基本面研究看板。',
-    },
-    {
-      id: 'comparison',
-      name: '标的对比',
-      description: '股票、指数、ETF 的横向表现和风险比较',
-      prompt: '对比多个股票、指数或 ETF 的近期表现、波动、回撤和关键指标，生成对比看板。',
-    },
-    {
-      id: 'strategy',
-      name: '策略研究',
-      description: '信号规则、回测复盘、交易明细和参数假设',
-      prompt: '研究一个量化交易策略，说明信号规则、样本范围、回测指标、交易明细和参数假设。',
-    },
-    {
-      id: 'risk',
-      name: '组合风控',
-      description: '持仓暴露、相关性、回撤、仓位和风险约束',
-      prompt: '分析一个投资组合的风险暴露、相关性、回撤、仓位和风控约束，生成组合风控看板。',
-    },
-  ];
-
   const openProject = (project: ProjectSummary) => {
     const params = new URLSearchParams();
     if (selectedAssistant) params.set('cli', selectedAssistant);
@@ -798,21 +798,23 @@ export default function HomePage() {
             <input
               name="name"
               defaultValue={project.name}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 outline-none focus:border-red-400"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none focus:ring-1 focus:ring-ring"
               autoFocus
               onBlur={() => setEditingProject(null)}
             />
             <div className="flex gap-2">
-              <button type="submit" className="rounded-md bg-red-500 px-2.5 py-1 text-xs font-medium text-white">
+              <Button type="submit" size="sm" className="h-8">
                 保存
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={() => setEditingProject(null)}
-                className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600"
+                size="sm"
+                variant="outline"
+                className="h-8"
               >
                 取消
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
@@ -885,7 +887,7 @@ export default function HomePage() {
               name="name"
               defaultValue={title}
               autoFocus
-              className="h-9 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-950 outline-none focus:border-red-400"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm outline-none focus:ring-1 focus:ring-ring"
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   setEditingProject(null);
@@ -893,19 +895,22 @@ export default function HomePage() {
               }}
             />
             <div className="flex justify-end gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => setEditingProject(null)}
-                className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-200"
+                size="sm"
+                variant="outline"
+                className="h-8"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
-                className="rounded-lg bg-gray-950 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
+                size="sm"
+                className="h-8"
               >
                 保存
-              </button>
+              </Button>
             </div>
           </form>
         ) : (
@@ -950,168 +955,140 @@ export default function HomePage() {
 
   const renderTaskHistoryDrawer = () => {
     return (
-      <AnimatePresence initial={false}>
-        {taskDrawerOpen && (
-          <motion.div
-            key="task-history-drawer"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed inset-0 z-[500] bg-transparent"
-            onClick={() => setTaskDrawerOpen(false)}
-          >
-            <motion.aside
-              initial={{ x: -120, opacity: 0, scaleX: 0.94 }}
-              animate={{ x: 0, opacity: 1, scaleX: 1 }}
-              exit={{ x: -110, opacity: 0, scaleX: 0.96 }}
-              transition={{
-                type: 'spring',
-                stiffness: 360,
-                damping: 24,
-                mass: 0.85,
-              }}
-              style={{ transformOrigin: 'left center' }}
-              className="flex h-full w-full max-w-[420px] flex-col border-r border-gray-200 bg-white shadow-2xl"
-              onClick={(event: React.MouseEvent<HTMLElement>) => event.stopPropagation()}
-            >
-              <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-100 px-3">
-                <div className="flex items-baseline gap-1.5">
-                  <h2 className="text-base font-semibold text-gray-950">任务记录</h2>
-                  <span className="text-xs text-gray-400">({projects.length})</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setTaskDrawerOpen(false)}
-                  className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-950"
-                  title="关闭"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+      <Sheet open={taskDrawerOpen} onOpenChange={setTaskDrawerOpen}>
+        <SheetContent side="left" className="flex w-full max-w-[420px] flex-col p-0 sm:max-w-[420px]">
+          <SheetHeader className="border-b px-4 py-3">
+            <div className="flex items-baseline gap-1.5">
+              <SheetTitle className="text-base">任务记录</SheetTitle>
+              <SheetDescription className="text-xs">({projects.length})</SheetDescription>
+            </div>
+          </SheetHeader>
 
-              <div className="border-b border-gray-100 bg-gray-50/70 px-3 py-3">
-                <div className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-500">
-                  <Search className="h-4 w-4 shrink-0" />
-                  <input
-                    value={projectSearch}
-                    onChange={(event) => setProjectSearch(event.target.value)}
-                    placeholder="搜索对话标题、用户或内容..."
-                    className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
-                  />
-                </div>
-              </div>
+          <div className="border-b bg-muted/30 px-4 py-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={projectSearch}
+                onChange={(event) => setProjectSearch(event.target.value)}
+                placeholder="搜索对话标题、用户或内容..."
+                className="pl-9"
+              />
+            </div>
+          </div>
 
-              <div className="flex-1 overflow-y-auto">
-                {filteredProjects.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-sm text-gray-400">
-                    暂无匹配的任务记录
-                  </div>
-                ) : (
-                  filteredProjects.map(renderTaskRecordItem)
-                )}
+          <div className="flex-1 overflow-y-auto">
+            {filteredProjects.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                暂无匹配的任务记录
               </div>
-            </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            ) : (
+              filteredProjects.map(renderTaskRecordItem)
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     );
   };
 
   const renderTaskSidebar = (isMobile = false) => (
     <aside
-      className={`flex h-full flex-col border-r border-gray-200 bg-white/95 ${
+      className={`flex h-full flex-col border-r bg-background/95 ${
         isMobile ? 'w-[286px]' : 'w-[260px]'
       }`}
     >
-      <div className="flex h-16 items-center justify-between border-b border-gray-100 px-4">
+      <div className="flex h-16 items-center justify-between border-b px-4">
         <button
           type="button"
           onClick={openTaskDrawer}
-          className="flex items-center gap-2 text-gray-950 hover:text-red-600"
+          className="flex items-center gap-2 text-foreground hover:text-primary"
           title="打开任务记录"
         >
           <Menu className="h-4 w-4" />
-          <span className="text-base font-semibold text-gray-950">任务记录</span>
+          <span className="text-base font-semibold">任务记录</span>
         </button>
         {isMobile && (
-          <button
+          <Button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+            size="icon"
+            variant="ghost"
+            className="h-8 w-8"
             title="关闭"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <div className="mb-3 px-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">分析能力</div>
+          <div className="text-xs font-semibold tracking-wide text-muted-foreground">角色模块</div>
         </div>
 
-        <div className="space-y-1">
-          {capabilityShortcuts.map((capability) => (
+        <div className="space-y-1.5">
+          {ROLE_MODULES.map((role) => {
+            const active = selectedCapability === role.capabilityId;
+            return (
             <button
-              key={capability.id}
+              key={role.id}
               type="button"
               onClick={() => {
-                setPrompt(capability.prompt);
+                setSelectedCapability(role.capabilityId);
                 if (isMobile) {
                   setSidebarOpen(false);
                 }
               }}
-              className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-gray-50"
-              title={capability.description}
+              className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${
+                active
+                  ? 'border-primary/20 bg-primary/10 text-primary'
+                  : 'border-transparent text-foreground hover:border-border hover:bg-muted/60'
+              }`}
+              title={role.description}
+              aria-pressed={active}
             >
-              <div className="text-sm font-semibold text-gray-950">{capability.name}</div>
-              <div className="mt-1 text-xs leading-5 text-gray-500">{capability.description}</div>
+              <div className={`text-sm font-semibold ${active ? 'text-primary' : 'text-foreground'}`}>
+                {role.name}
+              </div>
+              <div className={`mt-1 text-xs leading-5 ${active ? 'text-primary/80' : 'text-muted-foreground'}`}>
+                {role.description}
+              </div>
             </button>
-          ))}
+            );
+          })}
         </div>
 
       </div>
 
-      <div className="border-t border-gray-100 p-3">
-        <button
+      <div className="border-t p-3">
+        <Button
+          type="button"
+          onClick={() => router.push('/skills')}
+          variant="ghost"
+          className="mb-1 w-full justify-start"
+        >
+          <PackageCheck className="h-4 w-4" />
+          Skills 管理
+        </Button>
+        <Button
           type="button"
           onClick={() => setShowGlobalSettings(true)}
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-950"
+          variant="ghost"
+          className="w-full justify-start"
         >
           <Settings className="h-4 w-4" />
           模型与数据源设置
-        </button>
+        </Button>
       </div>
     </aside>
   );
 
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-[#fbfbfc] text-gray-950">
+    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
       {/* 柔和底部背景，保持输入区聚焦 */}
       <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-white " />
-        <div 
-          className="absolute inset-0 hidden transition-all duration-1000 ease-in-out"
-          style={{
-            background: `radial-gradient(circle at 50% 100%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}66 0%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}4D 25%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}33 50%, 
-              transparent 70%)`
-          }}
-        />
-        {/* Light mode gradient - subtle */}
-        <div 
-          className="absolute inset-0 block transition-all duration-1000 ease-in-out"
-          style={{
-            background: `radial-gradient(circle at 50% 100%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}40 0%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}26 25%, 
-              transparent 50%)`
-          }}
-        />
+        <div className="absolute inset-0 bg-background" />
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(ellipse_at_bottom,rgba(220,38,38,0.13),rgba(255,255,255,0)_66%)]" />
       </div>
       
       {/* 页面主体 */}
@@ -1129,22 +1106,24 @@ export default function HomePage() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 bg-white/85 px-4 backdrop-blur md:px-6">
+          <header className="flex h-16 shrink-0 items-center justify-between border-b bg-background/85 px-4 backdrop-blur md:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              <button
+              <Button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-950 lg:hidden"
+                size="icon"
+                variant="ghost"
+                className="lg:hidden"
                 title="打开任务记录"
               >
                 <Menu className="h-5 w-5" />
-              </button>
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-600 text-base font-bold text-white shadow-sm">
+              </Button>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-base font-bold text-primary-foreground shadow-sm">
                 Q
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-base font-bold text-gray-950 md:text-lg">QuantPilot</h1>
-                <div className="mt-1 hidden items-center gap-2 text-xs text-gray-500 md:flex">
+                <h1 className="truncate text-base font-bold md:text-lg">QuantPilot</h1>
+                <div className="mt-1 hidden items-center gap-2 text-xs text-muted-foreground md:flex">
                   <span>任务 {projects.length}</span>
                   <span>•</span>
                   <span>运行中 {runningProjects}</span>
@@ -1155,26 +1134,26 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => setShowGlobalSettings(true)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-950"
+                size="icon"
+                variant="secondary"
                 title="模型与数据源设置"
               >
                 <Settings className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
           </header>
 
           <main className="relative flex-1 overflow-y-auto">
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-[radial-gradient(ellipse_at_bottom,rgba(239,68,68,0.16),rgba(255,255,255,0)_68%)]" />
             <div className="relative mx-auto flex min-h-full w-full max-w-6xl -translate-y-6 flex-col items-center justify-center px-4 py-8 md:-translate-y-12 md:px-8 lg:-translate-y-14">
               <div className="mb-6 text-center">
-                <h2 className="text-3xl font-bold tracking-normal text-red-600 md:text-5xl">
+                <h2 className="text-3xl font-bold tracking-normal text-primary md:text-5xl">
                   QuantPilot
                 </h2>
-                <p className="mt-3 text-sm text-gray-500 md:text-base">
-                  选择能力，描述需求，等待任务完成并生成可验证的量化看板
+                <p className="mt-3 text-sm text-muted-foreground md:text-base">
+                  选择角色模块，描述真实需求，等待任务完成并生成可验证的量化看板
                 </p>
               </div>
 
@@ -1213,16 +1192,16 @@ export default function HomePage() {
                 onDragLeave={handleDragLeave}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
-                className={`relative w-full max-w-4xl rounded-lg border bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] transition-colors ${
-                  isDragOver ? 'border-red-400 bg-red-50' : 'border-gray-200'
+                className={`relative w-full max-w-4xl rounded-lg border bg-card text-card-foreground shadow-lg transition-colors ${
+                  isDragOver ? 'border-primary bg-primary/5' : 'border-border'
                 }`}
               >
-                <textarea
+                <Textarea
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="请输入任务，例如：贵州茅台最近财务怎么样？生成 K 线、成交量和财务看板"
+                  placeholder={selectedRoleModule.inputPlaceholder}
                   disabled={isCreatingProject}
-                  className="min-h-[128px] w-full resize-none rounded-lg bg-transparent px-5 py-4 text-[16px] leading-6 text-gray-900 outline-none placeholder:text-gray-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="min-h-[128px] resize-none border-0 px-5 py-4 text-[16px] leading-6 shadow-none focus-visible:ring-0"
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       if (event.metaKey || event.ctrlKey) {
@@ -1237,8 +1216,8 @@ export default function HomePage() {
                 />
 
                 {isDragOver && (
-                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-red-400 bg-red-50/90">
-                    <div className="text-center text-red-600">
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
+                    <div className="text-center text-primary">
                       <ImageIcon className="mx-auto mb-2 h-6 w-6" />
                       <div className="text-sm font-semibold">将图片拖到这里</div>
                       <div className="mt-1 text-xs">支持 JPG、PNG、GIF、WEBP</div>
@@ -1246,114 +1225,68 @@ export default function HomePage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-3 py-3">
-                  <label
-                    className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                <div className="flex flex-wrap items-center gap-2 border-t px-3 py-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="relative h-9 w-9"
                     title="上传图片"
+                    asChild
                   >
-                    <ImageIcon className="h-4 w-4" />
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImageUpload}
-                      disabled={isUploading || isCreatingProject}
-                      className="hidden"
-                    />
-                  </label>
+                    <label>
+                      <ImageIcon className="h-4 w-4" />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageUpload}
+                        disabled={isUploading || isCreatingProject}
+                        className="sr-only"
+                      />
+                    </label>
+                  </Button>
 
-                  <div className="relative z-[200]" ref={assistantDropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAssistantDropdown(!showAssistantDropdown);
-                        setShowModelDropdown(false);
-                      }}
-                      className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 hover:text-gray-950"
-                    >
-                      <div className="h-4 w-4 overflow-hidden rounded">
-                        <Image
-                          src={selectedAssistantOption?.icon ?? '/claude.png'}
-                          alt={selectedAssistantOption?.name ?? 'Claude Code'}
-                          width={16}
-                          height={16}
-                          className="h-full w-full object-contain"
-                        />
-                      </div>
-                      <span>{selectedAssistantName}</span>
-                      <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
-                    </button>
+                  <Select value={selectedAssistant} onValueChange={handleAssistantChange}>
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue placeholder="选择助手" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ASSISTANT_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.id}
+                          value={option.id}
+                          disabled={!isAssistantSelectable(option.id)}
+                        >
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                    {showAssistantDropdown && (
-                      <div className="absolute left-0 top-full z-[300] mt-2 min-w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
-                        {ASSISTANT_OPTIONS.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => handleAssistantChange(option.id)}
-                            disabled={!cliStatus[option.id]?.installed}
-                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                              !cliStatus[option.id]?.installed
-                                ? 'cursor-not-allowed text-gray-400 opacity-60'
-                                : selectedAssistant === option.id
-                                ? 'bg-red-50 font-semibold text-red-600'
-                                : 'text-gray-700 hover:bg-gray-50 hover:text-gray-950'
-                            }`}
-                          >
-                            <div className="h-4 w-4 overflow-hidden rounded">
-                              <Image
-                                src={option.icon ?? '/claude.png'}
-                                alt={option.name}
-                                width={16}
-                                height={16}
-                                className="h-full w-full object-contain"
-                              />
-                            </div>
-                            <span className="whitespace-nowrap">{option.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <Badge variant="secondary" className="h-9 rounded-md px-3 text-sm text-primary">
+                    {selectedRoleModule.name}
+                  </Badge>
 
-                  <div className="relative z-[200]" ref={modelDropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowModelDropdown((current) => !current);
-                        setShowAssistantDropdown(false);
-                      }}
-                      className="flex h-9 min-w-[150px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 hover:text-gray-950"
-                    >
-                      <span className="truncate">{selectedModelLabel}</span>
-                      <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-gray-400" />
-                    </button>
+                  <Select value={selectedModel} onValueChange={handleModelChange}>
+                    <SelectTrigger className="w-[170px]">
+                      <SelectValue placeholder="选择模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                    {showModelDropdown && (
-                      <div className="absolute left-0 top-full z-[300] mt-2 max-h-[300px] min-w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                        {availableModels.map((model) => (
-                          <button
-                            key={model.id}
-                            type="button"
-                            onClick={() => handleModelChange(model.id)}
-                            className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                              selectedModel === model.id
-                                ? 'bg-red-50 font-semibold text-red-600'
-                                : 'text-gray-700 hover:bg-gray-50 hover:text-gray-950'
-                            }`}
-                          >
-                            {model.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <button
+                  <Button
                     type="submit"
                     disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreatingProject}
-                    className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg bg-gray-950 text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:bg-gray-300"
+                    size="icon"
+                    className="ml-auto h-9 w-9"
                     title="提交任务"
                   >
                     {isCreatingProject ? (
@@ -1364,7 +1297,7 @@ export default function HomePage() {
                     ) : (
                       <ArrowUp className="h-5 w-5" />
                     )}
-                  </button>
+                  </Button>
                 </div>
               </form>
 
@@ -1382,69 +1315,41 @@ export default function HomePage() {
         onClose={() => setShowGlobalSettings(false)}
       />
 
-      {/* 删除任务弹窗 */}
-      {deleteModal.isOpen && deleteModal.project && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              padding: '1.5rem',
-              maxWidth: '28rem',
-              width: '100%',
-              margin: '0 1rem',
-              border: '1px solid rgb(229 231 235)'
-            }}
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-red-600 " fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 ">删除任务</h3>
-                <p className="text-sm text-gray-500 ">该操作无法撤销</p>
-              </div>
-            </div>
-            
-            <p className="text-gray-700 mb-6">
-              确定要删除 <strong>&quot;{deleteModal.project.name}&quot;</strong> 吗？
-              该任务的项目文件与对话记录将被永久删除。
-            </p>
-            
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={closeDeleteModal}
-                disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-              >
-                取消
-              </button>
-              <button
-                onClick={deleteProject}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {isDeleting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    删除中...
-                  </>
-                ) : (
-                  '删除任务'
-                )}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+      <AlertDialog open={deleteModal.isOpen && Boolean(deleteModal.project)} onOpenChange={(open) => {
+        if (!open) closeDeleteModal();
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除任务</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除 <strong>{deleteModal.project?.name}</strong> 吗？该任务的项目文件与对话记录将被永久删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                deleteProject();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  删除中...
+                </>
+              ) : (
+                '删除任务'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 轻提示 */}
       {toast && (
@@ -1454,17 +1359,17 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
           >
-            <div className={`px-6 py-4 rounded-lg shadow-lg border flex items-center gap-3 max-w-sm backdrop-blur-lg ${
+            <div className={`flex max-w-sm items-center gap-3 rounded-lg border px-6 py-4 shadow-lg backdrop-blur-lg ${
               toast.type === 'success'
-                ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                : 'bg-red-500/20 border-red-500/30 text-red-400'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-destructive/20 bg-destructive/10 text-destructive'
             }`}>
               {toast.type === 'success' ? (
-                <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="h-5 w-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="h-5 w-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
               )}

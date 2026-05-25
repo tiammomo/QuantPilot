@@ -50,11 +50,14 @@ const CLI_OPTIONS: CLIOption[] = [
     color: 'from-slate-900 to-gray-700',
     downloadUrl: 'https://github.com/openai/codex',
     installCommand: 'npm install -g @openai/codex',
-    models: getModelDefinitionsForCli('codex').map(({ id, name, description, supportsImages }) => ({
+    models: getModelDefinitionsForCli('codex').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
       id,
       name,
       description,
       supportsImages,
+      provider,
+      runtime,
+      external,
     })),
     features: ['Autonomous apply_patch', 'OpenAI GPT-5 access', 'Web search integration'],
   },
