@@ -330,6 +330,79 @@ async function isPidWithinProject(pid: number, projectPath: string): Promise<boo
   }
 }
 
+async function isPortOwnedByProject(port: number, projectPath: string): Promise<boolean> {
+  const listeningPids = await findListeningPids(port);
+  if (listeningPids.length === 0) {
+    return false;
+  }
+
+  const ownership = await Promise.all(
+    listeningPids.map((pid) => isPidWithinProject(pid, projectPath))
+  );
+  return ownership.some(Boolean);
+}
+
+async function isPidAlive(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clearStaleProjectNextLock(
+  projectPath: string,
+  logger?: (message: string) => void
+): Promise<void> {
+  const lockPath = path.join(projectPath, '.next', 'dev', 'lock');
+  let pid: number | null = null;
+
+  try {
+    const parsed = JSON.parse(await fs.readFile(lockPath, 'utf8')) as {
+      pid?: unknown;
+    };
+    const numericPid = Number.parseInt(String(parsed?.pid ?? ''), 10);
+    if (Number.isInteger(numericPid) && numericPid > 0) {
+      pid = numericPid;
+    }
+  } catch {
+    if (!(await fileExists(lockPath))) {
+      return;
+    }
+  }
+
+  if (pid && (await isPidAlive(pid)) && (await isPidWithinProject(pid, projectPath))) {
+    return;
+  }
+
+  await fs.rm(lockPath, { force: true });
+  logger?.('Removed stale Next.js dev lock before starting preview.');
+}
+
+async function clearProjectPreviewArtifacts(
+  projectPath: string,
+  logger?: (message: string) => void,
+  options: { aggressive?: boolean } = {}
+): Promise<void> {
+  await clearStaleProjectNextLock(projectPath, logger);
+
+  if (!options.aggressive) {
+    return;
+  }
+
+  await Promise.all([
+    fs.rm(path.join(projectPath, '.next', 'dev', 'cache', 'rspack'), {
+      recursive: true,
+      force: true,
+    }),
+    fs.rm(path.join(projectPath, '.next', 'cache'), {
+      recursive: true,
+      force: true,
+    }),
+  ]);
+}
+
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -679,10 +752,19 @@ async function waitForPreviewReady(
 
   log(
     Buffer.from(
-      `[PreviewManager] Preview server did not respond within ${timeoutMs}ms; continuing regardless.`
+      `[PreviewManager] Preview server did not respond within ${timeoutMs}ms.`
     )
   );
   return false;
+}
+
+function buildPreviewCommandEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const commandEnv: Record<string, string | undefined> = { ...env };
+  delete commandEnv.NEXT_RSPACK;
+  delete commandEnv.TURBOPACK;
+  delete commandEnv.NODE_ENV;
+  commandEnv.NEXT_TELEMETRY_DISABLED = '1';
+  return commandEnv as NodeJS.ProcessEnv;
 }
 
 async function appendCommandLogs(
@@ -695,12 +777,7 @@ async function appendCommandLogs(
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: {
-        ...env,
-        NEXT_RSPACK: env.NEXT_RSPACK || 'true',
-        TURBOPACK: undefined,
-        NEXT_TELEMETRY_DISABLED: '1',
-      },
+      env: buildPreviewCommandEnv(env),
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -791,6 +868,7 @@ class PreviewManager {
       record(`Bootstrapping minimal Next.js app for project ${projectId}`);
       await scaffoldBasicNextApp(projectPath, projectId);
     }
+    await clearProjectPreviewArtifacts(projectPath, record);
 
     const hadNodeModules = await directoryExists(path.join(projectPath, 'node_modules'));
 
@@ -840,12 +918,40 @@ class PreviewManager {
     return { logs };
   }
 
-  public async start(projectId: string): Promise<PreviewInfo> {
-    const existing = this.processes.get(projectId);
-    if (existing && existing.status !== 'error') {
-      return this.toInfo(existing);
+  public async cleanup(projectId: string): Promise<void> {
+    const project = await getProjectById(projectId);
+    if (!project) {
+      return;
     }
 
+    const projectPath = project.repoPath
+      ? path.resolve(project.repoPath)
+      : path.join(process.cwd(), 'projects', projectId);
+
+    const processInfo = this.processes.get(projectId);
+    if (processInfo) {
+      terminateProcessTree(processInfo.process);
+      await terminatePortListeners(processInfo.port, processInfo.projectPath);
+      this.processes.delete(projectId);
+    } else if (project.previewPort) {
+      await terminatePortListeners(project.previewPort, projectPath);
+    }
+
+    const logs: string[] = [];
+    await clearProjectPreviewArtifacts(
+      projectPath,
+      (message) => logs.push(`[PreviewManager] ${message}`),
+      { aggressive: true }
+    );
+
+    await updateProject(projectId, {
+      previewUrl: null,
+      previewPort: null,
+    });
+    await updateProjectStatus(projectId, 'idle');
+  }
+
+  public async start(projectId: string): Promise<PreviewInfo> {
     const project = await getProjectById(projectId);
     if (!project) {
       throw new Error('Project not found');
@@ -854,6 +960,25 @@ class PreviewManager {
     const projectPath = project.repoPath
       ? path.resolve(project.repoPath)
       : path.join(process.cwd(), 'projects', projectId);
+
+    const existing = this.processes.get(projectId);
+    if (existing && existing.status !== 'error') {
+      const existingPath = path.resolve(existing.projectPath);
+      const expectedPath = path.resolve(projectPath);
+      const isSameProject =
+        existingPath === expectedPath || existingPath.startsWith(`${expectedPath}${path.sep}`);
+      const ownsPort = isSameProject && (await isPortOwnedByProject(existing.port, projectPath));
+
+      if (ownsPort) {
+        return this.toInfo(existing);
+      }
+
+      this.processes.delete(projectId);
+      await updateProject(projectId, {
+        previewUrl: null,
+        previewPort: null,
+      });
+    }
 
     await fs.mkdir(projectPath, { recursive: true });
 
@@ -875,6 +1000,7 @@ class PreviewManager {
       );
       await scaffoldBasicNextApp(projectPath, projectId);
     }
+    await clearProjectPreviewArtifacts(projectPath, queueLog);
 
     const previewBounds = resolvePreviewBounds();
     const adoptedPort = await findProjectPreviewPort(
@@ -1040,12 +1166,7 @@ class PreviewManager {
       ['run', 'dev', '--', '--port', String(effectivePort)],
       {
         cwd: projectPath,
-        env: {
-          ...env,
-          NEXT_RSPACK: env.NEXT_RSPACK || 'true',
-          TURBOPACK: undefined,
-          NEXT_TELEMETRY_DISABLED: '1',
-        },
+        env: buildPreviewCommandEnv(env),
         detached: process.platform !== 'win32',
         shell: process.platform === 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -1106,6 +1227,17 @@ class PreviewManager {
         previewPort: previewProcess.port,
         status: 'running',
       });
+    } else {
+      previewProcess.status = 'error';
+      terminateProcessTree(previewProcess.process);
+      await terminatePortListeners(previewProcess.port, previewProcess.projectPath);
+      this.processes.delete(projectId);
+      await updateProject(projectId, {
+        previewUrl: null,
+        previewPort: null,
+      });
+      await updateProjectStatus(projectId, 'idle');
+      throw new Error(`Preview server did not become ready within ${PREVIEW_CONFIG.STARTUP_TIMEOUT}ms.`);
     }
 
     return this.toInfo(previewProcess);

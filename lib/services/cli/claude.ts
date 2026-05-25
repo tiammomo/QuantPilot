@@ -67,6 +67,150 @@ function readPositiveMsEnv(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+type QuantDashboardArtifactSnapshot = {
+  complete: boolean;
+  signature: string;
+  summary: string;
+};
+
+async function statFileOrNull(filePath: string): Promise<{ size: number; mtimeMs: number } | null> {
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return null;
+    return { size: stat.size, mtimeMs: stat.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+function hasMeaningfulJsonPayload(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  }
+
+  return false;
+}
+
+async function parseJsonFileOrNull(filePath: string): Promise<unknown | null> {
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function inspectQuantDashboardArtifacts(projectPath: string): Promise<QuantDashboardArtifactSnapshot> {
+  const requiredFiles = [
+    '.quantpilot/run_plan.json',
+    'data_file/final/dashboard-data.json',
+    'evidence/sources.json',
+    'evidence/data_quality.json',
+    'app/page.tsx',
+  ];
+
+  const stats = await Promise.all(
+    requiredFiles.map(async (relativePath) => ({
+      relativePath,
+      stat: await statFileOrNull(path.join(projectPath, relativePath)),
+    }))
+  );
+  const missing = stats.filter((entry) => !entry.stat).map((entry) => entry.relativePath);
+
+  if (missing.length > 0) {
+    return {
+      complete: false,
+      signature: '',
+      summary: `缺少关键产物：${missing.join(', ')}`,
+    };
+  }
+
+  const [runPlan, dashboardData, sources, dataQuality, pageSource] = await Promise.all([
+    parseJsonFileOrNull(path.join(projectPath, '.quantpilot/run_plan.json')),
+    parseJsonFileOrNull(path.join(projectPath, 'data_file/final/dashboard-data.json')),
+    parseJsonFileOrNull(path.join(projectPath, 'evidence/sources.json')),
+    parseJsonFileOrNull(path.join(projectPath, 'evidence/data_quality.json')),
+    fs.readFile(path.join(projectPath, 'app/page.tsx'), 'utf8').catch(() => ''),
+  ]);
+
+  if (!hasMeaningfulJsonPayload(runPlan)) {
+    return { complete: false, signature: '', summary: '.quantpilot/run_plan.json 不是有效执行计划' };
+  }
+
+  if (!hasMeaningfulJsonPayload(dashboardData)) {
+    return { complete: false, signature: '', summary: 'dashboard-data.json 没有有效数据' };
+  }
+
+  if (!hasMeaningfulJsonPayload(sources) || !hasMeaningfulJsonPayload(dataQuality)) {
+    return { complete: false, signature: '', summary: '数据来源或质量证据不完整' };
+  }
+
+  const hasQuantDashboard =
+    pageSource.length > 1500 &&
+    !/Create Next App|Get started by editing|next\/image/i.test(pageSource) &&
+    /(dashboard-data|data_file\/final|K\s*线|量价|均线|财务|公告|风险|quote_time|fetched_at|svg|canvas|recharts)/i.test(pageSource);
+
+  if (!hasQuantDashboard) {
+    return { complete: false, signature: '', summary: 'app/page.tsx 尚未形成有效量化看板' };
+  }
+
+  const runPlanRecord = runPlan && typeof runPlan === 'object' && !Array.isArray(runPlan)
+    ? (runPlan as Record<string, unknown>)
+    : null;
+  const dashboardRecord = dashboardData && typeof dashboardData === 'object' && !Array.isArray(dashboardData)
+    ? (dashboardData as Record<string, unknown>)
+    : null;
+  const plannedSymbols = Array.isArray(runPlanRecord?.symbols)
+    ? runPlanRecord.symbols.filter((symbol): symbol is string => typeof symbol === 'string' && /^(?:6|0|3|5)\d{5}$/.test(symbol))
+    : [];
+  const assetRows = Array.isArray(dashboardRecord?.assets) ? dashboardRecord.assets : [];
+  const isMultiSymbolTask = plannedSymbols.length > 1 || assetRows.length > 1;
+  if (isMultiSymbolTask) {
+    const dashboardSymbols = Array.isArray(dashboardRecord?.assets)
+      ? dashboardRecord.assets
+          .map((asset) => (asset && typeof asset === 'object' && !Array.isArray(asset) ? (asset as Record<string, unknown>).symbol : null))
+          .filter((symbol): symbol is string => typeof symbol === 'string')
+      : [];
+    const pageMentionsAllSymbols =
+      plannedSymbols.every((symbol) => pageSource.includes(symbol)) ||
+      (/requestedSymbols|assets|comparison/.test(pageSource) && plannedSymbols.every((symbol) => dashboardSymbols.includes(symbol)));
+    const hasComparisonSignals = /(requestedSymbols|assets|comparison|对比|相对强弱|横向|矩阵|多标的|收益对比|回撤对比|波动)/i.test(pageSource);
+    if (!pageMentionsAllSymbols || !hasComparisonSignals) {
+      return {
+        complete: false,
+        signature: '',
+        summary: '多标的任务页面尚未展示全部标的或对比结构',
+      };
+    }
+  }
+
+  return {
+    complete: true,
+    signature: stats
+      .map(({ relativePath, stat }) => `${relativePath}:${stat?.size ?? 0}:${Math.round(stat?.mtimeMs ?? 0)}`)
+      .join('|'),
+    summary: 'run_plan、final 数据、证据文件和看板页面已完成',
+  };
+}
+
+async function appendQuantExecutionEvent(projectPath: string, payload: Record<string, unknown>): Promise<void> {
+  const eventPath = path.join(projectPath, '.quantpilot/events.jsonl');
+  const event = {
+    created_at: new Date().toISOString(),
+    ...payload,
+  };
+
+  try {
+    await fs.mkdir(path.dirname(eventPath), { recursive: true });
+    await fs.appendFile(eventPath, `${JSON.stringify(event)}\n`, 'utf8');
+  } catch (error) {
+    console.warn('[ClaudeService] Failed to append QuantPilot execution event:', error);
+  }
+}
+
 function pickCommandFromToolInput(input: Record<string, unknown>): string | null {
   const keys = ['command', 'cmd', 'shellCommand', 'shell_command'];
   for (const key of keys) {
@@ -97,6 +241,10 @@ function getBlockedBashReason(command: string): string | null {
       pattern: /\buvicorn\b|\bfastapi\s+dev\b|\bflask\s+run\b|\bpython(?:3)?\s+-m\s+http\.server\b|\bserve\b(?:\s|$)/i,
       reason: '不能在生成项目中启动长驻服务，HTTP 验证由平台自动执行。',
     },
+    {
+      pattern: /\b(?:cat|tee|echo|printf|python(?:3)?(?:\s+-c)?|node(?:\s+-e)?)\b[\s\S]*(?:>|>>|<<\s*['"]?\w+)|\btouch\s+.*\.(?:tsx?|jsx?|css|json|txt|md)\b/i,
+      reason: '不能通过 Bash 重定向、heredoc、脚本或 touch 写入源码/数据文件，请使用 Write/Edit 工具修改文件。',
+    },
   ];
 
   return blockedPatterns.find(({ pattern }) => pattern.test(compact))?.reason ?? null;
@@ -119,7 +267,7 @@ async function guardClaudeToolUse(toolName: string, input: Record<string, unknow
     }
   }
 
-  return { behavior: 'allow' };
+  return { behavior: 'allow', updatedInput: input };
 }
 
 const normalizeAction = (value: unknown): ToolAction | undefined => {
@@ -265,6 +413,72 @@ const extractPathFromInput = (input: unknown, action?: ToolAction): string | und
   return undefined;
 };
 
+const extractPathFromToolText = (value: unknown): string | undefined => {
+  const text = stringifyToolResultContent(value);
+  if (!text) return undefined;
+
+  const patterns = [
+    /File created successfully at:\s*([^\n(]+)/i,
+    /The file\s+(.+?)\s+has been updated successfully/i,
+    /File (?:updated|written|created) successfully at:\s*([^\n(]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const candidate = match?.[1]?.trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
+const describeCurlCommand = (command: string): string | undefined => {
+  const lower = command.toLowerCase();
+  if (!lower.includes('curl')) return undefined;
+  if (lower.includes('/api/v1/symbols/resolve')) return '解析股票名称或代码，确认后续取数标的。';
+  if (lower.includes('/api/v1/quotes/realtime')) return '获取实时行情数据，确认最新价、涨跌幅和成交信息。';
+  if (lower.includes('/api/v1/quotes/history')) return '获取历史 K 线和成交量数据，用于趋势、均线和量价分析。';
+  if (lower.includes('/api/v1/indicators')) return '计算技术指标，补充均线、收益、回撤、波动率等分析字段。';
+  if (lower.includes('/api/v1/fundamentals/financials')) return '获取财务报表数据，补充营收、利润、现金流和成长性。';
+  if (lower.includes('/api/v1/fundamentals/indicators')) return '获取基本面指标，补充 ROE、毛利率、净利率和估值质量。';
+  if (lower.includes('/api/v1/announcements')) return '获取公告和事件数据，补充行情变化的事件背景。';
+  if (lower.includes('/api/market')) return '检查生成页面的同源行情代理是否可用。';
+  return '调用本地行情后端获取真实数据。';
+};
+
+const describeFileTarget = (target: string, action?: ToolAction): string | undefined => {
+  const normalized = target.replaceAll('\\', '/');
+  if (!normalized) return undefined;
+  if (normalized.endsWith('.quantpilot/run_plan.json')) return '记录本次分析计划、标的、数据需求和验收项。';
+  if (normalized.endsWith('.quantpilot/events.jsonl')) return '追加可见执行事件，便于复盘每个阶段。';
+  if (normalized.endsWith('evidence/sources.json')) return '记录数据来源、接口、抓取时间和来源说明。';
+  if (normalized.endsWith('evidence/data_quality.json')) return '记录数据质量、缺失字段、异常和限制。';
+  if (normalized.endsWith('data_file/final/dashboard-data.json')) return '写入最终看板数据，页面将基于它渲染图表。';
+  if (normalized.endsWith('app/page.tsx')) return action === 'Read' ? '读取看板页面代码，确认当前渲染结构。' : '生成或更新量化可视化看板页面。';
+  if (normalized.endsWith('app/globals.css')) return action === 'Read' ? '读取页面样式，确认图表和布局基础。' : '更新看板样式，保证布局、图表和响应式体验。';
+  if (normalized.endsWith('next.config.js')) return '检查 Next.js 配置，确保预览和构建链路可用。';
+  if (normalized.endsWith('package.json')) return '检查项目依赖和脚本，确保 build/dev 可执行。';
+  return undefined;
+};
+
+const describeSkill = (toolName?: string): string | undefined => {
+  if (!toolName || !/^quant-[a-z0-9-]+$/i.test(toolName)) return undefined;
+  const lower = toolName.toLowerCase();
+  if (lower.includes('run-planner')) return '建立分析计划，明确标的、数据需求、看板模块和验证规则。';
+  if (lower.includes('symbol-resolver')) return '解析股票名称或代码，确保后续接口使用正确标的。';
+  if (lower.includes('market-data')) return '获取实时行情，补充最新价、涨跌幅、成交额和行情时间。';
+  if (lower.includes('a-share-history')) return '获取历史 K 线和成交量数据，为趋势与均线分析做准备。';
+  if (lower.includes('technical-indicators')) return '计算技术指标，形成均线、回撤、波动率和量价信号。';
+  if (lower.includes('fundamental')) return '获取财务和基本面数据，补充经营质量分析。';
+  if (lower.includes('announcement')) return '获取公告和事件信息，补充行情背景。';
+  if (lower.includes('data-quality')) return '检查数据覆盖率、缺失字段、来源和可用性。';
+  if (lower.includes('visualization')) return '基于最终数据生成可视化看板页面。';
+  if (lower.includes('comparison')) return '组织多标的对比数据，生成横向研究视角。';
+  return '执行量化分析 skill，推进当前阶段。';
+};
+
 const buildToolMetadata = (block: Record<string, unknown>): Record<string, unknown> => {
   const metadata: Record<string, unknown> = {};
   const toolName = pickFirstString(block.name) ?? (typeof block.name === 'string' ? block.name : undefined);
@@ -340,7 +554,161 @@ const buildToolMetadata = (block: Record<string, unknown>): Record<string, unkno
     metadata.summary = summary;
   }
 
+  if (!metadata.summary) {
+    const command = pickFirstString(metadata.command) ?? (filePath && filePath.includes('curl') ? filePath : undefined);
+    metadata.summary =
+      describeSkill(toolName) ??
+      (command ? describeCurlCommand(command) : undefined) ??
+      (filePath ? describeFileTarget(filePath, action) : undefined);
+  }
+
   return metadata;
+};
+
+const stringifyToolResultContent = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === 'string') {
+          return entry;
+        }
+        if (entry && typeof entry === 'object') {
+          const record = entry as Record<string, unknown>;
+          const text = pickFirstString(record.text) ?? pickFirstString(record.content) ?? pickFirstString(record.value);
+          if (text) {
+            return text;
+          }
+        }
+        try {
+          return JSON.stringify(entry);
+        } catch {
+          return String(entry);
+        }
+      })
+      .filter((entry) => entry.trim().length > 0)
+      .join('\n')
+      .trim();
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const text = pickFirstString(record.text) ?? pickFirstString(record.content) ?? pickFirstString(record.value);
+    if (text) {
+      return text;
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value).trim();
+};
+
+const buildToolResultMetadata = (
+  block: Record<string, unknown>,
+  toolNameById: Map<string, string>
+): Record<string, unknown> => {
+  const toolUseId =
+    pickFirstString(block.tool_use_id) ??
+    pickFirstString(block.toolUseId) ??
+    pickFirstString(block.toolCallId) ??
+    pickFirstString(block.tool_call_id) ??
+    pickFirstString(block.id);
+  const rawToolName =
+    pickFirstString(block.name) ??
+    pickFirstString(block.tool_name) ??
+    pickFirstString(block.toolName) ??
+    (toolUseId ? toolNameById.get(toolUseId) : undefined);
+  const skillName =
+    block.content && typeof block.content === 'object'
+      ? pickFirstString((block.content as Record<string, unknown>).skill)
+      : undefined;
+  const metadata: Record<string, unknown> = {};
+
+  if (rawToolName || skillName) {
+    metadata.toolName = rawToolName ?? skillName;
+    metadata.tool_name = rawToolName ?? skillName;
+    if (skillName) {
+      metadata.skill = skillName;
+      metadata.skillName = skillName;
+    }
+  }
+
+  if (toolUseId) {
+    metadata.toolUseId = toolUseId;
+    metadata.tool_use_id = toolUseId;
+    metadata.toolCallId = toolUseId;
+    metadata.tool_call_id = toolUseId;
+  }
+
+  if (typeof block.is_error === 'boolean') {
+    metadata.isError = block.is_error;
+    metadata.is_error = block.is_error;
+  }
+
+  const resultText = stringifyToolResultContent(block.content ?? block.result ?? block.output ?? block.text ?? block.value);
+  const resultPath = extractPathFromToolText(resultText);
+  if (resultPath) {
+    metadata.filePath = resultPath;
+    metadata.file_path = resultPath;
+  }
+  if (!metadata.summary && resultText) {
+    if (/error|failed|失败|报错/i.test(resultText)) {
+      metadata.summary = '工具返回异常，需要根据错误信息调整后续步骤。';
+    } else if (resultPath) {
+      metadata.summary = describeFileTarget(resultPath, inferActionFromToolName(rawToolName));
+    }
+  }
+
+  return metadata;
+};
+
+const dispatchToolResultBlock = async ({
+  projectId,
+  block,
+  toolNameById,
+  requestId,
+  dedupeStore,
+}: {
+  projectId: string;
+  block: Record<string, unknown>;
+  toolNameById: Map<string, string>;
+  requestId?: string;
+  dedupeStore: Set<string>;
+}): Promise<void> => {
+  const metadata = buildToolResultMetadata(block, toolNameById);
+  const resultValue = block.content ?? block.result ?? block.output ?? block.text ?? block.value;
+  const resultText = stringifyToolResultContent(resultValue);
+
+  if (!resultText) {
+    return;
+  }
+
+  metadata.toolOutput = resultText;
+  metadata.tool_output = resultText;
+  metadata.output = resultText;
+
+  await dispatchToolMessage({
+    projectId,
+    metadata,
+    content: resultText,
+    requestId,
+    persist: true,
+    isStreaming: false,
+    messageType: 'tool_result',
+    dedupeKey: computeToolMessageSignature(metadata, resultText, 'tool_result'),
+    dedupeStore,
+  });
 };
 
 interface ToolPlaceholderDetails {
@@ -566,6 +934,7 @@ const dispatchToolMessage = async ({
       content: trimmedContent,
       metadata: enrichedMetadata,
       cliSource: 'claude',
+      requestId: requestId ?? null,
     });
 
     streamManager.publish(projectId, {
@@ -660,14 +1029,18 @@ export async function executeClaude(
   const configuredMaxTurns = Number(process.env.CLAUDE_CODE_MAX_TURNS);
   const maxTurns = Number.isFinite(configuredMaxTurns) && configuredMaxTurns > 0
     ? configuredMaxTurns
-    : 50;
+    : 32;
   const idleTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
   const totalTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
+  const quantArtifactCheckIntervalMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_CHECK_INTERVAL_MS', 12 * 1000);
+  const quantArtifactStableMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_STABLE_MS', 45 * 1000);
   const abortController = new AbortController();
   let response: ReturnType<typeof query> | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let totalTimer: NodeJS.Timeout | null = null;
+  let artifactCompletionTimer: NodeJS.Timeout | null = null;
   let abortReason: string | null = null;
+  let gracefulAbortReason: string | null = null;
 
   let hasMarkedTerminalStatus = false;
   let emittedCompletedStatus = false;
@@ -723,6 +1096,10 @@ export async function executeClaude(
       clearTimeout(totalTimer);
       totalTimer = null;
     }
+    if (artifactCompletionTimer) {
+      clearInterval(artifactCompletionTimer);
+      artifactCompletionTimer = null;
+    }
   };
 
   const abortClaudeExecution = (message: string) => {
@@ -730,6 +1107,22 @@ export async function executeClaude(
     abortReason = message;
     console.warn(`[ClaudeService] ${message}`);
     publishStatus('agent_timeout', message);
+    try {
+      abortController.abort(new Error(message));
+    } catch {
+      abortController.abort();
+    }
+    response?.close();
+  };
+
+  const completeClaudeExecutionFromArtifacts = async (message: string) => {
+    if (abortReason) return;
+    abortReason = message;
+    gracefulAbortReason = message;
+    emittedCompletedStatus = true;
+    console.warn(`[ClaudeService] ${message}`);
+    await safeMarkCompleted();
+    publishStatus('completed', message);
     try {
       abortController.abort(new Error(message));
     } catch {
@@ -749,6 +1142,52 @@ export async function executeClaude(
     idleTimer.unref?.();
   };
 
+  const startQuantArtifactCompletionWatch = (absoluteProjectPath: string) => {
+    if (artifactCompletionTimer || quantArtifactCheckIntervalMs <= 0 || quantArtifactStableMs <= 0) {
+      return;
+    }
+
+    let firstCompleteAt: number | null = null;
+    let lastSignature = '';
+
+    artifactCompletionTimer = setInterval(() => {
+      void (async () => {
+        if (abortReason || hasMarkedTerminalStatus) {
+          return;
+        }
+
+        const snapshot = await inspectQuantDashboardArtifacts(absoluteProjectPath);
+        if (!snapshot.complete) {
+          firstCompleteAt = null;
+          lastSignature = '';
+          return;
+        }
+
+        const now = Date.now();
+        if (snapshot.signature !== lastSignature) {
+          firstCompleteAt = now;
+          lastSignature = snapshot.signature;
+          return;
+        }
+
+        if (firstCompleteAt && now - firstCompleteAt >= quantArtifactStableMs) {
+          const message = 'QuantPilot 已检测到量化看板关键产物完成并稳定，自动结束 Agent 执行并进入验证。';
+          await appendQuantExecutionEvent(absoluteProjectPath, {
+            event_type: 'agent_auto_completed',
+            stage: 'execution',
+            status: 'success',
+            run_id: requestId,
+            summary: `${snapshot.summary}。${message}`,
+          });
+          await completeClaudeExecutionFromArtifacts(message);
+        }
+      })().catch((error) => {
+        console.warn('[ClaudeService] Quant artifact completion check failed:', error);
+      });
+    }, quantArtifactCheckIntervalMs);
+    artifactCompletionTimer.unref?.();
+  };
+
   // Send start notification via SSE
   publishStatus('starting', 'Initializing Claude Agent SDK...');
 
@@ -758,6 +1197,7 @@ export async function executeClaude(
   const stderrBuffer: string[] = [];
   const placeholderHistory = new Map<string, Set<string>>();
   const persistedToolMessageSignatures = new Set<string>();
+  const toolNameById = new Map<string, string>();
   const markPlaceholderHandled = (sessionKey: string, placeholder: string): boolean => {
     const normalized = placeholder.trim();
     if (!normalized) {
@@ -846,9 +1286,16 @@ export async function executeClaude(
       totalTimer.unref?.();
     }
     refreshIdleTimer();
+    startQuantArtifactCompletionWatch(absoluteProjectPath);
+
+    const taskPrompt = await buildQuantPilotTaskPrompt(
+      instruction,
+      absoluteProjectPath,
+      quantManifest
+    );
 
     response = query({
-      prompt: buildQuantPilotTaskPrompt(instruction, absoluteProjectPath, quantManifest),
+      prompt: taskPrompt,
       options: {
         abortController,
         cwd: absoluteProjectPath,
@@ -919,6 +1366,12 @@ export async function executeClaude(
               if (toolUseId) {
                 metadata.toolCallId = toolUseId;
                 metadata.tool_call_id = toolUseId;
+                metadata.toolUseId = toolUseId;
+                metadata.tool_use_id = toolUseId;
+                const name = pickFirstString(toolUseBlock.name);
+                if (name) {
+                  toolNameById.set(toolUseId, name);
+                }
               }
               await dispatchToolMessage({
                 projectId,
@@ -929,6 +1382,25 @@ export async function executeClaude(
                 isStreaming: true,
               });
             }
+            if (contentBlock && typeof contentBlock === 'object' && contentBlock.type === 'tool_result') {
+              await dispatchToolResultBlock({
+                projectId,
+                block: contentBlock as Record<string, unknown>,
+                toolNameById,
+                requestId,
+                dedupeStore: persistedToolMessageSignatures,
+              });
+            }
+            break;
+          }
+          case 'tool_result': {
+            await dispatchToolResultBlock({
+              projectId,
+              block: event as Record<string, unknown>,
+              toolNameById,
+              requestId,
+              dedupeStore: persistedToolMessageSignatures,
+            });
             break;
           }
           case 'content_block_delta': {
@@ -1059,6 +1531,7 @@ export async function executeClaude(
                 messageType: 'chat',
                 content: streamState.content,
                 cliSource: 'claude',
+                requestId: requestId ?? null,
               });
 
               streamManager.publish(projectId, {
@@ -1169,6 +1642,12 @@ export async function executeClaude(
               if (toolUseId) {
                 metadata.toolCallId = toolUseId;
                 metadata.tool_call_id = toolUseId;
+                metadata.toolUseId = toolUseId;
+                metadata.tool_use_id = toolUseId;
+                const safeToolName = pickFirstString(safeBlock.name);
+                if (safeToolName) {
+                  toolNameById.set(toolUseId, safeToolName);
+                }
               }
               const name = typeof safeBlock.name === 'string' ? safeBlock.name : pickFirstString(safeBlock.name);
               const toolContent = `Using tool: ${name ?? 'tool'}`;
@@ -1181,6 +1660,17 @@ export async function executeClaude(
                 isStreaming: false,
                 messageType: 'tool_use',
                 dedupeKey: computeToolMessageSignature(metadata, toolContent, 'tool_use'),
+                dedupeStore: persistedToolMessageSignatures,
+              });
+              continue;
+            }
+
+            if (safeBlock.type === 'tool_result') {
+              await dispatchToolResultBlock({
+                projectId,
+                block: safeBlock as Record<string, unknown>,
+                toolNameById,
+                requestId,
                 dedupeStore: persistedToolMessageSignatures,
               });
               continue;
@@ -1202,6 +1692,7 @@ export async function executeClaude(
             // sessionId is Session table foreign key, so don't store Claude SDK session ID
             // Claude SDK session ID is stored in project.activeClaudeSessionId
             cliSource: 'claude',
+            requestId: requestId ?? null,
           });
 
           // Send via SSE in real-time
@@ -1209,6 +1700,25 @@ export async function executeClaude(
             type: 'message',
             data: serializeMessage(savedMessage, { requestId }),
           });
+        }
+      } else if (message.type === 'user') {
+        const userMessage = (message as any).message;
+        const contentBlocks = Array.isArray(userMessage?.content) ? userMessage.content : [];
+
+        for (const block of contentBlocks) {
+          if (!block || typeof block !== 'object') {
+            continue;
+          }
+          const safeBlock = block as Record<string, unknown>;
+          if (safeBlock.type === 'tool_result') {
+            await dispatchToolResultBlock({
+              projectId,
+              block: safeBlock,
+              toolNameById,
+              requestId,
+              dedupeStore: persistedToolMessageSignatures,
+            });
+          }
         }
       } else if (message.type === 'result') {
         // Final result
@@ -1222,6 +1732,9 @@ export async function executeClaude(
 
     console.log('[ClaudeService] Streaming completed');
     if (abortReason) {
+      if (gracefulAbortReason) {
+        return;
+      }
       throw new Error(abortReason);
     }
     await safeMarkCompleted();
@@ -1230,6 +1743,11 @@ export async function executeClaude(
       emittedCompletedStatus = true;
     }
   } catch (error) {
+    if (gracefulAbortReason) {
+      console.log(`[ClaudeService] Claude execution ended after artifact completion: ${gracefulAbortReason}`);
+      return;
+    }
+
     console.error(`[ClaudeService] Failed to execute Claude:`, error);
 
     let errorMessage = abortReason ?? 'Unknown error';

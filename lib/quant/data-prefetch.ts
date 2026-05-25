@@ -8,6 +8,7 @@ type JsonRecord = Record<string, unknown>;
 interface PrefetchResult {
   skipped: boolean;
   symbol?: string;
+  symbols?: string[];
   finalDataPath?: string;
   rawFiles?: string[];
   summary: string;
@@ -36,21 +37,171 @@ const KNOWN_SYMBOLS: Array<{ keyword: string; symbol: string }> = [
 ];
 
 function isQuantAnalysisPlan(plan: QuantRunPlan): boolean {
-  return ['stock_diagnosis', 'technical_analysis', 'fundamental_analysis', 'backtest_review'].includes(plan.capabilityId);
+  return [
+    'stock_diagnosis',
+    'technical_analysis',
+    'fundamental_analysis',
+    'asset_comparison',
+    'sector_rotation',
+    'strategy_research',
+    'backtest_review',
+    'portfolio_risk',
+  ].includes(plan.capabilityId);
 }
 
-function inferSymbol(plan: QuantRunPlan): string | null {
-  const planned = plan.symbols.find((symbol) => /^(?:6|0|3|5)\d{5}$/.test(symbol));
-  if (planned) {
+const SYMBOL_CODE_PATTERN = /^(?:6|0|3|5)\d{5}$/;
+const GENERIC_QUESTION_WORDS = [
+  '分析',
+  '查询',
+  '查看',
+  '看看',
+  '看一下',
+  '帮我',
+  '帮忙',
+  '推荐',
+  '买入',
+  '卖出',
+  '股票',
+  '个股',
+  '行情',
+  '走势',
+  '最近',
+  '可视化',
+  '看板',
+  '生成',
+];
+
+function uniqueSymbols(symbols: string[]): string[] {
+  return Array.from(new Set(symbols.filter((symbol) => SYMBOL_CODE_PATTERN.test(symbol))));
+}
+
+function pickSymbolCode(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return SYMBOL_CODE_PATTERN.test(trimmed) ? trimmed : null;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const candidates = [
+    record.symbol,
+    record.code,
+    record.security_code,
+    record.securityCode,
+    record.ticker,
+    typeof record.secid === 'string' ? record.secid.split('.').at(-1) : null,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+    const trimmed = candidate.trim();
+    if (SYMBOL_CODE_PATTERN.test(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+function inferPlannedSymbols(plan: QuantRunPlan): string[] {
+  const planned = Array.isArray(plan.symbols) ? plan.symbols : [];
+  const codes = plan.question.match(/\b(?:6|0|3|5)\d{5}\b/g) ?? [];
+  const known = KNOWN_SYMBOLS.filter((item) => plan.question.includes(item.keyword)).map((item) => item.symbol);
+  return uniqueSymbols([
+    ...planned.map(pickSymbolCode).filter((symbol): symbol is string => Boolean(symbol)),
+    ...codes,
+    ...known,
+  ]).slice(0, 8);
+}
+
+function cleanCandidate(value: string): string | null {
+  let candidate = value
+    .replace(/\s+/g, '')
+    .replace(/^(请|麻烦|帮我|帮忙|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|对比)+/, '')
+    .replace(/(股票|个股|股份|公司)?(最近|近期|近|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '');
+
+  candidate = candidate.replace(/^(?:A股|港股|美股)/, '').trim();
+
+  if (candidate.length < 2 || candidate.length > 10) {
+    return null;
+  }
+
+  if (GENERIC_QUESTION_WORDS.some((word) => candidate.includes(word))) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function extractNameCandidates(question: string): string[] {
+  const normalized = question.replace(/\b(?:6|0|3|5)\d{5}\b/g, ' ');
+  const rawParts = [
+    ...normalized.split(/[，。！？?；;、,\n\r]+/),
+    ...(normalized.match(/[\u4e00-\u9fffA-Za-z]{2,12}(?=(?:最近|近期|近|股票|个股|股份|行情|走势|K\s*线|成交量|技术指标|财务|基本面|公告|怎么样|如何|怎么))/g) ?? []),
+  ];
+
+  return Array.from(
+    new Set(
+      rawParts
+        .map(cleanCandidate)
+        .filter((candidate): candidate is string => Boolean(candidate))
+    )
+  ).slice(0, 6);
+}
+
+async function resolveSymbolsFromQuestion(question: string, warnings: string[]): Promise<string[]> {
+  const candidates = extractNameCandidates(question);
+  const resolved: string[] = [];
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchJson(
+        `/api/v1/symbols/resolve?query=${encodeURIComponent(candidate)}&count=5`
+      );
+      const rows = Array.isArray(response.results) ? response.results : [];
+      const firstStock = rows
+        .map(asRecord)
+        .find((row) => {
+          const symbol = pickSymbolCode(row);
+          const raw = asRecord(row?.raw);
+          const classify = typeof raw?.Classify === 'string' ? raw.Classify : '';
+          return Boolean(symbol && (!classify || classify === 'AStock' || classify === 'Index' || classify === 'Fund'));
+        });
+      const symbol = pickSymbolCode(firstStock);
+      if (symbol) {
+        resolved.push(symbol);
+        break;
+      }
+    } catch (error) {
+      warnings.push(`证券名称 ${candidate} 解析失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return uniqueSymbols(resolved);
+}
+
+async function inferSymbols(plan: QuantRunPlan, warnings: string[]): Promise<string[]> {
+  const planned = inferPlannedSymbols(plan);
+  if (planned.length > 0) {
     return planned;
   }
 
-  const code = plan.question.match(/\b(?:6|0|3|5)\d{5}\b/)?.[0];
-  if (code) {
-    return code;
-  }
+  return resolveSymbolsFromQuestion(plan.question, warnings);
+}
 
-  return KNOWN_SYMBOLS.find((item) => plan.question.includes(item.keyword))?.symbol ?? null;
+function inferHistoryLimit(plan: QuantRunPlan): number {
+  const source = `${plan.timeRange ?? ''} ${plan.question}`.replace(/\s+/g, '');
+  const dayMatch = source.match(/最近(\d+)(?:个)?(?:交易日|日|天)/);
+  const rawDays = dayMatch?.[1] ? Number.parseInt(dayMatch[1], 10) : 120;
+  if (!Number.isFinite(rawDays)) {
+    return 120;
+  }
+  return Math.min(Math.max(rawDays, 20), 500);
 }
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -103,12 +254,21 @@ function calculateMetrics(kline: JsonRecord | null): JsonRecord {
   const variance = returns.length
     ? mean(returns.map((value) => (value - avgReturn) ** 2)) ?? 0
     : 0;
+  let peak = closes[0] ?? 0;
+  let maxDrawdown = 0;
+  for (const close of closes) {
+    peak = Math.max(peak, close);
+    if (peak > 0) {
+      maxDrawdown = Math.min(maxDrawdown, ((close - peak) / peak) * 100);
+    }
+  }
 
   return {
     periodReturn:
       firstClose && lastClose ? round(((lastClose - firstClose) / firstClose) * 100) : null,
     periodHigh: highs.length ? round(Math.max(...highs)) : null,
     periodLow: lows.length ? round(Math.min(...lows)) : null,
+    maxDrawdown: round(maxDrawdown),
     volatility20d: round(Math.sqrt(variance) * Math.sqrt(252) * 100),
     avgVolume20d: round(mean(volumes.slice(-20))),
     ma5: round(mean(closes.slice(-5))),
@@ -117,13 +277,18 @@ function calculateMetrics(kline: JsonRecord | null): JsonRecord {
   };
 }
 
-async function fetchJson(endpoint: string): Promise<JsonRecord> {
+async function fetchJson(endpoint: string, init: RequestInit = {}): Promise<JsonRecord> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(`${MARKET_API_BASE_URL}${endpoint}`, {
+      ...init,
       signal: controller.signal,
       cache: 'no-store',
+      headers: {
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(init.headers ?? {}),
+      },
     });
     const text = await response.text();
     if (!response.ok) {
@@ -210,37 +375,73 @@ function finalDataFromResponses(params: {
   };
 }
 
-export async function prefetchQuantDataForRunPlan(params: {
-  projectPath: string;
-  plan: QuantRunPlan;
-}): Promise<PrefetchResult> {
-  if (!isQuantAnalysisPlan(params.plan)) {
-    return { skipped: true, summary: `能力 ${params.plan.capabilityId} 暂不需要平台预取数据。` };
-  }
-
-  const symbol = inferSymbol(params.plan);
-  if (!symbol) {
-    return { skipped: true, summary: '未识别到单只 A 股标的，跳过平台预取。' };
-  }
-
-  await ensureQuantWorkspace(params.projectPath);
-  const runId = params.plan.runId;
-  const rawDir = path.join(params.projectPath, 'data_file', 'raw', runId);
-  const rawFiles: string[] = [];
-
-  await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: 'data_prefetch_started',
-    stage: 'data_collection',
-    status: 'pending',
-    run_id: runId,
-    summary: `平台开始预取 ${symbol} 的真实行情数据。`,
+function buildComparisonSummary(assets: JsonRecord[]): JsonRecord {
+  const rows = assets.map((asset) => {
+    const metrics = asRecord(asset.computedMetrics);
+    const quote = asRecord(asset.quote);
+    const symbol = String(asset.symbol ?? quote?.symbol ?? '');
+    return {
+      symbol,
+      name: asset.name ?? quote?.name ?? symbol,
+      price: quote?.price ?? null,
+      change_percent: quote?.change_percent ?? null,
+      period_return: metrics?.periodReturn ?? null,
+      max_drawdown: metrics?.maxDrawdown ?? null,
+      volatility20d: metrics?.volatility20d ?? null,
+      avg_volume_20d: metrics?.avgVolume20d ?? null,
+      amount: quote?.amount ?? null,
+      as_of: asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? null,
+      source: asset.source ?? quote?.source ?? null,
+    };
   });
 
-  const quote = await fetchJson(`/api/v1/quotes/realtime/${symbol}`);
+  const numericRows = rows.map((row) => ({
+    ...row,
+    periodReturnNumber: numeric(row.period_return),
+    drawdownNumber: numeric(row.max_drawdown),
+    volatilityNumber: numeric(row.volatility20d),
+  }));
+  const bestReturn = numericRows
+    .filter((row) => row.periodReturnNumber !== null)
+    .sort((a, b) => (b.periodReturnNumber ?? 0) - (a.periodReturnNumber ?? 0))[0];
+  const lowestDrawdown = numericRows
+    .filter((row) => row.drawdownNumber !== null)
+    .sort((a, b) => Math.abs(a.drawdownNumber ?? 0) - Math.abs(b.drawdownNumber ?? 0))[0];
+  const lowestVolatility = numericRows
+    .filter((row) => row.volatilityNumber !== null)
+    .sort((a, b) => (a.volatilityNumber ?? 0) - (b.volatilityNumber ?? 0))[0];
+
+  return {
+    rows,
+    leaders: {
+      best_return: bestReturn
+        ? { symbol: bestReturn.symbol, name: bestReturn.name, value: bestReturn.period_return }
+        : null,
+      lowest_drawdown: lowestDrawdown
+        ? { symbol: lowestDrawdown.symbol, name: lowestDrawdown.name, value: lowestDrawdown.max_drawdown }
+        : null,
+      lowest_volatility: lowestVolatility
+        ? { symbol: lowestVolatility.symbol, name: lowestVolatility.name, value: lowestVolatility.volatility20d }
+        : null,
+    },
+  };
+}
+
+async function fetchSymbolDataset(params: {
+  projectPath: string;
+  runId: string;
+  symbol: string;
+  plan: QuantRunPlan;
+  rawFiles: string[];
+  warnings: string[];
+}): Promise<JsonRecord> {
+  const symbolRawDir = path.join(params.projectPath, 'data_file', 'raw', params.runId, params.symbol);
+  const historyLimit = inferHistoryLimit(params.plan);
+  const quote = await fetchJson(`/api/v1/quotes/realtime/${params.symbol}`);
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
-  const quotePath = path.join(rawDir, 'quote.json');
+  const quotePath = path.join(symbolRawDir, 'quote.json');
   await writeJson(quotePath, quote);
-  rawFiles.push(path.relative(params.projectPath, quotePath).replaceAll(path.sep, '/'));
+  params.rawFiles.push(path.relative(params.projectPath, quotePath).replaceAll(path.sep, '/'));
 
   let kline: JsonRecord | null = null;
   let technicalIndicators: JsonRecord | null = null;
@@ -248,42 +449,41 @@ export async function prefetchQuantDataForRunPlan(params: {
   let financials: JsonRecord | null = null;
   let fundamentalIndicators: JsonRecord | null = null;
   let announcements: JsonRecord | null = null;
-  const warnings: string[] = [];
 
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/quotes/history/'))) {
     try {
-      kline = await fetchJson(`/api/v1/quotes/history/${symbol}?period=daily&adjustment=qfq&limit=120`);
-      const filePath = path.join(rawDir, 'kline-daily-qfq.json');
+      kline = await fetchJson(`/api/v1/quotes/history/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`);
+      const filePath = path.join(symbolRawDir, 'kline-daily-qfq.json');
       await writeJson(filePath, kline);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`历史 K 线预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 历史 K 线预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/indicators/technical/'))) {
     try {
       technicalIndicators = await fetchJson(
-        `/api/v1/indicators/technical/${symbol}?period=daily&adjustment=qfq&limit=120`
+        `/api/v1/indicators/technical/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`
       );
-      const filePath = path.join(rawDir, 'technical-indicators.json');
+      const filePath = path.join(symbolRawDir, 'technical-indicators.json');
       await writeJson(filePath, technicalIndicators);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`技术指标预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 技术指标预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/backtests/ma-crossover/'))) {
     try {
       backtest = await fetchJson(
-        `/api/v1/backtests/ma-crossover/${symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=250&fee_bps=5`
+        `/api/v1/backtests/ma-crossover/${params.symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=250&fee_bps=5`
       );
-      const filePath = path.join(rawDir, 'backtest-ma-crossover.json');
+      const filePath = path.join(symbolRawDir, 'backtest-ma-crossover.json');
       await writeJson(filePath, backtest);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`均线突破回测预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 均线突破回测预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -292,12 +492,12 @@ export async function prefetchQuantDataForRunPlan(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/fundamentals/financials/'))
   ) {
     try {
-      financials = await fetchJson(`/api/v1/fundamentals/financials/${symbol}?limit=8`);
-      const filePath = path.join(rawDir, 'financials.json');
+      financials = await fetchJson(`/api/v1/fundamentals/financials/${params.symbol}?limit=8`);
+      const filePath = path.join(symbolRawDir, 'financials.json');
       await writeJson(filePath, financials);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`财务摘要预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 财务摘要预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -306,12 +506,12 @@ export async function prefetchQuantDataForRunPlan(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/indicators/fundamental/'))
   ) {
     try {
-      fundamentalIndicators = await fetchJson(`/api/v1/indicators/fundamental/${symbol}?limit=8`);
-      const filePath = path.join(rawDir, 'fundamental-indicators.json');
+      fundamentalIndicators = await fetchJson(`/api/v1/indicators/fundamental/${params.symbol}?limit=8`);
+      const filePath = path.join(symbolRawDir, 'fundamental-indicators.json');
       await writeJson(filePath, fundamentalIndicators);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`财务衍生指标预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 财务衍生指标预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -320,17 +520,17 @@ export async function prefetchQuantDataForRunPlan(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/events/announcements/'))
   ) {
     try {
-      announcements = await fetchJson(`/api/v1/events/announcements/${symbol}?limit=20`);
-      const filePath = path.join(rawDir, 'announcements.json');
+      announcements = await fetchJson(`/api/v1/events/announcements/${params.symbol}?limit=20`);
+      const filePath = path.join(symbolRawDir, 'announcements.json');
       await writeJson(filePath, announcements);
-      rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
-      warnings.push(`公告事件预取失败：${error instanceof Error ? error.message : String(error)}`);
+      params.warnings.push(`${params.symbol} 公告事件预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  const finalData = finalDataFromResponses({
-    symbol,
+  return finalDataFromResponses({
+    symbol: params.symbol,
     quote,
     kline,
     technicalIndicators,
@@ -339,6 +539,104 @@ export async function prefetchQuantDataForRunPlan(params: {
     fundamentalIndicators,
     announcements,
   });
+}
+
+export async function prefetchQuantDataForRunPlan(params: {
+  projectPath: string;
+  plan: QuantRunPlan;
+}): Promise<PrefetchResult> {
+  if (params.plan.status === 'needs_clarification' || params.plan.clarification?.required) {
+    return { skipped: true, summary: '任务仍需用户补充关键信息，跳过平台预取数据。' };
+  }
+
+  if (!isQuantAnalysisPlan(params.plan)) {
+    return { skipped: true, summary: `能力 ${params.plan.capabilityId} 暂不需要平台预取数据。` };
+  }
+
+  const symbolResolutionWarnings: string[] = [];
+  const symbols = await inferSymbols(params.plan, symbolResolutionWarnings);
+  if (symbols.length === 0) {
+    return {
+      skipped: true,
+      summary: `未识别到 A 股、指数或 ETF 标的，跳过平台预取。${symbolResolutionWarnings.length ? ` ${symbolResolutionWarnings.join('；')}` : ''}`,
+    };
+  }
+
+  await ensureQuantWorkspace(params.projectPath);
+  const runId = params.plan.runId;
+  const rawFiles: string[] = [];
+  const warnings: string[] = [...symbolResolutionWarnings];
+
+  await appendQuantWorkspaceEvent(params.projectPath, {
+    event_type: 'data_prefetch_started',
+    stage: 'data_collection',
+    status: 'pending',
+    run_id: runId,
+    summary: `平台开始预取 ${symbols.join('、')} 的真实行情数据。`,
+  });
+
+  const quoteMap = new Map<string, JsonRecord>();
+  if (symbols.length > 1) {
+    try {
+      const batchQuotes = await fetchJson('/api/v1/quotes/realtime', {
+        method: 'POST',
+        body: JSON.stringify({ symbols }),
+      });
+      const quoteRows = Array.isArray(batchQuotes.quotes) ? batchQuotes.quotes : [];
+      for (const row of quoteRows) {
+        const record = asRecord(row);
+        const symbol = typeof record?.symbol === 'string' ? record.symbol : null;
+        if (symbol && record) {
+          quoteMap.set(symbol, record);
+        }
+      }
+      const batchPath = path.join(params.projectPath, 'data_file', 'raw', runId, 'batch-quotes.json');
+      await writeJson(batchPath, batchQuotes);
+      rawFiles.push(path.relative(params.projectPath, batchPath).replaceAll(path.sep, '/'));
+    } catch (error) {
+      warnings.push(`批量实时行情预取失败，降级为逐只获取：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const assets: JsonRecord[] = [];
+  for (const symbol of symbols) {
+    try {
+      const asset = await fetchSymbolDataset({
+        projectPath: params.projectPath,
+        runId,
+        symbol,
+        plan: params.plan,
+        rawFiles,
+        warnings,
+      });
+      if (quoteMap.has(symbol)) {
+        asset.quote = quoteMap.get(symbol);
+      }
+      assets.push(asset);
+    } catch (error) {
+      warnings.push(`${symbol} 预取失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (assets.length === 0) {
+    throw new Error(`所有标的预取失败：${warnings.join('；')}`);
+  }
+
+  const primaryAsset = assets[0];
+  const finalData = symbols.length === 1
+    ? primaryAsset
+    : {
+        ...primaryAsset,
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        primarySymbol: primaryAsset.symbol,
+        requestedSymbols: symbols,
+        symbols: assets.map((asset) => asset.symbol),
+        assetCount: assets.length,
+        assets,
+        comparison: buildComparisonSummary(assets),
+        warnings,
+      };
   const finalPath = path.join(params.projectPath, 'data_file', 'final', 'dashboard-data.json');
   await writeJson(finalPath, finalData);
 
@@ -351,14 +649,15 @@ export async function prefetchQuantDataForRunPlan(params: {
     status: warnings.length > 0 ? 'warning' : 'success',
     run_id: runId,
     artifact_path: finalDataPath,
-    summary: `平台已预取 ${symbol} 数据：raw ${rawFiles.length} 个文件，final 数据已写入。${warnings.length ? ` 警告：${warnings.join('；')}` : ''}`,
+    summary: `平台已预取 ${assets.map((asset) => asset.symbol).join('、')} 数据：raw ${rawFiles.length} 个文件，final 数据已写入。${warnings.length ? ` 警告：${warnings.join('；')}` : ''}`,
   });
 
   return {
     skipped: false,
-    symbol,
+    symbol: String(primaryAsset.symbol ?? symbols[0]),
+    symbols: assets.map((asset) => String(asset.symbol ?? '')).filter(Boolean),
     finalDataPath,
     rawFiles,
-    summary: `已预取 ${symbol} 真实数据并生成 ${finalDataPath}。`,
+    summary: `已预取 ${assets.map((asset) => asset.symbol).join('、')} 真实数据并生成 ${finalDataPath}。`,
   };
 }

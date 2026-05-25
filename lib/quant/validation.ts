@@ -6,8 +6,14 @@ import { createMessage } from '@/lib/services/message';
 import { previewManager } from '@/lib/services/preview';
 import { streamManager } from '@/lib/services/stream';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
+import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import type { QuantRunPlan } from '@/lib/quant/workspace';
 import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
+import {
+  markActiveUserRequestsAsCompleted,
+  markUserRequestAsCompleted,
+} from '@/lib/services/user-requests';
 
 export type QuantValidationCheckStatus = 'passed' | 'failed' | 'warning';
 export type QuantValidationStatus = 'passed' | 'failed';
@@ -57,6 +63,7 @@ const FETCH_TIMEOUT_MS = 5_000;
 const OUTPUT_TAIL_LIMIT = 12_000;
 const SENSITIVE_EVIDENCE_PATTERN =
   /sk-[a-z0-9_-]{12,}|authorization|bearer\s+[a-z0-9._-]{12,}|api[_-]?key|auth[_-]?token|cookie|set-cookie/i;
+const validationQueues = new Map<string, Promise<void>>();
 
 function validationReportPath(projectPath: string) {
   return path.join(projectPath, VALIDATION_REPORT_RELATIVE_PATH);
@@ -95,6 +102,20 @@ function trimOutput(output: string): string {
   return `...输出已截断，仅保留最后 ${OUTPUT_TAIL_LIMIT} 字符...\n${output.slice(-OUTPUT_TAIL_LIMIT)}`.trim();
 }
 
+function buildGeneratedProjectEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CI: '1',
+    NODE_ENV: 'production',
+    NEXT_TELEMETRY_DISABLED: '1',
+  };
+
+  delete env.NEXT_RSPACK;
+  delete env.TURBOPACK;
+
+  return env;
+}
+
 function formatDuration(ms?: number): string {
   if (!ms) return '';
   if (ms < 1_000) return `${ms}ms`;
@@ -131,13 +152,7 @@ async function runCommand(
       cwd,
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        CI: '1',
-        NODE_ENV: 'production',
-        TURBOPACK: process.env.TURBOPACK || 'auto',
-        NEXT_TELEMETRY_DISABLED: '1',
-      },
+      env: buildGeneratedProjectEnv(),
     });
 
     const append = (chunk: Buffer | string) => {
@@ -296,7 +311,7 @@ async function checkBuild(projectPath: string): Promise<Omit<QuantValidationChec
 async function normalizeGeneratedProjectForValidation(projectPath: string) {
   await normalizePostCssConfig(projectPath);
   await normalizeBuildScript(projectPath);
-  await normalizeRspackConfig(projectPath);
+  await normalizeNextConfig(projectPath);
 }
 
 async function normalizePostCssConfig(projectPath: string) {
@@ -360,8 +375,8 @@ async function normalizeBuildScript(projectPath: string) {
   }
 
   const dependencies = packageJson.dependencies as Record<string, unknown>;
-  if (dependencies['next-rspack'] !== '^16.2.6') {
-    dependencies['next-rspack'] = '^16.2.6';
+  if (dependencies['next-rspack']) {
+    delete dependencies['next-rspack'];
     changed = true;
   }
 
@@ -381,11 +396,10 @@ async function normalizeBuildScript(projectPath: string) {
   }
 }
 
-async function normalizeRspackConfig(projectPath: string) {
+async function normalizeNextConfig(projectPath: string) {
   const configPath = path.join(projectPath, 'next.config.js');
   const content = await readTextFile(configPath);
   const defaultConfig = `/** @type {import('next').NextConfig} */
-const withRspack = require('next-rspack');
 const projectRoot = __dirname;
 
 const nextConfig = {
@@ -393,7 +407,7 @@ const nextConfig = {
   outputFileTracingRoot: projectRoot,
 };
 
-module.exports = withRspack(nextConfig);
+module.exports = nextConfig;
 `;
 
   if (content === null || content.trim().length === 0) {
@@ -403,23 +417,25 @@ module.exports = withRspack(nextConfig);
 
   let nextContent = content;
   nextContent = nextContent.replace(
+    /(?:const|var|let)\s+withRspack\s*=\s*require\(['"]next-rspack['"]\);\n?/g,
+    ''
+  );
+  nextContent = nextContent.replace(
+    /const\s+shouldUseRspack\s*=.*?;\n?/g,
+    ''
+  );
+  nextContent = nextContent.replace(
     /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
     ''
   );
-
-  if (
-    !nextContent.includes("require('next-rspack')") &&
-    !nextContent.includes('require("next-rspack")')
-  ) {
-    nextContent = `const withRspack = require('next-rspack');\n${nextContent}`;
-  }
-
-  if (nextContent.includes('module.exports = nextConfig')) {
-    nextContent = nextContent.replace(
-      /module\.exports\s*=\s*nextConfig\s*;?/g,
-      'module.exports = withRspack(nextConfig);'
-    );
-  }
+  nextContent = nextContent.replace(
+    /module\.exports\s*=\s*shouldUseRspack\s*\?\s*withRspack\(nextConfig\)\s*:\s*nextConfig\s*;?/g,
+    'module.exports = nextConfig;'
+  );
+  nextContent = nextContent.replace(
+    /module\.exports\s*=\s*withRspack\(nextConfig\)\s*;?/g,
+    'module.exports = nextConfig;'
+  );
 
   if (nextContent !== content) {
     await fs.writeFile(configPath, nextContent, 'utf8');
@@ -489,9 +505,13 @@ async function checkFinalDataFile(
 
     try {
       const parsed = JSON.parse(raw) as unknown;
+      const runPlan = await readRunPlan(projectPath);
+      const plannedSymbols = extractPlannedSymbols(runPlan);
+      const fetchedSymbols = extractFetchedSymbols(parsed);
+      const missingSymbols = plannedSymbols.filter((symbol) => !fetchedSymbols.includes(symbol));
       const serialized = JSON.stringify(parsed);
       const hasDataShape =
-        /quote|price|symbol|secid|history|kline|financial|reports|announcement|source|fetched_at|quote_time|close|open|volume|amount|backtest|equity_curve|trades|strategy|drawdown|win_rate|营收|净利润|毛利率|roe|回测|净值|回撤|胜率/i.test(
+        /quote|quotes|price|symbol|symbols|assets|comparison|secid|history|kline|financial|reports|announcement|source|fetched_at|quote_time|close|open|volume|amount|backtest|equity_curve|trades|strategy|drawdown|win_rate|营收|净利润|毛利率|roe|回测|净值|回撤|胜率/i.test(
           serialized
         );
       const hasPlaceholderSmell = /mock|demo|example|placeholder|lorem|示例|样例|模拟|假数据/i.test(serialized);
@@ -511,12 +531,29 @@ async function checkFinalDataFile(
         continue;
       }
 
+      const payloadInspection = inspectDashboardDataPayload(parsed);
+      if (!payloadInspection.hasUsableMarketData) {
+        errors.push(`${normalizeRelativePath(projectPath, filePath)} 未提取到可用实时行情或 K 线样本。`);
+        continue;
+      }
+
+      if (missingSymbols.length > 0) {
+        errors.push(
+          `${normalizeRelativePath(projectPath, filePath)} 未覆盖 run_plan 中的全部标的，缺少：${missingSymbols.join('、')}。`
+        );
+        continue;
+      }
+
       return {
         status: 'passed',
         summary: `已找到可用最终数据文件：${normalizeRelativePath(projectPath, filePath)}。`,
         metadata: {
           file: normalizeRelativePath(projectPath, filePath),
           bytes: Buffer.byteLength(raw),
+          plannedSymbols,
+          fetchedSymbols,
+          barCount: payloadInspection.barCount,
+          hasQuote: payloadInspection.hasQuote,
         },
       };
     } catch (error) {
@@ -547,6 +584,211 @@ function hasAnyKeyDeep(value: unknown, keys: string[]): boolean {
     return false;
   }
   return Object.entries(record).some(([key, nestedValue]) => keys.includes(key) || hasAnyKeyDeep(nestedValue, keys));
+}
+
+function pickString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return null;
+}
+
+function pickSymbolCode(value: unknown): string | null {
+  if (typeof value === 'string' && /^(?:6|0|3|5)\d{5}$/.test(value.trim())) {
+    return value.trim();
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const candidates = [
+    record.symbol,
+    record.code,
+    record.security_code,
+    record.securityCode,
+    record.ticker,
+    typeof record.secid === 'string' ? record.secid.split('.').at(-1) : null,
+  ];
+
+  for (const candidate of candidates) {
+    const symbol = pickString(candidate);
+    if (symbol && /^(?:6|0|3|5)\d{5}$/.test(symbol)) {
+      return symbol;
+    }
+  }
+
+  return null;
+}
+
+async function readRunPlan(projectPath: string): Promise<Record<string, unknown> | null> {
+  const raw = await readTextFile(path.join(projectPath, '.quantpilot', 'run_plan.json'));
+  if (!raw) {
+    return null;
+  }
+  try {
+    return asRecord(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function extractPlannedSymbols(runPlan: Record<string, unknown> | null): string[] {
+  const symbols = Array.isArray(runPlan?.symbols) ? runPlan.symbols : [];
+  return Array.from(
+    new Set(
+      symbols
+        .map((symbol) => pickSymbolCode(symbol))
+        .filter((symbol): symbol is string => Boolean(symbol && /^(?:6|0|3|5)\d{5}$/.test(symbol)))
+    )
+  );
+}
+
+function extractFetchedSymbols(data: unknown): string[] {
+  const record = asRecord(data);
+  if (!record) {
+    return [];
+  }
+
+  const assets = Array.isArray(record.assets)
+    ? record.assets.map(asRecord).filter((asset): asset is Record<string, unknown> => Boolean(asset))
+    : [];
+  const candidates = assets.length > 0
+    ? assets.map((asset) => pickSymbolCode(asset) ?? pickSymbolCode(asRecord(asset.quote)?.symbol))
+    : [
+        pickSymbolCode(record),
+        pickSymbolCode(asRecord(record.quote)),
+        ...(Array.isArray(record.symbols) ? record.symbols.map((symbol) => pickSymbolCode(symbol)) : []),
+      ];
+
+  return Array.from(
+    new Set(candidates.filter((symbol): symbol is string => Boolean(symbol && /^(?:6|0|3|5)\d{5}$/.test(symbol))))
+  );
+}
+
+function numeric(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function arrayOfRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map(asRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+    : [];
+}
+
+function extractBarsFromDashboardData(data: unknown): Record<string, unknown>[] {
+  const record = asRecord(data);
+  if (!record) {
+    return [];
+  }
+
+  const assets = arrayOfRecords(record.assets);
+  if (assets.length > 0) {
+    return assets.flatMap((asset) => extractBarsFromDashboardData(asset));
+  }
+
+  const kline = asRecord(record.kline) ?? asRecord(record.history) ?? asRecord(record.ohlc);
+  const candidates = [
+    kline?.bars,
+    kline?.data,
+    kline?.items,
+    record.bars,
+    record.klines,
+    record.candles,
+    record.history,
+  ];
+
+  for (const candidate of candidates) {
+    const bars = arrayOfRecords(candidate);
+    if (bars.length > 0) {
+      return bars;
+    }
+  }
+
+  return [];
+}
+
+function hasUsableQuote(data: unknown): boolean {
+  const record = asRecord(data);
+  if (!record) {
+    return false;
+  }
+
+  const assets = arrayOfRecords(record.assets);
+  if (assets.length > 0) {
+    return assets.some(hasUsableQuote);
+  }
+
+  const quote = asRecord(record.quote);
+  return [
+    quote?.price,
+    quote?.latest,
+    quote?.latest_price,
+    quote?.close,
+    record.price,
+    record.latest,
+    record.latest_price,
+  ].some((value) => numeric(value) !== null);
+}
+
+function inspectDashboardDataPayload(data: unknown) {
+  const bars = extractBarsFromDashboardData(data);
+  const hasQuote = hasUsableQuote(data);
+  const fetchedSymbols = extractFetchedSymbols(data);
+
+  return {
+    hasQuote,
+    barCount: bars.length,
+    fetchedSymbols,
+    hasUsableMarketData: hasQuote || bars.length > 0,
+  };
+}
+
+async function ensurePrefetchedFinalData(projectPath: string) {
+  const runPlan = await readRunPlan(projectPath);
+  if (!runPlan) {
+    return;
+  }
+
+  const raw = await readTextFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
+  let parsed: unknown = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = null;
+  }
+
+  const inspection = inspectDashboardDataPayload(parsed);
+  const plannedSymbols = extractPlannedSymbols(runPlan);
+  const missingSymbols = plannedSymbols.filter((symbol) => !inspection.fetchedSymbols.includes(symbol));
+  if (raw && inspection.hasUsableMarketData && missingSymbols.length === 0) {
+    return;
+  }
+
+  try {
+    await prefetchQuantDataForRunPlan({
+      projectPath,
+      plan: runPlan as unknown as QuantRunPlan,
+    });
+  } catch (error) {
+    console.warn(
+      '[QuantValidation] Failed to prefetch final dashboard data before validation:',
+      error
+    );
+  }
 }
 
 type EvidenceJsonResult =
@@ -693,6 +935,20 @@ async function checkDashboardBinding(
   const hasStaticSmell =
     hardcodedDataSignals.some((signal) => signal.test(page)) ||
     (page.match(/(?:trade_date|report_date|notice_date|change_percent)\s*:/g)?.length ?? 0) > 30;
+  const runPlan = await readRunPlan(projectPath);
+  const plannedSymbols = extractPlannedSymbols(runPlan);
+  const finalDataRaw = await readTextFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
+  let finalData: unknown = null;
+  try {
+    finalData = finalDataRaw ? JSON.parse(finalDataRaw) : null;
+  } catch {
+    finalData = null;
+  }
+  const finalDataRecord = asRecord(finalData);
+  const assetRows = Array.isArray(finalDataRecord?.assets) ? finalDataRecord.assets : [];
+  const fetchedSymbols = extractFetchedSymbols(finalData);
+  const payloadInspection = inspectDashboardDataPayload(finalData);
+  const isMultiSymbolTask = plannedSymbols.length > 1 || assetRows.length > 1;
 
   if (!hasBindingSignal) {
     return {
@@ -708,6 +964,50 @@ async function checkDashboardBinding(
       summary: '页面疑似直接硬编码大段行情/财务数据，未形成可复用的数据绑定。',
       details: '请让 app/page.tsx 读取 data_file/final/dashboard-data.json，或通过 /api/market/** 获取数据；不要把完整数据对象内联到页面代码。',
     };
+  }
+
+  if (!payloadInspection.hasUsableMarketData) {
+    return {
+      status: 'failed',
+      summary: '页面数据入口存在，但最终数据无法映射出实时行情或 K 线样本。',
+      details: '请先生成可用 data_file/final/dashboard-data.json；其中至少应包含 quote.price 或 kline.bars/history.bars 等字段。',
+      metadata: payloadInspection,
+    };
+  }
+
+  const hasStandardBinding =
+    /function\s+getBars\(|extractBarsFromDashboardData|data-source-file=\{DATA_FILE\}|data_file\/final\/dashboard-data\.json/.test(page);
+  if (!hasStandardBinding) {
+    return {
+      status: 'failed',
+      summary: '页面未使用 QuantPilot 标准看板数据绑定结构。',
+      details: '请使用平台标准模板读取 dashboard-data.json，并通过统一解析层渲染最新价、K 线样本、指标、财务和公告。',
+    };
+  }
+
+  if (isMultiSymbolTask) {
+    const dataDrivenCoverage =
+      /requestedSymbols|assets|comparison/.test(page) &&
+      plannedSymbols.every((symbol) => fetchedSymbols.includes(symbol));
+    const missingPageSymbols = dataDrivenCoverage
+      ? []
+      : plannedSymbols.filter((symbol) => !page.includes(symbol));
+    const hasComparisonBinding = /assets|comparison|requestedSymbols|assetCount|对比|相对强弱|多标的|收益对比|回撤对比|波动/.test(page);
+    if (missingPageSymbols.length > 0 || !hasComparisonBinding) {
+      return {
+        status: 'failed',
+        summary: '页面未完整绑定多标的对比数据。',
+        details: [
+          missingPageSymbols.length > 0 ? `页面未显式覆盖标的：${missingPageSymbols.join('、')}。` : null,
+          !hasComparisonBinding ? '页面未检测到 assets[]、comparison 或多标的对比展示逻辑。' : null,
+        ].filter(Boolean).join('\n'),
+        metadata: {
+          plannedSymbols,
+          fetchedSymbols,
+          assetCount: assetRows.length,
+        },
+      };
+    }
   }
 
   return {
@@ -733,12 +1033,28 @@ async function checkChartPresence(
 
   const hasGraphicElement = /<svg|<canvas|<polyline|<rect|<path|Chart|chart|candlestick|ohlc|K线|K 线|折线|柱状|趋势图/i.test(page);
   const hasFinanceOrMarketLanguage = /成交量|成交额|均线|MA5|MA10|MA20|K线|K 线|营收|净利润|ROE|毛利率|回撤|波动率|quote|history|financial/i.test(page);
+  const runPlan = await readRunPlan(projectPath);
+  const plannedSymbols = extractPlannedSymbols(runPlan);
+  const finalDataRaw = await readTextFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
+  const hasMultiFinalData = Boolean(finalDataRaw && /"assets"\s*:|"comparison"\s*:/.test(finalDataRaw));
+  const isMultiSymbolTask = plannedSymbols.length > 1 || hasMultiFinalData;
 
   if (!hasGraphicElement || !hasFinanceOrMarketLanguage) {
     return {
       status: 'failed',
       summary: '未检测到有效金融图表实现。',
       details: '页面至少应包含 SVG/canvas/图表组件，并展示 K 线、成交量、均线、财务趋势或风险指标。',
+    };
+  }
+
+  if (isMultiSymbolTask && !/对比|相对强弱|多标的|矩阵|收益|波动|回撤|comparison|assets/i.test(page)) {
+    return {
+      status: 'failed',
+      summary: '多标的任务未检测到对比图表或对比指标展示。',
+      details: '页面需要展示多标的指标矩阵、收益对比、波动/回撤对比或相对强弱摘要。',
+      metadata: {
+        plannedSymbols,
+      },
     };
   }
 
@@ -905,8 +1221,9 @@ ${failedSummary || '无失败项，但验证报告状态为失败，请重新检
 5. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
 6. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
 7. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-8. 修复后确保 npm run build、预览 HTTP 200、数据文件、evidence、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
-9. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+8. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
+9. 修复后确保 npm run build、预览 HTTP 200、数据文件、evidence、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
+10. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(
@@ -950,10 +1267,38 @@ async function publishValidationSummary(
 }
 
 export async function validateQuantProject(params: ValidateQuantProjectParams): Promise<QuantValidationReport> {
+  return withProjectValidationLock(params.projectId, () => validateQuantProjectUnlocked(params));
+}
+
+async function withProjectValidationLock<T>(
+  projectId: string,
+  task: () => Promise<T>
+): Promise<T> {
+  const previous = validationQueues.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current, () => current);
+  validationQueues.set(projectId, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (validationQueues.get(projectId) === queued) {
+      validationQueues.delete(projectId);
+    }
+  }
+}
+
+async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams): Promise<QuantValidationReport> {
   const projectPath = path.resolve(params.projectPath);
   const now = new Date().toISOString();
 
   await ensureQuantWorkspace(projectPath);
+  await ensurePrefetchedFinalData(projectPath);
   await scaffoldBasicNextApp(projectPath, params.projectId);
   await previewManager.stop(params.projectId).catch((error) => {
     console.warn(
@@ -1031,6 +1376,18 @@ export async function validateQuantProject(params: ValidateQuantProjectParams): 
   });
 
   await publishValidationSummary(params, report);
+
+  if (passed) {
+    try {
+      if (params.requestId) {
+        await markUserRequestAsCompleted(params.requestId);
+      } else {
+        await markActiveUserRequestsAsCompleted(params.projectId);
+      }
+    } catch (error) {
+      console.warn('[QuantValidation] Failed to mark request as completed after validation:', error);
+    }
+  }
 
   return report;
 }

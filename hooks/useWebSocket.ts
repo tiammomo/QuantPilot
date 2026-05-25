@@ -8,6 +8,7 @@ import type { ChatMessage, RealtimeEvent, RealtimeStatus } from '@/types';
 
 interface WebSocketOptions {
   projectId: string;
+  enabled?: boolean;
   onMessage?: (message: ChatMessage) => void;
   onStatus?: (status: string, data?: RealtimeStatus | Record<string, unknown>, requestId?: string) => void;
   onConnect?: () => void;
@@ -17,6 +18,7 @@ interface WebSocketOptions {
 
 export function useWebSocket({
   projectId,
+  enabled = true,
   onMessage,
   onStatus,
   onConnect,
@@ -330,6 +332,11 @@ export function useWebSocket({
   }, [disconnect, connect]);
 
   useEffect(() => {
+    if (!enabled) {
+      disconnect();
+      return;
+    }
+
     shouldReconnectRef.current = true;
     manualCloseRef.current = false;
     connectionAttemptsRef.current = 0;
@@ -338,7 +345,7 @@ export function useWebSocket({
     return () => {
       disconnect();
     };
-  }, [projectId, disconnect, connect]);
+  }, [projectId, enabled, disconnect, connect]);
 
   return {
     isConnected,

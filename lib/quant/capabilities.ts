@@ -231,11 +231,11 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     description: '横向比较多只股票、ETF 或指数的收益、波动、估值和财务质量。',
     inputHint: '例如：对比贵州茅台、五粮液和泸州老窖最近的行情与基本面。',
     tags: ['横向比较', '标准化评分', '多标的'],
-    status: 'planned',
+    status: 'ready',
     groupId: 'market_research',
     agentType: 'quant_analysis',
     subAgentKey: 'asset_comparison',
-    executionCapabilityId: 'stock_diagnosis',
+    executionCapabilityId: 'asset_comparison',
     requiredSkills: [
       'quant-run-planner',
       'quant-symbol-resolver',
@@ -264,13 +264,15 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
       'app/page.tsx',
     ],
     validationRules: [
-      '必须解析全部输入标的，并说明暂未取到的标的。',
-      '比较维度必须包含数据时间、收益或财务口径说明。',
-      '当前阶段至少保证主标的真实数据落盘，后续扩展为多标的批量预取。',
+      '必须解析全部输入标的，并为每个标的写入真实数据。',
+      '最终数据必须包含 assets[] 与 comparison，且覆盖 run_plan.symbols 中的全部标的。',
+      '比较维度必须包含数据时间、收益、波动、回撤、成交量或成交额口径说明。',
+      '页面必须展示多标的指标矩阵和至少一个对比图表。',
     ],
     promptGuidance: [
       '优先把多标的拆成可比较指标表。',
-      '若当前平台只预取主标的，必须明确后续待补齐的标的和数据限制。',
+      '读取 data_file/final/dashboard-data.json 中的 assets[] 和 comparison，不要只展示主标的。',
+      '如果某个标的数据缺失，必须在数据质量区域说明。',
     ],
   },
   {

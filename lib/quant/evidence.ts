@@ -175,6 +175,22 @@ function isUsableQualityEvidence(value: JsonRecord | null): value is JsonRecord 
 }
 
 function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvidence[] {
+  const assets = Array.isArray(data.assets)
+    ? data.assets.map(asRecord).filter((asset): asset is JsonRecord => Boolean(asset))
+    : [];
+  if (assets.length > 1) {
+    return assets.flatMap((asset) => {
+      const symbol = pickString(asset.symbol, asRecord(asset.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';
+      const name = pickString(asset.name, asRecord(asset.quote)?.name, symbol) ?? symbol;
+      return buildDatasets(asset, runPlan).map((dataset) => ({
+        ...dataset,
+        id: `${symbol}_${dataset.id}`,
+        name: `${name} ${dataset.name}`,
+        endpoint: dataset.endpoint.replace('/UNKNOWN', `/${symbol}`),
+      }));
+    });
+  }
+
   const generatedAt = pickString(data.generatedAt, data.generated_at, data.fetched_at);
   const symbol = pickString(data.symbol, asRecord(data.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';
   const rootSource = pickString(data.source, asRecord(data.quote)?.source, 'unknown') ?? 'unknown';

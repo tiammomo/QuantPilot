@@ -22,13 +22,16 @@ import { serializeMessage } from '@/lib/serializers/chat';
 import {
   upsertUserRequest,
   markUserRequestAsProcessing,
+  markUserRequestAsCompleted,
+  markUserRequestAsFailed,
 } from '@/lib/services/user-requests';
-import { writeInitialRunPlan } from '@/lib/quant/workspace';
+import { readQuantRunPlan, writeInitialRunPlan } from '@/lib/quant/workspace';
 import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
 import {
   buildQuantValidationRepairInstruction,
   validateQuantProject,
 } from '@/lib/quant/validation';
+import { buildClarificationContinuation, buildQuantClarificationMessage } from '@/lib/quant/intent';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -132,6 +135,7 @@ function runValidationAfterExecution(params: {
     });
 
     if (firstReport.passed) {
+      await markUserRequestAsCompleted(params.requestId);
       if (executionError) {
         streamManager.publish(params.projectId, {
           type: 'status',
@@ -143,6 +147,17 @@ function runValidationAfterExecution(params: {
         });
       }
       return;
+    }
+
+    if (executionError) {
+      const message =
+        executionError instanceof Error
+          ? executionError.message
+          : String(executionError || 'Agent execution failed');
+      await markUserRequestAsFailed(
+        params.requestId,
+        `Agent 执行异常且自动验证未通过：${message}`
+      );
     }
 
     const repairRequestId = `${params.requestId}-validation-repair`;
@@ -199,13 +214,23 @@ function runValidationAfterExecution(params: {
       });
     }
 
-    await validateQuantProject({
+    const finalReport = await validateQuantProject({
       projectId: params.projectId,
       projectPath: params.projectPath,
       requestId: repairRequestId,
       conversationId: params.conversationId,
       cliSource: params.cliSource,
     });
+
+    if (finalReport.passed) {
+      await markUserRequestAsCompleted(params.requestId);
+      return;
+    }
+
+    await markUserRequestAsFailed(
+      params.requestId,
+      '自动验证和修复后仍未通过，请查看验证摘要。'
+    );
   };
 
   void (async () => {
@@ -221,6 +246,11 @@ function runValidationAfterExecution(params: {
       await validateAndRepair(executionError);
     } catch (validationError) {
       console.error('[API] Automatic validation after agent execution failed:', validationError);
+      const message =
+        validationError instanceof Error
+          ? validationError.message
+          : String(validationError || 'Automatic validation failed');
+      await markUserRequestAsFailed(params.requestId, `自动验证失败：${message}`);
     }
   })();
 }
@@ -402,8 +432,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const legacyBody = body as Record<string, unknown>;
     const projectRoot = resolveProjectRoot(project_id, project.repoPath);
+    const projectPath = project.repoPath || path.join(/*turbopackIgnore: true*/ process.cwd(), 'projects', project_id);
     const rawInstruction = typeof body.instruction === 'string' ? body.instruction : '';
+    const rawDisplayInstruction =
+      coerceString((body as Record<string, unknown>).displayInstruction) ??
+      coerceString(legacyBody['display_instruction']);
     const instructionWithoutLegacyPaths = rawInstruction.replace(/\n*Image #\d+ path: [^\n]+/g, '').trim();
+    const visibleInstructionWithoutLegacyPaths = (rawDisplayInstruction ?? rawInstruction)
+      .replace(/\n*Image #\d+ path: [^\n]+/g, '')
+      .trim();
 
     const rawImages: RawImageAttachment[] = Array.isArray((body as Record<string, unknown>).images)
       ? ((body as Record<string, unknown>).images as RawImageAttachment[])
@@ -421,6 +458,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const imageLines = processedImages.map((image, idx) => `Image #${idx + 1} path: ${image.path}`);
     const finalInstruction = [instructionWithoutLegacyPaths, imageLines.join('\n')]
+      .filter((segment) => segment && segment.trim().length > 0)
+      .join('\n\n')
+      .trim();
+    const displayInstruction = [visibleInstructionWithoutLegacyPaths, imageLines.join('\n')]
       .filter((segment) => segment && segment.trim().length > 0)
       .join('\n\n')
       .trim();
@@ -446,6 +487,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       getDefaultModelForCli(cliPreference);
     const selectedModel = normalizeModelId(cliPreference, selectedModelRaw);
 
+    const quantCapabilityId =
+      coerceString((body as Record<string, unknown>).quantCapabilityId) ??
+      coerceString(legacyBody['quant_capability_id']) ??
+      coerceString((body as Record<string, unknown>).capabilityId) ??
+      coerceString(legacyBody['capability_id']);
+    const previousRunPlan = await readQuantRunPlan(projectPath);
+    const clarificationContinuation = buildClarificationContinuation({
+      previousPlan: previousRunPlan,
+      instruction: finalInstruction,
+      displayInstruction,
+      capabilityId: quantCapabilityId,
+    });
+    const effectiveInstruction = clarificationContinuation?.resolvedInstruction ?? finalInstruction;
+    const effectiveDisplayInstruction = clarificationContinuation?.displayInstruction ?? displayInstruction;
+
     const conversationId =
       coerceString(body.conversationId) ?? coerceString(legacyBody['conversation_id']);
 
@@ -460,14 +516,29 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       legacyBody['is_initial_prompt'] === 'true';
 
     const metadata =
-      processedImages.length > 0
+      processedImages.length > 0 || clarificationContinuation
         ? {
-            attachments: processedImages.map((image) => ({
-              name: image.name,
-              url: image.url,
-              publicUrl: image.publicUrl,
-              path: image.path,
-            })),
+            ...(processedImages.length > 0
+              ? {
+                  attachments: processedImages.map((image) => ({
+                    name: image.name,
+                    url: image.url,
+                    publicUrl: image.publicUrl,
+                    path: image.path,
+                  })),
+                }
+              : {}),
+            ...(clarificationContinuation
+              ? {
+                  type: 'intent_clarification_continuation',
+                  clarificationContinuation: {
+                    previousRunId: clarificationContinuation.previousRunId,
+                    originalQuestion: clarificationContinuation.originalQuestion,
+                    userResponse: clarificationContinuation.userResponse,
+                    missing: clarificationContinuation.missing,
+                  },
+                }
+              : {}),
           }
         : undefined;
 
@@ -483,7 +554,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       projectId: project_id,
       role: 'user',
       messageType: 'chat',
-      content: finalInstruction,
+      content: effectiveDisplayInstruction || effectiveInstruction,
       conversationId: conversationId ?? undefined,
       cliSource: cliPreference,
       metadata,
@@ -502,14 +573,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (requestId) {
       try {
         const storedInstruction =
-          rawInstruction && rawInstruction.trim().length > 0
-            ? rawInstruction.trim()
-            : instructionWithoutLegacyPaths || finalInstruction;
+          effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+            ? effectiveDisplayInstruction.trim()
+            : instructionWithoutLegacyPaths || effectiveInstruction;
 
         await upsertUserRequest({
           id: requestId,
           projectId: project_id,
-          instruction: storedInstruction || finalInstruction,
+          instruction: storedInstruction || effectiveInstruction,
           cliPreference,
         });
         await markUserRequestAsProcessing(requestId);
@@ -525,21 +596,63 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     await updateProjectActivity(project_id);
 
-    const projectPath = project.repoPath || path.join(/*turbopackIgnore: true*/ process.cwd(), 'projects', project_id);
-
     const existingSelected = normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined);
 
     try {
       const runPlan = await writeInitialRunPlan({
         projectPath,
-        instruction: finalInstruction,
+        instruction: effectiveInstruction,
         requestId,
-        capabilityId:
-          coerceString((body as Record<string, unknown>).quantCapabilityId) ??
-          coerceString(legacyBody['quant_capability_id']) ??
-          coerceString((body as Record<string, unknown>).capabilityId) ??
-          coerceString(legacyBody['capability_id']),
+        capabilityId: quantCapabilityId,
       });
+
+      if (runPlan.status === 'needs_clarification' && runPlan.clarification?.required) {
+        const clarificationContent = buildQuantClarificationMessage(runPlan.clarification);
+        const assistantMessage = await createMessage({
+          projectId: project_id,
+          role: 'assistant',
+          messageType: 'chat',
+          content: clarificationContent,
+          conversationId: conversationId ?? undefined,
+          cliSource: cliPreference,
+          metadata: {
+            type: 'intent_clarification',
+            clarification: runPlan.clarification,
+            runPlanPath: '.quantpilot/run_plan.json',
+          },
+          requestId,
+        });
+
+        await markUserRequestAsCompleted(requestId);
+        streamManager.publish(project_id, {
+          type: 'message',
+          data: serializeMessage(assistantMessage, { requestId }),
+        });
+        streamManager.publish(project_id, {
+          type: 'status',
+          data: {
+            status: 'intent_clarification_required',
+            message: '需要补充关键信息后再开始取数和生成看板。',
+            requestId,
+            metadata: {
+              missing: runPlan.clarification.missing,
+              questions: runPlan.clarification.questions,
+            },
+          },
+        });
+
+        return NextResponse.json({
+          success: true,
+          status: 'intent_clarification_required',
+          message: 'Need clarification before agent execution',
+          requestId,
+          userMessageId: userMessage.id,
+          assistantMessageId: assistantMessage.id,
+          conversationId: conversationId ?? null,
+          clarification: runPlan.clarification,
+        });
+      }
+
       const prefetch = await prefetchQuantDataForRunPlan({
         projectPath,
         plan: runPlan,
@@ -594,7 +707,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       const execution = cliRuntime.initializeNextJsProject(
         project_id,
         projectPath,
-        finalInstruction,
+        effectiveInstruction,
         selectedModel,
         requestId
       );
@@ -603,7 +716,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         repairExecutor: cliRuntime.applyChanges,
         projectId: project_id,
         projectPath,
-        instruction: finalInstruction,
+        instruction: effectiveInstruction,
         selectedModel,
         requestId,
         conversationId,
@@ -620,7 +733,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       const execution = cliRuntime.applyChanges(
         project_id,
         projectPath,
-        finalInstruction,
+        effectiveInstruction,
         selectedModel,
         sessionId,
         requestId
@@ -630,7 +743,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         repairExecutor: cliRuntime.applyChanges,
         projectId: project_id,
         projectPath,
-        instruction: finalInstruction,
+        instruction: effectiveInstruction,
         selectedModel,
         sessionId,
         requestId,

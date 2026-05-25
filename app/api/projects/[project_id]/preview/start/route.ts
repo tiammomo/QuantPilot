@@ -14,8 +14,8 @@ export async function POST(
   _request: Request,
   { params }: RouteContext
 ) {
+  const { project_id } = await params;
   try {
-    const { project_id } = await params;
     const preview = await previewManager.start(project_id);
 
     return NextResponse.json({
@@ -23,15 +23,34 @@ export async function POST(
       data: preview,
     });
   } catch (error) {
-    console.error('[API] Failed to start preview:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          error instanceof Error ? error.message : 'Failed to start preview',
-      },
-      { status: 500 }
+    console.warn(
+      '[API] Preview start failed; retrying after cleanup:',
+      error instanceof Error ? error.message : error
     );
+
+    try {
+      await previewManager.cleanup(project_id);
+      const preview = await previewManager.start(project_id);
+
+      return NextResponse.json({
+        success: true,
+        recovered: true,
+        data: preview,
+      });
+    } catch (retryError) {
+      console.error('[API] Failed to start preview after retry:', retryError);
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            retryError instanceof Error
+              ? retryError.message
+              : 'Failed to start preview',
+          firstError: error instanceof Error ? error.message : String(error),
+        },
+        { status: 500 }
+      );
+    }
   }
 }
 

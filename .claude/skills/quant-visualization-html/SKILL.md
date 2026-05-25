@@ -25,6 +25,8 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 6. 完成后必须能通过平台自动验证：Next.js build、预览 HTTP 200、`data_file/final/dashboard-data.json`、`evidence/sources.json`、`evidence/data_quality.json`、金融图表存在性和 `/api/market` 代理检查。
 7. 不要把当前取到的数据大段硬编码进 `app/page.tsx`；页面必须读取 `data_file/final/dashboard-data.json`，或通过同源 `/api/market/**` 刷新。
 8. 生成项目默认已有金融看板模板时，必须在模板上增强，不要推倒重写成营销页、说明页或只有指标卡的静态页。
+9. 如果 `dashboard-data.json` 包含 `assets[]` 或 `comparison`，这是多标的任务；页面必须展示全部标的的对比矩阵和图表，不能只展示根字段中的主标的 `quote/kline`。
+10. 修改 `app/page.tsx`、`app/globals.css`、JSON 或 evidence 文件必须使用 Write/Edit 工具，不要用 Bash 的 `cat >`、`tee`、`echo >`、`printf >`、heredoc、python/node 脚本或 `touch` 写文件。
 
 ## 标准工作流
 
@@ -43,6 +45,21 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 8. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
 9. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
 
+## 标准数据契约
+
+为了让平台预取、验证和标准模板稳定工作，优先使用下面字段；字段可以补充，但不要改名或只写自定义结构：
+
+- `.quantpilot/run_plan.json` 的 `symbols` 必须是证券代码字符串数组，例如 `["600519"]`。如果需要保存名称、市场、secid，请放在 `resolvedSymbols[]` 或 final 数据中，不要把对象写进 `symbols`。
+- 单标的 final 数据必须包含：
+  - `symbol`、`name`、`asset_type`、`source`、`as_of`
+  - `quote.price`、`quote.change_percent`、`quote.quote_time`
+  - `kline.bars[]`，每条包含 `date/open/high/low/close/volume/amount/change_percent`
+  - `technicalIndicators.summary` 或 `computedMetrics`
+  - 可选 `financials.reports[]`、`fundamentalIndicators.summary`、`announcements.announcements[]`
+- 多标的 final 数据必须包含 `requestedSymbols`、`assets[]`、`comparison.rows[]`；每个 `assets[]` 元素继续使用同样的单标的结构。
+- 页面优先保留平台标准模板的 `DATA_FILE`、`readDashboardData()`、`getBars()`、`TrendChart` 和 `data-source-file={DATA_FILE}` 结构，只在其上增强展示。
+- 如果平台已经预取出 `dashboard-data.json`，不要再用空对象覆盖它，也不要把 `kline.bars` 改成只有模型自己知道的字段名。
+
 ## A 股行情看板最低标准
 
 如果用户的问题涉及 A 股个股、指数或组合，至少包含：
@@ -54,6 +71,16 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 - 数据明细表：至少展示最近 10 根 K 线的日期、开高低收、成交额、涨跌幅、换手率。
 - 数据来源：展示 `source`、`quote_time`、`fetched_at`、周期和复权方式。
 - 数据质量：展示 evidence 或 final 数据中的 `data_quality`、`warnings`、缓存状态和样本长度。
+
+## 多标的对比看板最低标准
+
+如果最终数据包含 `assets[]` 或用户问题包含“对比/组合/相对强弱”，至少包含：
+
+- 标的覆盖：页面显式展示 `requestedSymbols` 或 `assets[].symbol` 中的全部标的。
+- 指标矩阵：每个标的展示最新价、涨跌幅、区间收益、最大回撤、波动、成交额或成交量。
+- 对比图表：至少一个 SVG/canvas 图表比较区间收益；另一个图表或矩阵比较波动/回撤。
+- 相对强弱摘要：展示收益领先、回撤较小、波动较低等结果，结果必须来自 `comparison.rows[]` 或 `assets[].computedMetrics`。
+- 数据来源：逐只标的展示 `source`、`as_of/quote_time`、`fetched_at` 或 evidence 中对应来源。
 
 ## 财务看板最低标准
 
@@ -124,7 +151,8 @@ await fetch('/api/market/quotes/history/600519?period=daily&adjustment=qfq&limit
 2. 可以扩展 `TrendChart`、指标卡片、数据表和来源说明，但不要退回静态样例页。
 3. 如果任务涉及指数或 ETF，保留 `asset_type`、缓存状态、K 线、成交量和技术指标展示。
 4. 如果任务涉及个股基本面，再补充财务趋势、ROE/毛利率和公告列表。
-5. 页面最终仍需通过平台自动验证：build、HTTP 200、final 数据、evidence、图表和 `/api/market`。
+5. 如果任务涉及多标的，优先读取 `assets[]` 和 `comparison`，保留单标的主图作为可选细节，不要把多标的页面降级成主标的页面。
+6. 页面最终仍需通过平台自动验证：build、HTTP 200、final 数据、evidence、图表和 `/api/market`。
 
 ## 生成页面验收清单
 
@@ -148,3 +176,4 @@ await fetch('/api/market/quotes/history/600519?period=daily&adjustment=qfq&limit
 - 不要创建和任务无关的示例项目。
 - 不要修改父级 QuantPilot 平台工程。
 - 不要启动开发服务器；QuantPilot 会管理预览服务。
+- 不要通过 Bash 重定向或 heredoc 写源码文件；这会破坏平台的过程记录和自动验证。

@@ -6,19 +6,66 @@ export interface ActiveRequestSummary {
   activeCount: number;
 }
 
+export type UserRequestStatus =
+  | 'pending'
+  | 'processing'
+  | 'active'
+  | 'running'
+  | 'completed'
+  | 'failed';
+
 const ACTIVE_REQUEST_STALE_MS =
   Number.parseInt(process.env.QUANTPILOT_ACTIVE_REQUEST_STALE_MS ?? '', 10) || 30 * 60 * 1000;
+const ACTIVE_REQUEST_ORPHAN_MS =
+  Number.parseInt(process.env.QUANTPILOT_ACTIVE_REQUEST_ORPHAN_MS ?? '', 10) || 8 * 60 * 1000;
+
+const ACTIVE_STATUSES: UserRequestStatus[] = ['pending', 'processing', 'active', 'running'];
+const globalForActiveRequests = globalThis as unknown as {
+  __quantpilot_active_request_runtime__?: Set<string>;
+};
+const activeRuntimeRequests =
+  globalForActiveRequests.__quantpilot_active_request_runtime__ ??
+  (globalForActiveRequests.__quantpilot_active_request_runtime__ = new Set<string>());
+
+function activeRequestWhere(projectId: string): Prisma.UserRequestWhereInput {
+  return {
+    projectId,
+    status: {
+      in: ACTIVE_STATUSES,
+    },
+  };
+}
+
+function trackRuntimeRequest(id: string): void {
+  activeRuntimeRequests.add(id);
+}
+
+function untrackRuntimeRequest(id: string): void {
+  activeRuntimeRequests.delete(id);
+}
 
 async function expireStaleActiveRequests(projectId: string): Promise<void> {
-  const staleBefore = new Date(Date.now() - ACTIVE_REQUEST_STALE_MS);
+  const now = Date.now();
+  const hardStaleBefore = new Date(now - ACTIVE_REQUEST_STALE_MS);
+  const orphanBefore = new Date(now - ACTIVE_REQUEST_ORPHAN_MS);
+
+  const hardStaleRequests = await prisma.userRequest.findMany({
+    where: {
+      ...activeRequestWhere(projectId),
+      createdAt: {
+        lt: hardStaleBefore,
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
   await prisma.userRequest.updateMany({
     where: {
-      projectId,
-      status: {
-        in: ['pending', 'processing', 'active', 'running'],
-      },
+      ...activeRequestWhere(projectId),
       createdAt: {
-        lt: staleBefore,
+        lt: hardStaleBefore,
       },
     },
     data: {
@@ -27,18 +74,77 @@ async function expireStaleActiveRequests(projectId: string): Promise<void> {
       errorMessage: '请求超过平台活动窗口未结束，已自动标记为失败。请重新发起任务。',
     },
   });
+
+  hardStaleRequests.forEach((request) => untrackRuntimeRequest(request.id));
+
+  const activeRequests = await prisma.userRequest.findMany({
+    where: activeRequestWhere(projectId),
+    select: {
+      id: true,
+      createdAt: true,
+    },
+  });
+
+  if (activeRequests.length === 0) {
+    return;
+  }
+
+  const orphanedRequestIds: string[] = [];
+  await Promise.all(
+    activeRequests.map(async (request) => {
+      if (activeRuntimeRequests.has(request.id)) {
+        return;
+      }
+
+      const latestMessage = await prisma.message.findFirst({
+        where: {
+          projectId,
+          requestId: request.id,
+        },
+        select: {
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      const lastActivityAt = latestMessage?.createdAt ?? request.createdAt;
+      if (lastActivityAt < orphanBefore) {
+        orphanedRequestIds.push(request.id);
+      }
+    })
+  );
+
+  if (orphanedRequestIds.length === 0) {
+    return;
+  }
+
+  await prisma.userRequest.updateMany({
+    where: {
+      projectId,
+      id: {
+        in: orphanedRequestIds,
+      },
+      status: {
+        in: ACTIVE_STATUSES,
+      },
+    },
+    data: {
+      status: 'failed',
+      completedAt: new Date(),
+      errorMessage: '请求执行中长时间没有新事件，已自动标记为失败。请重新发起任务。',
+    },
+  });
+
+  orphanedRequestIds.forEach(untrackRuntimeRequest);
 }
 
 export async function getActiveRequests(projectId: string): Promise<ActiveRequestSummary> {
   await expireStaleActiveRequests(projectId);
 
   const count = await prisma.userRequest.count({
-    where: {
-      projectId,
-      status: {
-        in: ['pending', 'processing', 'active', 'running'],
-      },
-    },
+    where: activeRequestWhere(projectId),
   });
 
   return {
@@ -46,14 +152,6 @@ export async function getActiveRequests(projectId: string): Promise<ActiveReques
     activeCount: count,
   };
 }
-
-export type UserRequestStatus =
-  | 'pending'
-  | 'processing'
-  | 'active'
-  | 'running'
-  | 'completed'
-  | 'failed';
 
 interface UpsertUserRequestOptions {
   id: string;
@@ -135,10 +233,12 @@ async function updateStatus(
 
 export async function markUserRequestAsRunning(id: string): Promise<void> {
   await updateStatus(id, 'running');
+  trackRuntimeRequest(id);
 }
 
 export async function markUserRequestAsProcessing(id: string): Promise<void> {
   await updateStatus(id, 'processing');
+  trackRuntimeRequest(id);
 }
 
 export async function markUserRequestAsCompleted(id: string): Promise<void> {
@@ -146,6 +246,27 @@ export async function markUserRequestAsCompleted(id: string): Promise<void> {
     errorMessage: null,
     setCompletionTimestamp: true,
   });
+  untrackRuntimeRequest(id);
+}
+
+export async function markActiveUserRequestsAsCompleted(projectId: string): Promise<void> {
+  const activeRequests = await prisma.userRequest.findMany({
+    where: activeRequestWhere(projectId),
+    select: {
+      id: true,
+    },
+  });
+
+  await prisma.userRequest.updateMany({
+    where: activeRequestWhere(projectId),
+    data: {
+      status: 'completed',
+      completedAt: new Date(),
+      errorMessage: null,
+    },
+  });
+
+  activeRequests.forEach((request) => untrackRuntimeRequest(request.id));
 }
 
 export async function markUserRequestAsFailed(
@@ -156,4 +277,5 @@ export async function markUserRequestAsFailed(
     errorMessage: errorMessage ?? 'Request failed',
     setCompletionTimestamp: true,
   });
+  untrackRuntimeRequest(id);
 }

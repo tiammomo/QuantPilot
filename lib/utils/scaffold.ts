@@ -10,14 +10,29 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
       existing.includes('dashboard-data.json') ||
       existing.includes('data_file/final') ||
       existing.includes('/api/market/');
+    const hasStandardQuantDashboard =
+      existing.includes('data-source-file={DATA_FILE}') &&
+      existing.includes('function getBars(') &&
+      existing.includes('TrendChart') &&
+      existing.includes('K 线与量价结构');
     const isDefaultNextPage =
       existing.includes('Get started by editing') ||
       existing.includes('src/app/page.tsx') ||
       existing.includes('app/page.tsx') ||
       existing.includes('next/font/google') ||
       existing.includes('https://vercel.com/templates');
+    const hasUnstableQuantDashboard =
+      hasQuantDataBinding &&
+      (
+        existing.includes('0 条样本') ||
+        (existing.includes('最新价</span>') && !hasStandardQuantDashboard) ||
+        (existing.includes('QuantPilot 看板') && !hasStandardQuantDashboard) ||
+        existing.includes('SAMPLE_DATA') ||
+        existing.includes('MOCK_DATA') ||
+        existing.includes('STATIC_QUOTES')
+      );
 
-    return isDefaultNextPage && !hasQuantDataBinding;
+    return (isDefaultNextPage && !hasQuantDataBinding) || hasUnstableQuantDashboard;
   }
 
   if (normalizedPath.endsWith('/app/globals.css')) {
@@ -42,7 +57,14 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
     return (
       existing.includes('--webpack') ||
       existing.includes('hasBundlerFlag') ||
-      !existing.includes("NEXT_RSPACK: process.env.NEXT_RSPACK || 'true'")
+      existing.includes("NEXT_RSPACK: process.env.NEXT_RSPACK || 'true'") ||
+      existing.includes('const useRspack = process.env.NEXT_RSPACK ===') ||
+      existing.includes('Rspack dev mode enabled') ||
+      existing.includes('const devEnv =') ||
+      /'next',\s*'dev'/.test(existing) ||
+      !existing.includes("commandArgs.push('--turbo')") ||
+      !existing.includes('delete runtimeEnv.NEXT_RSPACK') ||
+      !existing.includes("fs.existsSync(path.join(projectRoot, '.next', 'BUILD_ID'))")
     );
   }
 
@@ -76,11 +98,11 @@ async function mergePackageJson(filePath: string, defaults: PackageJsonShape & R
   packageJson.dependencies = {
     ...(packageJson.dependencies ?? {}),
     next: packageJson.dependencies?.next ?? defaults.dependencies.next,
-    'next-rspack': '^16.2.6',
     react: packageJson.dependencies?.react ?? defaults.dependencies.react,
     'react-dom':
       packageJson.dependencies?.['react-dom'] ?? defaults.dependencies['react-dom'],
   };
+  delete packageJson.dependencies['next-rspack'];
 
   const existingDevDependencies =
     packageJson.devDependencies &&
@@ -110,9 +132,8 @@ async function mergePackageJson(filePath: string, defaults: PackageJsonShape & R
   );
 }
 
-async function ensureRspackNextConfig(filePath: string) {
+async function ensureNextConfig(filePath: string) {
   const fallback = `/** @type {import('next').NextConfig} */
-const withRspack = require('next-rspack');
 const projectRoot = __dirname;
 
 const nextConfig = {
@@ -120,7 +141,7 @@ const nextConfig = {
   outputFileTracingRoot: projectRoot,
 };
 
-module.exports = withRspack(nextConfig);
+module.exports = nextConfig;
 `;
 
   let content: string;
@@ -133,23 +154,25 @@ module.exports = withRspack(nextConfig);
   }
 
   let nextContent = content.replace(
+    /(?:const|var|let)\s+withRspack\s*=\s*require\(['"]next-rspack['"]\);\n?/g,
+    ''
+  );
+  nextContent = nextContent.replace(
+    /const\s+shouldUseRspack\s*=.*?;\n?/g,
+    ''
+  );
+  nextContent = nextContent.replace(
     /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
     ''
   );
-
-  if (
-    !nextContent.includes("require('next-rspack')") &&
-    !nextContent.includes('require("next-rspack")')
-  ) {
-    nextContent = `const withRspack = require('next-rspack');\n${nextContent}`;
-  }
-
-  if (nextContent.includes('module.exports = nextConfig')) {
-    nextContent = nextContent.replace(
-      /module\.exports\s*=\s*nextConfig\s*;?/g,
-      'module.exports = withRspack(nextConfig);'
-    );
-  }
+  nextContent = nextContent.replace(
+    /module\.exports\s*=\s*shouldUseRspack\s*\?\s*withRspack\(nextConfig\)\s*:\s*nextConfig\s*;?/g,
+    'module.exports = nextConfig;'
+  );
+  nextContent = nextContent.replace(
+    /module\.exports\s*=\s*withRspack\(nextConfig\)\s*;?/g,
+    'module.exports = nextConfig;'
+  );
 
   if (nextContent !== content) {
     await fs.writeFile(filePath, nextContent, 'utf8');
@@ -170,6 +193,505 @@ async function writeFileIfMissing(filePath: string, contents: string) {
   await fs.writeFile(filePath, contents, 'utf8');
 }
 
+async function readJsonRecord(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function comparisonPageTemplate() {
+  return `import fs from 'fs/promises';
+import path from 'path';
+
+type JsonRecord = Record<string, unknown>;
+
+const DATA_FILE = 'data_file/final/dashboard-data.json';
+
+function asRecord(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as JsonRecord;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function numeric(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatNumber(value: unknown, digits = 2): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(number);
+}
+
+function formatPercent(value: unknown): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
+}
+
+function formatMoney(value: unknown): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  if (Math.abs(number) >= 100000000) return formatNumber(number / 100000000, 2) + ' 亿';
+  if (Math.abs(number) >= 10000) return formatNumber(number / 10000, 2) + ' 万';
+  return formatNumber(number);
+}
+
+async function readDashboardData(): Promise<JsonRecord | null> {
+  try {
+    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    return asRecord(JSON.parse(content));
+  } catch {
+    return null;
+  }
+}
+
+function getAssets(data: JsonRecord | null): JsonRecord[] {
+  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function getComparisonRows(data: JsonRecord | null): JsonRecord[] {
+  const comparison = asRecord(data?.comparison);
+  const rows = asArray(comparison?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (rows.length > 0) return rows;
+  return getAssets(data).map((asset) => {
+    const quote = asRecord(asset.quote);
+    const metrics = asRecord(asset.computedMetrics);
+    return {
+      symbol: asset.symbol ?? quote?.symbol,
+      name: asset.name ?? quote?.name ?? asset.symbol,
+      price: quote?.price,
+      change_percent: quote?.change_percent,
+      period_return: metrics?.periodReturn,
+      max_drawdown: metrics?.maxDrawdown,
+      volatility20d: metrics?.volatility20d,
+      avg_volume_20d: metrics?.avgVolume20d,
+      amount: quote?.amount,
+      as_of: asset.as_of ?? quote?.quote_time ?? quote?.fetched_at,
+      source: asset.source ?? quote?.source,
+    };
+  });
+}
+
+function getLeaders(data: JsonRecord | null): JsonRecord | null {
+  return asRecord(asRecord(data?.comparison)?.leaders);
+}
+
+function tone(value: unknown): 'up' | 'down' | 'neutral' {
+  const number = numeric(value);
+  if (number === null || number === 0) return 'neutral';
+  return number > 0 ? 'up' : 'down';
+}
+
+function BarChart({ rows, field, title, subtitle, inverse = false }: {
+  rows: JsonRecord[];
+  field: string;
+  title: string;
+  subtitle: string;
+  inverse?: boolean;
+}) {
+  const values = rows.map((row) => numeric(row[field]) ?? 0);
+  const maxAbs = Math.max(0.01, ...values.map((value) => Math.abs(value)));
+
+  return (
+    <section className="comparison-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      <svg className="comparison-bars" viewBox="0 0 100 56" preserveAspectRatio="none" role="img" aria-label={title}>
+        <line x1="0" y1="44" x2="100" y2="44" className="axis" />
+        {rows.map((row, index) => {
+          const value = numeric(row[field]) ?? 0;
+          const height = Math.max(2, (Math.abs(value) / maxAbs) * 38);
+          const x = 8 + index * (84 / Math.max(rows.length, 1));
+          const width = Math.min(16, 66 / Math.max(rows.length, 1));
+          const y = 44 - height;
+          const isPositive = inverse ? value <= 0 : value >= 0;
+          return (
+            <g key={String(row.symbol ?? index)} className={isPositive ? 'bar-up' : 'bar-down'}>
+              <rect x={x.toFixed(2)} y={y.toFixed(2)} width={width.toFixed(2)} height={height.toFixed(2)} rx="1" />
+            </g>
+          );
+        })}
+      </svg>
+      <div className="chart-value-row">
+        {rows.map((row, index) => (
+          <span key={String(row.symbol ?? index)}>
+            {String(row.symbol ?? '-')} {formatPercent(row[field])}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export default async function Home() {
+  const data = await readDashboardData();
+  const rows = getComparisonRows(data);
+  const assets = getAssets(data);
+  const leaders = getLeaders(data);
+  const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
+  const bestReturn = asRecord(leaders?.best_return);
+  const lowestDrawdown = asRecord(leaders?.lowest_drawdown);
+  const lowestVolatility = asRecord(leaders?.lowest_volatility);
+
+  return (
+    <main className="comparison-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
+      <section className="comparison-hero">
+        <div>
+          <p className="eyebrow">QuantPilot 多标的对比</p>
+          <h1>多标的相对强弱看板</h1>
+          <p>覆盖 {requestedSymbols.length || rows.length} 个标的：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}</p>
+        </div>
+        <div className="hero-meta">
+          <span>样本：最近 60 个交易日</span>
+          <span>数据：{String(data?.source ?? 'eastmoney')}</span>
+          <span>文件：{DATA_FILE}</span>
+        </div>
+      </section>
+
+      <section className="leader-grid">
+        <article className="leader-card up">
+          <span>收益领先</span>
+          <strong>{String(bestReturn?.name ?? '-')}</strong>
+          <em>{formatPercent(bestReturn?.value)}</em>
+        </article>
+        <article className="leader-card neutral">
+          <span>回撤较小</span>
+          <strong>{String(lowestDrawdown?.name ?? '-')}</strong>
+          <em>{formatPercent(lowestDrawdown?.value)}</em>
+        </article>
+        <article className="leader-card neutral">
+          <span>波动较低</span>
+          <strong>{String(lowestVolatility?.name ?? '-')}</strong>
+          <em>{formatPercent(lowestVolatility?.value)}</em>
+        </article>
+      </section>
+
+      <section className="comparison-matrix">
+        <div className="panel-heading">
+          <div>
+            <h2>指标矩阵</h2>
+            <p>最新行情、区间收益、波动、回撤和成交额横向比较</p>
+          </div>
+          <span>{rows.length} 项</span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>标的</th>
+                <th>最新价</th>
+                <th>涨跌幅</th>
+                <th>区间收益</th>
+                <th>最大回撤</th>
+                <th>波动率</th>
+                <th>成交额</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={String(row.symbol ?? index)}>
+                  <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
+                  <td>{formatNumber(row.price)}</td>
+                  <td className={tone(row.change_percent)}>{formatPercent(row.change_percent)}</td>
+                  <td className={tone(row.period_return)}>{formatPercent(row.period_return)}</td>
+                  <td className="down">{formatPercent(row.max_drawdown)}</td>
+                  <td>{formatPercent(row.volatility20d)}</td>
+                  <td>{formatMoney(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="chart-grid">
+        <BarChart rows={rows} field="period_return" title="收益对比" subtitle="同一窗口下的区间收益率" />
+        <BarChart rows={rows} field="volatility20d" title="波动率对比" subtitle="20 日收益波动年化口径" />
+        <BarChart rows={rows} field="max_drawdown" title="最大回撤对比" subtitle="从区间高点到低点的最大跌幅" inverse />
+      </section>
+
+      <section className="comparison-matrix">
+        <div className="panel-heading">
+          <div>
+            <h2>数据来源与质量</h2>
+            <p>逐只标的展示来源、时间和样本量；公开行情接口可能存在延迟。</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>标的</th>
+                <th>来源</th>
+                <th>行情时间</th>
+                <th>K 线样本</th>
+                <th>质量提示</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assets.map((asset, index) => {
+                const quote = asRecord(asset.quote);
+                const kline = asRecord(asset.kline);
+                const quality = asRecord(quote?.data_quality) ?? asRecord(kline?.data_quality);
+                return (
+                  <tr key={String(asset.symbol ?? index)}>
+                    <td><strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong><small>{String(asset.symbol ?? quote?.symbol ?? '-')}</small></td>
+                    <td>{String(asset.source ?? quote?.source ?? '-')}</td>
+                    <td>{String(asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? '-')}</td>
+                    <td>{asArray(kline?.bars).length}</td>
+                    <td>{String(quality?.status ?? 'ok')}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}
+`;
+}
+
+function comparisonCss() {
+  return `
+
+.comparison-shell {
+  min-height: 100vh;
+  background: #f7f8fb;
+  color: #111827;
+  padding: 28px;
+}
+
+.comparison-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  padding: 28px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.comparison-hero h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(28px, 4vw, 48px);
+  letter-spacing: 0;
+}
+
+.comparison-hero p,
+.panel-heading p,
+.chart-value-row,
+.comparison-matrix small,
+.hero-meta {
+  color: #6b7280;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #c7352f;
+  font-weight: 700;
+}
+
+.hero-meta {
+  display: grid;
+  gap: 8px;
+  text-align: right;
+}
+
+.leader-grid,
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.leader-card,
+.comparison-panel,
+.comparison-matrix {
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.leader-card {
+  padding: 20px;
+}
+
+.leader-card span {
+  display: block;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.leader-card strong {
+  display: block;
+  font-size: 24px;
+}
+
+.leader-card em {
+  display: block;
+  margin-top: 8px;
+  font-size: 20px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.comparison-matrix,
+.comparison-panel {
+  margin-top: 18px;
+  padding: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.panel-heading h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 12px;
+  border-bottom: 1px solid #edf0f5;
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+td strong,
+td small {
+  display: block;
+}
+
+td small {
+  margin-top: 2px;
+}
+
+.comparison-bars {
+  width: 100%;
+  height: 220px;
+}
+
+.axis {
+  stroke: #d1d5db;
+  stroke-width: 0.5;
+}
+
+.bar-up rect {
+  fill: #d33b32;
+}
+
+.bar-down rect {
+  fill: #16a36a;
+}
+
+.chart-value-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.up {
+  color: #d33b32;
+}
+
+.down {
+  color: #16a36a;
+}
+
+.neutral {
+  color: #374151;
+}
+
+@media (max-width: 900px) {
+  .comparison-shell {
+    padding: 16px;
+  }
+
+  .comparison-hero,
+  .panel-heading {
+    display: block;
+  }
+
+  .hero-meta {
+    margin-top: 16px;
+    text-align: left;
+  }
+
+  .leader-grid,
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+`;
+}
+
+async function ensureComparisonDashboardTemplate(projectPath: string) {
+  const finalData = await readJsonRecord(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
+  const assets = Array.isArray(finalData?.assets) ? finalData.assets : [];
+  if (assets.length < 2) {
+    return;
+  }
+
+  const pagePath = path.join(projectPath, 'app', 'page.tsx');
+  const page = await fs.readFile(pagePath, 'utf8').catch(() => '');
+  if (/assets|comparison|多标的|相对强弱|收益对比|回撤对比|波动率对比/.test(page)) {
+    return;
+  }
+
+  await fs.writeFile(pagePath, comparisonPageTemplate(), 'utf8');
+
+  const cssPath = path.join(projectPath, 'app', 'globals.css');
+  const css = await fs.readFile(cssPath, 'utf8').catch(() => '');
+  if (!css.includes('.comparison-shell')) {
+    await fs.writeFile(cssPath, `${css.trimEnd()}\n${comparisonCss()}`, 'utf8');
+  }
+}
+
 export async function scaffoldBasicNextApp(
   projectPath: string,
   projectId: string
@@ -188,7 +710,6 @@ export async function scaffoldBasicNextApp(
     },
     dependencies: {
       next: '^16.2.6',
-      'next-rspack': '^16.2.6',
       react: '19.0.0',
       'react-dom': '19.0.0',
     },
@@ -206,7 +727,7 @@ export async function scaffoldBasicNextApp(
     packageJson
   );
 
-  await ensureRspackNextConfig(
+  await ensureNextConfig(
     path.join(projectPath, 'next.config.js')
   );
 
@@ -364,29 +885,71 @@ async function readDashboardData(): Promise<JsonRecord | null> {
 
 function getBars(data: JsonRecord | null): JsonRecord[] {
   const kline = asRecord(data?.kline) ?? asRecord(data?.history);
-  return asArray(kline?.bars).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    const primaryAsset = assets.find((asset) => asArray(asRecord(asset.kline)?.bars).length > 0) ?? assets[0];
+    return getBars(primaryAsset);
+  }
+  const candidates = [
+    kline?.bars,
+    kline?.data,
+    kline?.items,
+    data?.bars,
+    data?.klines,
+    data?.candles,
+    Array.isArray(data?.history) ? data?.history : null,
+  ];
+  for (const candidate of candidates) {
+    const bars = asArray(candidate).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+    if (bars.length > 0) {
+      return bars;
+    }
+  }
+  return [];
 }
 
 function getIndicatorSummary(data: JsonRecord | null): JsonRecord | null {
-  return asRecord(asRecord(data?.technicalIndicators)?.summary);
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getIndicatorSummary(assets[0]);
+  }
+  const technical = asRecord(data?.technicalIndicators) ?? asRecord(data?.indicators) ?? asRecord(data?.technical);
+  return asRecord(technical?.summary) ?? asRecord(data?.summary);
 }
 
 function getFundamentalSummary(data: JsonRecord | null): JsonRecord | null {
-  return asRecord(asRecord(data?.fundamentalIndicators)?.summary);
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getFundamentalSummary(assets[0]);
+  }
+  const fundamental = asRecord(data?.fundamentalIndicators) ?? asRecord(data?.fundamentals) ?? asRecord(data?.financials);
+  return asRecord(fundamental?.summary);
 }
 
 function getBacktest(data: JsonRecord | null): JsonRecord | null {
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getBacktest(assets[0]);
+  }
   return asRecord(data?.backtest);
 }
 
 function getReports(data: JsonRecord | null): JsonRecord[] {
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getReports(assets[0]);
+  }
   const financials = asRecord(data?.financials) ?? asRecord(data?.fundamentals);
-  return asArray(financials?.reports).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  return asArray(financials?.reports ?? data?.reports).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
 function getAnnouncements(data: JsonRecord | null): JsonRecord[] {
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getAnnouncements(assets[0]);
+  }
   const announcements = asRecord(data?.announcements) ?? asRecord(data?.events);
-  return asArray(announcements?.announcements).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  return asArray(announcements?.announcements ?? announcements?.items ?? data?.announcement_events).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
 function formatMoney(value: unknown): string {
@@ -411,6 +974,10 @@ function formatDate(value: unknown): string {
 }
 
 function getComputedMetrics(data: JsonRecord | null): JsonRecord | null {
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getComputedMetrics(assets[0]);
+  }
   return asRecord(data?.computedMetrics);
 }
 
@@ -800,7 +1367,9 @@ function SignalPanel({
 
 export default async function Home() {
   const data = await readDashboardData();
-  const quote = asRecord(data?.quote);
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  const primaryAsset = assets[0] ?? data;
+  const quote = asRecord(primaryAsset?.quote) ?? asRecord(data?.quote);
   const bars = getBars(data);
   const summary = getIndicatorSummary(data);
   const computedMetrics = getComputedMetrics(data);
@@ -809,8 +1378,8 @@ export default async function Home() {
   const announcements = getAnnouncements(data);
   const backtest = getBacktest(data);
   const latestBar = bars.at(-1);
-  const name = String(data?.name ?? quote?.name ?? data?.symbol ?? 'QuantPilot');
-  const symbol = String(data?.symbol ?? quote?.symbol ?? '-');
+  const name = String(primaryAsset?.name ?? quote?.name ?? primaryAsset?.symbol ?? data?.name ?? 'QuantPilot');
+  const symbol = String(primaryAsset?.symbol ?? quote?.symbol ?? data?.symbol ?? '-');
   const change = numeric(quote?.change_percent ?? latestBar?.change_percent);
   const isUp = (change ?? 0) >= 0;
 
@@ -1529,6 +2098,7 @@ th {
     `#!/usr/bin/env node
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const projectRoot = path.join(__dirname, '..');
@@ -1613,28 +2183,31 @@ function resolvePort(preferredPort) {
 
   console.log(\`🚀 Starting Next.js dev server on \${url}\`);
 
+  const hasProductionBuild = fs.existsSync(path.join(projectRoot, '.next', 'BUILD_ID'));
+  const commandArgs = hasProductionBuild
+    ? ['next', 'start', '--port', String(port), ...passthrough]
+    : ['next', 'dev', '--port', String(port), ...passthrough];
+  if (!hasProductionBuild && !commandArgs.includes('--turbo') && !commandArgs.includes('--turbopack')) {
+    commandArgs.push('--turbo');
+  }
+  const runtimeEnv = {
+    ...process.env,
+    PORT: String(port),
+    WEB_PORT: String(port),
+    NEXT_PUBLIC_APP_URL: url,
+    NEXT_TELEMETRY_DISABLED: '1',
+  };
+  delete runtimeEnv.NEXT_RSPACK;
+  delete runtimeEnv.TURBOPACK;
+
   const child = spawn(
     'npx',
-    [
-      'next',
-      'dev',
-      '--port',
-      String(port),
-      ...passthrough,
-    ],
+    commandArgs,
     {
       cwd: projectRoot,
       stdio: 'inherit',
       shell: isWindows,
-      env: {
-        ...process.env,
-        NEXT_RSPACK: process.env.NEXT_RSPACK || 'true',
-        TURBOPACK: undefined,
-        PORT: String(port),
-        WEB_PORT: String(port),
-        NEXT_PUBLIC_APP_URL: url,
-        NEXT_TELEMETRY_DISABLED: '1',
-      },
+      env: runtimeEnv,
     }
   );
 
@@ -1653,4 +2226,6 @@ function resolvePort(preferredPort) {
 })();
 `
   );
+
+  await ensureComparisonDashboardTemplate(projectPath);
 }

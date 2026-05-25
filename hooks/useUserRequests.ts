@@ -145,17 +145,20 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
   }, [hasActiveRequests, isTabVisible, checkActiveRequests]);
 
   // Clean up on component unmount
   useEffect(() => {
+    const activeRequestIds = activeRequestIdsRef.current;
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-      activeRequestIdsRef.current.clear();
+      activeRequestIds.clear();
     };
   }, []);
 

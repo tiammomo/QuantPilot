@@ -10,8 +10,12 @@ description: Use this skill when the user mentions a stock name, abbreviation, t
 ## API
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/symbols/resolve?query=茅台&count=5'
-curl 'http://127.0.0.1:8000/api/v1/symbols/resolve?query=600519&count=5'
+curl -G 'http://127.0.0.1:8000/api/v1/symbols/resolve' \
+  --data-urlencode 'query=茅台' \
+  --data-urlencode 'count=5'
+curl -G 'http://127.0.0.1:8000/api/v1/symbols/resolve' \
+  --data-urlencode 'query=600519' \
+  --data-urlencode 'count=5'
 ```
 
 ## 工作流程
@@ -20,8 +24,10 @@ curl 'http://127.0.0.1:8000/api/v1/symbols/resolve?query=600519&count=5'
 2. 优先选择 A 股结果，并记录 `symbol`、`name`、`market`、`secid`。
 3. 若存在多个候选，展示候选并说明你选择的依据。
 4. 后续行情、K 线、财务、公告查询使用解析后的 `symbol` 或 `secid`。
+5. `query` 包含中文时必须使用 `curl -G --data-urlencode`，不要把中文直接拼进 URL。
 
 ## 禁止事项
 
 - 不要把中文股票名直接传给行情接口。
+- 不要把中文查询词直接拼接到 URL 查询串。
 - 不要在存在多个候选时假定唯一结果。

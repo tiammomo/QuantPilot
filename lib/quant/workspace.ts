@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { assessQuantIntentForClarification, QuantIntentClarification } from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
 
 type QuantManifest = {
@@ -19,7 +20,7 @@ type QuantManifest = {
   };
 };
 
-type RunPlanStatus = 'pending' | 'planned';
+type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification';
 
 export interface QuantRunPlan {
   schemaVersion: 1;
@@ -37,6 +38,7 @@ export interface QuantRunPlan {
     required: boolean;
     panels: string[];
   };
+  clarification?: QuantIntentClarification;
   expectedArtifacts: string[];
   validationRules: string[];
   createdAt: string;
@@ -122,6 +124,17 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean): string[]
     '查询 quant-data-registry，确认本地数据能力可用。',
   ];
 
+  if (capabilityId === 'asset_comparison') {
+    return [
+      ...common,
+      '逐只获取实时行情、历史 K 线和可用的财务/指标数据。',
+      '标准化收益、波动、回撤、成交量和相对强弱口径。',
+      '检查每个标的数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
+      '生成包含 assets[] 和 comparison 的最终数据文件。',
+      '生成多标的对比看板并验证标的覆盖率、图表和数据来源。',
+    ];
+  }
+
   if (capabilityId === 'technical_analysis') {
     return [
       ...common,
@@ -166,6 +179,9 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean): string[]
 }
 
 function buildVisualizationPanels(capabilityId: string): string[] {
+  if (capabilityId === 'asset_comparison') {
+    return ['多标的指标矩阵', '收益对比图', '波动与回撤对比', '成交量/成交额对比', '相对强弱摘要'];
+  }
   if (capabilityId === 'technical_analysis') {
     return ['实时行情卡片', 'K 线与均线', '成交量', '波动率与最大回撤', '最近 K 线表格'];
   }
@@ -179,7 +195,7 @@ function buildVisualizationPanels(capabilityId: string): string[] {
 }
 
 function plannedCapabilityNotice(requestedCapabilityId: string, executionCapabilityId: string): string[] {
-  if (requestedCapabilityId === executionCapabilityId) {
+  if (requestedCapabilityId === executionCapabilityId || requestedCapabilityId === 'asset_comparison') {
     return [];
   }
   return [
@@ -209,6 +225,10 @@ export async function appendQuantWorkspaceEvent(projectPath: string, event: Quan
   await fs.appendFile(path.join(quantDir(projectPath), 'events.jsonl'), `${JSON.stringify(line)}\n`, 'utf8');
 }
 
+export async function readQuantRunPlan(projectPath: string): Promise<QuantRunPlan | null> {
+  return readJsonFile<QuantRunPlan>(path.join(quantDir(projectPath), 'run_plan.json'));
+}
+
 export async function writeInitialRunPlan(params: {
   projectPath: string;
   instruction: string;
@@ -219,10 +239,19 @@ export async function writeInitialRunPlan(params: {
   const manifest = await readManifest(params.projectPath);
   const manifestQuant = manifest?.quant;
   const capability = getQuantCapability(params.capabilityId ?? manifestQuant?.capabilityId);
-  const executionCapability = getExecutionQuantCapability(capability.id);
+  const executionCapability = capability.id === 'asset_comparison'
+    ? capability
+    : getExecutionQuantCapability(capability.id);
   const quantSettings = buildQuantProjectSettings(capability.id);
   const now = new Date().toISOString();
   const symbols = inferSymbols(params.instruction);
+  const timeRange = inferTimeRange(params.instruction);
+  const clarification = assessQuantIntentForClarification({
+    instruction: params.instruction,
+    capabilityId: executionCapability.id,
+    symbols,
+    timeRange,
+  });
   const dataRequirements = Array.from(
     new Set([
       ...executionCapability.dataEndpoints,
@@ -249,23 +278,32 @@ export async function writeInitialRunPlan(params: {
   const plan: QuantRunPlan = {
     schemaVersion: 1,
     runId: params.requestId,
-    status: 'planned',
+    status: clarification.required ? 'needs_clarification' : 'planned',
     capabilityId: executionCapability.id,
     requestedCapabilityId: capability.id,
     executionCapabilityId: executionCapability.id,
     question: params.instruction,
     symbols,
-    timeRange: inferTimeRange(params.instruction),
+    timeRange,
     dataRequirements,
-    analysisSteps: [
-      ...plannedCapabilityNotice(capability.id, executionCapability.id),
-      ...buildAnalysisSteps(executionCapability.id, symbols.length > 0),
-    ],
+    analysisSteps: clarification.required
+      ? [
+          ...plannedCapabilityNotice(capability.id, executionCapability.id),
+          '补充用户缺失的关键输入。',
+          '确认标的、对比范围或投资约束后，再重新生成 planned 状态的执行计划。',
+        ]
+      : [
+          ...plannedCapabilityNotice(capability.id, executionCapability.id),
+          ...buildAnalysisSteps(executionCapability.id, symbols.length > 0),
+        ],
     visualization: {
-      required: wantsVisualization(params.instruction) || isQuantAnalysisTask(params.instruction),
+      required:
+        !clarification.required &&
+        (wantsVisualization(params.instruction) || isQuantAnalysisTask(params.instruction)),
       panels: buildVisualizationPanels(executionCapability.id),
     },
-    expectedArtifacts,
+    clarification: clarification.required ? clarification : undefined,
+    expectedArtifacts: clarification.required ? ['.quantpilot/run_plan.json', '.quantpilot/events.jsonl'] : expectedArtifacts,
     validationRules,
     createdAt: now,
     updatedAt: now,
@@ -278,12 +316,14 @@ export async function writeInitialRunPlan(params: {
   );
 
   await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: 'run_planned',
+    event_type: clarification.required ? 'intent_clarification_required' : 'run_planned',
     stage: 'planning',
-    status: 'success',
+    status: clarification.required ? 'warning' : 'success',
     run_id: params.requestId,
     artifact_path: '.quantpilot/run_plan.json',
-    summary: `已生成${capability.name}计划，下一步将按计划解析标的、获取真实数据并生成可视化产物。`,
+    summary: clarification.required
+      ? `任务缺少关键输入，需要先向用户澄清：${clarification.questions.join('；')}`
+      : `已生成${capability.name}计划，下一步将按计划解析标的、获取真实数据并生成可视化产物。`,
     created_at: now,
   });
 
