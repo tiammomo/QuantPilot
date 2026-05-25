@@ -137,8 +137,12 @@ async function ensureNextConfig(filePath: string) {
 const projectRoot = __dirname;
 
 const nextConfig = {
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
   typedRoutes: true,
   outputFileTracingRoot: projectRoot,
+  turbopack: {
+    root: projectRoot,
+  },
 };
 
 module.exports = nextConfig;
@@ -162,10 +166,6 @@ module.exports = nextConfig;
     ''
   );
   nextContent = nextContent.replace(
-    /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
-    ''
-  );
-  nextContent = nextContent.replace(
     /module\.exports\s*=\s*shouldUseRspack\s*\?\s*withRspack\(nextConfig\)\s*:\s*nextConfig\s*;?/g,
     'module.exports = nextConfig;'
   );
@@ -173,6 +173,30 @@ module.exports = nextConfig;
     /module\.exports\s*=\s*withRspack\(nextConfig\)\s*;?/g,
     'module.exports = nextConfig;'
   );
+  if (!nextContent.includes('const projectRoot = __dirname;')) {
+    nextContent = nextContent.replace(
+      /\/\*\* @type \{import\('next'\)\.NextConfig\} \*\/\n/,
+      "/** @type {import('next').NextConfig} */\nconst projectRoot = __dirname;\n"
+    );
+  }
+  if (!nextContent.includes('turbopack:')) {
+    nextContent = nextContent.replace(
+      /const nextConfig = \{\n/,
+      `const nextConfig = {
+  turbopack: {
+    root: projectRoot,
+  },
+`
+    );
+  }
+  if (!nextContent.includes('allowedDevOrigins')) {
+    nextContent = nextContent.replace(
+      /const nextConfig = \{\n/,
+      `const nextConfig = {
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
+`
+    );
+  }
 
   if (nextContent !== content) {
     await fs.writeFile(filePath, nextContent, 'utf8');
@@ -290,6 +314,16 @@ function getLeaders(data: JsonRecord | null): JsonRecord | null {
   return asRecord(asRecord(data?.comparison)?.leaders);
 }
 
+function getCorrelationPairs(data: JsonRecord | null): JsonRecord[] {
+  const correlation = asRecord(data?.correlation);
+  return asArray(correlation?.top_pairs).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function getLiquidityRows(data: JsonRecord | null): JsonRecord[] {
+  const liquidity = asRecord(data?.liquidity);
+  return asArray(liquidity?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
 function tone(value: unknown): 'up' | 'down' | 'neutral' {
   const number = numeric(value);
   if (number === null || number === 0) return 'neutral';
@@ -341,11 +375,85 @@ function BarChart({ rows, field, title, subtitle, inverse = false }: {
   );
 }
 
+function CorrelationPanel({ pairs }: { pairs: JsonRecord[] }) {
+  return (
+    <section className="comparison-matrix">
+      <div className="panel-heading">
+        <div>
+          <h2>相关性结构</h2>
+          <p>基于对齐日期后的日收益率计算 Pearson 相关性，帮助识别联动和分散效果。</p>
+        </div>
+        <span>{pairs.length} 组</span>
+      </div>
+      <div className="correlation-list">
+        {pairs.length > 0 ? pairs.slice(0, 6).map((pair, index) => {
+          const correlation = numeric(pair.correlation);
+          const width = Math.max(4, Math.abs(correlation ?? 0) * 100);
+          return (
+            <div className="correlation-row" key={String(pair.left ?? index) + String(pair.right ?? '')}>
+              <div>
+                <strong>{String(pair.left ?? '-')} / {String(pair.right ?? '-')}</strong>
+                <small>重合样本 {formatNumber(pair.overlap, 0)} 个交易日</small>
+              </div>
+              <div className="correlation-meter">
+                <span style={{ width: width + '%' }} className={(correlation ?? 0) >= 0 ? 'corr-positive' : 'corr-negative'} />
+              </div>
+              <em>{formatNumber(correlation, 4)}</em>
+            </div>
+          );
+        }) : <p className="empty-state">当前数据不足以计算多标的相关性。</p>}
+      </div>
+    </section>
+  );
+}
+
+function LiquidityPanel({ rows }: { rows: JsonRecord[] }) {
+  return (
+    <section className="comparison-matrix">
+      <div className="panel-heading">
+        <div>
+          <h2>流动性与可交易性</h2>
+          <p>展示 20 日成交额、换手代理和 Amihud 非流动性，辅助判断样本可交易性。</p>
+        </div>
+        <span>{rows.length} 项</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>标的</th>
+              <th>流动性等级</th>
+              <th>20 日均额</th>
+              <th>20 日均量</th>
+              <th>换手代理</th>
+              <th>Amihud x1e9</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={String(row.symbol ?? index)}>
+                <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
+                <td>{String(row.liquidity_score ?? '-')}</td>
+                <td>{formatMoney(row.avg_amount_20d)}</td>
+                <td>{formatNumber(row.avg_volume_20d, 0)}</td>
+                <td>{formatPercent(row.turnover_proxy_pct)}</td>
+                <td>{formatNumber(row.amihud_illiquidity_x1e9, 6)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default async function Home() {
   const data = await readDashboardData();
   const rows = getComparisonRows(data);
   const assets = getAssets(data);
   const leaders = getLeaders(data);
+  const correlationPairs = getCorrelationPairs(data);
+  const liquidityRows = getLiquidityRows(data);
   const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
   const bestReturn = asRecord(leaders?.best_return);
   const lowestDrawdown = asRecord(leaders?.lowest_drawdown);
@@ -426,6 +534,11 @@ export default async function Home() {
         <BarChart rows={rows} field="period_return" title="收益对比" subtitle="同一窗口下的区间收益率" />
         <BarChart rows={rows} field="volatility20d" title="波动率对比" subtitle="20 日收益波动年化口径" />
         <BarChart rows={rows} field="max_drawdown" title="最大回撤对比" subtitle="从区间高点到低点的最大跌幅" inverse />
+      </section>
+
+      <section className="comparison-two-column">
+        <CorrelationPanel pairs={correlationPairs} />
+        <LiquidityPanel rows={liquidityRows} />
       </section>
 
       <section className="comparison-matrix">
@@ -565,6 +678,67 @@ function comparisonCss() {
   padding: 20px;
 }
 
+.comparison-two-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
+}
+
+.correlation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.correlation-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.9fr) minmax(120px, 1fr) 64px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #edf0f5;
+  border-radius: 8px;
+}
+
+.correlation-row strong,
+.correlation-row small,
+.correlation-row em {
+  display: block;
+}
+
+.correlation-row small {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.correlation-row em {
+  color: #374151;
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.correlation-meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.correlation-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.corr-positive {
+  background: #d33b32;
+}
+
+.corr-negative {
+  background: #16a36a;
+}
+
 .panel-heading {
   display: flex;
   justify-content: space-between;
@@ -663,7 +837,8 @@ td small {
   }
 
   .leader-grid,
-  .chart-grid {
+  .chart-grid,
+  .comparison-two-column {
     grid-template-columns: 1fr;
   }
 }
@@ -672,6 +847,10 @@ td small {
 
 async function ensureComparisonDashboardTemplate(projectPath: string) {
   const finalData = await readJsonRecord(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
+  const dashboardKind = typeof finalData?.dashboardKind === 'string' ? finalData.dashboardKind : null;
+  if (dashboardKind === 'portfolio_rebalance' || dashboardKind === 'portfolio_risk') {
+    return;
+  }
   const assets = Array.isArray(finalData?.assets) ? finalData.assets : [];
   if (assets.length < 2) {
     return;
@@ -679,7 +858,7 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
 
   const pagePath = path.join(projectPath, 'app', 'page.tsx');
   const page = await fs.readFile(pagePath, 'utf8').catch(() => '');
-  if (/assets|comparison|多标的|相对强弱|收益对比|回撤对比|波动率对比/.test(page)) {
+  if (/多标的相对强弱看板|指标矩阵|收益对比|回撤对比|波动率对比|流动性与可交易性/.test(page)) {
     return;
   }
 
@@ -984,6 +1163,16 @@ function getComputedMetrics(data: JsonRecord | null): JsonRecord | null {
 function getTechnicalPoints(data: JsonRecord | null): JsonRecord[] {
   const technical = asRecord(data?.technicalIndicators);
   return asArray(technical?.points).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function getLiquidityRows(data: JsonRecord | null): JsonRecord[] {
+  const liquidity = asRecord(data?.liquidity);
+  return asArray(liquidity?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function getCorrelationPairs(data: JsonRecord | null): JsonRecord[] {
+  const correlation = asRecord(data?.correlation);
+  return asArray(correlation?.top_pairs).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
 function movingAverage(values: Array<number | null>, windowSize: number, index: number): number | null {
@@ -1301,6 +1490,78 @@ function AnnouncementPanel({ announcements }: { announcements: JsonRecord[] }) {
   );
 }
 
+function LiquidityPanel({ rows }: { rows: JsonRecord[] }) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <article className="data-panel">
+      <div className="panel-heading compact">
+        <div>
+          <h2>流动性摘要</h2>
+          <p>20 日成交额、成交量、换手代理和 Amihud 非流动性</p>
+        </div>
+        <span>{rows.length} 项</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>标的</th><th>等级</th><th>20 日均额</th><th>换手代理</th><th>Amihud x1e9</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={String(row.symbol ?? index)}>
+                <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
+                <td>{String(row.liquidity_score ?? '-')}</td>
+                <td>{formatMoney(row.avg_amount_20d)}</td>
+                <td>{formatPercent(row.turnover_proxy_pct)}</td>
+                <td>{formatNumber(row.amihud_illiquidity_x1e9, 6)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+}
+
+function CorrelationPanel({ pairs }: { pairs: JsonRecord[] }) {
+  if (pairs.length === 0) {
+    return null;
+  }
+
+  return (
+    <article className="data-panel">
+      <div className="panel-heading compact">
+        <div>
+          <h2>相关性结构</h2>
+          <p>基于对齐日期后的日收益率，展示联动最高的标的组合</p>
+        </div>
+        <span>{pairs.length} 组</span>
+      </div>
+      <div className="correlation-list compact-list">
+        {pairs.slice(0, 6).map((pair, index) => {
+          const correlation = numeric(pair.correlation);
+          const width = Math.max(4, Math.abs(correlation ?? 0) * 100);
+          return (
+            <div className="correlation-row compact-row" key={String(pair.left ?? index) + String(pair.right ?? '')}>
+              <div>
+                <strong>{String(pair.left ?? '-')} / {String(pair.right ?? '-')}</strong>
+                <small>重合样本 {formatNumber(pair.overlap, 0)} 个交易日</small>
+              </div>
+              <div className="correlation-meter">
+                <span style={{ width: width + '%' }} className={(correlation ?? 0) >= 0 ? 'corr-positive' : 'corr-negative'} />
+              </div>
+              <em>{formatNumber(correlation, 4)}</em>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 function SignalPanel({
   quote,
   latestBar,
@@ -1377,6 +1638,8 @@ export default async function Home() {
   const reports = getReports(data);
   const announcements = getAnnouncements(data);
   const backtest = getBacktest(data);
+  const liquidityRows = getLiquidityRows(data);
+  const correlationPairs = getCorrelationPairs(data);
   const latestBar = bars.at(-1);
   const name = String(primaryAsset?.name ?? quote?.name ?? primaryAsset?.symbol ?? data?.name ?? 'QuantPilot');
   const symbol = String(primaryAsset?.symbol ?? quote?.symbol ?? data?.symbol ?? '-');
@@ -1491,6 +1754,11 @@ export default async function Home() {
       <section className="detail-grid wide">
         <FinancialPanel reports={reports} summary={fundamentalSummary} />
         <AnnouncementPanel announcements={announcements} />
+      </section>
+
+      <section className="detail-grid wide">
+        <LiquidityPanel rows={liquidityRows} />
+        <CorrelationPanel pairs={correlationPairs} />
       </section>
     </main>
   );
@@ -1988,6 +2256,62 @@ h2 {
 
 .announcement-list strong {
   line-height: 1.45;
+}
+
+.correlation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.correlation-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(120px, 1fr) 64px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.correlation-row strong,
+.correlation-row small,
+.correlation-row em {
+  display: block;
+}
+
+.correlation-row small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.correlation-row em {
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.correlation-meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.correlation-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.corr-positive {
+  background: var(--red);
+}
+
+.corr-negative {
+  background: var(--green);
 }
 
 .empty-state {

@@ -277,7 +277,7 @@ async function runFromCli() {
   let restartedAfterRspackPanic = false;
   let recentOutput = '';
   let activeChild = null;
-  let activeBundler = process.env.QUANTPILOT_BUNDLER === 'turbo' ? 'turbo' : 'rspack';
+  let activeBundler = process.env.QUANTPILOT_BUNDLER === 'rspack' ? 'rspack' : 'turbo';
 
   const hasRspackPanicOutput = () =>
     /rspack/i.test(recentOutput) &&
