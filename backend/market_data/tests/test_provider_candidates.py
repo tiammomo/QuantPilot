@@ -20,7 +20,26 @@ def test_provider_candidates_registry_endpoint() -> None:
     provider_ids = {provider["id"] for provider in response.json()["providers"]}
     assert "tencent-a-share-kline" in provider_ids
     assert "stooq-daily" in provider_ids
+    assert "yahoo-finance-chart" in provider_ids
+    assert "yahoo-finance-quote-summary" in provider_ids
     assert "alpha-vantage" in provider_ids
+
+
+@respx.mock
+@pytest.mark.anyio
+async def test_probe_yahoo_chart_provider() -> None:
+    provider = get_candidate_provider("yahoo-finance-chart")
+    assert provider is not None
+    assert provider.probe_url is not None
+    respx.get(provider.probe_url).mock(
+        return_value=Response(200, json={"chart": {"result": [{"meta": {"symbol": "AAPL"}}]}})
+    )
+
+    result = await probe_candidate_provider(provider)
+
+    assert result.ok is True
+    assert result.status_code == 200
+    assert "chart" in result.sample_keys
 
 
 @respx.mock

@@ -150,7 +150,10 @@ DATA_PROVIDERS = [
         name="免费/免费层候选信源测试池",
         category="planned-provider",
         status="available",
-        description="用于评估腾讯、新浪、Stooq、Alpha Vantage、Finnhub、Twelve Data 等候选信源。",
+        description=(
+            "用于评估腾讯、新浪、Stooq、Yahoo Finance、Alpha Vantage、"
+            "Finnhub、Twelve Data 等候选信源。"
+        ),
         endpoints=["/api/v1/provider-candidates", "/api/v1/provider-candidates/probe"],
         limitations=["候选源不会直接替换主链路，必须先通过探针和数据质量评估。"],
     ),
