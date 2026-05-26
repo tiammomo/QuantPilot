@@ -124,6 +124,26 @@
     "quant-visualization-html": {
       "releases": [
         {
+          "version": "0.3.3",
+          "date": "2026-05-26",
+          "summary": "收紧持仓分析页面结构，避免生成占据首屏的巨型 hero。",
+          "changes": [
+            "要求 holding-analysis、调仓建议和截图持仓页面直接从账户摘要、持仓矩阵或核心风险面板开始。",
+            "禁止持仓分析页面使用 hero-band、深色大 VaR 卡或模板名称加巨型标题的首屏结构。",
+            "将 VaR、样本口径、刷新接口和非投资建议声明下沉到指标卡、风险模块、数据质量或底部说明。"
+          ]
+        },
+        {
+          "version": "0.3.2",
+          "date": "2026-05-25",
+          "summary": "新增生成产物策略约束，防止外部资源、mock 数据和敏感信息进入工作空间。",
+          "changes": [
+            "禁止外部 CDN、远程脚本、远程样式、远程媒体和浏览器直连外部接口。",
+            "要求页面只读取 final 数据文件或同源 /api/market，并保留 run plan、final 数据和 evidence 标准产物。",
+            "禁止 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据和明文密钥。"
+          ]
+        },
+        {
           "version": "0.3.1",
           "date": "2026-05-25",
           "summary": "增强生成页面的 TypeScript 稳定性约束，避免动态 JSON 字段推断导致 build 失败。",

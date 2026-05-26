@@ -11,6 +11,10 @@ export interface SkillRelease {
   date: string;
   summary: string;
   changes: string[];
+  snapshot?: {
+    exists: boolean;
+    packagePath: string;
+  };
 }
 
 interface RegistrySkill {
@@ -56,6 +60,8 @@ export interface SkillItem {
   changelog: {
     currentRelease: SkillRelease | null;
     releases: SkillRelease[];
+    latestVersion: string | null;
+    releaseCount: number;
   };
   lock: {
     version: string | null;
@@ -68,10 +74,19 @@ export interface SkillItem {
     path: string;
     skillFilePath: string;
     fileCount: number;
+    directoryCount: number;
+    editableFileCount: number;
+    referenceFileCount: number;
+    scriptFileCount: number;
+    assetFileCount: number;
     sourceSha256: string;
     sourceSha256Short: string | null;
     hasScripts: boolean;
     hasReferences: boolean;
+    hasAssets: boolean;
+    hasAgents: boolean;
+    directories: SkillSourceDirectory[];
+    files: SkillSourceFile[];
   };
   package: {
     exists: boolean;
@@ -107,6 +122,27 @@ export interface SkillsDashboardData {
     schemaVersion: number;
     packageFormat: string;
   };
+}
+
+export type SkillSourceFileKind = 'instruction' | 'reference' | 'script' | 'asset' | 'agent' | 'other';
+
+export interface SkillSourceFile {
+  path: string;
+  name: string;
+  kind: SkillSourceFileKind;
+  editable: boolean;
+  size: number;
+  updatedAt: string | null;
+  sha256: string;
+  sha256Short: string | null;
+}
+
+export interface SkillSourceDirectory {
+  path: string;
+  name: string;
+  kind: SkillSourceFileKind;
+  fileCount: number;
+  updatedAt: string | null;
 }
 
 const ROOT = process.cwd();
@@ -158,6 +194,19 @@ async function listFiles(dir: string): Promise<string[]> {
   return nested.flat().sort();
 }
 
+async function listDirectories(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const nested = await Promise.all(
+    entries.flatMap((entry) => {
+      if (entry.name === '.DS_Store') return [];
+      const absolutePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) return [Promise.resolve([absolutePath]), listDirectories(absolutePath)];
+      return [];
+    })
+  );
+  return nested.flat().sort();
+}
+
 async function hashSkillSource(skillId: string) {
   const sourceDir = path.join(SKILLS_DIR, skillId);
   const files = await listFiles(sourceDir);
@@ -175,6 +224,109 @@ async function hashSkillSource(skillId: string) {
     fileCount: files.length,
     sourceSha256: hash.digest('hex'),
   };
+}
+
+const EDITABLE_SOURCE_EXTENSIONS = new Set([
+  '.css',
+  '.html',
+  '.js',
+  '.json',
+  '.md',
+  '.mjs',
+  '.py',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.yaml',
+  '.yml',
+]);
+
+function classifySkillFile(relativePath: string): SkillSourceFileKind {
+  if (relativePath === 'SKILL.md') return 'instruction';
+  if (relativePath.startsWith('references/')) return 'reference';
+  if (relativePath.startsWith('scripts/')) return 'script';
+  if (relativePath.startsWith('assets/')) return 'asset';
+  if (relativePath.startsWith('agents/')) return 'agent';
+  return 'other';
+}
+
+function classifySkillDirectory(relativePath: string): SkillSourceFileKind {
+  if (relativePath === 'references' || relativePath.startsWith('references/')) return 'reference';
+  if (relativePath === 'scripts' || relativePath.startsWith('scripts/')) return 'script';
+  if (relativePath === 'assets' || relativePath.startsWith('assets/')) return 'asset';
+  if (relativePath === 'agents' || relativePath.startsWith('agents/')) return 'agent';
+  return 'other';
+}
+
+function isEditableSkillFile(relativePath: string): boolean {
+  if (relativePath === 'SKILL.md') return true;
+  return EDITABLE_SOURCE_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+}
+
+async function listSkillSourceFiles(skillId: string): Promise<SkillSourceFile[]> {
+  const sourceDir = path.join(SKILLS_DIR, skillId);
+  const files = await listFiles(sourceDir);
+  const items = await Promise.all(files.map(async (filePath) => {
+    const relativePath = path.relative(sourceDir, filePath).replaceAll(path.sep, '/');
+    const [buffer, stat] = await Promise.all([
+      fs.readFile(filePath),
+      fs.stat(filePath).catch(() => null),
+    ]);
+    const digest = sha256(buffer);
+    return {
+      path: relativePath,
+      name: path.basename(relativePath),
+      kind: classifySkillFile(relativePath),
+      editable: isEditableSkillFile(relativePath),
+      size: stat?.size ?? buffer.byteLength,
+      updatedAt: stat?.mtime.toISOString() ?? null,
+      sha256: digest,
+      sha256Short: compactHash(digest),
+    };
+  }));
+
+  return items.sort((a, b) => {
+    const order: Record<SkillSourceFileKind, number> = {
+      instruction: 0,
+      reference: 1,
+      script: 2,
+      agent: 3,
+      asset: 4,
+      other: 5,
+    };
+    return order[a.kind] - order[b.kind] || a.path.localeCompare(b.path);
+  });
+}
+
+async function listSkillSourceDirectories(skillId: string): Promise<SkillSourceDirectory[]> {
+  const sourceDir = path.join(SKILLS_DIR, skillId);
+  const directories = await listDirectories(sourceDir);
+  const items = await Promise.all(directories.map(async (directoryPath) => {
+    const relativePath = path.relative(sourceDir, directoryPath).replaceAll(path.sep, '/');
+    const [stat, files] = await Promise.all([
+      fs.stat(directoryPath).catch(() => null),
+      listFiles(directoryPath),
+    ]);
+    return {
+      path: relativePath,
+      name: path.basename(relativePath),
+      kind: classifySkillDirectory(relativePath),
+      fileCount: files.length,
+      updatedAt: stat?.mtime.toISOString() ?? null,
+    };
+  }));
+
+  return items.sort((a, b) => {
+    const order: Record<SkillSourceFileKind, number> = {
+      instruction: 0,
+      reference: 1,
+      script: 2,
+      agent: 3,
+      asset: 4,
+      other: 5,
+    };
+    return order[a.kind] - order[b.kind] || a.path.localeCompare(b.path);
+  });
 }
 
 function asStringArray(value: unknown): string[] {
@@ -210,7 +362,11 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const skills = await Promise.all(coreSkills.map(async (skill) => {
     const sourceDir = path.join(SKILLS_DIR, skill.id);
     const skillFilePath = path.join(sourceDir, 'SKILL.md');
-    const sourceHash = await hashSkillSource(skill.id);
+    const [sourceHash, sourceFiles, sourceDirectories] = await Promise.all([
+      hashSkillSource(skill.id),
+      listSkillSourceFiles(skill.id),
+      listSkillSourceDirectories(skill.id),
+    ]);
     const lockEntry = lockSkills[skill.id] ?? null;
     const packagePath = lockEntry?.packagePath
       ? path.join(ROOT, lockEntry.packagePath)
@@ -219,7 +375,16 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
     const packageBuffer = packageExists ? await fs.readFile(packagePath) : null;
     const packageStat = packageExists ? await fs.stat(packagePath) : null;
     const packageSha256 = packageBuffer ? sha256(packageBuffer) : null;
-    const releases = changelogSkills[skill.id]?.releases ?? [];
+    const releases = await Promise.all((changelogSkills[skill.id]?.releases ?? []).map(async (release) => {
+      const snapshotPath = path.join(packageDir, 'versions', skill.id, `${release.version}.tgz`);
+      return {
+        ...release,
+        snapshot: {
+          exists: await pathExists(snapshotPath),
+          packagePath: path.relative(ROOT, snapshotPath).replaceAll(path.sep, '/'),
+        },
+      };
+    }));
     const currentRelease = releases.find((release) => release.version === skill.version) ?? null;
     const sourceChanged = Boolean(lockEntry?.sourceSha256 && lockEntry.sourceSha256 !== sourceHash.sourceSha256);
     const packageChanged = Boolean(lockEntry?.packageSha256 && packageSha256 && lockEntry.packageSha256 !== packageSha256);
@@ -230,6 +395,11 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
     if (!currentRelease) missing.push('changelog');
     if (!lockEntry) missing.push('lock');
     if (!packageExists) missing.push('package');
+    for (const scriptPath of asStringArray(skill.scripts)) {
+      if (!sourceFiles.some((file) => file.path === scriptPath)) {
+        missing.push(`script:${scriptPath}`);
+      }
+    }
     if (sourceChanged) missing.push('source_hash');
     if (packageChanged) missing.push('package_hash');
     if (versionMismatch) missing.push('version_lock');
@@ -256,6 +426,8 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       changelog: {
         currentRelease,
         releases,
+        latestVersion: releases[0]?.version ?? null,
+        releaseCount: releases.length,
       },
       lock: {
         version: lockEntry?.version ?? null,
@@ -268,10 +440,19 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
         path: path.relative(ROOT, sourceDir).replaceAll(path.sep, '/'),
         skillFilePath: path.relative(ROOT, skillFilePath).replaceAll(path.sep, '/'),
         fileCount: sourceHash.fileCount,
+        directoryCount: sourceDirectories.length,
+        editableFileCount: sourceFiles.filter((file) => file.editable).length,
+        referenceFileCount: sourceFiles.filter((file) => file.kind === 'reference').length,
+        scriptFileCount: sourceFiles.filter((file) => file.kind === 'script').length,
+        assetFileCount: sourceFiles.filter((file) => file.kind === 'asset').length,
         sourceSha256: sourceHash.sourceSha256,
         sourceSha256Short: compactHash(sourceHash.sourceSha256),
         hasScripts: await pathExists(path.join(sourceDir, 'scripts')),
         hasReferences: await pathExists(path.join(sourceDir, 'references')),
+        hasAssets: await pathExists(path.join(sourceDir, 'assets')),
+        hasAgents: await pathExists(path.join(sourceDir, 'agents')),
+        directories: sourceDirectories,
+        files: sourceFiles,
       },
       package: {
         exists: packageExists,
