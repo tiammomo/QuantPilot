@@ -82,6 +82,10 @@ function firstArray(...values: unknown[]): unknown[] {
   return [];
 }
 
+function hasAnyPresentKey(record: JsonRecord | null, keys: string[]): boolean {
+  return Boolean(record && keys.some((key) => isPresent(record[key])));
+}
+
 function buildFetchEvidence(record: JsonRecord | null): DatasetEvidence['fetch'] | undefined {
   const fetchRecord = asRecord(record?.fetch);
   if (!fetchRecord) {
@@ -230,6 +234,15 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
   const fundamentalPoints = firstArray(fundamentalIndicators?.points, fundamentalIndicators?.data);
   const announcementRows = firstArray(announcements?.announcements, announcements?.data, data.announcements);
   const technicalRowCount = indicatorPoints.length > 0 ? indicatorPoints.length : technicalSummary ? 1 : 0;
+  const financialSummary = asRecord(financials?.summary);
+  const hasComputedFundamentalSummary = hasAnyPresentKey(financialSummary, [
+    'latest_net_margin',
+    'avg_roe',
+    'avg_gross_margin',
+    'avg_net_margin',
+    'latest_weighted_roe',
+    'latest_gross_margin',
+  ]);
 
   const firstBar = asRecord(bars[0]);
   const period = pickString(kline?.period, 'daily') ?? 'daily';
@@ -365,25 +378,47 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
 
   if (requiresFundamentalIndicators) {
     const announcementsIndex = datasets.findIndex((dataset) => dataset.id === 'announcements');
+    const hasDirectFundamentalIndicators = Boolean(fundamentalIndicators) || fundamentalPoints.length > 0;
+    const computedFundamentalRecord = hasComputedFundamentalSummary
+      ? {
+          source: `${pickString(financials?.source, rootSource) ?? rootSource} + dashboard-computed`,
+          fetched_at: pickString(financials?.fetched_at, financials?.as_of, generatedAt),
+          as_of: pickString(financials?.as_of, financials?.fetched_at, generatedAt),
+        }
+      : null;
     datasets.splice(
       announcementsIndex >= 0 ? announcementsIndex : datasets.length,
       0,
       buildDataset({
         id: 'fundamental_indicators',
         name: '财务衍生指标',
-        record: fundamentalIndicators,
-        rowCount: fundamentalPoints.length,
-        source: pickString(fundamentalIndicators?.source, rootSource) ?? rootSource,
-        endpoint: `GET /api/v1/indicators/fundamental/${symbol}`,
-        critical: critical.has('financials'),
+        record: hasDirectFundamentalIndicators ? fundamentalIndicators : computedFundamentalRecord,
+        rowCount: hasDirectFundamentalIndicators ? fundamentalPoints.length : hasComputedFundamentalSummary ? 1 : 0,
+        source: hasDirectFundamentalIndicators
+          ? pickString(fundamentalIndicators?.source, rootSource) ?? rootSource
+          : pickString(computedFundamentalRecord?.source, rootSource) ?? rootSource,
+        endpoint: hasDirectFundamentalIndicators
+          ? `GET /api/v1/indicators/fundamental/${symbol}`
+          : `GET /api/v1/fundamentals/financials/${symbol} -> financials.summary`,
+        critical: false,
         generatedAt,
-        missingFields: [
-          ...missingRequiredGroups(fundamentalIndicators, [{ label: 'fetched_at', keys: ['fetched_at', 'as_of'] }]),
-          ...missingRequiredGroups(asRecord(fundamentalPoints[0]), [
-            { label: 'report_date', keys: ['report_date'] },
-            { label: 'net_margin/roe', keys: ['net_margin', 'weighted_roe'] },
-          ]),
-        ],
+        missingFields: hasDirectFundamentalIndicators
+          ? [
+              ...missingRequiredGroups(fundamentalIndicators, [{ label: 'fetched_at', keys: ['fetched_at', 'as_of'] }]),
+              ...missingRequiredGroups(asRecord(fundamentalPoints[0]), [
+                { label: 'report_date', keys: ['report_date'] },
+                { label: 'net_margin/roe', keys: ['net_margin', 'weighted_roe'] },
+              ]),
+            ]
+          : [],
+        warnings: hasDirectFundamentalIndicators
+          ? []
+          : hasComputedFundamentalSummary
+            ? [
+                '独立财务衍生指标接口未返回可用样本；已基于真实财务报表 reports 计算净利率、平均 ROE、平均毛利率和平均净利率。',
+                '衍生指标口径依赖 final 数据中的财报字段，需结合后续正式披露持续更新。',
+              ]
+            : ['未检测到可计算的财务衍生指标；页面需说明该数据缺口。'],
       })
     );
   }

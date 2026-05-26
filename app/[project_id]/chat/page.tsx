@@ -98,6 +98,17 @@ type Entry = { path: string; type: 'file'|'dir'; size?: number };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
 type QuantValidationState = 'unknown' | 'running' | 'passed' | 'failed';
 
+type QuantValidationRepairPlan = {
+  status: 'needed';
+  repairPlanPath?: string;
+  steps?: Array<{
+    checkId?: string;
+    checkName?: string;
+    summary?: string;
+    actions?: string[];
+  }>;
+};
+
 type CliStatusSnapshot = {
   available?: boolean;
   configured?: boolean;
@@ -311,6 +322,7 @@ export default function ChatPage() {
   const [previewInitializationMessage, setPreviewInitializationMessage] = useState('正在启动预览服务...');
   const [quantValidationState, setQuantValidationState] = useState<QuantValidationState>('unknown');
   const [quantValidationMessage, setQuantValidationMessage] = useState<string | null>(null);
+  const [quantRepairPlan, setQuantRepairPlan] = useState<QuantValidationRepairPlan | null>(null);
   const [cliStatuses, setCliStatuses] = useState<Record<string, CliStatusSnapshot>>({});
   const [conversationId, setConversationId] = useState<string>(() => {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
@@ -824,13 +836,37 @@ const persistProjectPreferences = useCallback(
         return 'unknown';
       }
       const payload = await response.json();
-      const report = payload?.data ?? null;
+      let report = payload?.data ?? null;
+      const staleReport = Array.isArray(report?.checks)
+        ? report.checks.some((check: any) => check?.id === 'validation_report_stale')
+        : false;
+      if (staleReport) {
+        setQuantValidationState('running');
+        setQuantValidationMessage('生成产物已更新，正在重新执行自动验证。');
+        setQuantRepairPlan(null);
+        const rerunResponse = await fetch(`${API_BASE}/api/projects/${projectId}/quant/validation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({}),
+        });
+        if (rerunResponse.ok) {
+          const rerunPayload = await rerunResponse.json().catch(() => null);
+          report = rerunPayload?.data ?? report;
+          payload.repairPlan = rerunPayload?.repairPlan ?? payload.repairPlan;
+        }
+      }
       if (report?.passed === true || report?.status === 'passed') {
         setQuantValidationState('passed');
         setQuantValidationMessage('自动验证通过。');
+        setQuantRepairPlan(null);
         return 'passed';
       }
       if (report?.passed === false || report?.status === 'failed') {
+        const repairPlan =
+          payload?.repairPlan && payload.repairPlan.status === 'needed'
+            ? (payload.repairPlan as QuantValidationRepairPlan)
+            : null;
         const failedChecks = Array.isArray(report?.checks)
           ? report.checks
               .filter((check: any) => check?.status === 'failed')
@@ -838,6 +874,7 @@ const persistProjectPreferences = useCallback(
               .filter(Boolean)
           : [];
         setQuantValidationState('failed');
+        setQuantRepairPlan(repairPlan);
         setQuantValidationMessage(
           failedChecks.length
             ? `自动验证未通过：${failedChecks.join('；')}`
@@ -2138,6 +2175,7 @@ const persistProjectPreferences = useCallback(
     if (status === 'validation_running') {
       setQuantValidationState('running');
       setQuantValidationMessage(message ?? '正在执行自动验证。');
+      setQuantRepairPlan(null);
       setPreviewInitializationMessage(message ?? '正在执行自动验证，验证通过后展示看板。');
       return;
     }
@@ -2156,16 +2194,17 @@ const persistProjectPreferences = useCallback(
       setPreviewUrl(null);
       setIsStartingPreview(false);
       setPreviewInitializationMessage(message ?? '自动验证未通过，暂不展示可视化看板。');
+      void readQuantValidationStatus();
       return;
     }
 
     if (status === 'validation_passed') {
       setQuantValidationState('passed');
-      setQuantValidationMessage(message ?? '自动验证通过。');
-      setPreviewInitializationMessage('自动验证通过，正在展示最终可视化看板。');
-      if (!previewUrlRef.current) {
-        start({ requireValidation: true });
-      }
+      setQuantValidationMessage(message ?? '自动验证通过，可手动打开预览或发布后查看。');
+      setQuantRepairPlan(null);
+      setPreviewUrl(null);
+      setIsStartingPreview(false);
+      setPreviewInitializationMessage(message ?? '自动验证通过，可手动打开预览或发布后查看。');
       return;
     }
     
@@ -2233,28 +2272,6 @@ const persistProjectPreferences = useCallback(
       }
     }
   }, [projectId]);
-
-  // NEW: Auto control preview server based on active request status
-  const previousActiveState = useRef(false);
-  
-  useEffect(() => {
-    if (
-      !hasActiveRequests &&
-      !previewUrl &&
-      !isStartingPreview &&
-      agentWorkComplete &&
-      quantValidationState === 'passed'
-    ) {
-      if (!previousActiveState.current) {
-        console.log('🔄 Preview not running; auto-starting');
-      } else {
-        console.log('✅ Task completed, ensuring preview server is running');
-      }
-      start({ requireValidation: true });
-    }
-
-    previousActiveState.current = hasActiveRequests;
-  }, [agentWorkComplete, hasActiveRequests, previewUrl, isStartingPreview, quantValidationState, start]);
 
   // Poll for file changes in code view
   useEffect(() => {
@@ -2410,11 +2427,7 @@ const persistProjectPreferences = useCallback(
                     setAgentWorkComplete(true);
                     // Save to localStorage
                     localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-                    readQuantValidationStatus().then((validationState) => {
-                      if (validationState === 'passed') {
-                        start({ requireValidation: true });
-                      }
-                    });
+                    void readQuantValidationStatus();
                   }
                 }}
                 onSseFallbackActive={(active) => {
@@ -3044,6 +3057,47 @@ const persistProjectPreferences = useCallback(
                                 ? '正在执行自动验证，验证通过后会自动展示最终可视化结果'
                                 : '数据获取、页面生成和验证完成后会自动展示最终可视化结果'}
                             </p>
+                            {quantValidationState === 'failed' && quantRepairPlan?.steps?.length ? (
+                              <div className="mt-5 w-full max-w-2xl rounded-lg border border-red-100 bg-red-50/70 p-4 text-left shadow-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold text-red-900">自动修复计划</p>
+                                  {quantRepairPlan.repairPlanPath ? (
+                                    <code className="rounded bg-white/80 px-2 py-1 text-xs text-red-700">
+                                      {quantRepairPlan.repairPlanPath}
+                                    </code>
+                                  ) : null}
+                                </div>
+                                <div className="mt-3 space-y-3">
+                                  {quantRepairPlan.steps.slice(0, 3).map((step, index) => (
+                                    <div key={`${step.checkId ?? step.checkName ?? index}-${index}`} className="rounded-md bg-white/80 p-3">
+                                      <div className="flex items-start gap-2">
+                                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-100 text-xs font-semibold text-red-700">
+                                          {index + 1}
+                                        </span>
+                                        <div className="min-w-0">
+                                          <p className="text-sm font-semibold text-gray-900">
+                                            {step.checkName || step.checkId || '失败检查项'}
+                                          </p>
+                                          {step.summary ? (
+                                            <p className="mt-1 text-xs leading-5 text-gray-600">{step.summary}</p>
+                                          ) : null}
+                                          {Array.isArray(step.actions) && step.actions.length > 0 ? (
+                                            <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-600">
+                                              {step.actions.slice(0, 2).map((action, actionIndex) => (
+                                                <li key={`${actionIndex}-${action}`} className="flex gap-2">
+                                                  <span className="text-red-400">-</span>
+                                                  <span>{action}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
                           </>
                         )}
                       </MotionDiv>

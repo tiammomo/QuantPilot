@@ -1,7 +1,11 @@
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjectById } from '@/lib/services/project';
-import { readQuantValidationReport, validateQuantProject } from '@/lib/quant/validation';
+import {
+  readQuantValidationRepairPlan,
+  readQuantValidationReport,
+  validateQuantProject,
+} from '@/lib/quant/validation';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -27,10 +31,13 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
     }
 
-    const report = await readQuantValidationReport(resolveProjectPath(project_id, project.repoPath));
+    const projectPath = resolveProjectPath(project_id, project.repoPath);
+    const report = await readQuantValidationReport(projectPath);
+    const repairPlan = await readQuantValidationRepairPlan(projectPath);
     return NextResponse.json({
       success: true,
       data: report,
+      repairPlan,
     });
   } catch (error) {
     console.error('[API] Failed to read quant validation report:', error);
@@ -56,17 +63,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const body = await request.json().catch(() => ({}));
     const requestId = typeof body.requestId === 'string' ? body.requestId : undefined;
     const conversationId = typeof body.conversationId === 'string' ? body.conversationId : undefined;
+    const projectPath = resolveProjectPath(project_id, project.repoPath);
     const report = await validateQuantProject({
       projectId: project_id,
-      projectPath: resolveProjectPath(project_id, project.repoPath),
+      projectPath,
       requestId,
       conversationId,
       cliSource: 'validator',
     });
+    const repairPlan = await readQuantValidationRepairPlan(projectPath);
 
     return NextResponse.json({
       success: true,
       data: report,
+      repairPlan,
     });
   } catch (error) {
     console.error('[API] Failed to run quant validation:', error);

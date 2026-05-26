@@ -223,7 +223,7 @@ async function updateStatus(
       data.errorMessage = null;
     }
 
-    await prisma.userRequest.update({
+    await prisma.userRequest.updateMany({
       where: { id },
       data,
     });

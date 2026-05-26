@@ -9,7 +9,7 @@ import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
 import type { QuantRunPlan } from '@/lib/quant/workspace';
-import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
+import { generatedBuildScriptContents, scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import {
   markActiveUserRequestsAsCompleted,
   markUserRequestAsCompleted,
@@ -40,6 +40,24 @@ export interface QuantValidationReport {
   updatedAt: string;
 }
 
+export interface QuantValidationRepairStep {
+  checkId: string;
+  checkName: string;
+  summary: string;
+  actions: string[];
+  details?: string;
+}
+
+export interface QuantValidationRepairPlan {
+  schemaVersion: 1;
+  status: 'needed';
+  projectId: string;
+  reportPath: string;
+  repairPlanPath: string;
+  steps: QuantValidationRepairStep[];
+  createdAt: string;
+}
+
 interface ValidateQuantProjectParams {
   projectId: string;
   projectPath: string;
@@ -57,16 +75,102 @@ interface CommandResult {
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
+const VALIDATION_STALE_ARTIFACT_PATHS = [
+  '.quantpilot/run_plan.json',
+  'app/page.tsx',
+  'app/globals.css',
+  'app/layout.tsx',
+  'app/api/market/[...path]/route.ts',
+  'data_file/final/dashboard-data.json',
+  'evidence/sources.json',
+  'evidence/data_quality.json',
+  'evidence/image_extraction.json',
+  'package.json',
+];
 const BUILD_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_BUILD_TIMEOUT_MS ?? '', 10) || 180_000;
 const PREVIEW_HTTP_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_HTTP_TIMEOUT_MS ?? '', 10) || 45_000;
 const FETCH_TIMEOUT_MS = 5_000;
 const OUTPUT_TAIL_LIMIT = 12_000;
 const SENSITIVE_EVIDENCE_PATTERN =
-  /sk-[a-z0-9_-]{12,}|authorization|bearer\s+[a-z0-9._-]{12,}|api[_-]?key|auth[_-]?token|cookie|set-cookie/i;
+  /(?:sk-(?:proj|ant|cp|live|test)-[a-z0-9_-]{12,}|bearer\s+[a-z0-9._-]{12,}|(?:authorization|api[_-]?key|auth[_-]?token|cookie|set-cookie)\s*[:=]\s*["']?[a-z0-9._~+/=-]{12,})/i;
+const ARTIFACT_POLICY_MAX_FILE_BYTES = 300_000;
+const ARTIFACT_POLICY_ROOT_DIRS = ['app', 'components', 'lib', 'src', 'styles'];
+const ARTIFACT_POLICY_ROOT_FILES = [
+  'package.json',
+  'next.config.js',
+  'next.config.mjs',
+  'postcss.config.js',
+  'tailwind.config.js',
+  'tailwind.config.ts',
+];
+const ARTIFACT_POLICY_SKIP_DIRS = new Set([
+  '.git',
+  '.next',
+  '.turbo',
+  '.vercel',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+]);
+const ARTIFACT_POLICY_SOURCE_EXTENSIONS = new Set([
+  '.css',
+  '.html',
+  '.js',
+  '.jsx',
+  '.json',
+  '.mjs',
+  '.ts',
+  '.tsx',
+]);
+const REMOTE_URL_PATTERN = /\bhttps?:\/\/[a-z0-9.-]+(?::\d+)?[^\s'"`<>){}]*/gi;
+const REMOTE_USAGE_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: '远程脚本', pattern: /<script[^>]+src=["']https?:\/\/[^"']+["']/gi },
+  { label: '远程样式', pattern: /<link[^>]+href=["']https?:\/\/[^"']+["']/gi },
+  { label: 'CSS 远程资源', pattern: /(?:@import\s+(?:url\()?["']?https?:\/\/|url\(\s*["']?https?:\/\/)[^'")\s]+/gi },
+  { label: '远程模块导入', pattern: /(?:\bfrom\s+["']https?:\/\/[^"']+["']|\bimport\s*\(\s*["']https?:\/\/[^"']+["']\s*\))/gi },
+  { label: '浏览器直连外部接口', pattern: /\b(?:fetch|new\s+EventSource|new\s+WebSocket)\s*\(\s*["']https?:\/\/[^"']+["']/gi },
+  { label: '远程媒体资源', pattern: /<(?:img|source|iframe)[^>]+(?:src|srcSet)=["']https?:\/\/[^"']+["']/gi },
+];
+const SENSITIVE_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: '明文 API key', pattern: /\b(?:sk|sk-proj|sk-ant|sk-cp)-[a-z0-9_-]{16,}\b/i },
+  { label: 'Bearer token', pattern: /\bbearer\s+[a-z0-9._-]{16,}\b/i },
+  {
+    label: '环境变量密钥字面量',
+    pattern: /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|MINIMAX_API_KEY|CODEX_OPENAI_API_KEY)\s*[:=]\s*["'][^"'\n]{8,}["']/i,
+  },
+  { label: 'AWS access key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
+];
+const MOCK_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  {
+    label: 'mock/sample 静态数据变量',
+    pattern:
+      /\b(?:MOCK|SAMPLE|DEMO|PLACEHOLDER|STATIC)_(?:DATA|QUOTE|QUOTES|KLINE|KLINES|HISTORY|FINANCIALS|REPORTS|ANNOUNCEMENTS|DASHBOARD_DATA)\b/i,
+  },
+  {
+    label: 'mock/sample 静态数据命名',
+    pattern:
+      /\b(?:mockData|sampleData|demoData|placeholderData|staticQuotes|staticKlines|staticFinancials|staticDashboardData)\b/,
+  },
+  { label: '示例或模拟数据标记', pattern: /lorem ipsum|假数据|模拟数据|示例数据|样例数据|占位数据/i },
+];
+const DISCOURAGED_VISUALIZATION_DEPENDENCIES = new Set([
+  '@visx/visx',
+  'chart.js',
+  'd3',
+  'echarts',
+  'plotly.js',
+  'recharts',
+]);
 const validationQueues = new Map<string, Promise<void>>();
 
 function validationReportPath(projectPath: string) {
   return path.join(projectPath, VALIDATION_REPORT_RELATIVE_PATH);
+}
+
+function validationRepairPlanPath(projectPath: string) {
+  return path.join(projectPath, VALIDATION_REPAIR_PLAN_RELATIVE_PATH);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -102,16 +206,40 @@ function trimOutput(output: string): string {
   return `...输出已截断，仅保留最后 ${OUTPUT_TAIL_LIMIT} 字符...\n${output.slice(-OUTPUT_TAIL_LIMIT)}`.trim();
 }
 
-function buildGeneratedProjectEnv(): NodeJS.ProcessEnv {
+function pathContains(parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function buildGeneratedProjectEnv(projectPath: string): NodeJS.ProcessEnv {
+  const allowedKeys = [
+    'PATH',
+    'HOME',
+    'USER',
+    'SHELL',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'SystemRoot',
+    'ComSpec',
+    'PATHEXT',
+  ];
+  const platformRoot = process.cwd();
+  const workspaceRoot = pathContains(platformRoot, projectPath) ? platformRoot : projectPath;
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
     CI: '1',
     NODE_ENV: 'production',
+    QUANTPILOT_WORKSPACE_ROOT: workspaceRoot,
+    NEXT_PRIVATE_BUILD_WORKER: '1',
     NEXT_TELEMETRY_DISABLED: '1',
   };
 
-  delete env.NEXT_RSPACK;
-  delete env.TURBOPACK;
+  for (const key of allowedKeys) {
+    const value = process.env[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
 
   return env;
 }
@@ -136,6 +264,46 @@ function normalizeRelativePath(projectPath: string, filePath: string): string {
   return path.relative(projectPath, filePath).replaceAll(path.sep, '/');
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function validationArtifactSignature(projectPath: string): Promise<string> {
+  const signatures = await Promise.all(
+    VALIDATION_STALE_ARTIFACT_PATHS.map(async (relativePath) => {
+      const absolutePath = path.join(projectPath, relativePath);
+      const stat = await fs.stat(absolutePath).catch(() => null);
+      if (!stat?.isFile()) {
+        return `${relativePath}:missing`;
+      }
+      return `${relativePath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+    })
+  );
+  return signatures.join('|');
+}
+
+async function waitForValidationArtifactsToSettle(projectPath: string) {
+  const timeoutMs = Number.parseInt(process.env.QUANTPILOT_VALIDATION_SETTLE_TIMEOUT_MS ?? '', 10) || 4_000;
+  const intervalMs = 500;
+  const startedAt = Date.now();
+  let lastSignature = '';
+  let stableCount = 0;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const signature = await validationArtifactSignature(projectPath);
+    if (signature === lastSignature) {
+      stableCount += 1;
+      if (stableCount >= 2) {
+        return;
+      }
+    } else {
+      lastSignature = signature;
+      stableCount = 0;
+    }
+    await sleep(intervalMs);
+  }
+}
+
 async function runCommand(
   command: string,
   args: string[],
@@ -152,7 +320,7 @@ async function runCommand(
       cwd,
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildGeneratedProjectEnv(),
+      env: buildGeneratedProjectEnv(cwd),
     });
 
     const append = (chunk: Buffer | string) => {
@@ -353,16 +521,31 @@ async function normalizeBuildScript(projectPath: string) {
     return;
   }
 
+  let changed = false;
   const scripts = packageJson.scripts;
   if (!scripts || typeof scripts !== 'object' || Array.isArray(scripts)) {
-    return;
+    packageJson.scripts = {};
+    changed = true;
   }
 
-  let changed = false;
-  const scriptMap = scripts as Record<string, unknown>;
-  if (scriptMap.build === 'next build --webpack') {
-    scriptMap.build = 'next build';
+  const scriptMap = packageJson.scripts as Record<string, unknown>;
+  if (
+    scriptMap.build !== 'node scripts/run-build.js' &&
+    (typeof scriptMap.build !== 'string' || /^next\s+build(?:\s|$)/.test(scriptMap.build))
+  ) {
+    scriptMap.build = 'node scripts/run-build.js';
     changed = true;
+  }
+  if (!scriptMap.build) {
+    scriptMap.build = 'node scripts/run-build.js';
+    changed = true;
+  }
+
+  const buildScriptPath = path.join(projectPath, 'scripts', 'run-build.js');
+  const buildScript = generatedBuildScriptContents();
+  if ((await readTextFile(buildScriptPath)) !== buildScript) {
+    await fs.mkdir(path.dirname(buildScriptPath), { recursive: true });
+    await fs.writeFile(buildScriptPath, buildScript, 'utf8');
   }
 
   if (
@@ -400,11 +583,20 @@ async function normalizeNextConfig(projectPath: string) {
   const configPath = path.join(projectPath, 'next.config.js');
   const content = await readTextFile(configPath);
   const defaultConfig = `/** @type {import('next').NextConfig} */
+const path = require('path');
+
 const projectRoot = __dirname;
+const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
+  ? path.resolve(process.env.QUANTPILOT_WORKSPACE_ROOT)
+  : path.resolve(projectRoot, '../../..');
 
 const nextConfig = {
+  turbopack: {
+    root: workspaceRoot,
+  },
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
   typedRoutes: true,
-  outputFileTracingRoot: projectRoot,
+  outputFileTracingRoot: workspaceRoot,
 };
 
 module.exports = nextConfig;
@@ -425,10 +617,6 @@ module.exports = nextConfig;
     ''
   );
   nextContent = nextContent.replace(
-    /\n\s*turbopack:\s*\{\s*root:\s*projectRoot,?\s*\},?/m,
-    ''
-  );
-  nextContent = nextContent.replace(
     /module\.exports\s*=\s*shouldUseRspack\s*\?\s*withRspack\(nextConfig\)\s*:\s*nextConfig\s*;?/g,
     'module.exports = nextConfig;'
   );
@@ -436,6 +624,48 @@ module.exports = nextConfig;
     /module\.exports\s*=\s*withRspack\(nextConfig\)\s*;?/g,
     'module.exports = nextConfig;'
   );
+  if (!nextContent.includes('const projectRoot = __dirname;')) {
+    nextContent = nextContent.replace(
+      /\/\*\* @type \{import\(['"]next['"]\)\.NextConfig\} \*\/\n/,
+      "/** @type {import('next').NextConfig} */\nconst projectRoot = __dirname;\n"
+    );
+  }
+  if (!nextContent.includes("const path = require('path');")) {
+    nextContent = nextContent.replace(
+      /\/\*\* @type \{import\(['"]next['"]\)\.NextConfig\} \*\/\n/,
+      "/** @type {import('next').NextConfig} */\nconst path = require('path');\n\n"
+    );
+  }
+  if (!nextContent.includes('const workspaceRoot =')) {
+    nextContent = nextContent.replace(
+      /const projectRoot = __dirname;\n/,
+      `const projectRoot = __dirname;
+const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
+  ? path.resolve(process.env.QUANTPILOT_WORKSPACE_ROOT)
+  : path.resolve(projectRoot, '../../..');
+`
+    );
+  }
+  nextContent = nextContent.replace(/outputFileTracingRoot:\s*projectRoot/g, 'outputFileTracingRoot: workspaceRoot');
+  nextContent = nextContent.replace(/root:\s*projectRoot/g, 'root: workspaceRoot');
+  if (!nextContent.includes('turbopack:')) {
+    nextContent = nextContent.replace(
+      /const nextConfig = \{\n/,
+      `const nextConfig = {
+  turbopack: {
+    root: workspaceRoot,
+  },
+`
+    );
+  }
+  if (!nextContent.includes('allowedDevOrigins')) {
+    nextContent = nextContent.replace(
+      /const nextConfig = \{\n/,
+      `const nextConfig = {
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
+`
+    );
+  }
 
   if (nextContent !== content) {
     await fs.writeFile(configPath, nextContent, 'utf8');
@@ -701,6 +931,244 @@ function pickString(value: unknown): string | null {
     return String(value);
   }
   return null;
+}
+
+function truncatePolicySnippet(value: string, limit = 180): string {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (compact.length <= limit) {
+    return compact;
+  }
+  return `${compact.slice(0, limit)}...`;
+}
+
+function isAllowedBackendProxyUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    return (host === '127.0.0.1' || host === 'localhost') && port === '8000' && parsed.pathname.startsWith('/api/v1/');
+  } catch {
+    return false;
+  }
+}
+
+async function collectArtifactPolicyFiles(projectPath: string): Promise<string[]> {
+  const files: string[] = [];
+
+  const visit = async (currentPath: string) => {
+    const entries = await fs.readdir(currentPath, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        if (!ARTIFACT_POLICY_SKIP_DIRS.has(entry.name)) {
+          await visit(absolutePath);
+        }
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        continue;
+      }
+
+      const ext = path.extname(entry.name);
+      if (!ARTIFACT_POLICY_SOURCE_EXTENSIONS.has(ext)) {
+        continue;
+      }
+
+      const stat = await fs.stat(absolutePath).catch(() => null);
+      if (!stat || stat.size > ARTIFACT_POLICY_MAX_FILE_BYTES) {
+        continue;
+      }
+
+      files.push(absolutePath);
+    }
+  };
+
+  for (const rootDir of ARTIFACT_POLICY_ROOT_DIRS) {
+    const absoluteRoot = path.join(projectPath, rootDir);
+    if (await directoryExists(absoluteRoot)) {
+      await visit(absoluteRoot);
+    }
+  }
+
+  for (const rootFile of ARTIFACT_POLICY_ROOT_FILES) {
+    const absoluteFile = path.join(projectPath, rootFile);
+    if (await fileExists(absoluteFile)) {
+      files.push(absoluteFile);
+    }
+  }
+
+  return Array.from(new Set(files));
+}
+
+function findRemotePolicyViolations(projectPath: string, filePath: string, content: string): string[] {
+  const relativePath = normalizeRelativePath(projectPath, filePath);
+  const isMarketProxyRoute =
+    relativePath === 'app/api/market/route.ts' ||
+    /^app\/api\/market\/.*\/route\.ts$/.test(relativePath);
+  const violations: string[] = [];
+
+  for (const usage of REMOTE_USAGE_PATTERNS) {
+    usage.pattern.lastIndex = 0;
+    const matches = Array.from(content.matchAll(usage.pattern)).slice(0, 3);
+    for (const match of matches) {
+      const snippet = match[0] ?? '';
+      const urls = Array.from(snippet.matchAll(REMOTE_URL_PATTERN)).map((urlMatch) => urlMatch[0]);
+      const disallowedUrls = urls.filter((url) => !(isMarketProxyRoute && isAllowedBackendProxyUrl(url)));
+      if (disallowedUrls.length > 0) {
+        violations.push(`${relativePath} 存在${usage.label}：${truncatePolicySnippet(snippet)}`);
+      }
+    }
+  }
+
+  REMOTE_URL_PATTERN.lastIndex = 0;
+  const remoteUrls = Array.from(content.matchAll(REMOTE_URL_PATTERN)).map((match) => match[0]);
+  for (const remoteUrl of remoteUrls.slice(0, 8)) {
+    if (isMarketProxyRoute && isAllowedBackendProxyUrl(remoteUrl)) {
+      continue;
+    }
+
+    if (/nextjs\.org|react\.dev|vercel\.com/i.test(remoteUrl) && /package\.json$|next\.config\./.test(relativePath)) {
+      continue;
+    }
+
+    if (relativePath === 'package.json') {
+      continue;
+    }
+
+    violations.push(`${relativePath} 存在外部 URL：${remoteUrl}`);
+  }
+
+  return Array.from(new Set(violations));
+}
+
+function findPatternPolicyViolations(
+  projectPath: string,
+  filePath: string,
+  content: string,
+  patterns: Array<{ label: string; pattern: RegExp }>
+): string[] {
+  const relativePath = normalizeRelativePath(projectPath, filePath);
+  const violations: string[] = [];
+
+  for (const { label, pattern } of patterns) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(content);
+    if (match?.[0]) {
+      violations.push(`${relativePath} 存在${label}：${truncatePolicySnippet(match[0])}`);
+    }
+  }
+
+  return violations;
+}
+
+function collectVisualizationDependencyWarnings(projectPath: string, packageRaw: string | null): string[] {
+  if (!packageRaw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(packageRaw) as Record<string, unknown>;
+    const dependencyNames = [
+      ...Object.keys(asRecord(parsed.dependencies) ?? {}),
+      ...Object.keys(asRecord(parsed.devDependencies) ?? {}),
+    ];
+    return dependencyNames
+      .filter((dependency) => DISCOURAGED_VISUALIZATION_DEPENDENCIES.has(dependency))
+      .map(
+        (dependency) =>
+          `${normalizeRelativePath(projectPath, path.join(projectPath, 'package.json'))} 引入 ${dependency}，生成看板优先使用平台内置 SVG/CSS 图表，避免额外依赖拖慢 build。`
+      );
+  } catch {
+    return [];
+  }
+}
+
+async function checkArtifactPolicy(
+  projectPath: string
+): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
+  const requiredArtifacts = [
+    '.quantpilot/run_plan.json',
+    'app/page.tsx',
+    'data_file/final/dashboard-data.json',
+    'evidence/sources.json',
+    'evidence/data_quality.json',
+  ];
+  const missingArtifacts: string[] = [];
+  for (const relativePath of requiredArtifacts) {
+    if (!(await fileExists(path.join(projectPath, relativePath)))) {
+      missingArtifacts.push(relativePath);
+    }
+  }
+
+  const files = await collectArtifactPolicyFiles(projectPath);
+  const violations: string[] = [];
+  const warnings: string[] = [];
+
+  if (missingArtifacts.length > 0) {
+    violations.push(`缺少标准产物：${missingArtifacts.join('、')}。`);
+  }
+
+  for (const filePath of files) {
+    const relativePath = normalizeRelativePath(projectPath, filePath);
+    const content = await readTextFile(filePath);
+    if (!content) {
+      continue;
+    }
+
+    violations.push(...findRemotePolicyViolations(projectPath, filePath, content));
+    violations.push(...findPatternPolicyViolations(projectPath, filePath, content, SENSITIVE_ARTIFACT_PATTERNS));
+
+    if (/^(?:app|components|src)\//.test(relativePath)) {
+      violations.push(...findPatternPolicyViolations(projectPath, filePath, content, MOCK_ARTIFACT_PATTERNS));
+    }
+  }
+
+  const pagePath = path.join(projectPath, 'app', 'page.tsx');
+  const page = await readTextFile(pagePath);
+  if (page && !/data_file\/final\/dashboard-data\.json|data_file\\final\\dashboard-data\.json|\/api\/market/.test(page)) {
+    violations.push('app/page.tsx 没有使用标准 final 数据文件或 /api/market 同源接口。');
+  }
+
+  const packageRaw = await readTextFile(path.join(projectPath, 'package.json'));
+  warnings.push(...collectVisualizationDependencyWarnings(projectPath, packageRaw));
+
+  if (violations.length > 0) {
+    return {
+      status: 'failed',
+      summary: '生成产物未满足 QuantPilot 硬约束。',
+      details: violations.slice(0, 20).join('\n'),
+      metadata: {
+        checkedFiles: files.length,
+        violationCount: violations.length,
+        warningCount: warnings.length,
+      },
+    };
+  }
+
+  if (warnings.length > 0) {
+    return {
+      status: 'warning',
+      summary: '生成产物满足硬约束，但存在可优化依赖。',
+      details: warnings.slice(0, 10).join('\n'),
+      metadata: {
+        checkedFiles: files.length,
+        warningCount: warnings.length,
+      },
+    };
+  }
+
+  return {
+    status: 'passed',
+    summary: '生成产物满足本地化、真实数据绑定和安全策略。',
+    metadata: {
+      checkedFiles: files.length,
+    },
+  };
+}
+
+export async function checkQuantArtifactPolicy(projectPath: string): Promise<QuantValidationCheck> {
+  return safeRunCheck('artifact_policy', '生成产物策略', () => checkArtifactPolicy(path.resolve(projectPath)));
 }
 
 function normalizeTextForIntent(value: unknown): string {
@@ -1008,7 +1476,7 @@ async function checkEvidenceFiles(
     return {
       status: 'failed',
       summary: 'evidence 文件疑似包含敏感信息。',
-      details: '请移除 token、cookie、authorization header、api key 等敏感内容，仅保留数据信源渠道、端点、时间戳和质量摘要。',
+      details: '请移除任何鉴权凭据、会话凭据或密钥值，仅保留数据信源渠道、端点、时间戳和质量摘要。',
     };
   }
 
@@ -1261,6 +1729,22 @@ async function checkDashboardBinding(
 	      };
 	    }
 
+	    if (plannedTemplateId === 'holding-analysis') {
+	      const oversizedHeroSignals = [
+	        /hero-band/,
+	        /risk-card/,
+	        /holding-analysis\s*持仓分析模板/i,
+	        /持仓问题快速诊断/,
+	      ];
+	      if (oversizedHeroSignals.some((signal) => signal.test(page))) {
+	        return {
+	          status: 'failed',
+	          summary: '持仓分析页面仍使用过重的顶部 hero 结构。',
+	          details: '持仓、调仓和截图账户类看板应直接从账户摘要、持仓矩阵或核心风险指标开始；VaR、样本口径和声明应放入指标卡、风险面板或底部说明，不要占据首屏顶部。',
+	        };
+	      }
+	    }
+
 	    if (plannedTemplateId === 'stock-selection') {
 	      const holdingOnlySignals = [
 	        /持仓矩阵/,
@@ -1300,10 +1784,16 @@ async function checkChartPresence(
     };
   }
 
+  const styleFiles = await Promise.all([
+    readTextFile(path.join(projectPath, 'app', 'globals.css')),
+    readTextFile(path.join(projectPath, 'styles', 'globals.css')),
+    readTextFile(path.join(projectPath, 'src', 'app', 'globals.css')),
+  ]);
+  const visualSource = [page, ...styleFiles.filter(Boolean)].join('\n');
   const hasGraphicElement = /<svg|<canvas|<polyline|<rect|<path|Chart|chart|candlestick|ohlc|K线|K 线|折线|柱状|趋势图/i.test(page);
   const hasFinanceOrMarketLanguage = /成交量|成交额|均线|MA5|MA10|MA20|K线|K 线|营收|净利润|ROE|毛利率|回撤|波动率|quote|history|financial/i.test(page);
-  const hasSemanticColoring = /red|green|up|down|candle-up|candle-down|volume-up|volume-down|bar-up|bar-down|quality-(?:ok|warning|error)|signal-(?:up|down)/i.test(page);
-  const hasChartReadingAid = /<title>|aria-label|chart-label|axis|grid|legend|tooltip|刻度|图例|坐标|日期/i.test(page);
+  const hasSemanticColoring = /red|green|up|down|gain|loss|risk-(?:high|mid|low)|dot\s+(?:red|green|amber)|candle-up|candle-down|volume-up|volume-down|bar-up|bar-down|quality-(?:ok|warning|error)|signal-(?:up|down)|#d9363e|#15945b|#dc2626|#16a34a/i.test(visualSource);
+  const hasChartReadingAid = /<title>|<desc>|aria-label|chart-label|axis|grid|legend|tooltip|刻度|图例|坐标|日期/i.test(page);
   const runPlan = await readRunPlan(projectPath);
   const plannedSymbols = extractPlannedSymbols(runPlan);
   const finalDataRaw = await readTextFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
@@ -1456,6 +1946,107 @@ async function writeValidationReport(projectPath: string, report: QuantValidatio
   await fs.writeFile(validationReportPath(projectPath), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 
+function actionsForFailedCheck(check: QuantValidationCheck): string[] {
+  const common = [
+    '只修改当前生成项目目录内的文件。',
+    '保留已经获取到的真实数据，不要改成 mock 或静态样例。',
+  ];
+
+  switch (check.id) {
+    case 'next_build':
+      return [
+        ...common,
+        '运行或根据报告修复 TypeScript、Next.js、CSS 或依赖错误。',
+        '动态 JSON 字段必须使用 JsonRecord、asRecord、asArray、numeric 等守卫函数处理。',
+        '不要通过新增大型图表依赖绕开类型问题。',
+      ];
+    case 'preview_http_200':
+      return [
+        ...common,
+        '确认 app/page.tsx、app/layout.tsx、app/globals.css 和 package.json 能让 Next.js 预览启动。',
+        '修复运行时异常、端口预览错误或页面加载时抛出的异常。',
+      ];
+    case 'final_data_file':
+      return [
+        ...common,
+        '生成或修复 data_file/final/dashboard-data.json。',
+        '确保 final 数据包含 quote.price 或 kline.bars/history.bars 等真实行情字段。',
+        '多标的任务必须覆盖 run_plan.symbols 中的全部代码，并写入 assets[] 与 comparison.rows[]。',
+      ];
+    case 'evidence_files':
+      return [
+        ...common,
+        '生成 evidence/sources.json，记录 source、endpoint、fetched_at/as_of、样本量和 artifact_path。',
+        '生成 evidence/data_quality.json，记录 status、datasets/checks、缺失字段、警告和限制。',
+        '不要把鉴权凭据、会话凭据或密钥值写入 evidence。',
+      ];
+    case 'artifact_policy':
+      return [
+        ...common,
+        '移除外部 CDN、远程脚本、远程样式、远程字体、远程媒体和浏览器直连外部 API。',
+        '页面资源必须本地化；浏览器取数只能读取 data_file/final/dashboard-data.json 或同源 /api/market/**。',
+        '移除 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据、占位数据和明文密钥。',
+      ];
+    case 'dashboard_data_binding':
+      return [
+        ...common,
+        '让 app/page.tsx 使用 QuantPilot 标准数据绑定结构读取 data_file/final/dashboard-data.json。',
+        '保留 DATA_FILE、readDashboardData()、getBars() 或 data-source-file={DATA_FILE} 等标准入口。',
+        '不要把完整行情、K 线、财务或公告对象内联到页面代码。',
+      ];
+    case 'chart_presence':
+      return [
+        ...common,
+        '补齐真实金融图表：K 线/OHLC、成交量、均线、财务趋势、收益/回撤/波动或风险指标。',
+        '图表必须有语义染色、坐标/图例/tooltip/title 等读图辅助。',
+        '多标的任务必须展示对比矩阵、收益对比、波动/回撤或相对强弱摘要。',
+      ];
+    case 'market_proxy':
+      return [
+        ...common,
+        '创建 app/api/market/[...path]/route.ts。',
+        '将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/** 并保留 query 参数。',
+        '前端刷新行情时调用 /api/market/**，不要从浏览器直连 8000 或外部接口。',
+      ];
+    default:
+      return [
+        ...common,
+        '根据失败详情修复对应产物，并重新确保 build、HTTP、数据、evidence、图表和代理检查通过。',
+      ];
+  }
+}
+
+export function buildQuantValidationRepairPlan(report: QuantValidationReport): QuantValidationRepairPlan {
+  const failedChecks = report.checks.filter((check) => check.status === 'failed');
+  return {
+    schemaVersion: 1,
+    status: 'needed',
+    projectId: report.projectId,
+    reportPath: report.reportPath,
+    repairPlanPath: VALIDATION_REPAIR_PLAN_RELATIVE_PATH,
+    steps: failedChecks.map((check) => ({
+      checkId: check.id,
+      checkName: check.name,
+      summary: check.summary,
+      actions: actionsForFailedCheck(check),
+      ...(check.details ? { details: truncateForPrompt(check.details, 1_000) } : {}),
+    })),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function writeValidationRepairPlan(projectPath: string, report: QuantValidationReport) {
+  const repairPlanPath = validationRepairPlanPath(projectPath);
+  if (report.passed) {
+    await fs.rm(repairPlanPath, { force: true }).catch(() => undefined);
+    return;
+  }
+
+  await ensureQuantWorkspace(projectPath);
+  const plan = buildQuantValidationRepairPlan(report);
+  await fs.writeFile(repairPlanPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8');
+}
+
 function buildValidationSummary(report: QuantValidationReport): string {
   const passedCount = report.checks.filter((check) => check.status === 'passed').length;
   const failedChecks = report.checks.filter((check) => check.status === 'failed');
@@ -1475,6 +2066,10 @@ function buildValidationSummary(report: QuantValidationReport): string {
     '',
     `验证报告：${report.reportPath}`,
   ];
+
+  if (!report.passed) {
+    lines.push(`修复计划：${VALIDATION_REPAIR_PLAN_RELATIVE_PATH}`);
+  }
 
   if (warningChecks.length > 0) {
     lines.push(`警告项：${warningChecks.map((check) => check.name).join('、')}`);
@@ -1496,10 +2091,17 @@ export function buildQuantValidationRepairInstruction(
   options: { originalInstruction?: string } = {}
 ): string {
   const failedChecks = report.checks.filter((check) => check.status === 'failed');
+  const repairPlan = buildQuantValidationRepairPlan(report);
   const failedSummary = failedChecks
     .map((check, index) => {
       const details = check.details ? `\n   细节：${truncateForPrompt(check.details)}` : '';
       return `${index + 1}. ${check.name}（${check.id}）：${check.summary}${details}`;
+    })
+    .join('\n');
+  const repairSteps = repairPlan.steps
+    .map((step, index) => {
+      const actions = step.actions.map((action, actionIndex) => `   ${actionIndex + 1}. ${action}`).join('\n');
+      return `${index + 1}. ${step.checkName}（${step.checkId}）\n${actions}`;
     })
     .join('\n');
 
@@ -1512,6 +2114,12 @@ export function buildQuantValidationRepairInstruction(
 失败项：
 ${failedSummary || '无失败项，但验证报告状态为失败，请重新检查产物。'}
 
+结构化修复计划已写入：
+${VALIDATION_REPAIR_PLAN_RELATIVE_PATH}
+
+请按下面步骤逐项修复：
+${repairSteps || '请重新检查验证报告并补齐缺失产物。'}
+
 修复要求：
 1. 只修改当前生成项目目录内的文件，不要修改父级 QuantPilot 平台工程。
 2. 不要只回复说明，必须实际修改文件并让页面可访问。
@@ -1519,11 +2127,13 @@ ${failedSummary || '无失败项，但验证报告状态为失败，请重新检
 4. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
 5. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
 6. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
-7. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-8. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
-9. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须同步修复 .quantpilot/run_plan.json、data_file/final/dashboard-data.json 的 visualization.template_id 和 app/page.tsx 的页面结构。
-10. 修复后确保 npm run build、预览 HTTP 200、数据文件、evidence、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
-11. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+7. 不得引用外部 CDN、远程脚本、远程样式或浏览器直连外部接口；页面资源必须本地化，浏览器取数只能走 final 数据文件或同源 /api/market/**。
+8. 不得留下 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据等 mock/static 产物，也不得写入任何鉴权凭据、会话凭据或密钥值。
+9. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
+10. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
+11. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须同步修复 .quantpilot/run_plan.json、data_file/final/dashboard-data.json 的 visualization.template_id 和 app/page.tsx 的页面结构。
+12. 修复后确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性和 /api/market 代理都能通过平台验证。
+13. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(
@@ -1598,8 +2208,10 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
   const now = new Date().toISOString();
 
   await ensureQuantWorkspace(projectPath);
+  await waitForValidationArtifactsToSettle(projectPath);
   await ensurePrefetchedFinalData(projectPath);
   await scaffoldBasicNextApp(projectPath, params.projectId);
+  await waitForValidationArtifactsToSettle(projectPath);
   await previewManager.stop(params.projectId).catch((error) => {
     console.warn(
       '[QuantValidation] Failed to stop preview before validation build:',
@@ -1611,7 +2223,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
     stage: 'validation',
     status: 'pending',
     run_id: params.requestId ?? undefined,
-    summary: '开始自动验证：build、HTTP 200、最终数据文件、evidence、图表和 /api/market 代理。',
+    summary: '开始自动验证：build、HTTP 200、最终数据文件、evidence、产物策略、图表和 /api/market 代理。',
     created_at: now,
   });
 
@@ -1619,19 +2231,29 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
     type: 'status',
     data: {
       status: 'validation_running',
-      message: '正在执行自动验证：build、HTTP 200、数据文件、evidence、图表和 /api/market 代理。',
+      message: '正在执行自动验证：build、HTTP 200、数据文件、evidence、产物策略、图表和 /api/market 代理。',
       requestId: params.requestId ?? undefined,
     },
   });
 
   const checks: QuantValidationCheck[] = [];
-  checks.push(await safeRunCheck('next_build', 'Next.js build', () => checkBuild(projectPath)));
-  checks.push(await safeRunCheck('preview_http_200', '预览 HTTP 200', () => checkPreviewHttp(params.projectId)));
-  checks.push(await safeRunCheck('final_data_file', '最终数据文件', () => checkFinalDataFile(projectPath)));
-  checks.push(await safeRunCheck('evidence_files', '数据证据文件', () => checkEvidenceFiles(projectPath)));
-  checks.push(await safeRunCheck('dashboard_data_binding', '页面数据绑定', () => checkDashboardBinding(projectPath)));
-  checks.push(await safeRunCheck('chart_presence', '金融图表存在性', () => checkChartPresence(projectPath)));
-  checks.push(await safeRunCheck('market_proxy', '/api/market 代理', () => checkMarketProxy(projectPath, params.projectId)));
+  try {
+    checks.push(await safeRunCheck('next_build', 'Next.js build', () => checkBuild(projectPath)));
+    checks.push(await safeRunCheck('preview_http_200', '预览 HTTP 200', () => checkPreviewHttp(params.projectId)));
+    checks.push(await safeRunCheck('final_data_file', '最终数据文件', () => checkFinalDataFile(projectPath)));
+    checks.push(await safeRunCheck('evidence_files', '数据证据文件', () => checkEvidenceFiles(projectPath)));
+    checks.push(await safeRunCheck('artifact_policy', '生成产物策略', () => checkArtifactPolicy(projectPath)));
+    checks.push(await safeRunCheck('dashboard_data_binding', '页面数据绑定', () => checkDashboardBinding(projectPath)));
+    checks.push(await safeRunCheck('chart_presence', '金融图表存在性', () => checkChartPresence(projectPath)));
+    checks.push(await safeRunCheck('market_proxy', '/api/market 代理', () => checkMarketProxy(projectPath, params.projectId)));
+  } finally {
+    await previewManager.stop(params.projectId).catch((error) => {
+      console.warn(
+        '[QuantValidation] Failed to stop temporary preview after validation:',
+        error
+      );
+    });
+  }
 
   const passed = checks.every((check) => check.status !== 'failed');
   const updatedAt = new Date().toISOString();
@@ -1648,6 +2270,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
   };
 
   await writeValidationReport(projectPath, report);
+  await writeValidationRepairPlan(projectPath, report);
   await appendQuantWorkspaceEvent(projectPath, {
     event_type: 'validation_completed',
     stage: 'validation',
@@ -1662,7 +2285,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
     type: 'status',
     data: {
       status: passed ? 'validation_passed' : 'validation_failed',
-      message: passed ? '自动验证通过。' : '自动验证未通过，请查看验证摘要。',
+      message: passed ? '自动验证通过，可手动打开预览或发布后查看。' : '自动验证未通过，请查看验证摘要。',
       requestId: params.requestId ?? undefined,
       metadata: {
         reportPath: VALIDATION_REPORT_RELATIVE_PATH,
@@ -1693,13 +2316,64 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
 }
 
 export async function readQuantValidationReport(projectPath: string): Promise<QuantValidationReport | null> {
-  const report = await readTextFile(validationReportPath(path.resolve(projectPath)));
+  const resolvedProjectPath = path.resolve(projectPath);
+  const reportPath = validationReportPath(resolvedProjectPath);
+  const report = await readTextFile(reportPath);
   if (!report) {
     return null;
   }
 
   try {
     const parsed = JSON.parse(report) as QuantValidationReport;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    if (parsed.passed === false || parsed.status === 'failed') {
+      const reportStat = await fs.stat(reportPath).catch(() => null);
+      const artifactStats = await Promise.all(
+        VALIDATION_STALE_ARTIFACT_PATHS.map((relativePath) =>
+          fs.stat(path.join(resolvedProjectPath, relativePath)).catch(() => null)
+        )
+      );
+      const newestArtifactMtime = Math.max(
+        0,
+        ...artifactStats
+          .filter((stat): stat is NonNullable<typeof stat> => Boolean(stat?.isFile()))
+          .map((stat) => stat.mtimeMs)
+      );
+      if (reportStat && newestArtifactMtime > reportStat.mtimeMs + 1_000) {
+        return {
+          ...parsed,
+          checks: [
+            ...parsed.checks,
+            {
+              id: 'validation_report_stale',
+              name: '验证报告已过期',
+              status: 'warning',
+              summary: '生成产物在上次验证后发生变化，需要重新运行自动验证。',
+              metadata: {
+                reportUpdatedAt: reportStat.mtime.toISOString(),
+                newestArtifactUpdatedAt: new Date(newestArtifactMtime).toISOString(),
+              },
+            },
+          ],
+        };
+      }
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function readQuantValidationRepairPlan(projectPath: string): Promise<QuantValidationRepairPlan | null> {
+  const report = await readTextFile(validationRepairPlanPath(path.resolve(projectPath)));
+  if (!report) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(report) as QuantValidationRepairPlan;
     return parsed && typeof parsed === 'object' ? parsed : null;
   } catch {
     return null;

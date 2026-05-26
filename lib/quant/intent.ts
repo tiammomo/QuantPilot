@@ -355,15 +355,6 @@ export function buildClarificationContinuation(params: {
 
   const capabilityId =
     params.capabilityId ?? previousPlan.executionCapabilityId ?? previousPlan.capabilityId ?? null;
-  const standaloneAssessment = assessQuantIntentForClarification({
-    instruction: userResponse,
-    capabilityId,
-  });
-
-  if (!standaloneAssessment.required) {
-    return null;
-  }
-
   const displayResponse = normalizeInstruction(params.displayInstruction || params.instruction);
   const missing = previousPlan.clarification.missing;
   const supplementLabel = buildContinuationSupplementLabel(missing);
@@ -371,6 +362,17 @@ export function buildClarificationContinuation(params: {
     originalQuestion,
     `${supplementLabel}：${userResponse}`,
   ].join('\n');
+  const combinedAssessment = assessQuantIntentForClarification({
+    instruction: resolvedInstruction,
+    capabilityId,
+  });
+  const stillMissing = new Set(combinedAssessment.missing);
+  const allPreviousFieldsStillMissing =
+    missing.length > 0 && missing.every((field) => stillMissing.has(field));
+
+  if (combinedAssessment.required && allPreviousFieldsStillMissing && userResponse.length < 2) {
+    return null;
+  }
 
   return {
     previousRunId: previousPlan.runId,

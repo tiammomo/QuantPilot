@@ -63,8 +63,19 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
       existing.includes('const devEnv =') ||
       /'next',\s*'dev'/.test(existing) ||
       !existing.includes("commandArgs.push('--turbo')") ||
+      !existing.includes('QUANTPILOT_WORKSPACE_ROOT') ||
       !existing.includes('delete runtimeEnv.NEXT_RSPACK') ||
       !existing.includes("fs.existsSync(path.join(projectRoot, '.next', 'BUILD_ID'))")
+    );
+  }
+
+  if (normalizedPath.endsWith('/scripts/run-build.js')) {
+    return (
+      !existing.includes("NODE_ENV: 'production'") ||
+      !existing.includes('QUANTPILOT_WORKSPACE_ROOT') ||
+      !existing.includes('NEXT_PRIVATE_BUILD_WORKER') ||
+      !existing.includes('delete buildEnv.NEXT_RSPACK') ||
+      !existing.includes("['next', 'build'")
     );
   }
 
@@ -76,6 +87,58 @@ type PackageJsonShape = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 };
+
+export function generatedBuildScriptContents(): string {
+  return `#!/usr/bin/env node
+
+const { spawn } = require('child_process');
+const path = require('path');
+
+const projectRoot = path.join(__dirname, '..');
+const isWindows = process.platform === 'win32';
+const workspaceRoot =
+  process.env.QUANTPILOT_WORKSPACE_ROOT || path.resolve(projectRoot, '../../..');
+
+const buildEnv = {
+  ...process.env,
+  NODE_ENV: 'production',
+  QUANTPILOT_WORKSPACE_ROOT: workspaceRoot,
+  NEXT_PRIVATE_BUILD_WORKER: '1',
+  NEXT_TELEMETRY_DISABLED: '1',
+};
+
+delete buildEnv.NEXT_RSPACK;
+delete buildEnv.TURBOPACK;
+
+const child = spawn(
+  'npx',
+  ['next', 'build', ...process.argv.slice(2)],
+  {
+    cwd: projectRoot,
+    stdio: 'inherit',
+    shell: isWindows,
+    env: buildEnv,
+  }
+);
+
+child.on('exit', (code, signal) => {
+  if (code === 0) {
+    return;
+  }
+
+  console.error(
+    \`Next.js build failed with code \${code ?? 'null'}, signal \${signal ?? 'none'}\`
+  );
+  process.exit(typeof code === 'number' ? code : 1);
+});
+
+child.on('error', (error) => {
+  console.error('Failed to start Next.js build');
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});
+`;
+}
 
 async function mergePackageJson(filePath: string, defaults: PackageJsonShape & Record<string, unknown>) {
   let packageJson = defaults;
@@ -89,10 +152,10 @@ async function mergePackageJson(filePath: string, defaults: PackageJsonShape & R
   packageJson.scripts = {
     ...defaults.scripts,
     ...(packageJson.scripts ?? {}),
-    build: 'next build',
+    build: defaults.scripts.build,
   };
-  if (packageJson.scripts.build === 'next build --webpack') {
-    packageJson.scripts.build = 'next build';
+  if (packageJson.scripts.build === 'next build' || packageJson.scripts.build === 'next build --webpack') {
+    packageJson.scripts.build = defaults.scripts.build;
   }
 
   packageJson.dependencies = {
@@ -134,14 +197,19 @@ async function mergePackageJson(filePath: string, defaults: PackageJsonShape & R
 
 async function ensureNextConfig(filePath: string) {
   const fallback = `/** @type {import('next').NextConfig} */
+const path = require('path');
+
 const projectRoot = __dirname;
+const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
+  ? path.resolve(process.env.QUANTPILOT_WORKSPACE_ROOT)
+  : path.resolve(projectRoot, '../../..');
 
 const nextConfig = {
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   typedRoutes: true,
-  outputFileTracingRoot: projectRoot,
+  outputFileTracingRoot: workspaceRoot,
   turbopack: {
-    root: projectRoot,
+    root: workspaceRoot,
   },
 };
 
@@ -179,12 +247,30 @@ module.exports = nextConfig;
       "/** @type {import('next').NextConfig} */\nconst projectRoot = __dirname;\n"
     );
   }
+  if (!nextContent.includes("const path = require('path');")) {
+    nextContent = nextContent.replace(
+      /\/\*\* @type \{import\(['"]next['"]\)\.NextConfig\} \*\/\n/,
+      "/** @type {import('next').NextConfig} */\nconst path = require('path');\n\n"
+    );
+  }
+  if (!nextContent.includes('const workspaceRoot =')) {
+    nextContent = nextContent.replace(
+      /const projectRoot = __dirname;\n/,
+      `const projectRoot = __dirname;
+const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
+  ? path.resolve(process.env.QUANTPILOT_WORKSPACE_ROOT)
+  : path.resolve(projectRoot, '../../..');
+`
+    );
+  }
+  nextContent = nextContent.replace(/outputFileTracingRoot:\s*projectRoot/g, 'outputFileTracingRoot: workspaceRoot');
+  nextContent = nextContent.replace(/root:\s*projectRoot/g, 'root: workspaceRoot');
   if (!nextContent.includes('turbopack:')) {
     nextContent = nextContent.replace(
       /const nextConfig = \{\n/,
       `const nextConfig = {
   turbopack: {
-    root: projectRoot,
+    root: workspaceRoot,
   },
 `
     );
@@ -215,6 +301,58 @@ async function writeFileIfMissing(filePath: string, contents: string) {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, contents, 'utf8');
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function directoryExists(dirPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(dirPath);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function ensureSharedNodeModules(projectPath: string) {
+  const projectNodeModules = path.join(projectPath, 'node_modules');
+  const sharedNodeModules = path.join(process.cwd(), 'node_modules');
+
+  if (path.resolve(projectNodeModules) === path.resolve(sharedNodeModules)) {
+    return;
+  }
+
+  if (!(await fileExists(path.join(sharedNodeModules, 'next', 'package.json')))) {
+    return;
+  }
+
+  try {
+    const existing = await fs.lstat(projectNodeModules);
+    if (existing.isSymbolicLink()) {
+      const target = await fs.readlink(projectNodeModules);
+      const resolvedTarget = path.resolve(projectPath, target);
+      if (resolvedTarget === path.resolve(sharedNodeModules)) {
+        return;
+      }
+      await fs.rm(projectNodeModules, { recursive: true, force: true });
+    } else if (await directoryExists(path.join(projectNodeModules, 'next'))) {
+      return;
+    } else {
+      return;
+    }
+  } catch {
+    // node_modules 不存在时创建共享依赖桥接。
+  }
+
+  const relativeTarget = path.relative(projectPath, sharedNodeModules);
+  await fs.symlink(relativeTarget || sharedNodeModules, projectNodeModules, 'dir');
 }
 
 async function readJsonRecord(filePath: string): Promise<Record<string, unknown> | null> {
@@ -1844,19 +1982,19 @@ export async function scaffoldBasicNextApp(
     version: '0.1.0',
     scripts: {
       dev: 'node scripts/run-dev.js',
-      build: 'next build',
+      build: 'node scripts/run-build.js',
       start: 'next start',
       lint: 'next lint',
     },
     dependencies: {
       next: '^16.2.6',
-      react: '19.0.0',
-      'react-dom': '19.0.0',
+      react: '^19.2.6',
+      'react-dom': '^19.2.6',
     },
     devDependencies: {
-      typescript: '^5.7.2',
-      '@types/react': '^19.0.0',
-      '@types/node': '^22.10.0',
+      typescript: '^6.0.3',
+      '@types/react': '^19.2.15',
+      '@types/node': '^22.19.19',
       eslint: '^9.17.0',
       'eslint-config-next': '^16.2.6',
     },
@@ -1866,6 +2004,7 @@ export async function scaffoldBasicNextApp(
     path.join(projectPath, 'package.json'),
     packageJson
   );
+  await ensureSharedNodeModules(projectPath);
 
   await ensureNextConfig(
     path.join(projectPath, 'next.config.js')
@@ -2917,24 +3056,17 @@ export default async function Home() {
 
   return (
     <main className="dashboard-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
-      <section className="hero-band">
-        <div>
-          <p className="eyebrow">QuantPilot 看板</p>
-          <h1>{name}</h1>
-          <div className="meta-row">
-            <span>{symbol}</span>
-            <span>{String(data?.asset_type ?? quote?.asset_type ?? 'stock')}</span>
-            <span>{String(data?.source ?? quote?.source ?? 'eastmoney')}</span>
-          </div>
-        </div>
-        <div className={isUp ? 'quote-card up' : 'quote-card down'}>
-          <span>最新价</span>
-          <strong>{formatNumber(quote?.price ?? latestBar?.close)}</strong>
-          <em>{formatPercent(change)}</em>
-        </div>
-      </section>
-
       <section className="metric-grid">
+        <article>
+          <span>{name}</span>
+          <strong>{formatNumber(quote?.price ?? latestBar?.close)}</strong>
+          <em className={isUp ? 'red' : 'green'}>{formatPercent(change)}</em>
+        </article>
+        <article>
+          <span>证券代码</span>
+          <strong>{symbol}</strong>
+          <em>{String(data?.source ?? quote?.source ?? 'eastmoney')}</em>
+        </article>
         <article>
           <span>区间收益</span>
           <strong>{formatPercent(summary?.period_return_pct ?? computedMetrics?.periodReturn)}</strong>
@@ -3109,17 +3241,6 @@ textarea {
   padding: 32px 0 48px;
 }
 
-.hero-band {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
-  gap: 20px;
-  align-items: stretch;
-  padding: 28px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
 .eyebrow {
   margin: 0 0 8px;
   color: var(--gold);
@@ -3145,13 +3266,6 @@ h2 {
   font-size: 18px;
 }
 
-.meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.meta-row span,
 .panel-heading span {
   min-height: 28px;
   padding: 6px 10px;
@@ -3159,39 +3273,6 @@ h2 {
   border-radius: 999px;
   color: var(--muted);
   font-size: 13px;
-}
-
-.quote-card {
-  display: grid;
-  gap: 8px;
-  align-content: center;
-  min-height: 150px;
-  padding: 20px;
-  border-radius: 8px;
-  color: #fff;
-}
-
-.quote-card.up {
-  background: var(--red);
-}
-
-.quote-card.down {
-  background: var(--green);
-}
-
-.quote-card span {
-  font-size: 14px;
-  opacity: 0.82;
-}
-
-.quote-card strong {
-  font-size: 42px;
-  line-height: 1;
-}
-
-.quote-card em {
-  font-style: normal;
-  font-weight: 700;
 }
 
 .metric-grid {
@@ -3802,7 +3883,6 @@ th {
     padding-top: 16px;
   }
 
-  .hero-band,
   .main-grid,
   .detail-grid,
   .detail-grid.wide,
@@ -3829,13 +3909,17 @@ th {
     grid-template-columns: 1fr;
   }
 
-  .hero-band,
   .chart-panel,
   .data-panel {
     padding: 16px;
   }
 }
 `
+  );
+
+  await writeFileIfMissing(
+    path.join(projectPath, 'scripts/run-build.js'),
+    generatedBuildScriptContents()
   );
 
   await writeFileIfMissing(
@@ -3940,6 +4024,8 @@ function resolvePort(preferredPort) {
     PORT: String(port),
     WEB_PORT: String(port),
     NEXT_PUBLIC_APP_URL: url,
+    QUANTPILOT_WORKSPACE_ROOT:
+      process.env.QUANTPILOT_WORKSPACE_ROOT || path.resolve(projectRoot, '../../..'),
     NEXT_TELEMETRY_DISABLED: '1',
   };
   delete runtimeEnv.NEXT_RSPACK;

@@ -207,9 +207,11 @@ function runValidationAfterExecution(params: {
     }
 
     if (await isUserRequestCancelled(params.requestId)) {
+      await markUserRequestAsFailed(repairRequestId, '原始请求已取消，自动修复未继续执行。');
       return;
     }
 
+    let repairExecutionFailed = false;
     try {
       await params.repairExecutor(
         params.projectId,
@@ -220,7 +222,10 @@ function runValidationAfterExecution(params: {
         repairRequestId
       );
     } catch (error) {
+      repairExecutionFailed = true;
       console.error('[API] Validation repair execution failed:', error);
+      const message = error instanceof Error ? error.message : String(error || 'Validation repair execution failed');
+      await markUserRequestAsFailed(repairRequestId, message);
       streamManager.publish(params.projectId, {
         type: 'status',
         data: {
@@ -232,6 +237,9 @@ function runValidationAfterExecution(params: {
     }
 
     if (await isUserRequestCancelled(params.requestId)) {
+      if (!repairExecutionFailed) {
+        await markUserRequestAsFailed(repairRequestId, '原始请求已取消，自动修复后的验证未继续执行。');
+      }
       return;
     }
 
@@ -245,12 +253,18 @@ function runValidationAfterExecution(params: {
 
     if (finalReport.passed) {
       if (await isUserRequestCancelled(params.requestId)) {
+        await markUserRequestAsFailed(repairRequestId, '原始请求已取消，自动修复结果未写回完成态。');
         return;
       }
+      await markUserRequestAsCompleted(repairRequestId);
       await markUserRequestAsCompleted(params.requestId);
       return;
     }
 
+    await markUserRequestAsFailed(
+      repairRequestId,
+      '自动修复后仍未通过平台验证，请查看 .quantpilot/validation.json 和 .quantpilot/validation-repair-plan.json。'
+    );
     await markUserRequestAsFailed(
       params.requestId,
       '自动验证和修复后仍未通过，请查看验证摘要。'
