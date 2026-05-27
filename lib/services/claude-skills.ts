@@ -6,29 +6,14 @@ import { readQuantRunPlan, type QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 import {
   describeQuantSkillsForPrompt,
+  describeQuantSkillAliases,
   getDefaultQuantSkillIds,
   getQuantSkillPackagePath,
+  normalizeQuantSkillIds,
   readQuantSkillsRegistry,
 } from '@/lib/quant/skills-registry';
 
 const SKILLS_DIR = path.join(process.cwd(), '.claude', 'skills');
-
-export const DEFAULT_CLAUDE_SKILLS = [
-  'quant-run-planner',
-  'quant-data-registry',
-  'quant-data-quality',
-  'quant-symbol-resolver',
-  'quant-image-extraction',
-  'quant-market-data',
-  'quant-a-share-history',
-  'quant-index-etf-market',
-  'quant-technical-indicators',
-  'quant-fundamental-financials',
-  'quant-fundamental-indicators',
-  'quant-announcement-events',
-  'quant-comparison',
-  'quant-visualization-html',
-];
 
 export async function getDefaultClaudeSkills(): Promise<string[]> {
   const registry = await readQuantSkillsRegistry();
@@ -181,6 +166,8 @@ async function buildCapabilityContext(
     dataSignals: runPlan?.visualization?.dataSignals ?? serializedTemplate.dataSignals,
   };
   const skillsRegistry = await readQuantSkillsRegistry();
+  const normalizedRequiredSkills = normalizeQuantSkillIds(skillsRegistry, requiredSkills);
+  const aliasNotes = describeQuantSkillAliases(skillsRegistry, requiredSkills);
   const skillsContext = describeQuantSkillsForPrompt(skillsRegistry);
 
   return `当前量化能力：
@@ -191,7 +178,8 @@ async function buildCapabilityContext(
 - sub_agent_key: ${shouldInheritManifest ? quant?.subAgentKey ?? capability.subAgentKey : capability.subAgentKey}
 - 名称：${capability.name}
 - 说明：${capability.description}
-- 必需 skills：${requiredSkills.join(', ')}
+- 必需 skills：${normalizedRequiredSkills.join(', ')}
+- 兼容 skill 别名：${aliasNotes.length ? aliasNotes.join(', ') : '无'}
 - 可用数据接口：${dataEndpoints.join('；')}
 - 预期产物：${expectedArtifacts.join('；')}
 - 验证规则：${validationRules.join('；')}

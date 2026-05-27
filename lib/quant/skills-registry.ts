@@ -147,6 +147,21 @@ export function getDefaultQuantSkillIds(
   return Array.from(ids);
 }
 
+export function resolveQuantSkillId(registry: QuantSkillsRegistry, skillId: string): string {
+  return registry.legacyAliases?.[skillId] ?? skillId;
+}
+
+export function normalizeQuantSkillIds(registry: QuantSkillsRegistry, skillIds: string[]): string[] {
+  return Array.from(new Set(skillIds.map((skillId) => resolveQuantSkillId(registry, skillId))));
+}
+
+export function describeQuantSkillAliases(registry: QuantSkillsRegistry, skillIds: string[]): string[] {
+  return skillIds.flatMap((skillId) => {
+    const target = registry.legacyAliases?.[skillId];
+    return target ? [`${skillId}->${target}`] : [];
+  });
+}
+
 export function getQuantSkillPackagePath(registry: QuantSkillsRegistry, skillId: string): string {
   const packageDir = registry.policy.packageDir ?? '.claude/skill-packages';
   return path.join(process.cwd(), packageDir, `${skillId}.tgz`);
