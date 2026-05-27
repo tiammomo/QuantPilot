@@ -12,10 +12,12 @@ import type { CLIStatus } from '@/types/cli';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
+type SettingsTab = 'general' | 'ai-agents' | 'services' | 'about';
+
 interface GlobalSettingsProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'ai-agents' | 'services' | 'about';
+  initialTab?: SettingsTab;
 }
 
 interface CLIOption {
@@ -107,6 +109,30 @@ const CLI_OPTIONS: CLIOption[] = [
   },
 ];
 
+const SERVICE_LABELS: Record<string, string> = {
+  github: 'GitHub',
+  supabase: 'Supabase',
+  vercel: 'Vercel',
+};
+
+const GENERATION_POLICIES = [
+  {
+    title: '生成工作空间',
+    description: '首页任务会使用默认智能体与模型创建工作空间，并继承已配置的服务令牌。',
+    status: '自动继承',
+  },
+  {
+    title: '评测链路',
+    description: '测试用例、评测集和运行记录使用同一套模型与服务连接，便于复盘生成质量。',
+    status: '统一配置',
+  },
+  {
+    title: '失败修复',
+    description: '运维平台负责健康检查、生成链路观测和失败修复，这里只维护全局默认项。',
+    status: '运维台处理',
+  },
+];
+
 // Global settings are provided by context
 
 interface ServiceToken {
@@ -119,7 +145,7 @@ interface ServiceToken {
 }
 
 export default function GlobalSettings({ isOpen, onClose, initialTab = 'general' }: GlobalSettingsProps) {
-  const [activeTab, setActiveTab] = useState<'general' | 'ai-agents' | 'services' | 'about'>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<'github' | 'supabase' | 'vercel' | null>(null);
   const [tokens, setTokens] = useState<{ [key: string]: ServiceToken | null }>({
@@ -243,7 +269,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
       
       setSaveMessage({ 
         type: 'success', 
-        text: 'Settings saved successfully!' 
+        text: '设置已保存' 
       });
       // make sure context stays in sync
       try {
@@ -257,7 +283,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
       console.error('Failed to save global settings:', error);
       setSaveMessage({ 
         type: 'error', 
-        text: 'Failed to save settings. Please try again.' 
+        text: '设置保存失败，请稍后重试' 
       });
       
       // Clear error message after 5 seconds
@@ -323,6 +349,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
     }));
   };
 
+  const defaultCli = CLI_OPTIONS.find(cli => cli.id === globalSettings.default_cli);
+  const defaultCliSettings = defaultCli ? globalSettings.cli_settings?.[defaultCli.id] || {} : {};
+  const defaultModel = defaultCli?.models.find(model => model.id === defaultCliSettings.model);
+  const installedAgentCount = CLI_OPTIONS.filter(cli => cli.enabled !== false && cliStatus[cli.id]?.installed).length;
+  const configuredServiceCount = Object.values(tokens).filter(Boolean).length;
+
   const getProviderIcon = (provider: string) => {
     switch (provider) {
       case 'github':
@@ -359,7 +391,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div key="global-settings-shell" className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div 
           className="absolute inset-0 bg-black/60 backdrop-blur-md"
           onClick={onClose}
@@ -380,8 +412,8 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                   <FaCog size={20} />
                 </span>
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 ">Global Settings</h2>
-                  <p className="text-sm text-gray-600 ">Configure your QuantPilot preferences</p>
+                  <h2 className="text-xl font-semibold text-gray-900 ">平台设置</h2>
+                  <p className="text-sm text-gray-600 ">管理生成工作空间使用的智能体、模型与服务令牌</p>
                 </div>
               </div>
               <button
@@ -399,10 +431,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
           <div className="border-b border-gray-200 ">
             <nav className="flex px-5">
               {[
-                { id: 'general' as const, label: 'General' },
-                { id: 'ai-agents' as const, label: 'AI Agents' },
-                { id: 'services' as const, label: 'Services' },
-                { id: 'about' as const, label: 'About' }
+                { id: 'general' as const, label: '生成与模型' },
+                { id: 'ai-agents' as const, label: '智能体' },
+                { id: 'services' as const, label: '服务令牌' },
+                { id: 'about' as const, label: '关于' }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -423,31 +455,77 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
           <div className="flex-1 p-6 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
             {activeTab === 'general' && (
               <div className="space-y-6">
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Preferences</h3>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-                      <div>
-                        <p className="font-medium text-gray-900">Auto-save projects</p>
-                        <p className="text-sm text-gray-600">Automatically save changes to projects</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-white rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#DE7356]"></div>
-                      </label>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium text-gray-500">默认智能体</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">{defaultCli?.name ?? '未配置'}</p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {cliStatus[globalSettings.default_cli]?.installed ? '已安装，可用于新任务' : '未检测到安装状态'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium text-gray-500">默认模型</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">{defaultModel?.name ?? '未选择模型'}</p>
+                    <p className="mt-1 text-sm text-gray-600">首页创建任务时默认采用该模型</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs font-medium text-gray-500">服务令牌</p>
+                    <p className="mt-2 text-lg font-semibold text-gray-900">{configuredServiceCount}/3 已配置</p>
+                    <p className="mt-1 text-sm text-gray-600">GitHub、Supabase、Vercel 连接状态</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900">生成链路默认配置</h3>
+                      <p className="mt-1 text-sm text-gray-600">
+                        这里的配置会影响首页生成、项目会话和评测运行；具体工作空间健康与修复在运维平台处理。
+                      </p>
                     </div>
-                    
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
-                      <div>
-                        <p className="font-medium text-gray-900 ">Show file extensions</p>
-                        <p className="text-sm text-gray-600 ">Display file extensions in code explorer</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" className="sr-only peer" defaultChecked />
-                        <div className="w-11 h-6 bg-white rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#DE7356]"></div>
-                      </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('ai-agents')}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        配置智能体
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('services')}
+                        className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800"
+                      >
+                        配置服务令牌
+                      </button>
                     </div>
                   </div>
+
+                  <div className="mt-5 space-y-3">
+                    {GENERATION_POLICIES.map(policy => (
+                      <div key={policy.title} className="flex items-start justify-between gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div>
+                          <p className="font-medium text-gray-900">{policy.title}</p>
+                          <p className="mt-1 text-sm leading-6 text-gray-600">{policy.description}</p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-600 ring-1 ring-gray-200">
+                          {policy.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900">当前可用智能体</span>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-600 ring-1 ring-gray-200">
+                      {installedAgentCount}/{CLI_OPTIONS.filter(cli => cli.enabled !== false).length}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-gray-600">
+                    未安装的智能体不会作为默认选项。新建工作空间时，如果需要切换运行时，可以在首页输入框下方临时选择。
+                  </p>
                 </div>
               </div>
             )}
@@ -457,14 +535,14 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-1">CLI Agents</h3>
+                      <h3 className="text-lg font-medium text-gray-900 mb-1">智能体运行时</h3>
                       <p className="text-sm text-gray-600 ">
-                        Manage your AI coding assistants
+                        管理生成工作空间和评测任务可使用的 CLI 智能体
                       </p>
                     </div>
                     {/* Inline Default CLI Selector */}
                     <div className="flex items-center gap-2 ml-6 pl-6 border-l border-gray-200 ">
-                      <span className="text-sm text-gray-600 ">Default:</span>
+                      <span className="text-sm text-gray-600 ">默认:</span>
                       <select
                         value={globalSettings.default_cli}
                         onChange={(e) => setDefaultCLI(e.target.value)}
@@ -502,14 +580,14 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                         onClick={checkCLIStatus}
                         className="px-3 py-1.5 text-xs font-medium border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 hover:border-gray-300/50 text-gray-700 transition-colors"
                       >
-                        Refresh Status
+                        刷新状态
                       </button>
                       <button
                         onClick={saveGlobalSettings}
                         disabled={isLoading}
                         className="px-3 py-1.5 text-xs font-medium bg-gray-900 hover:bg-gray-800 text-white rounded-full transition-colors disabled:opacity-50"
                       >
-                        {isLoading ? 'Saving...' : 'Save Settings'}
+                        {isLoading ? '保存中...' : '保存设置'}
                       </button>
                     </div>
                   </div>
@@ -566,7 +644,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                               <h4 className="font-medium text-gray-900 text-sm">{cli.name}</h4>
                               {isDefault && isInstalled && (
                                 <span className="text-xs font-medium" style={{ color: cli.brandColor }}>
-                                  Default
+                                  默认
                                 </span>
                               )}
                             </div>
@@ -585,9 +663,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                               className="w-full px-3 py-1.5 border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors focus:outline-none focus:ring-0"
                             >
                               <option value="">选择模型</option>
-                              {cli.models.map(model => (
-                                <option key={model.id} value={model.id}>
-                                  {model.external ? `${model.name} · External` : model.name}
+                              {cli.models.filter(model => model.id.trim().length > 0).map(model => (
+                                <option key={`${cli.id}-${model.id}`} value={model.id}>
+                                  {model.external ? `${model.name} · 外部` : model.name}
                                 </option>
                               ))}
                             </select>
@@ -608,7 +686,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                                     type={apiKeyVisibility[cli.id] ? 'text' : 'password'}
                                     value={settings.apiKey ?? ''}
                                     onChange={(e) => setCliApiKey(cli.id, e.target.value)}
-                                    placeholder="Enter GLM API key"
+                                    placeholder="输入 GLM API Key"
                                     className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
                                   />
                                   <button
@@ -620,26 +698,26 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                                     }}
                                     className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-white transition-colors"
                                   >
-                                    {apiKeyVisibility[cli.id] ? 'Hide' : 'Show'}
+                                    {apiKeyVisibility[cli.id] ? '隐藏' : '显示'}
                                   </button>
                                 </div>
                                 <p className="text-[11px] text-gray-500 leading-snug">
-                                  Stored locally and injected as <code className="font-mono">ZHIPU_API_KEY</code> (and aliases) when running GLM.
-                                  Leave blank to rely on server environment variables instead.
+                                  保存在本地设置中，运行 GLM 时注入为 <code className="font-mono">ZHIPU_API_KEY</code> 及兼容别名。
+                                  留空则使用服务端环境变量。
                                 </p>
                               </div>
                             )}
                             {cli.id === 'cursor' && (
                               <div className="space-y-1.5">
                                 <label className="text-xs font-medium text-gray-600 ">
-                                  API Key (optional)
+                                  API Key（可选）
                                 </label>
                                 <div className="flex items-center gap-2">
                                   <input
                                     type={apiKeyVisibility[cli.id] ? 'text' : 'password'}
                                     value={settings.apiKey ?? ''}
                                     onChange={(e) => setCliApiKey(cli.id, e.target.value)}
-                                    placeholder="Enter Cursor API key"
+                                    placeholder="输入 Cursor API Key"
                                     className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
                                   />
                                   <button
@@ -651,12 +729,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                                     }}
                                     className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-white transition-colors"
                                   >
-                                    {apiKeyVisibility[cli.id] ? 'Hide' : 'Show'}
+                                    {apiKeyVisibility[cli.id] ? '隐藏' : '显示'}
                                   </button>
                                 </div>
                                 <p className="text-[11px] text-gray-500 leading-snug">
-                                  Injected as <code className="font-mono">CURSOR_API_KEY</code> and passed to <code className="font-mono">cursor-agent</code>.
-                                  Leave blank to rely on the logged-in Cursor CLI session.
+                                  注入为 <code className="font-mono">CURSOR_API_KEY</code> 并传递给 <code className="font-mono">cursor-agent</code>。
+                                  留空则使用已登录的 Cursor CLI 会话。
                                 </p>
                               </div>
                             )}
@@ -670,7 +748,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                               }}
                               className="w-full px-3 py-1.5 border-2 border-gray-900 rounded-full bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold transition-all transform hover:scale-105"
                             >
-                              View Guide
+                              查看安装指引
                             </button>
                           </div>
                         )}
@@ -685,9 +763,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
             {activeTab === 'services' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Service Tokens</h3>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">服务令牌</h3>
                   <p className="text-sm text-gray-600 mb-6">
-                    Configure your API tokens for external services. These tokens are stored encrypted and used across all projects.
+                    配置 GitHub、Supabase 与 Vercel 令牌。令牌会被所有工作空间复用，用于仓库创建、数据库接入和部署发布。
                   </p>
                   
                   <div className="space-y-4">
@@ -698,14 +776,14 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                             {getProviderIcon(provider)}
                           </div>
                           <div>
-                            <p className="font-medium text-gray-900 capitalize">{provider}</p>
+                            <p className="font-medium text-gray-900">{SERVICE_LABELS[provider] ?? provider}</p>
                             <p className="text-sm text-gray-600 ">
                               {token ? (
                                 <>
-                                  Token configured • Added {new Date(token.created_at).toLocaleDateString()}
+                                  已配置令牌 · {new Date(token.created_at).toLocaleDateString()}
                                 </>
                               ) : (
-                                'Token not configured'
+                                '未配置令牌'
                               )}
                             </p>
                           </div>
@@ -719,7 +797,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                             onClick={() => handleServiceClick(provider as 'github' | 'supabase' | 'vercel')}
                             className="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-all"
                           >
-                            {token ? 'Update Token' : 'Add Token'}
+                            {token ? '更新令牌' : '添加令牌'}
                           </button>
                         </div>
                       </div>
@@ -735,12 +813,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                       </div>
                       <div className="ml-3">
                         <h3 className="text-sm font-medium text-gray-900 ">
-                          Token Configuration
+                          令牌使用范围
                         </h3>
                         <div className="mt-2 text-sm text-gray-700 ">
                           <p>
-                            Tokens configured here will be available for all projects. To connect a project to specific repositories 
-                            and services, use the Project Settings in each individual project.
+                            这里保存的是平台级凭据。具体项目绑定到哪个 GitHub 仓库、Supabase 项目或 Vercel 项目，
+                            仍在对应工作空间的项目设置中完成。
                           </p>
                         </div>
                       </div>
@@ -824,6 +902,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
       {/* Service Connection Modal */}
       {selectedProvider && (
         <ServiceConnectionModal
+          key={`service-token-${selectedProvider}`}
           isOpen={serviceModalOpen}
           onClose={handleServiceModalClose}
           provider={selectedProvider}
@@ -832,7 +911,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
 
       {/* Toast notification */}
       {toast && (
-        <div className={`fixed bottom-4 right-4 z-[80] px-4 py-3 rounded-lg shadow-2xl transition-all transform animate-slide-in-up ${
+        <div key="global-settings-toast" className={`fixed bottom-4 right-4 z-[80] px-4 py-3 rounded-lg shadow-2xl transition-all transform animate-slide-in-up ${
           toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
         }`}>
           <div className="flex items-center gap-2">
@@ -848,7 +927,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
 
       {/* Install Guide Modal */}
       {installModalOpen && selectedCLI && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" key={`modal-${selectedCLI.id}`}>
+        <div key={`install-guide-${selectedCLI.id}`} className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div 
             className="absolute inset-0 bg-black/60 backdrop-blur-md"
             onClick={() => {
@@ -876,10 +955,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                   )}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 ">
-                      Install {selectedCLI.name}
+                      安装 {selectedCLI.name}
                     </h3>
                     <p className="text-sm text-gray-600 ">
-                      Follow these steps to get started
+                      完成安装和登录后，回到这里刷新状态即可使用
                     </p>
                   </div>
                 </div>
@@ -905,7 +984,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                   <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
                     1
                   </span>
-                  Install CLI
+                  安装 CLI
                 </div>
                 <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
                   <code className="text-sm text-gray-800 flex-1">
@@ -917,10 +996,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                       e.preventDefault();
                       e.stopPropagation();
                       navigator.clipboard.writeText(selectedCLI.installCommand);
-                      showToast('Command copied to clipboard', 'success');
+                      showToast('命令已复制', 'success');
                     }}
                     className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
+                    title="复制命令"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -935,12 +1014,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                   <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
                     2
                   </span>
-                  {selectedCLI.id === 'gemini' && 'Authenticate (OAuth or API Key)'}
-                  {selectedCLI.id === 'glm' && 'Authenticate (Z.ai DevPack login)'}
-                  {selectedCLI.id === 'qwen' && 'Authenticate (Qwen OAuth or API Key)'}
-                  {selectedCLI.id === 'codex' && 'Start Codex and sign in'}
-                  {selectedCLI.id === 'claude' && 'Start Claude and sign in'}
-                  {selectedCLI.id === 'cursor' && 'Start Cursor CLI and sign in'}
+                  {selectedCLI.id === 'gemini' && '登录 Gemini（OAuth 或 API Key）'}
+                  {selectedCLI.id === 'glm' && '登录 Z.ai DevPack'}
+                  {selectedCLI.id === 'qwen' && '登录 Qwen（OAuth 或 API Key）'}
+                  {selectedCLI.id === 'codex' && '启动 Codex 并登录'}
+                  {selectedCLI.id === 'claude' && '启动 Claude 并登录'}
+                  {selectedCLI.id === 'cursor' && '启动 Cursor CLI 并登录'}
                 </div>
                 <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
                   <code className="text-sm text-gray-800 flex-1">
@@ -963,10 +1042,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                                       selectedCLI.id === 'glm' ? 'zai' :
                                       selectedCLI.id === 'gemini' ? 'gemini' : '';
                       if (authCmd) navigator.clipboard.writeText(authCmd);
-                      showToast('Command copied to clipboard', 'success');
+                      showToast('命令已复制', 'success');
                     }}
                     className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
+                    title="复制命令"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -981,7 +1060,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                   <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
                     3
                   </span>
-                  Test your installation
+                  检查安装状态
                 </div>
                 <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
                   <code className="text-sm text-gray-800 flex-1">
@@ -1004,10 +1083,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                                         selectedCLI.id === 'glm' ? 'zai --version' :
                                         selectedCLI.id === 'gemini' ? 'gemini --version' : '';
                       if (versionCmd) navigator.clipboard.writeText(versionCmd);
-                      showToast('Command copied to clipboard', 'success');
+                      showToast('命令已复制', 'success');
                     }}
                     className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
+                    title="复制命令"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -1025,7 +1104,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                 onClick={() => checkCLIStatus()}
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
               >
-                Refresh Status
+                刷新状态
               </button>
               <button
                 onClick={() => {
@@ -1034,7 +1113,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                 }}
                 className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-white rounded-lg transition-colors"
               >
-                Done
+                完成
               </button>
             </div>
           </div>

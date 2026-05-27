@@ -9,6 +9,7 @@ import {
   Database,
   Gauge,
   GitBranch,
+  LineChart,
   Layers3,
   RefreshCcw,
   Search,
@@ -180,7 +181,7 @@ export default function CapabilityCenterClient({ initialData }: Props) {
       const response = await fetch(`${API_BASE}/api/quant/capability-center`, { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error ?? '刷新能力中心失败');
+        throw new Error(payload.error ?? '刷新数据平台失败');
       }
       setData(payload.data);
       if (!payload.data.capabilities.some((capability: CapabilityCenterItem) => capability.id === selectedId)) {
@@ -205,7 +206,7 @@ export default function CapabilityCenterClient({ initialData }: Props) {
             </Button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-normal text-slate-950">能力与数据源中心</h1>
+                <h1 className="text-xl font-semibold tracking-normal text-slate-950">数据平台</h1>
                 <Badge variant="outline" className="bg-white text-slate-500">
                   {data.summary.capabilities} 个能力
                 </Badge>
@@ -428,6 +429,12 @@ export default function CapabilityCenterClient({ initialData }: Props) {
 
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" asChild>
+            <Link href="/strategies">
+              <LineChart className="h-4 w-4" />
+              打开策略平台
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/skills">
               <Wrench className="h-4 w-4" />
               打开 Skills 管理
@@ -436,7 +443,7 @@ export default function CapabilityCenterClient({ initialData }: Props) {
           <Button variant="outline" asChild>
             <Link href="/workspaces">
               <GitBranch className="h-4 w-4" />
-              打开工作空间运维台
+              打开运维平台
             </Link>
           </Button>
         </div>

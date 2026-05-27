@@ -7,6 +7,7 @@ import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
 import {
   ArrowUp,
+  BarChart3,
   Boxes,
   Gauge,
   Image as ImageIcon,
@@ -136,7 +137,6 @@ export default function HomePage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
-  const [globalSettingsTab, setGlobalSettingsTab] = useState<'general' | 'ai-assistant'>('ai-assistant');
   const [editingProject, setEditingProject] = useState<ProjectSummary | null>(null);
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; project: ProjectSummary | null }>({ isOpen: false, project: null });
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1065,24 +1065,6 @@ export default function HomePage() {
       <div className="border-t p-3">
         <Button
           type="button"
-          onClick={() => router.push('/workspaces')}
-          variant="ghost"
-          className="mb-1 w-full justify-start"
-        >
-          <ShieldCheck className="h-4 w-4" />
-          工作空间运维台
-        </Button>
-        <Button
-          type="button"
-          onClick={() => router.push('/capabilities')}
-          variant="ghost"
-          className="mb-1 w-full justify-start"
-        >
-          <Boxes className="h-4 w-4" />
-          能力与数据源中心
-        </Button>
-        <Button
-          type="button"
           onClick={() => router.push('/evals')}
           variant="ghost"
           className="mb-1 w-full justify-start"
@@ -1106,7 +1088,7 @@ export default function HomePage() {
           className="w-full justify-start"
         >
           <Settings className="h-4 w-4" />
-          模型与数据源设置
+          设置
         </Button>
       </div>
     </aside>
@@ -1164,15 +1146,33 @@ export default function HomePage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                onClick={() => setShowGlobalSettings(true)}
-                size="icon"
-                variant="secondary"
-                title="模型与数据源设置"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
+                <Button
+                  type="button"
+                  onClick={() => router.push('/strategies')}
+                  variant="ghost"
+                  className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                  策略平台
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => router.push('/workspaces')}
+                  variant="ghost"
+                  className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  运维平台
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => router.push('/capabilities')}
+                  variant="ghost"
+                  className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
+                >
+                  <Boxes className="h-4 w-4" />
+                  数据平台
+                </Button>
             </div>
           </header>
 

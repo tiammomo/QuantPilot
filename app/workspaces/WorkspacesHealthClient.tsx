@@ -67,6 +67,7 @@ type Props = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
+const WORKSPACE_PAGE_SIZE = 10;
 
 export default function WorkspacesHealthClient({ initialData, initialTraceData, initialView = 'health' }: Props) {
   const [view, setView] = useState<WorkspaceConsoleView>(initialView);
@@ -77,6 +78,8 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
   const [healthStatusFilter, setHealthStatusFilter] = useState<WorkspaceHealthStatus | 'all'>('all');
   const [traceStatusFilter, setTraceStatusFilter] = useState<GenerationTraceStatus | 'all'>('all');
   const [traceStageFilter, setTraceStageFilter] = useState<GenerationStageId | 'all'>('all');
+  const [healthPage, setHealthPage] = useState(1);
+  const [tracePage, setTracePage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -131,6 +134,19 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
     });
   }, [traceDashboard.projects, keyword, traceStatusFilter]);
 
+  const healthPageCount = Math.max(1, Math.ceil(filteredHealthProjects.length / WORKSPACE_PAGE_SIZE));
+  const tracePageCount = Math.max(1, Math.ceil(filteredTraceProjects.length / WORKSPACE_PAGE_SIZE));
+  const currentHealthPage = Math.min(healthPage, healthPageCount);
+  const currentTracePage = Math.min(tracePage, tracePageCount);
+  const pagedHealthProjects = filteredHealthProjects.slice(
+    (currentHealthPage - 1) * WORKSPACE_PAGE_SIZE,
+    currentHealthPage * WORKSPACE_PAGE_SIZE
+  );
+  const pagedTraceProjects = filteredTraceProjects.slice(
+    (currentTracePage - 1) * WORKSPACE_PAGE_SIZE,
+    currentTracePage * WORKSPACE_PAGE_SIZE
+  );
+
   const selectedHealthProject =
     healthDashboard.projects.find((project) => project.id === selectedId) ??
     filteredHealthProjects[0] ??
@@ -150,6 +166,22 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
   const openTraceDetail = (kind: TraceDetailKind) => {
     setTraceDetailKind(kind);
     setTraceDetailOpen(true);
+  };
+
+  const updateKeyword = (value: string) => {
+    setKeyword(value);
+    setHealthPage(1);
+    setTracePage(1);
+  };
+
+  const updateHealthStatusFilter = (status: WorkspaceHealthStatus | 'all') => {
+    setHealthStatusFilter(status);
+    setHealthPage(1);
+  };
+
+  const updateTraceStatusFilter = (status: GenerationTraceStatus | 'all') => {
+    setTraceStatusFilter(status);
+    setTracePage(1);
   };
 
   const refresh = async () => {
@@ -214,7 +246,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
             </Button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-normal text-slate-950">工作空间运维台</h1>
+                <h1 className="text-xl font-semibold tracking-normal text-slate-950">运维平台</h1>
                 <Badge variant="outline" className="bg-white text-slate-500">
                   {healthDashboard.summary.total} 个
                 </Badge>
@@ -294,7 +326,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <Input
                         value={keyword}
-                        onChange={(event) => setKeyword(event.target.value)}
+                        onChange={(event) => updateKeyword(event.target.value)}
                         placeholder="搜索项目、标的、路径..."
                         className="h-9 border-slate-200 bg-white pl-9"
                       />
@@ -302,7 +334,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                     <select
                       className="h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                       value={healthStatusFilter}
-                      onChange={(event) => setHealthStatusFilter(event.target.value as WorkspaceHealthStatus | 'all')}
+                      onChange={(event) => updateHealthStatusFilter(event.target.value as WorkspaceHealthStatus | 'all')}
                     >
                       <option value="all">全部状态</option>
                       <option value="failed">失败</option>
@@ -314,7 +346,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                 </div>
 
                 <div className="divide-y divide-slate-100">
-                  {filteredHealthProjects.map((project) => (
+                  {pagedHealthProjects.map((project) => (
                     <button
                       key={project.id}
                       type="button"
@@ -346,6 +378,31 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                   ))}
                   {!filteredHealthProjects.length && <div className="p-10 text-center text-sm text-slate-500">没有匹配的工作空间。</div>}
                 </div>
+                {filteredHealthProjects.length > 0 && (
+                  <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      第 {currentHealthPage} / {healthPageCount} 页 · 每页 {WORKSPACE_PAGE_SIZE} 个
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHealthPage((page) => Math.max(1, page - 1))}
+                        disabled={currentHealthPage <= 1}
+                      >
+                        上一页
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setHealthPage((page) => Math.min(healthPageCount, page + 1))}
+                        disabled={currentHealthPage >= healthPageCount}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Panel>
 
               <div className="space-y-5">
@@ -474,7 +531,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <Input
                       value={keyword}
-                      onChange={(event) => setKeyword(event.target.value)}
+                      onChange={(event) => updateKeyword(event.target.value)}
                       placeholder="搜索项目、标的、模型、请求..."
                       className="pl-9"
                     />
@@ -484,7 +541,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                       <button
                         key={status}
                         type="button"
-                        onClick={() => setTraceStatusFilter(status)}
+                        onClick={() => updateTraceStatusFilter(status)}
                         className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
                           traceStatusFilter === status ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600'
                         }`}
@@ -496,7 +553,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                 </div>
                 <div className="max-h-[720px] space-y-2 overflow-y-auto border-t border-slate-100 p-3">
                   {filteredTraceProjects.length ? (
-                    filteredTraceProjects.map((project) => (
+                    pagedTraceProjects.map((project) => (
                       <TraceProjectListItem
                         key={project.id}
                         project={project}
@@ -508,6 +565,31 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                     <div className="rounded-md border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">没有匹配的项目。</div>
                   )}
                 </div>
+                {filteredTraceProjects.length > 0 && (
+                  <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      第 {currentTracePage} / {tracePageCount} 页 · 每页 {WORKSPACE_PAGE_SIZE} 个
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTracePage((page) => Math.max(1, page - 1))}
+                        disabled={currentTracePage <= 1}
+                      >
+                        上一页
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTracePage((page) => Math.min(tracePageCount, page + 1))}
+                        disabled={currentTracePage >= tracePageCount}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Panel>
 
               {selectedTraceProject ? (

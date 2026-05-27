@@ -1,6 +1,11 @@
 import { getWorkspaceHealthDashboard } from '@/lib/quant/workspace-health';
 import { getGenerationObservabilityDashboard } from '@/lib/quant/generation-observability';
 import WorkspacesHealthClient from './WorkspacesHealthClient';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '运维平台 · QuantPilot',
+};
 
 type Props = {
   searchParams?: Promise<{ view?: string }>;
