@@ -288,6 +288,34 @@ export interface StartQuantEvalOptions {
   keepProjects?: boolean;
 }
 
+export interface QuantEvalFlowStep {
+  id: string;
+  name: string;
+  status: 'passed' | 'warning' | 'failed';
+  summary: string;
+  detail: string | null;
+}
+
+export interface QuantEvalFlowSimulation {
+  generatedAt: string;
+  ready: boolean;
+  runtime: {
+    cli: string;
+    model: string;
+    reasoningEffort: string;
+  };
+  selection: {
+    selectedCases: string[];
+    limit: number | null;
+    keepProjects: boolean;
+    caseCount: number;
+  };
+  selectedCaseIds: string[];
+  command: string[];
+  steps: QuantEvalFlowStep[];
+  warnings: string[];
+}
+
 export interface QuantEvalRepairTicket {
   id: string;
   runId: string;
@@ -768,6 +796,37 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
   await writeJson(QUEUE_PATH, items.slice(0, 80));
 }
 
+function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQueueItem {
+  const cli = options.cli || 'claude';
+  const selectedCases = Array.isArray(options.selectedCases)
+    ? options.selectedCases.map(String).filter(Boolean)
+    : [];
+  const limit =
+    typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
+      ? Math.floor(options.limit)
+      : null;
+
+  return {
+    id: 'eval-run-simulation',
+    status: 'queued',
+    createdAt: new Date().toISOString(),
+    startedAt: null,
+    finishedAt: null,
+    cli,
+    model: options.model || defaultModelForEvalCli(cli),
+    reasoningEffort: normalizeEvalReasoningEffort(cli, options.reasoningEffort),
+    selectedCases,
+    limit,
+    keepProjects: Boolean(options.keepProjects),
+    reportId: null,
+    reportPath: null,
+    logPath: null,
+    pid: null,
+    exitCode: null,
+    error: null,
+  };
+}
+
 async function updateQueueItem(id: string, patch: Partial<QuantEvalQueueItem>): Promise<QuantEvalQueueItem | null> {
   const queue = await readQueue();
   const index = queue.findIndex((item) => item.id === id);
@@ -1149,33 +1208,132 @@ export async function cancelQuantEvalRun(queueId: string): Promise<QuantEvalQueu
   return updated;
 }
 
-export async function startQuantEvalRun(options: StartQuantEvalOptions = {}): Promise<QuantEvalQueueItem> {
-  const queue = await readQueue();
+export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {}): Promise<QuantEvalFlowSimulation> {
+  const generatedAt = new Date().toISOString();
+  const steps: QuantEvalFlowStep[] = [];
+  const warnings: string[] = [];
+  const allCases = await getQuantEvalCases();
   const selectedCases = Array.isArray(options.selectedCases)
     ? options.selectedCases.map(String).filter(Boolean)
     : [];
+  const selectedSet = selectedCases.length
+    ? allCases.filter((testCase) => selectedCases.includes(testCase.id))
+    : allCases;
   const limit =
     typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
       ? Math.floor(options.limit)
       : null;
+  const scopedCases = limit ? selectedSet.slice(0, limit) : selectedSet;
+  const missingCases = selectedCases.filter((caseId) => !allCases.some((testCase) => testCase.id === caseId));
+  const virtualItem = buildVirtualQueueItem({ ...options, selectedCases, limit });
+  const command = [process.execPath, ...buildBenchmarkArgs(virtualItem)];
+
+  const pushStep = (step: QuantEvalFlowStep) => {
+    steps.push(step);
+    if (step.status === 'warning') {
+      warnings.push(step.summary);
+    }
+  };
+
+  pushStep({
+    id: 'case-selection',
+    name: '用例选择',
+    status: scopedCases.length && !missingCases.length ? 'passed' : 'failed',
+    summary: scopedCases.length
+      ? `已选择 ${scopedCases.length} 个用例。`
+      : '没有匹配的评测用例。',
+    detail: missingCases.length ? `未找到用例：${missingCases.join(', ')}` : null,
+  });
+
+  const runtime = EVAL_RUNTIME_OPTIONS.find((option) => option.cli === virtualItem.cli);
+  const modelKnown = runtime?.models.some((model) => model.id === virtualItem.model);
+  pushStep({
+    id: 'runtime',
+    name: '评测器运行时',
+    status: runtime && modelKnown ? 'passed' : runtime ? 'warning' : 'failed',
+    summary: runtime
+      ? `${runtime.label} / ${virtualItem.model}`
+      : `未注册运行器：${virtualItem.cli}`,
+    detail: runtime && !modelKnown ? '模型不在运行器白名单内，将按传入模型尝试执行。' : null,
+  });
+
+  const benchmarkScript = path.join(ROOT, 'scripts', 'run-quant-benchmarks.js');
+  const scriptStat = await fs.stat(benchmarkScript).catch(() => null);
+  pushStep({
+    id: 'benchmark-script',
+    name: 'Benchmark 脚本',
+    status: scriptStat ? 'passed' : 'failed',
+    summary: scriptStat ? 'benchmark 入口脚本存在。' : 'benchmark 入口脚本缺失。',
+    detail: path.relative(ROOT, benchmarkScript),
+  });
+
+  const queueReady = await fs.mkdir(QUEUE_DIR, { recursive: true }).then(() => true).catch(() => false);
+  const logReady = await fs.mkdir(LOG_DIR, { recursive: true }).then(() => true).catch(() => false);
+  const reportReady = await fs.mkdir(REPORTS_DIR, { recursive: true }).then(() => true).catch(() => false);
+  const repairReady = await fs.mkdir(REPAIRS_DIR, { recursive: true }).then(() => true).catch(() => false);
+  pushStep({
+    id: 'storage',
+    name: '本地存储',
+    status: queueReady && logReady && reportReady && repairReady ? 'passed' : 'failed',
+    summary: queueReady && logReady && reportReady && repairReady
+      ? '队列、日志、报告和修复单目录可写。'
+      : '部分评测目录不可写。',
+    detail: [QUEUE_DIR, LOG_DIR, REPORTS_DIR, REPAIRS_DIR].map((item) => path.relative(ROOT, item)).join(' · '),
+  });
+
+  const runs = await getQuantEvalRuns(3);
+  pushStep({
+    id: 'report-parser',
+    name: '报告解析',
+    status: runs.length ? 'passed' : 'warning',
+    summary: runs.length ? `已解析 ${runs.length} 份最近报告。` : '暂无历史报告，首次运行后才会生成运行记录。',
+    detail: runs[0]?.filePath ?? null,
+  });
+
+  const tickets = await readRepairTickets();
+  pushStep({
+    id: 'repair-sink',
+    name: '修复单沉淀',
+    status: 'passed',
+    summary: `修复单存储可读，当前 ${tickets.length} 条。`,
+    detail: path.relative(ROOT, REPAIRS_PATH),
+  });
+
+  pushStep({
+    id: 'command',
+    name: '执行命令',
+    status: command.length > 2 ? 'passed' : 'failed',
+    summary: '已生成 benchmark 执行命令。',
+    detail: command.join(' '),
+  });
+
+  return {
+    generatedAt,
+    ready: steps.every((step) => step.status !== 'failed'),
+    runtime: {
+      cli: virtualItem.cli,
+      model: virtualItem.model,
+      reasoningEffort: virtualItem.reasoningEffort,
+    },
+    selection: {
+      selectedCases,
+      limit,
+      keepProjects: virtualItem.keepProjects,
+      caseCount: scopedCases.length,
+    },
+    selectedCaseIds: scopedCases.map((testCase) => testCase.id),
+    command,
+    steps,
+    warnings,
+  };
+}
+
+export async function startQuantEvalRun(options: StartQuantEvalOptions = {}): Promise<QuantEvalQueueItem> {
+  const queue = await readQueue();
   const item: QuantEvalQueueItem = {
+    ...buildVirtualQueueItem(options),
     id: uniqueId('eval-run'),
-    status: 'queued',
     createdAt: new Date().toISOString(),
-    startedAt: null,
-    finishedAt: null,
-    cli: options.cli || 'claude',
-    model: options.model || defaultModelForEvalCli(options.cli || 'claude'),
-    reasoningEffort: normalizeEvalReasoningEffort(options.cli || 'claude', options.reasoningEffort),
-    selectedCases,
-    limit,
-    keepProjects: Boolean(options.keepProjects),
-    reportId: null,
-    reportPath: null,
-    logPath: null,
-    pid: null,
-    exitCode: null,
-    error: null,
   };
 
   await writeQueue([item, ...queue]);

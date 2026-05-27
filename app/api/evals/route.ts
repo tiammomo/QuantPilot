@@ -3,6 +3,7 @@ import {
   cancelQuantEvalRun,
   checkQuantEvalSchedule,
   getQuantEvalDashboardData,
+  simulateQuantEvalFlow,
   startQuantEvalRun,
   updateQuantEvalSchedule,
 } from '@/lib/quant/evals';
@@ -39,6 +40,19 @@ export async function POST(request: Request) {
       });
 
       return NextResponse.json({ success: true, data: item });
+    }
+
+    if (action === 'simulate-flow') {
+      const simulation = await simulateQuantEvalFlow({
+        cli: typeof body.cli === 'string' ? body.cli : undefined,
+        model: typeof body.model === 'string' ? body.model : undefined,
+        reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
+        selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
+        limit: typeof body.limit === 'number' ? body.limit : null,
+        keepProjects: Boolean(body.keepProjects),
+      });
+
+      return NextResponse.json({ success: true, data: simulation });
     }
 
     if (action === 'cancel-benchmark') {
