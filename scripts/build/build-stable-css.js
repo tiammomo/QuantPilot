@@ -14,7 +14,7 @@ const postcss = require('postcss');
 const tailwindcss = require('tailwindcss');
 const autoprefixer = require('autoprefixer');
 
-const rootDir = path.join(__dirname, '..');
+const rootDir = path.join(__dirname, '..', '..');
 const inputPath = path.join(rootDir, 'src', 'app', 'globals.css');
 const outputPath = path.join(rootDir, 'public', 'generated', 'quantpilot-tailwind.css');
 

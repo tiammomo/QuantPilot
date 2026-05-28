@@ -5,7 +5,7 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const PROJECTS_DIR = path.resolve(ROOT, process.env.PROJECTS_DIR || './data/projects');
 
 async function readJson(filePath) {

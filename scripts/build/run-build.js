@@ -12,9 +12,10 @@ const path = require('path');
 const os = require('os');
 const { promisify } = require('util');
 const { buildStableCss } = require('./build-stable-css');
+const { withNextArtifactLock } = require('../shared/next-artifact-lock');
 
 const execFileAsync = promisify(execFile);
-const rootDir = path.join(__dirname, '..');
+const rootDir = path.join(__dirname, '..', '..');
 const isWindows = os.platform() === 'win32';
 const rootPort = Number.parseInt(process.env.WEB_PORT || process.env.PORT || '3000', 10) || 3000;
 
@@ -140,7 +141,7 @@ async function main() {
   const { args, standalone } = parseBuildArgs(process.argv.slice(2));
   await stopRootDevServer();
   await buildStableCss();
-  await runNextBuild(args, { standalone });
+  await withNextArtifactLock(rootDir, 'production build', () => runNextBuild(args, { standalone }));
 }
 
 main().catch((error) => {

@@ -2,7 +2,7 @@
 
 /**
  * Next.js development server launcher with automatic port management.
- * Expects scripts/setup-env.js to have been executed beforehand.
+ * Expects scripts/dev/setup-env.js to have been executed beforehand.
  */
 
 const { spawn } = require('child_process');
@@ -12,9 +12,9 @@ const fs = require('fs/promises');
 const dotenv = require('dotenv');
 const { ensureEnvironment } = require('./setup-env');
 const { PrismaClient } = require('@prisma/client');
-const { buildStableCss } = require('./build-stable-css');
+const { buildStableCss } = require('../build/build-stable-css');
 
-const rootDir = path.join(__dirname, '..');
+const rootDir = path.join(__dirname, '..', '..');
 const isWindows = os.platform() === 'win32';
 const nextDevLockFile = path.join(rootDir, '.next', 'dev', 'lock');
 const nextEnvFile = path.join(rootDir, 'next-env.d.ts');
@@ -196,7 +196,16 @@ async function clearStaleNextDevLock() {
 async function clearRspackCaches() {
   await Promise.all([
     fs.rm(path.join(rootDir, '.next', 'dev', 'cache', 'rspack'), { recursive: true, force: true }),
+    fs.rm(path.join(rootDir, '.next', 'dev', 'cache', 'webpack'), { recursive: true, force: true }),
     fs.rm(path.join(rootDir, '.next', 'cache'), { recursive: true, force: true }),
+    clearStaleNextDevLock(),
+  ]);
+}
+
+async function clearNextDevStartupCaches() {
+  await Promise.all([
+    fs.rm(path.join(rootDir, '.next', 'dev', 'cache', 'rspack'), { recursive: true, force: true }),
+    fs.rm(path.join(rootDir, '.next', 'dev', 'cache', 'webpack'), { recursive: true, force: true }),
     clearStaleNextDevLock(),
   ]);
 }
@@ -239,6 +248,7 @@ async function startWebDevServer({
 
   await buildStableCss();
   await ensureDatabaseSynced();
+  await clearNextDevStartupCaches();
 
   const resolvedPort = port;
   const resolvedUrl = url;

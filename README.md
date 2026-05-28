@@ -34,7 +34,7 @@ cp .env.example .env.local
 
 ```bash
 npm run db:up
-npm run prisma:push
+npm run db:init
 npm run db:doctor
 ```
 
@@ -129,6 +129,7 @@ npm run benchmark:quant
 npm run db:up
 npm run db:down
 npm run db:logs
+npm run db:init
 npm run db:doctor
 npm run db:psql
 npm run db:sync-workspaces
@@ -213,7 +214,12 @@ PREVIEW_PORT_END=3999
 | `benchmarks/quantpilot/` | 固定评测用例 |
 | `src/components/quant/` | 量化控制台和业务组件 |
 | `src/lib/quant/` | run plan、预取、证据、验证、评测、skills、观测和工作空间健康 |
-| `scripts/` | 启动、构建、检查、评测和打包脚本 |
+| `scripts/dev/` | 本地开发、端口选择和环境初始化脚本 |
+| `scripts/build/` | 构建入口和稳定 CSS 生成脚本 |
+| `scripts/db/` | PostgreSQL / TimescaleDB 检查、迁移和 workspace 同步脚本 |
+| `scripts/checks/` | 工程契约、评测契约和视觉 smoke 检查 |
+| `scripts/evals/` | Agent benchmark / 评测执行入口 |
+| `scripts/skills/` | skills 打包脚本 |
 | `docs/` | 架构、治理、控制台和排障文档 |
 | `data/projects/` | 本地生成的项目工作空间，默认不提交 |
 | `tmp/` | 本地报告、临时文件和规划文档，默认不提交 |
@@ -223,6 +229,7 @@ PREVIEW_PORT_END=3999
 - [架构总览](docs/architecture.md)
 - [基础设施配置](docs/infrastructure.md)
 - [项目结构与分层边界](docs/project-structure.md)
+- [本地产物与生成文件边界](docs/local-generated-files.md)
 - [控制台使用指南](docs/console-guide.md)
 - [生成工作空间契约](docs/generated-workspace-contract.md)
 - [Agent 评测指南](docs/evals-guide.md)

@@ -5,27 +5,27 @@ require('tsconfig-paths/register');
 const fs = require('fs/promises');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
-const jiti = require('jiti')(path.join(process.cwd(), 'scripts/run-quant-benchmarks.js'), {
+const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-benchmarks.js'), {
   interopDefault: true,
 });
 
-const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../src/lib/utils/scaffold.ts');
-const { writeInitialRunPlan } = jiti('../src/lib/quant/workspace.ts');
-const { buildClarificationContinuation } = jiti('../src/lib/quant/intent.ts');
-const { prefetchQuantDataForRunPlan } = jiti('../src/lib/quant/data-prefetch.ts');
+const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../../src/lib/utils/scaffold.ts');
+const { writeInitialRunPlan } = jiti('../../src/lib/quant/workspace.ts');
+const { buildClarificationContinuation } = jiti('../../src/lib/quant/intent.ts');
+const { prefetchQuantDataForRunPlan } = jiti('../../src/lib/quant/data-prefetch.ts');
 const {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
   validateQuantProject,
-} = jiti('../src/lib/quant/validation.ts');
-const { buildQuantProjectSettings } = jiti('../src/lib/quant/capabilities.ts');
-const { previewManager } = jiti('../src/lib/services/preview.ts');
+} = jiti('../../src/lib/quant/validation.ts');
+const { buildQuantProjectSettings } = jiti('../../src/lib/quant/capabilities.ts');
+const { previewManager } = jiti('../../src/lib/services/preview.ts');
 const {
   getDefaultModelForCli,
   getModelDefinitionsForCli,
   normalizeModelId,
-} = jiti('../src/lib/constants/cliModels.ts');
-const { getCodexRuntimeConfig, buildCodexConfigArgs } = jiti('../src/lib/services/cli/codex-config.ts');
+} = jiti('../../src/lib/constants/cliModels.ts');
+const { getCodexRuntimeConfig, buildCodexConfigArgs } = jiti('../../src/lib/services/cli/codex-config.ts');
 
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');

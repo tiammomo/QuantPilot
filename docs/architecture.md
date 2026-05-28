@@ -66,7 +66,7 @@ flowchart LR
 
 - PostgreSQL 承载 Prisma 管理的主业务表，包括工作空间、项目、评测、设置和运行记录。
 - TimescaleDB 承载 `quant.stock_bars`、`quant.stock_factors`、`quant.strategy_signals` 和 `quant.portfolio_snapshots` 等时序表。
-- 初始化脚本位于 `infra/postgres/init/001-timescaledb.sql`，使用 `npm run db:up` 首次创建容器时执行。
+- 根目录 `sqls/` 保存组件默认需要的基础 SQL，Docker 首次创建容器时会执行；已有数据库可通过 `npm run db:init` 补齐 SQL 对象并同步 Prisma 应用表。
 
 更多细节见 [基础设施配置](infrastructure.md)。
 
@@ -108,8 +108,8 @@ flowchart LR
 
 主应用通过脚本统一启动和构建：
 
-- `scripts/run-web.js`：开发服务、端口管理、环境初始化、数据库检查、稳定 CSS 生成。
-- `scripts/run-build.js`：生产构建，构建前会停止根项目 `3000` 开发服务。
+- `scripts/dev/run-web.js`：开发服务、端口管理、环境初始化、数据库检查、稳定 CSS 生成。
+- `scripts/build/run-build.js`：生产构建，构建前会停止根项目 `3000` 开发服务。
 
 当前主应用默认走 Rspack 接入；如果检测到 Rspack 开发缓存异常，启动脚本会自动切换到 Next Turbopack 稳定模式。需要手动诊断时可以临时设置：
 

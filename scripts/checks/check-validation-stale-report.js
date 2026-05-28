@@ -5,11 +5,11 @@ require('tsconfig-paths/register');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const jiti = require('jiti')(path.join(process.cwd(), 'scripts/check-validation-stale-report.js'), {
+const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-validation-stale-report.js'), {
   interopDefault: true,
 });
 
-const { readQuantValidationReport } = jiti('../src/lib/quant/validation.ts');
+const { readQuantValidationReport } = jiti('../../src/lib/quant/validation.ts');
 
 async function writeFile(filePath, content) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });

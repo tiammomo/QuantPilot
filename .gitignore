@@ -8,6 +8,8 @@ out/
 # production
 dist/
 build/
+!scripts/build/
+!scripts/build/**
 
 # local env files
 .env

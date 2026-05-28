@@ -13,7 +13,7 @@ async function main() {
   console.log(`Database provider: ${provider}`);
 
   if (provider !== 'postgresql') {
-    throw new Error('DATABASE_URL must use PostgreSQL. Run node scripts/setup-env.js to regenerate local database settings.');
+    throw new Error('DATABASE_URL must use PostgreSQL. Run npm run ensure:env to regenerate local database settings.');
   }
 
   const [{ current_database: database, current_user: user }] =

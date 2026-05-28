@@ -3,14 +3,14 @@
 require('tsconfig-paths/register');
 
 const path = require('path');
-const jiti = require('jiti')(path.join(process.cwd(), 'scripts/check-validation-repair.js'), {
+const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-validation-repair.js'), {
   interopDefault: true,
 });
 
 const {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
-} = jiti('../src/lib/quant/validation.ts');
+} = jiti('../../src/lib/quant/validation.ts');
 
 function assertCondition(condition, message, failures) {
   if (!condition) {

@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-const rootDir = path.join(__dirname, '..');
+const rootDir = path.join(__dirname, '..', '..');
 const url = process.env.HOMEPAGE_URL || 'http://localhost:3000/';
 const outputDir = path.join(rootDir, 'tmp', 'visual-checks');
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');

@@ -3,11 +3,11 @@
 require('tsconfig-paths/register');
 
 const path = require('path');
-const jiti = require('jiti')(path.join(process.cwd(), 'scripts/check-eval-schedule.js'), {
+const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-eval-schedule.js'), {
   interopDefault: true,
 });
 
-const { checkQuantEvalSchedule } = jiti('../src/lib/quant/evals.ts');
+const { checkQuantEvalSchedule } = jiti('../../src/lib/quant/evals.ts');
 
 checkQuantEvalSchedule()
   .then((result) => {

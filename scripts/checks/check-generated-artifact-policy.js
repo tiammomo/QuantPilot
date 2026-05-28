@@ -5,11 +5,11 @@ require('tsconfig-paths/register');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const jiti = require('jiti')(path.join(process.cwd(), 'scripts/check-generated-artifact-policy.js'), {
+const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-generated-artifact-policy.js'), {
   interopDefault: true,
 });
 
-const { checkQuantArtifactPolicy } = jiti('../src/lib/quant/validation.ts');
+const { checkQuantArtifactPolicy } = jiti('../../src/lib/quant/validation.ts');
 
 async function writeFile(filePath, content) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });

@@ -6,7 +6,7 @@ QuantPilot 本地开发默认使用 PostgreSQL + TimescaleDB。PostgreSQL 承载
 
 ```bash
 npm run db:up
-npm run prisma:push
+npm run db:init
 npm run db:sync-workspaces
 npm run db:migrate-platform-state
 npm run dev
@@ -53,7 +53,15 @@ npm run db:migrate-platform-state
 
 ## 时序表
 
-初始化脚本位于 `infra/postgres/init/001-timescaledb.sql`，会创建：
+根目录 `sqls/` 记录组件默认需要的基础 SQL。Docker 首次创建数据库时会自动执行 `sqls/*.sql`，已有数据库可重复运行：
+
+```bash
+npm run db:init
+```
+
+`db:init` 会先执行 `sqls/*.sql`，再运行 `prisma db push` 同步 Prisma 管理的应用表。
+
+当前 `sqls/001-quant-timeseries.sql` 会创建：
 
 - `quant.stock_bars`
 - `quant.stock_factors`

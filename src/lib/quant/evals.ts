@@ -1308,7 +1308,7 @@ async function writeScheduleConfig(config: QuantEvalScheduleConfig): Promise<Qua
 
 function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
   const args = [
-    'scripts/run-quant-benchmarks.js',
+    'scripts/evals/run-quant-benchmarks.js',
     '--trigger=eval-backend',
     `--cli=${item.cli}`,
     `--model=${item.model}`,
@@ -1613,7 +1613,7 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
     detail: runtime && !modelKnown ? '模型不在运行器白名单内，将按传入模型尝试执行。' : null,
   });
 
-  const benchmarkScript = path.join(ROOT, 'scripts', 'run-quant-benchmarks.js');
+  const benchmarkScript = path.join(ROOT, 'scripts', 'evals', 'run-quant-benchmarks.js');
   const scriptStat = await fs.stat(benchmarkScript).catch(() => null);
   pushStep({
     id: 'benchmark-script',

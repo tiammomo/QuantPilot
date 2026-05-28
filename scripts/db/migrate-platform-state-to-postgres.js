@@ -5,7 +5,7 @@ const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '..', '..');
 const SETTINGS_FILE = path.join(ROOT, 'data', 'global-settings.json');
 const STRATEGY_SCANS_DIR = path.resolve(ROOT, process.env.STRATEGY_SCANS_DIR || path.join('data', 'strategy-scans'));
 const RUNS_DIR = path.join(STRATEGY_SCANS_DIR, 'runs');

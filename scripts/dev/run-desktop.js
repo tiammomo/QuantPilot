@@ -13,7 +13,7 @@ const https = require('https');
 
 const { parseCliArgs, startWebDevServer } = require('./run-web');
 
-const rootDir = path.join(__dirname, '..');
+const rootDir = path.join(__dirname, '..', '..');
 const isWindows = os.platform() === 'win32';
 
 function waitForUrl(targetUrl, timeoutMs = 30_000, intervalMs = 300) {

@@ -83,7 +83,7 @@ async function checkDatabase() {
   const prisma = new PrismaClient();
   try {
     if (provider !== 'PostgreSQL') {
-      addCheck('数据库', 'fail', `${provider} DATABASE_URL。`, ['运行 node scripts/setup-env.js 重新生成 PostgreSQL 配置。']);
+      addCheck('数据库', 'fail', `${provider} DATABASE_URL。`, ['运行 npm run ensure:env 重新生成 PostgreSQL 配置。']);
       return;
     }
     await prisma.project.findFirst({ select: { id: true } });
@@ -99,7 +99,7 @@ async function checkDatabase() {
       timescaleVersion
         ? `PostgreSQL 可连接，TimescaleDB ${timescaleVersion} 已启用。`
         : 'PostgreSQL 可连接，但未检测到 TimescaleDB 扩展。',
-      timescaleVersion ? [] : ['运行 npm run db:up 后再执行 npm run prisma:push。']
+      timescaleVersion ? [] : ['运行 npm run db:up && npm run db:init。']
     );
   } catch (error) {
     addCheck(
@@ -108,7 +108,7 @@ async function checkDatabase() {
       `${provider} 连接或 schema 检查失败。`,
       [
         error instanceof Error ? error.message : String(error),
-        provider === 'PostgreSQL' ? '运行 npm run db:up && npm run prisma:push。' : null,
+        provider === 'PostgreSQL' ? '运行 npm run db:up && npm run db:init。' : null,
       ]
     );
   } finally {
@@ -116,7 +116,7 @@ async function checkDatabase() {
   }
 }
 
-function requestHead(url, timeoutMs = 2500) {
+function requestHead(url, timeoutMs = 8000) {
   return new Promise((resolve) => {
     const request = http.request(url, { method: 'HEAD', timeout: timeoutMs }, (response) => {
       response.resume();
@@ -259,22 +259,22 @@ async function main() {
   addCheck('工作空间目录', fs.existsSync(projectRoot) ? 'ok' : 'warn', `${path.relative(ROOT, projectRoot)} (${projectCount} 个项目)`);
   await checkDatabase();
 
-  checkCommand('Skills 注册表', 'node', ['scripts/check-skills-registry.js', '--check-lock'], {
+  checkCommand('Skills 注册表', 'node', ['scripts/checks/check-skills-registry.js', '--check-lock'], {
     successSummary: 'registry / changelog / lock / package 一致。',
   });
-  checkCommand('生成产物策略', 'node', ['scripts/check-generated-artifact-policy.js'], {
+  checkCommand('生成产物策略', 'node', ['scripts/checks/check-generated-artifact-policy.js'], {
     successSummary: 'artifact policy smoke 通过。',
   });
-  checkCommand('验证修复契约', 'node', ['scripts/check-validation-repair.js'], {
+  checkCommand('验证修复契约', 'node', ['scripts/checks/check-validation-repair.js'], {
     successSummary: 'validation repair smoke 通过。',
   });
-  checkCommand('验证过期检查', 'node', ['scripts/check-validation-stale-report.js'], {
+  checkCommand('验证过期检查', 'node', ['scripts/checks/check-validation-stale-report.js'], {
     successSummary: 'stale validation smoke 通过。',
   });
-  checkCommand('Benchmark 覆盖', 'node', ['scripts/check-quant-benchmark-coverage.js'], {
+  checkCommand('Benchmark 覆盖', 'node', ['scripts/checks/check-quant-benchmark-coverage.js'], {
     successSummary: '固定评测覆盖达标。',
   });
-  checkCommand('Eval 定时器', 'node', ['scripts/check-eval-schedule.js'], {
+  checkCommand('Eval 定时器', 'node', ['scripts/checks/check-eval-schedule.js'], {
     successSummary: '定时评测检查通过。',
   });
 

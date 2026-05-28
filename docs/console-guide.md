@@ -110,13 +110,13 @@ GET /api/quant/capability-center
 - 查看 PostgreSQL 主业务库连接状态。
 - 查看 TimescaleDB 扩展版本和量化时序表。
 - 查看本地 Docker Compose 的 `timescaledb` 服务状态。
-- 复制 `db:up`、`prisma:push`、`db:doctor`、`db:psql` 等本地运维命令。
+- 复制 `db:up`、`db:init`、`db:doctor`、`db:psql` 等本地运维命令。
 
 常用命令：
 
 ```bash
 npm run db:up
-npm run prisma:push
+npm run db:init
 npm run db:doctor
 npm run db:psql
 ```
