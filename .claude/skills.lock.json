@@ -59,10 +59,10 @@
       "fileCount": 1
     },
     "quant-visualization-html": {
-      "version": "0.3.3",
+      "version": "0.3.4",
       "packagePath": ".claude/skill-packages/quant-visualization-html.tgz",
-      "sourceSha256": "9810c4a0f5eb2cafa7526e82d01bd917d833fbc4569a5be130fffa8cbe719747",
-      "packageSha256": "f29e062505d2f22a48d8133b155308ad396597cf1702e62d163a28e047bb7fc1",
+      "sourceSha256": "c0e3fd041c09b7629d6f7c4a7597830ef53e43d6696c840819f230c76bdf8109",
+      "packageSha256": "688a10682d442019ea51649e9f445942a422fbef1df5ce4ee14c835c5e05a600",
       "fileCount": 2
     },
     "quant-image-extraction": {
@@ -71,6 +71,13 @@
       "sourceSha256": "f1377762fdc9f8cfeb59e64fc22862e455845bc8b87722fa0ddf8f9825cd215e",
       "packageSha256": "224833f5a363bf4f8d5d048fc4ccd6003a13fb431251c077a5c67abb03075805",
       "fileCount": 1
+    },
+    "quantpilot-ui-product-design": {
+      "version": "0.2.0",
+      "packagePath": ".claude/skill-packages/quantpilot-ui-product-design.tgz",
+      "sourceSha256": "b5662876b9b462a99208379bc7910a4669606acc9d0fc2d5b16cd9b4b3053738",
+      "packageSha256": "b788e3b97187fc790ff1c93567fd515122c49633c731784d7958f7b750b7d3fb",
+      "fileCount": 2
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "policy": {
-    "targetCoreSkillCount": 10,
+    "targetCoreSkillCount": 11,
     "allowLegacyAliases": true,
     "installLegacyByDefault": false,
     "packageFormat": "tgz",
@@ -128,9 +128,19 @@
       "validation": ["每个展示数据必须可追溯到 source"]
     },
     {
+      "id": "quantpilot-ui-product-design",
+      "name": "平台 UI 产品设计",
+      "version": "0.2.0",
+      "status": "stable",
+      "boundary": "QuantPilot 主平台页面、组件、控制台、设置、列表、导航、状态和响应式体验设计，不负责生成工作空间金融看板。",
+      "inputs": ["src/app 页面", "src/components 组件", "docs/ui-shadcn-migration.md", "现有设计 token"],
+      "outputs": ["平台 React/Tailwind UI", "可复用组件", "页面状态和响应式布局"],
+      "validation": ["必须复用现有 UI/quant primitives", "必须覆盖 loading/empty/error/disabled/long text 状态", "必须通过 lint 和 type-check"]
+    },
+    {
       "id": "quant-visualization-html",
       "name": "可视化看板",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "status": "stable",
       "boundary": "基于已验证 final 数据和场景模板生成 Next.js 金融分析看板。",
       "inputs": ["data_file/final/dashboard-data.json", "evidence", "run_plan"],

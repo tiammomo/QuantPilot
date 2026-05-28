@@ -121,8 +121,42 @@
         }
       ]
     },
+    "quantpilot-ui-product-design": {
+      "releases": [
+        {
+          "version": "0.2.0",
+          "date": "2026-05-28",
+          "summary": "接入 UI/UX Pro Max 方法论并沉淀 QuantPilot 适配层。",
+          "changes": [
+            "新增 references/ui-ux-pro-max-adapter.md，覆盖产品类型、页面模式、风格、配色、字体、UX、Next.js/shadcn 和图表规则。",
+            "将平台 UI 工作流调整为先做 UI/UX Pro Max 风格设计决策，再实施组件和页面。",
+            "把生成工作空间页面的审美和 UX 规则纳入本 skill 的触发范围。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-28",
+          "summary": "建立 QuantPilot 主平台页面和组件的 UI 产品设计能力。",
+          "changes": [
+            "新增平台页面设计工作流，覆盖信息层级、组件复用、响应式和状态完整性。",
+            "明确主平台 UI 与生成工作空间金融看板的职责边界。",
+            "固化现有 shadcn 基础组件、量化控制台 primitives、语义状态色和分页验收要求。"
+          ]
+        }
+      ]
+    },
     "quant-visualization-html": {
       "releases": [
+        {
+          "version": "0.3.4",
+          "date": "2026-05-28",
+          "summary": "补充生成金融看板的 UI/UX Pro Max 视觉质量门槛。",
+          "changes": [
+            "要求生成页面参考 QuantPilot 的 UI/UX Pro Max 适配层，默认使用 Data-Dense Dashboard 结构。",
+            "新增首屏真实金融内容、图表表格 fallback、语义配色、响应式和动效约束。",
+            "明确功能正确但视觉粗糙或像默认模板的生成页面不算完成。"
+          ]
+        },
         {
           "version": "0.3.3",
           "date": "2026-05-26",

@@ -7,6 +7,8 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 
 这个 skill 负责把已获取的行情、财务、公告和分析结果转换为真正可运行的可视化页面。它不是“写分析说明”的 skill；触发后必须产出或更新页面文件。
 
+视觉和交互质量必须同时参考 `quantpilot-ui-product-design` 的 UI/UX Pro Max 适配层，尤其是 Data-Dense Dashboard、Real-Time Operations、可访问性、响应式、图表可读性和反模式约束。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
+
 ## 何时必须使用
 
 当用户希望生成、修复或增强以下内容时，必须使用本 skill：
@@ -44,17 +46,18 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
    - 不确定数据源：`quant-data-registry`
 3. 先读取现有 `app/page.tsx`、`app/globals.css` 和 `data_file/final/dashboard-data.json`，确认模板已有组件和数据字段。
 4. 读取 `.quantpilot/run_plan.json`，按 `visualization.templateId` 选择场景模板；模板说明见 `references/scenario_templates.md`。
-5. 设计看板信息架构：先展示结论和核心指标，再展示图表、数据表、数据质量和来源。
+5. 做一次 UI/UX Pro Max 风格的设计决策：金融/量化页面默认使用 Data-Dense Dashboard，不使用营销 landing；确定页面模式、语义配色、图表类型、表格 fallback、响应式策略和反模式。
+6. 设计看板信息架构：先展示结论和核心指标，再展示图表、数据表、数据质量和来源。
    - 投研/量化看板不要使用营销落地页式巨型 hero。顶部应是紧凑的报告摘要栏或工具栏：小标题、核心判断、关键指标和数据状态并排展示。
    - 首屏应尽快露出核心指标、图表或持仓矩阵；`h1` 只用于页面主题，桌面端建议不超过 40px，移动端不超过 32px。
    - 结论句应放在摘要卡或状态条中，不要做成占据半屏的大字口号。
    - `holding-analysis`、调仓建议、截图持仓和组合风控页面不要生成 `hero-band`、深色大 VaR 卡、巨型标题或模板名称区；页面应直接从账户/组合摘要指标、持仓矩阵或核心风险面板开始。
    - VaR、样本口径、刷新接口和非投资建议声明应放入指标卡、风险模块、数据质量或底部说明，不要占据首屏顶部。
-6. 实现页面文件并确保有加载、错误、空数据、刷新状态。
-7. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
-8. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
-9. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
-10. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
+7. 实现页面文件并确保有加载、错误、空数据、刷新状态。
+8. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
+9. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
+10. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
+11. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
 
 ## TypeScript 稳定性规则
 
@@ -179,6 +182,20 @@ references/scenario_templates.md
 - 多标的柱状/横向对比图必须按正负或有利/不利分色，并展示数值标签，不能只给灰色进度条。
 - 数据质量、信源、缺失字段和限制说明要有状态色：`ok`/可用为绿色，`warning`/缺失为琥珀色，`error`/失败为红色。
 - 图表必须有坐标/日期/价格标签或 tooltip/悬浮信息中的至少一种；金融主图建议同时具备坐标标签和 tooltip。
+- 图表旁边必须有数值摘要或表格 fallback。K 线/OHLC 的可访问性天然较弱，必须提供最近数据表和关键数值面板。
+- 实时/大量时序图表一次可见点位要克制；蜡烛图桌面建议不超过 500 根可见，移动端优先缩短窗口或分页/切换时间范围。
+- 趋势、收益、风险、质量状态不能只靠颜色区分；同时使用文本、图例、图标、填充/描边差异或表格列。
+
+## 视觉质量门槛
+
+生成页面必须看起来像专业金融/量化工作台：
+
+- 默认风格是 Data-Dense Dashboard：中性底、清晰边框、紧凑指标、稳定网格、可扫描表格。
+- 首屏必须出现真实金融数据或可执行操作，不要用大 slogan、模板名、深色空卡或品牌 hero 占位。
+- 颜色必须语义化：A 股涨跌可红涨绿跌；运行/信息用蓝，缺失/警告用 amber，失败/风险用 red，成功/可用用 emerald。
+- 字体层级克制，工具型页面标题不要过大；数字使用 tabular/monospace 风格以减少跳动。
+- 交互动效只用于 hover、展开、过滤、刷新、sheet/modal 进入退出；默认 150-300ms，尊重 reduced-motion。
+- 375px、768px、1440px 下不能有文字重叠、按钮挤爆、表格遮挡或图表高度塌陷。
 
 ## Next.js 代理示例
 
