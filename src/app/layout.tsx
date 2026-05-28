@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* eslint-disable-next-line @next/next/no-css-tags */}
         <link rel="stylesheet" href="/generated/quantpilot-tailwind.css" />
       </head>
-      <body className="bg-gray-50 text-gray-900 min-h-screen">
+      <body className="bg-slate-50 text-slate-900 min-h-screen">
         <AuthProvider>
           <GlobalSettingsProvider>
             <Header />

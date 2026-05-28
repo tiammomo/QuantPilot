@@ -682,7 +682,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
                         {selectedTraceTimeline.map((event) => <TimelineItem key={event.id} event={event} />)}
                       </div>
                     ) : (
-                      <div className="rounded-md border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">当前阶段没有事件</div>
+                      <EmptyState title="当前阶段没有事件" description="选择阶段标签筛选时间线" className="border-0 py-8" />
                     )}
                   </section>
 

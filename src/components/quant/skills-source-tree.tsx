@@ -69,7 +69,7 @@ export function fileKindClass(kind: SourceFile['kind']) {
     case 'agent':
       return 'border-violet-100 bg-violet-50 text-violet-700';
     default:
-      return 'border-gray-200 bg-gray-50 text-gray-600';
+      return 'border-slate-200 bg-slate-50 text-slate-600';
   }
 }
 
@@ -245,7 +245,7 @@ export function SourceTree({
             <button
               type="button"
               onClick={() => onToggleDirectory(node.path)}
-              className="min-w-0 flex-1 truncate text-left font-mono text-xs text-gray-950"
+              className="min-w-0 flex-1 truncate text-left font-mono text-xs text-slate-950"
               title={node.path}
             >
               {node.name}
@@ -256,7 +256,7 @@ export function SourceTree({
             <span className="shrink-0 text-[11px] text-muted-foreground">{fileCount}</span>
             <button
               type="button"
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-gray-950 sm:h-6 sm:w-6 ${
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
                 openMenuPath === node.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
               }`}
               title={`${node.path} 操作`}
@@ -299,7 +299,7 @@ export function SourceTree({
         >
           <FileText className="h-4 w-4 shrink-0 text-slate-500" />
           <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-xs text-gray-950">{node.name}</div>
+            <div className="truncate font-mono text-xs text-slate-950">{node.name}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
               <span>{formatBytes(file.size)}</span>
               <span>•</span>
@@ -312,7 +312,7 @@ export function SourceTree({
         </button>
         <button
           type="button"
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-gray-950 sm:h-6 sm:w-6 ${
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
             openMenuPath === file.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
           }`}
           title={`${file.path} 操作`}
@@ -372,7 +372,7 @@ export function SourceTreeActionMenuOverlay({
     return `flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
       tone === 'danger'
         ? 'text-red-600 hover:bg-red-50'
-        : 'text-gray-700 hover:bg-gray-100'
+        : 'text-slate-700 hover:bg-slate-100'
     }`;
   }
 

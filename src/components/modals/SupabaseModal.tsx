@@ -312,7 +312,7 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
           exit={{ opacity: 0, scale: 0.95 }}
         >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 ">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 ">
           <div className="flex items-center gap-3">
             <svg width="24" height="24" viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint0_linear)"/>
@@ -324,13 +324,13 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                 </linearGradient>
               </defs>
             </svg>
-            <h2 className="text-lg font-semibold text-gray-900 ">
+            <h2 className="text-lg font-semibold text-slate-900 ">
               Connect Supabase
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 "
+            className="text-slate-400 hover:text-slate-600 "
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6L18 18"/>
@@ -355,10 +355,10 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                   exit={{ opacity: 0, x: -20 }}
                   className="space-y-3"
                 >
-                  <p className="text-sm text-gray-600 ">
+                  <p className="text-sm text-slate-600 ">
                     Supabase Personal Access Token is not configured. Open Global Settings → Service Integrations and add your Supabase token. After saving, click the button below to retry.
                   </p>
-                  <div className="flex items-center justify-between text-xs text-gray-500 ">
+                  <div className="flex items-center justify-between text-xs text-slate-500 ">
                     <span>Need a token?</span>
                     <a
                       href="https://supabase.com/dashboard/account/tokens"
@@ -388,13 +388,13 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                   exit={{ opacity: 0, x: -20 }}
                 >
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Organization
                   </label>
                   <select
                     value={selectedOrgId}
                     onChange={(e) => setSelectedOrgId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {organizations.map(org => (
                       <option key={org.id} value={org.id}>
@@ -405,7 +405,7 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Project Name
                   </label>
                   <input
@@ -413,18 +413,18 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                     value={supabaseProjectName}
                     onChange={(e) => setSupabaseProjectName(e.target.value)}
                     placeholder="Enter project name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Region
                   </label>
                   <select
                     value={selectedRegion}
                     onChange={(e) => setSelectedRegion(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {regions.map(region => (
                       <option key={region.id} value={region.id}>
@@ -435,7 +435,7 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Database Password
                   </label>
                   <input
@@ -443,7 +443,7 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                     value={dbPassword}
                     onChange={(e) => setDbPassword(e.target.value)}
                     placeholder="Secure password for your database"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
                     type="button"
@@ -457,7 +457,7 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                 <div className="flex gap-3">
                   <button
                     onClick={() => setStep('token')}
-                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     Back
                   </button>
@@ -481,14 +481,14 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                   exit={{ opacity: 0, x: -20 }}
                 >
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto mb-4"></div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <h3 className="text-lg font-medium text-slate-900 mb-2">
                   Creating Supabase Project
                 </h3>
-                <p className="text-sm text-gray-500 ">
+                <p className="text-sm text-slate-500 ">
                   This may take a few minutes...
                 </p>
                 {createdProject && (
-                  <div className="mt-4 text-xs text-gray-600 ">
+                  <div className="mt-4 text-xs text-slate-600 ">
                     <p>✅ Project created: {createdProject.name}</p>
                     <p>⏳ Waiting for activation...</p>
                     <p>🔑 Fetching API keys...</p>
@@ -511,10 +511,10 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                <h3 className="text-lg font-medium text-slate-900 mb-2">
                   Supabase Connected!
                 </h3>
-                <p className="text-sm text-gray-500 ">
+                <p className="text-sm text-slate-500 ">
                   Your Supabase project has been created and configured successfully.
                 </p>
                 </motion.div>

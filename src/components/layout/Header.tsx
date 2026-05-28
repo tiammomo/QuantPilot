@@ -28,7 +28,7 @@ export default function Header() {
   }
 
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
       <div className="max-w-7xl mx-auto py-4 px-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -38,7 +38,7 @@ export default function Header() {
                 onClick={() => {
                   window.location.href = '/';
                 }}
-                className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
                 title="返回项目列表"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -56,7 +56,7 @@ export default function Header() {
           <div className="flex items-center gap-3">
             {/* 全局设置 */}
             <button
-              className="flex items-center justify-center w-10 h-10 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all duration-200"
+              className="flex items-center justify-center w-10 h-10 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
               onClick={() => setGlobalSettingsOpen(true)}
               title="全局设置"
             >

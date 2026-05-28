@@ -142,7 +142,7 @@ function TreeView({ entries, selectedFile, expandedFolders, folderContents, onTo
   if (!entries || !Array.isArray(entries)) {
     return null;
   }
-  
+
   // Group entries by directory
   const sortedEntries = [...entries].sort((a, b) => {
     // Directories first
@@ -168,14 +168,14 @@ function TreeView({ entries, selectedFile, expandedFolders, folderContents, onTo
         }
         const isExpanded = expandedFolders.has(fullPath);
         const indent = level * 8;
-        
+
         return (
           <div key={entryKey}>
             <div
               className={`group flex items-center h-[22px] px-2 cursor-pointer ${
-                selectedFile === fullPath 
-                  ? 'bg-blue-100 ' 
-                  : 'hover:bg-gray-100 '
+                selectedFile === fullPath
+                  ? 'bg-blue-100 '
+                  : 'hover:bg-slate-100 '
               }`}
               style={{ paddingLeft: `${8 + indent}px` }}
               onClick={async () => {
@@ -193,31 +193,31 @@ function TreeView({ entries, selectedFile, expandedFolders, folderContents, onTo
               {/* Chevron for folders */}
               <div className="w-4 flex items-center justify-center mr-0.5">
                 {entry.type === 'dir' && (
-                  isExpanded ? 
-                    <span className="w-2.5 h-2.5 text-gray-600 flex items-center justify-center"><FaChevronDown size={10} /></span> : 
-                    <span className="w-2.5 h-2.5 text-gray-600 flex items-center justify-center"><FaChevronRight size={10} /></span>
+                  isExpanded ?
+                    <span className="w-2.5 h-2.5 text-slate-600 flex items-center justify-center"><FaChevronDown size={10} /></span> :
+                    <span className="w-2.5 h-2.5 text-slate-600 flex items-center justify-center"><FaChevronRight size={10} /></span>
                 )}
               </div>
-              
+
               {/* Icon */}
               <span className="w-4 h-4 flex items-center justify-center mr-1.5">
                 {entry.type === 'dir' ? (
-                  isExpanded ? 
-                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolderOpen size={16} /></span> : 
+                  isExpanded ?
+                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolderOpen size={16} /></span> :
                     <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolder size={16} /></span>
                 ) : (
                   getFileIcon(entry)
                 )}
               </span>
-              
+
               {/* File/Folder name */}
               <span className={`text-[13px] leading-[22px] ${
-                selectedFile === fullPath ? 'text-blue-700 ' : 'text-gray-700 '
+                selectedFile === fullPath ? 'text-blue-700 ' : 'text-slate-700 '
               }`} style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
                 {level === 0 ? (entry.path.split('/').pop() || entry.path) : (entry.path.split('/').pop() || entry.path)}
               </span>
             </div>
-            
+
             {/* Render children if expanded */}
             {entry.type === 'dir' && isExpanded && folderContents.has(fullPath) && (
               <TreeView
@@ -251,7 +251,7 @@ export default function ChatPage() {
     '';
   const router = useRouter();
   const searchParams = useSearchParams();
-  
+
   // NEW: UserRequests state management
   const {
     hasActiveRequests,
@@ -259,7 +259,7 @@ export default function ChatPage() {
     startRequest,
     completeRequest
   } = useUserRequests({ projectId });
-  
+
   const [projectName, setProjectName] = useState<string>('');
   const [projectDescription, setProjectDescription] = useState<string>('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -459,7 +459,7 @@ export default function ChatPage() {
     // Synchronously guard to prevent double ACT calls
     initialPromptSentRef.current = true;
     setInitialPromptSent(true);
-    
+
     // Store the selected model and assistant in sessionStorage when returning
     const cliFromUrl = searchParams?.get('cli');
     const modelFromUrl = searchParams?.get('model');
@@ -472,7 +472,7 @@ export default function ChatPage() {
     } else if (modelFromUrl) {
       sessionStorage.setItem('selectedModel', sanitizeModel(preferredCli, modelFromUrl));
     }
-    
+
     // Don't show the initial prompt in the input field
     // setPrompt(initialPromptFromUrl);
     setTimeout(() => {
@@ -663,11 +663,11 @@ const persistProjectPreferences = useCallback(
         const connections = await response.json();
         const githubConnection = connections.find((conn: any) => conn.provider === 'github');
         const vercelConnection = connections.find((conn: any) => conn.provider === 'vercel');
-        
+
         // Check actual project connections (not just token existence)
         setGithubConnected(!!githubConnection);
         setVercelConnected(!!vercelConnection);
-        
+
         // Set published URL only if actually deployed
         if (vercelConnection && vercelConnection.service_data) {
           const sd = vercelConnection.service_data;
@@ -704,9 +704,9 @@ const persistProjectPreferences = useCallback(
     if (deployPollRef.current) clearInterval(deployPollRef.current);
     setDeploymentStatus('deploying');
     setDeploymentId(depId);
-    
+
     console.log('🔍 Monitoring deployment:', depId);
-    
+
     deployPollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${API_BASE}/api/projects/${projectId}/vercel/deployment/current`);
@@ -722,7 +722,7 @@ const persistProjectPreferences = useCallback(
         }
         if (!r.ok) return;
         const data = await r.json();
-        
+
         // Stop polling if no active deployment (completed)
         if (!data.has_deployment) {
           console.log('🔍 Deployment completed - no active deployment');
@@ -736,60 +736,60 @@ const persistProjectPreferences = useCallback(
           } else {
             setDeploymentStatus('idle');
           }
-          
+
           // End publish loading state (important: release loading even if no deployment)
           setPublishLoading(false);
-          
+
           if (deployPollRef.current) {
             clearInterval(deployPollRef.current);
             deployPollRef.current = null;
           }
           return;
         }
-        
+
         // If there is an active deployment
         const status = data.status;
-        
+
         // Log only status changes
         if (status && status !== 'QUEUED') {
           console.log('🔍 Deployment status:', status);
         }
-        
+
         // Check if deployment is ready or failed
         const isReady = status === 'READY';
         const isBuilding = status === 'BUILDING' || status === 'QUEUED';
         const isError = status === 'ERROR';
-        
+
         if (isError) {
           console.error('🔍 Deployment failed:', status);
           setDeploymentStatus('error');
-          
+
           // End publish loading state
           setPublishLoading(false);
-          
+
           // Close publish panel after error (with delay to show error message)
           setTimeout(() => {
             setShowPublishPanel(false);
           }, 3000); // Show error for 3 seconds before closing
-          
+
           if (deployPollRef.current) {
             clearInterval(deployPollRef.current);
             deployPollRef.current = null;
           }
           return;
         }
-        
+
         if (isReady && data.deployment_url) {
           const url = String(data.deployment_url).startsWith('http') ? data.deployment_url : `https://${data.deployment_url}`;
           console.log('🔍 Deployment complete! URL:', url);
           setPublishedUrl(url);
           setDeploymentStatus('ready');
-          
+
           // End publish loading state
           setPublishLoading(false);
-          
+
           // Keep panel open to show the published URL
-          
+
           if (deployPollRef.current) {
             clearInterval(deployPollRef.current);
             deployPollRef.current = null;
@@ -907,11 +907,11 @@ const persistProjectPreferences = useCallback(
           return;
         }
       }
-      
+
       // Simulate progress updates
       setTimeout(() => setPreviewInitializationMessage('正在检查依赖...'), 1000);
       setTimeout(() => setPreviewInitializationMessage('正在构建和验证看板...'), 2500);
-      
+
       const r = await fetch(`${API_BASE}/api/projects/${projectId}/preview/start`, { method: 'POST' });
       if (!r.ok) {
         let errorMessage = r.statusText || '预览启动失败';
@@ -1010,14 +1010,14 @@ const persistProjectPreferences = useCallback(
     try {
       const r = await fetch(`${API_BASE}/api/repo/${projectId}/tree?dir=${encodeURIComponent(dir)}`);
       const data = await r.json();
-      
+
       // Ensure data is an array
       if (Array.isArray(data)) {
         setTree(data);
-        
+
         // Load contents for all directories in the root
         const newFolderContents = new Map();
-        
+
         // Process each directory
         for (const entry of data) {
           if (entry.type === 'dir') {
@@ -1029,13 +1029,13 @@ const persistProjectPreferences = useCallback(
             }
           }
         }
-        
+
         setFolderContents(newFolderContents);
       } else {
         console.error('Tree data is not an array:', data);
         setTree([]);
       }
-      
+
       setCurrentPath(dir);
     } catch (error) {
       console.error('Failed to load tree:', error);
@@ -1051,7 +1051,7 @@ const persistProjectPreferences = useCallback(
     setFolderContents(prev => {
       const newMap = new Map(prev);
       newMap.set(path, contents);
-      
+
       // Also load nested directories
       for (const entry of contents) {
         if (entry.type === 'dir') {
@@ -1064,7 +1064,7 @@ const persistProjectPreferences = useCallback(
           }
         }
       }
-      
+
       return newMap;
     });
   }, [loadSubdirectory]);
@@ -1085,19 +1085,19 @@ const persistProjectPreferences = useCallback(
   // Build tree structure from flat list
   function buildTreeStructure(entries: Entry[]): Map<string, Entry[]> {
     const structure = new Map<string, Entry[]>();
-    
+
     // Initialize with root
     structure.set('', []);
-    
+
     entries.forEach(entry => {
       const parts = entry.path.split('/');
       const parentPath = parts.slice(0, -1).join('/');
-      
+
       if (!structure.has(parentPath)) {
         structure.set(parentPath, []);
       }
       structure.get(parentPath)?.push(entry);
-      
+
       // If it's a directory, ensure it exists in the structure
       if (entry.type === 'dir') {
         if (!structure.has(entry.path)) {
@@ -1105,7 +1105,7 @@ const persistProjectPreferences = useCallback(
         }
       }
     });
-    
+
     return structure;
   }
 
@@ -1125,7 +1125,7 @@ const persistProjectPreferences = useCallback(
       setSaveError(null);
 
       const r = await fetch(`${API_BASE}/api/repo/${projectId}/file?path=${encodeURIComponent(path)}`);
-      
+
       if (!r.ok) {
         console.error('Failed to load file:', r.status, r.statusText);
         const fallback = '// Failed to load file content';
@@ -1136,7 +1136,7 @@ const persistProjectPreferences = useCallback(
         setSelectedFile(path);
         return;
       }
-      
+
       const data = await r.json();
       const fileContent = typeof data?.content === 'string' ? data.content : '';
       setContent(fileContent);
@@ -1402,17 +1402,17 @@ const persistProjectPreferences = useCallback(
     if (entry.type === 'dir') {
       return <span className="text-blue-500"><FaFolder size={16} /></span>;
     }
-    
+
     const ext = entry.path.split('.').pop()?.toLowerCase();
     const filename = entry.path.split('/').pop()?.toLowerCase();
-    
+
     // Special files
     if (filename === 'package.json') return <span className="text-green-600"><VscJson size={16} /></span>;
     if (filename === 'dockerfile') return <span className="text-blue-400"><FaDocker size={16} /></span>;
     if (filename?.startsWith('.env')) return <span className="text-yellow-500"><FaLock size={16} /></span>;
-    if (filename === 'readme.md') return <span className="text-gray-600"><FaMarkdown size={16} /></span>;
-    if (filename?.includes('config')) return <span className="text-gray-500"><FaCog size={16} /></span>;
-    
+    if (filename === 'readme.md') return <span className="text-slate-600"><FaMarkdown size={16} /></span>;
+    if (filename?.includes('config')) return <span className="text-slate-500"><FaCog size={16} /></span>;
+
     switch (ext) {
       case 'tsx':
         return <span className="text-cyan-400"><FaReact size={16} /></span>;
@@ -1435,7 +1435,7 @@ const persistProjectPreferences = useCallback(
         return <span className="text-yellow-600"><VscJson size={16} /></span>;
       case 'md':
       case 'markdown':
-        return <span className="text-gray-600"><FaMarkdown size={16} /></span>;
+        return <span className="text-slate-600"><FaMarkdown size={16} /></span>;
       case 'py':
         return <span className="text-blue-400"><FaPython size={16} /></span>;
       case 'sh':
@@ -1474,9 +1474,9 @@ const persistProjectPreferences = useCallback(
       case 'ini':
       case 'conf':
       case 'config':
-        return <span className="text-gray-500"><FaCog size={16} /></span>;
+        return <span className="text-slate-500"><FaCog size={16} /></span>;
       default:
-        return <span className="text-gray-400"><FaFile size={16} /></span>;
+        return <span className="text-slate-400"><FaFile size={16} /></span>;
     }
   }
 
@@ -1782,7 +1782,7 @@ const persistProjectPreferences = useCallback(
       Array.from(files).forEach(file => {
         if (file.type.startsWith('image/')) {
           const url = URL.createObjectURL(file);
-          
+
           // Convert to base64
           const reader = new FileReader();
           reader.onload = (e) => {
@@ -2096,7 +2096,7 @@ const persistProjectPreferences = useCallback(
           : '';
 
       createRequest(resolvedRequestId, userMessageId, finalMessage, mode);
-      
+
       // Refresh data after completion
       await loadTree('.');
 
@@ -2109,7 +2109,7 @@ const persistProjectPreferences = useCallback(
         });
         setUploadedImages([]);
       }
-      
+
     } catch (error: any) {
       console.error('Act execution error:', error);
 
@@ -2207,21 +2207,21 @@ const persistProjectPreferences = useCallback(
       setPreviewInitializationMessage(message ?? '自动验证通过，可手动打开预览或发布后查看。');
       return;
     }
-    
+
     // Ignore if status is the same (prevent duplicates)
     if (previousStatus === status) {
       return;
     }
-    
+
     setProjectStatus(status as ProjectStatus);
     if (message) {
       setInitializationMessage(message);
     }
-    
+
     // If project becomes active, stop showing loading UI
     if (status === 'active') {
       setIsInitializing(false);
-      
+
       // Handle only when transitioning from initializing → active
       if (previousStatus === 'initializing') {
 
@@ -2229,7 +2229,7 @@ const persistProjectPreferences = useCallback(
         startDependencyInstallation();
         loadTreeRef.current?.('.');
       }
-      
+
       // Initial prompt: trigger once with shared guard (handles active-via-WS case)
       triggerInitialPromptIfNeeded();
     } else if (status === 'failed') {
@@ -2242,12 +2242,12 @@ const persistProjectPreferences = useCallback(
     setProjectStatus('initializing');
     setIsInitializing(true);
     setInitializationMessage('Retrying project initialization...');
-    
+
     try {
       const response = await fetch(`${API_BASE}/api/projects/${projectId}/retry-initialization`, {
         method: 'POST'
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to retry initialization');
       }
@@ -2263,7 +2263,7 @@ const persistProjectPreferences = useCallback(
     if (typeof window !== 'undefined' && projectId) {
       const storedHasInitialPrompt = localStorage.getItem(`project_${projectId}_hasInitialPrompt`);
       const storedTaskComplete = localStorage.getItem(`project_${projectId}_taskComplete`);
-      
+
       if (storedHasInitialPrompt !== null) {
         setHasInitialPrompt(storedHasInitialPrompt === 'true');
       }
@@ -2378,14 +2378,14 @@ const persistProjectPreferences = useCallback(
           {/* Left: Chat window */}
           <div
             style={{ width: '30%' }}
-            className="h-full border-r border-gray-200 flex flex-col"
+            className="h-full border-r border-slate-200 flex flex-col"
           >
             {/* Chat header */}
-            <div className="bg-white border-b border-gray-200 p-4 h-[73px] flex items-center">
+            <div className="bg-white border-b border-slate-200 p-4 h-[73px] flex items-center">
               <div className="flex items-center gap-3">
-                <button 
+                <button
                   onClick={() => router.push('/')}
-                  className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                  className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
                   title="Back to home"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2393,16 +2393,16 @@ const persistProjectPreferences = useCallback(
                   </svg>
                 </button>
                 <div>
-                  <h1 className="text-lg font-semibold text-gray-900 ">{projectName || 'Loading...'}</h1>
+                  <h1 className="text-lg font-semibold text-slate-900 ">{projectName || 'Loading...'}</h1>
                   {projectDescription && (
-                    <p className="text-sm text-gray-500 ">
+                    <p className="text-sm text-slate-500 ">
                       {projectDescription}
                     </p>
                   )}
                 </div>
               </div>
             </div>
-            
+
             {/* Chat log area */}
             <div className="flex-1 min-h-0">
               <ChatErrorBoundary>
@@ -2440,7 +2440,7 @@ const persistProjectPreferences = useCallback(
               />
               </ChatErrorBoundary>
             </div>
-            
+
             {/* Simple input area */}
             <div className="p-4 rounded-bl-2xl">
               <ChatInput
@@ -2473,15 +2473,15 @@ const persistProjectPreferences = useCallback(
             {/* Content area */}
             <div className="flex-1 min-h-0 flex flex-col">
               {/* Controls Bar */}
-              <div className="bg-white border-b border-gray-200 px-4 h-[73px] flex items-center justify-between">
+              <div className="bg-white border-b border-slate-200 px-4 h-[73px] flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {/* Toggle switch */}
-                  <div className="flex items-center bg-gray-100 rounded-lg p-1">
+                  <div className="flex items-center bg-slate-100 rounded-lg p-1">
                     <button
                       className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        showPreview 
-                          ? 'bg-white text-gray-900 ' 
-                          : 'text-gray-600 hover:text-gray-900 '
+                        showPreview
+                          ? 'bg-white text-slate-900 '
+                          : 'text-slate-600 hover:text-slate-900 '
                       }`}
                       onClick={() => setShowPreview(true)}
                     >
@@ -2489,25 +2489,25 @@ const persistProjectPreferences = useCallback(
                     </button>
                     <button
                       className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        !showPreview 
-                          ? 'bg-white text-gray-900 ' 
-                          : 'text-gray-600 hover:text-gray-900 '
+                        !showPreview
+                          ? 'bg-white text-slate-900 '
+                          : 'text-slate-600 hover:text-slate-900 '
                       }`}
                       onClick={() => setShowPreview(false)}
                     >
                       <span className="w-4 h-4 flex items-center justify-center"><FaCode size={16} /></span>
                     </button>
                   </div>
-                  
+
                   {/* Center Controls */}
                   {showPreview && shouldShowPreviewFrame && (
                     <div className="flex items-center gap-3">
                       {/* Route Navigation */}
-                      <div className="h-9 flex items-center bg-gray-100 rounded-lg px-3 border border-gray-200 ">
-                        <span className="text-gray-400 mr-2">
+                      <div className="h-9 flex items-center bg-slate-100 rounded-lg px-3 border border-slate-200 ">
+                        <span className="text-slate-400 mr-2">
                           <FaHome size={12} />
                         </span>
-                        <span className="text-sm text-gray-500 mr-1">/</span>
+                        <span className="text-sm text-slate-500 mr-1">/</span>
                         <input
                           type="text"
                           value={currentRoute.startsWith('/') ? currentRoute.slice(1) : currentRoute}
@@ -2520,21 +2520,21 @@ const persistProjectPreferences = useCallback(
                               navigateToRoute(currentRoute);
                             }
                           }}
-                          className="bg-transparent text-sm text-gray-700 outline-none w-40"
+                          className="bg-transparent text-sm text-slate-700 outline-none w-40"
                           placeholder="route"
                         />
                         <button
                           onClick={() => navigateToRoute(currentRoute)}
-                          className="ml-2 text-gray-500 hover:text-gray-700 "
+                          className="ml-2 text-slate-500 hover:text-slate-700 "
                         >
                           <FaArrowRight size={12} />
                         </button>
                       </div>
-                      
+
                       {/* Action Buttons Group */}
                       <div className="flex items-center gap-1.5">
-                        <button 
-                          className="h-9 w-9 flex items-center justify-center bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors"
+                        <button
+                          className="h-9 w-9 flex items-center justify-center bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
                           onClick={() => {
                             const iframe = document.querySelector('iframe');
                             if (iframe) {
@@ -2545,15 +2545,15 @@ const persistProjectPreferences = useCallback(
                         >
                           <FaRedo size={14} />
                         </button>
-                        
+
                         {/* Device Mode Toggle */}
-                        <div className="h-9 flex items-center gap-1 bg-gray-100 rounded-lg px-1 border border-gray-200 ">
+                        <div className="h-9 flex items-center gap-1 bg-slate-100 rounded-lg px-1 border border-slate-200 ">
                           <button
                             aria-label="Desktop preview"
                             className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${
-                              deviceMode === 'desktop' 
-                                ? 'text-blue-600 bg-blue-50 ' 
-                                : 'text-gray-400 hover:text-gray-600 '
+                              deviceMode === 'desktop'
+                                ? 'text-blue-600 bg-blue-50 '
+                                : 'text-slate-400 hover:text-slate-600 '
                             }`}
                             onClick={() => setDeviceMode('desktop')}
                           >
@@ -2562,9 +2562,9 @@ const persistProjectPreferences = useCallback(
                           <button
                             aria-label="Mobile preview"
                             className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${
-                              deviceMode === 'mobile' 
-                                ? 'text-blue-600 bg-blue-50 ' 
-                                : 'text-gray-400 hover:text-gray-600 '
+                              deviceMode === 'mobile'
+                                ? 'text-blue-600 bg-blue-50 '
+                                : 'text-slate-400 hover:text-slate-600 '
                             }`}
                             onClick={() => setDeviceMode('mobile')}
                           >
@@ -2575,20 +2575,20 @@ const persistProjectPreferences = useCallback(
                     </div>
                   )}
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   {/* Settings Button */}
-                  <button 
+                  <button
                     onClick={() => setShowGlobalSettings(true)}
-                    className="h-9 w-9 flex items-center justify-center bg-gray-100 text-gray-600 hover:text-gray-900 hover:bg-gray-200 rounded-lg transition-colors"
+                    className="h-9 w-9 flex items-center justify-center bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
                     title="Settings"
                   >
                     <FaCog size={16} />
                   </button>
-                  
+
                   {/* Stop Button */}
                   {showPreview && shouldShowPreviewFrame && (
-                    <button 
+                    <button
                       className="h-9 px-3 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
                       onClick={stop}
                     >
@@ -2596,12 +2596,12 @@ const persistProjectPreferences = useCallback(
                       Stop
                     </button>
                   )}
-                  
+
                   {/* Publish/Update */}
                   {showPreview && shouldShowPreviewFrame && (
                     <div className="relative">
                     <button
-                      className="h-9 flex items-center gap-2 px-3 bg-black text-white rounded-lg text-sm font-medium transition-colors hover:bg-gray-900 border border-black/10 shadow-sm"
+                      className="h-9 flex items-center gap-2 px-3 bg-black text-white rounded-lg text-sm font-medium transition-colors hover:bg-slate-900 border border-black/10 shadow-sm"
                       onClick={() => setShowPublishPanel(true)}
                     >
                       <FaRocket size={14} />
@@ -2614,9 +2614,9 @@ const persistProjectPreferences = useCallback(
                       )}
                     </button>
                     {false && showPublishPanel && (
-                      <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-5">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Publish Project</h3>
-                        
+                      <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-5">
+                        <h3 className="text-lg font-semibold text-slate-900 mb-4">Publish Project</h3>
+
                         {/* Deployment Status Display */}
                         {deploymentStatus === 'deploying' && (
                           <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200 ">
@@ -2627,32 +2627,32 @@ const persistProjectPreferences = useCallback(
                             <p className="text-xs text-blue-600 ">Building and deploying your project. This may take a few minutes.</p>
                           </div>
                         )}
-                        
+
                         {deploymentStatus === 'ready' && publishedUrl && (
                           <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200 ">
                             <p className="text-sm font-medium text-green-700 mb-2">Currently published at:</p>
-                            <a 
-                              href={publishedUrl ?? undefined} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
+                            <a
+                              href={publishedUrl ?? undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="text-sm text-green-600 font-mono hover:underline break-all"
                             >
                               {publishedUrl}
                             </a>
                           </div>
                         )}
-                        
+
                         {deploymentStatus === 'error' && (
                           <div className="mb-4 p-4 bg-red-50 rounded-lg border border-red-200 ">
                             <p className="text-sm font-medium text-red-700 mb-2">Deployment failed</p>
                             <p className="text-xs text-red-600 ">There was an error during deployment. Please try again.</p>
                           </div>
                         )}
-                        
+
                         <div className="space-y-4">
                           {!githubConnected || !vercelConnected ? (
                             <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 ">
-                              <p className="text-sm font-medium text-gray-900 mb-3">To publish, connect the following services:</p>
+                              <p className="text-sm font-medium text-slate-900 mb-3">To publish, connect the following services:</p>
                               <div className="space-y-2">
                                 {!githubConnected && (
                                   <div className="flex items-center gap-2 text-amber-700 ">
@@ -2671,8 +2671,8 @@ const persistProjectPreferences = useCallback(
                                   </div>
                                 )}
                               </div>
-                              <p className="mt-3 text-sm text-gray-600 ">
-                                Go to 
+                              <p className="mt-3 text-sm text-slate-600 ">
+                                Go to
                                 <button
                                   onClick={() => {
                                     setShowPublishPanel(false);
@@ -2686,12 +2686,12 @@ const persistProjectPreferences = useCallback(
                               </p>
                             </div>
                           ) : null}
-                          
+
                           <button
                             disabled={publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected}
                             onClick={async () => {
                               console.log('🚀 Publish started');
-                              
+
                               setPublishLoading(true);
                               try {
                                 // Push to GitHub
@@ -2702,11 +2702,11 @@ const persistProjectPreferences = useCallback(
                                   console.error('🚀 GitHub push failed:', errorText);
                                   throw new Error(errorText);
                                 }
-                                
+
                                 // Deploy to Vercel
                                 console.log('🚀 Deploying to Vercel...');
                                 const deployUrl = `${API_BASE}/api/projects/${projectId}/vercel/deploy`;
-                                
+
                                 const vercelRes = await fetch(deployUrl, {
                                   method: 'POST'
                                 });
@@ -2717,14 +2717,14 @@ const persistProjectPreferences = useCallback(
                                 if (vercelRes.ok) {
                                   const data = await vercelRes.json();
                                   console.log('🚀 Deployment started, polling for status...');
-                                  
+
                                   // Set deploying status BEFORE ending publishLoading to prevent gap
                                   setDeploymentStatus('deploying');
-                                  
+
                                   if (data.deployment_id) {
                                     startDeploymentPolling(data.deployment_id);
                                   }
-                                  
+
                                   // Only set URL if deployment is already ready
                                   if (data.status === 'READY' && data.deployment_url) {
                                     const url = data.deployment_url.startsWith('http') ? data.deployment_url : `https://${data.deployment_url}`;
@@ -2753,17 +2753,17 @@ const persistProjectPreferences = useCallback(
                               }
                             }}
                             className={`w-full px-4 py-3 rounded-lg font-medium text-white transition-colors ${
-                              publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected 
-                                ? 'bg-gray-400 cursor-not-allowed' 
+                              publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected
+                                ? 'bg-slate-400 cursor-not-allowed'
                                 : 'bg-indigo-600 hover:bg-indigo-700 '
                             }`}
                           >
-                            {publishLoading 
-                              ? 'Publishing...' 
+                            {publishLoading
+                              ? 'Publishing...'
                               : deploymentStatus === 'deploying'
                               ? 'Deploying...'
-                              : !githubConnected || !vercelConnected 
-                              ? 'Connect Services First' 
+                              : !githubConnected || !vercelConnected
+                              ? 'Connect Services First'
                               : deploymentStatus === 'ready' && publishedUrl ? 'Update' : 'Publish'
                             }
                           </button>
@@ -2774,7 +2774,7 @@ const persistProjectPreferences = useCallback(
                   )}
                 </div>
               </div>
-              
+
               {/* Content Area */}
               <div className="flex-1 relative bg-black overflow-hidden">
                 <AnimatePresence initial={false}>
@@ -2787,15 +2787,15 @@ const persistProjectPreferences = useCallback(
                     style={{ height: '100%' }}
                   >
                 {shouldShowPreviewFrame ? (
-                  <div className="relative w-full h-full bg-gray-100 flex items-center justify-center">
-                    <div 
+                  <div className="relative w-full h-full bg-slate-100 flex items-center justify-center">
+                    <div
                       className={`bg-white ${
-                        deviceMode === 'mobile' 
-                          ? 'w-[375px] h-[667px] rounded-[25px] border-8 border-gray-800 shadow-2xl' 
+                        deviceMode === 'mobile'
+                          ? 'w-[375px] h-[667px] rounded-[25px] border-8 border-slate-800 shadow-2xl'
                           : 'w-full h-full'
                       } overflow-hidden`}
                     >
-                      <iframe 
+                      <iframe
                         ref={iframeRef}
                         className="w-full h-full border-none bg-white "
                         src={previewUrl ?? undefined}
@@ -2810,19 +2810,19 @@ const persistProjectPreferences = useCallback(
                           if (overlay) overlay.style.display = 'none';
                         }}
                       />
-                      
+
                       {/* Error overlay */}
-                    <div 
+                    <div
                       id="iframe-error-overlay"
-                      className="absolute inset-0 bg-gray-50 flex items-center justify-center z-10"
+                      className="absolute inset-0 bg-slate-50 flex items-center justify-center z-10"
                       style={{ display: 'none' }}
                     >
                       <div className="text-center max-w-md mx-auto p-6">
                         <div className="text-4xl mb-4">🔄</div>
-                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                        <h3 className="text-lg font-semibold text-slate-800 mb-2">
                           Connection Issue
                         </h3>
-                        <p className="text-gray-600 mb-4">
+                        <p className="text-slate-600 mb-4">
                           The preview couldn&apos;t load properly. Try clicking the refresh button to reload the page.
                         </p>
                         <button
@@ -2847,43 +2847,43 @@ const persistProjectPreferences = useCallback(
                     </div>
                   </div>
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center bg-gray-50 relative">
+                  <div className="h-full w-full flex items-center justify-center bg-slate-50 relative">
                     {/* Gradient background similar to main page */}
                     <div className="absolute inset-0">
                       <div className="absolute inset-0 bg-white " />
-                      <div 
+                      <div
                         className="absolute inset-0 hidden transition-all duration-1000 ease-in-out"
                         style={{
-                          background: `radial-gradient(circle at 50% 100%, 
-                            ${activeBrandColor}66 0%, 
-                            ${activeBrandColor}4D 25%, 
-                            ${activeBrandColor}33 50%, 
+                          background: `radial-gradient(circle at 50% 100%,
+                            ${activeBrandColor}66 0%,
+                            ${activeBrandColor}4D 25%,
+                            ${activeBrandColor}33 50%,
                             transparent 70%)`
                         }}
                       />
                       {/* Light mode gradient - subtle */}
-                      <div 
+                      <div
                         className="absolute inset-0 block transition-all duration-1000 ease-in-out"
                         style={{
-                          background: `radial-gradient(circle at 50% 100%, 
-                            ${activeBrandColor}40 0%, 
-                            ${activeBrandColor}26 25%, 
+                          background: `radial-gradient(circle at 50% 100%,
+                            ${activeBrandColor}40 0%,
+                            ${activeBrandColor}26 25%,
                             transparent 50%)`
                         }}
                       />
                     </div>
-                    
+
                     {/* Content with z-index to be above gradient */}
                     <div className="relative z-10 w-full h-full flex items-center justify-center">
                     {isStartingPreview ? (
-                      <MotionDiv 
+                      <MotionDiv
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         className="text-center"
                       >
                         {/* QuantPilot 图标与加载状态 */}
                         <div className="w-40 h-40 mx-auto mb-6 relative">
-                          <div 
+                          <div
                             className="w-full h-full"
                             style={{
                               backgroundColor: activeBrandColor,
@@ -2892,10 +2892,10 @@ const persistProjectPreferences = useCallback(
                               opacity: 0.9
                             }}
                           />
-                          
+
                           {/* Loading spinner in center */}
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <div 
+                            <div
                               className="w-14 h-14 border-4 rounded-full animate-spin"
                               style={{
                                 borderTopColor: 'transparent',
@@ -2906,13 +2906,13 @@ const persistProjectPreferences = useCallback(
                             />
                           </div>
                         </div>
-                        
+
                         {/* Content */}
-                        <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                        <h3 className="text-xl font-semibold text-slate-900 mb-3">
                           正在准备可视化看板
                         </h3>
-                        
-                        <div className="flex items-center justify-center gap-1 text-gray-600 ">
+
+                        <div className="flex items-center justify-center gap-1 text-slate-600 ">
                           <span>{previewInitializationMessage}</span>
                           <MotionDiv
                             className="flex gap-1 ml-2"
@@ -2922,17 +2922,17 @@ const persistProjectPreferences = useCallback(
                             <MotionDiv
                               animate={{ opacity: [0, 1, 0] }}
                               transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
-                              className="w-1 h-1 bg-gray-600 rounded-full"
+                              className="w-1 h-1 bg-slate-600 rounded-full"
                             />
                             <MotionDiv
                               animate={{ opacity: [0, 1, 0] }}
                               transition={{ duration: 1.5, repeat: Infinity, delay: 0.3 }}
-                              className="w-1 h-1 bg-gray-600 rounded-full"
+                              className="w-1 h-1 bg-slate-600 rounded-full"
                             />
                             <MotionDiv
                               animate={{ opacity: [0, 1, 0] }}
                               transition={{ duration: 1.5, repeat: Infinity, delay: 0.6 }}
-                              className="w-1 h-1 bg-gray-600 rounded-full"
+                              className="w-1 h-1 bg-slate-600 rounded-full"
                             />
                           </MotionDiv>
                         </div>
@@ -2954,7 +2954,7 @@ const persistProjectPreferences = useCallback(
                                 style={{ transformOrigin: "center center" }}
                                 className="w-full h-full"
                               >
-                          <div 
+                          <div
                             className="w-full h-full"
                             style={{
                               backgroundColor: activeBrandColor,
@@ -2965,16 +2965,16 @@ const persistProjectPreferences = useCallback(
                           />
                               </MotionDiv>
                             </div>
-                            
+
                             <h3 className="text-2xl font-bold mb-3 relative overflow-hidden inline-block">
-                              <span 
+                              <span
                                 className="relative"
                                 style={{
-                                  background: `linear-gradient(90deg, 
-                                    #6b7280 0%, 
-                                    #6b7280 30%, 
-                                    #ffffff 50%, 
-                                    #6b7280 70%, 
+                                  background: `linear-gradient(90deg,
+                                    #6b7280 0%,
+                                    #6b7280 30%,
+                                    #ffffff 50%,
+                                    #6b7280 70%,
                                     #6b7280 100%)`,
                                   backgroundSize: '200% 100%',
                                   WebkitBackgroundClip: 'text',
@@ -3009,7 +3009,7 @@ const persistProjectPreferences = useCallback(
                                 animate={isStartingPreview ? { rotate: 360 } : {}}
                                 transition={{ duration: 6, repeat: isStartingPreview ? Infinity : 0, ease: "linear" }}
                               >
-                                <div 
+                                <div
                                   className="w-full h-full"
                                   style={{
                                     backgroundColor: activeBrandColor,
@@ -3019,11 +3019,11 @@ const persistProjectPreferences = useCallback(
                                   }}
                                 />
                               </MotionDiv>
-                              
+
                               {/* Icon in Center - Play or Loading */}
                               <div className="absolute inset-0 flex items-center justify-center">
                                 {isStartingPreview ? (
-                                  <div 
+                                  <div
                                     className="w-14 h-14 border-4 rounded-full animate-spin"
                                     style={{
                                       borderTopColor: 'transparent',
@@ -3038,19 +3038,19 @@ const persistProjectPreferences = useCallback(
                                     whileHover={{ scale: 1.2 }}
                                     whileTap={{ scale: 0.9 }}
                                   >
-                                    <FaPlay 
+                                    <FaPlay
                                       size={32}
                                     />
                                   </MotionDiv>
                                 )}
                               </div>
                             </div>
-                            
-                            <h3 className="text-2xl font-bold text-gray-900 mb-3">
+
+                            <h3 className="text-2xl font-bold text-slate-900 mb-3">
                               {quantValidationState === 'failed' ? '看板验证未通过' : '看板待生成'}
                             </h3>
-                            
-                            <p className="text-gray-600 max-w-lg mx-auto">
+
+                            <p className="text-slate-600 max-w-lg mx-auto">
                               {quantValidationState === 'failed'
                                 ? quantValidationMessage ?? '自动验证未通过，暂不展示可视化看板。'
                                 : quantValidationState === 'running'
@@ -3075,14 +3075,14 @@ const persistProjectPreferences = useCallback(
                                           {index + 1}
                                         </span>
                                         <div className="min-w-0">
-                                          <p className="text-sm font-semibold text-gray-900">
+                                          <p className="text-sm font-semibold text-slate-900">
                                             {step.checkName || step.checkId || '失败检查项'}
                                           </p>
                                           {step.summary ? (
-                                            <p className="mt-1 text-xs leading-5 text-gray-600">{step.summary}</p>
+                                            <p className="mt-1 text-xs leading-5 text-slate-600">{step.summary}</p>
                                           ) : null}
                                           {Array.isArray(step.actions) && step.actions.length > 0 ? (
-                                            <ul className="mt-2 space-y-1 text-xs leading-5 text-gray-600">
+                                            <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-600">
                                               {step.actions.slice(0, 2).map((action, actionIndex) => (
                                                 <li key={`${actionIndex}-${action}`} className="flex gap-2">
                                                   <span className="text-red-400">-</span>
@@ -3116,15 +3116,15 @@ const persistProjectPreferences = useCallback(
                 className="h-full flex bg-white "
               >
                 {/* Left Sidebar - File Explorer (VS Code style) */}
-                <div className="w-64 flex-shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col">
+                <div className="w-64 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col">
                   {/* File Tree */}
-                  <div className="flex-1 overflow-y-auto bg-gray-50 custom-scrollbar">
+                  <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
                     {!tree || tree.length === 0 ? (
-                      <div className="px-3 py-8 text-center text-[11px] text-gray-600 select-none">
+                      <div className="px-3 py-8 text-center text-[11px] text-slate-600 select-none">
                         No files found
                       </div>
                     ) : (
-                      <TreeView 
+                      <TreeView
                         entries={tree || []}
                         selectedFile={selectedFile}
                         expandedFolders={expandedFolders}
@@ -3145,13 +3145,13 @@ const persistProjectPreferences = useCallback(
                   {selectedFile ? (
                     <>
                       {/* File Tab */}
-                      <div className="flex-shrink-0 bg-gray-100 ">
+                      <div className="flex-shrink-0 bg-slate-100 ">
                         <div className="flex items-center gap-3 bg-white px-3 py-1.5 border-t-2 border-t-blue-500 ">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="w-4 h-4 flex items-center justify-center">
                               {getFileIcon(tree.find(e => e.path === selectedFile) || { path: selectedFile, type: 'file' })}
                             </span>
-                            <span className="truncate text-[13px] text-gray-700 " style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
+                            <span className="truncate text-[13px] text-slate-700 " style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
                               {selectedFile.split('/').pop()}
                             </span>
                           </div>
@@ -3180,7 +3180,7 @@ const persistProjectPreferences = useCallback(
                           )}
                           <div className="ml-auto flex items-center gap-2">
                             <button
-                              className="px-3 py-1 text-xs font-medium rounded bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 disabled:text-gray-600 disabled:cursor-not-allowed "
+                              className="px-3 py-1 text-xs font-medium rounded bg-blue-500 text-white hover:bg-blue-600 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed "
                               onClick={handleSaveFile}
                               disabled={!hasUnsavedChanges || isSavingFile}
                               title="Save (Ctrl+S)"
@@ -3188,7 +3188,7 @@ const persistProjectPreferences = useCallback(
                               {isSavingFile ? 'Saving…' : 'Save'}
                             </button>
                             <button
-                              className="text-gray-700 hover:bg-gray-200 px-1 rounded"
+                              className="text-slate-700 hover:bg-slate-200 px-1 rounded"
                               onClick={() => {
                                 if (hasUnsavedChanges) {
                                   const confirmClose =
@@ -3221,10 +3221,10 @@ const persistProjectPreferences = useCallback(
                           {/* Line Numbers */}
                           <div
                             ref={lineNumberRef}
-                            className="bg-gray-50 px-3 py-4 select-none flex-shrink-0 overflow-y-auto overflow-x-hidden custom-scrollbar pointer-events-none"
+                            className="bg-slate-50 px-3 py-4 select-none flex-shrink-0 overflow-y-auto overflow-x-hidden custom-scrollbar pointer-events-none"
                             aria-hidden="true"
                           >
-                            <div className="text-[13px] font-mono text-gray-500 leading-[19px]">
+                            <div className="text-[13px] font-mono text-slate-500 leading-[19px]">
                               {(editedContent || '').split('\n').map((_, index) => (
                                 <div key={index} className="text-right pr-2">
                                   {index + 1}
@@ -3237,7 +3237,7 @@ const persistProjectPreferences = useCallback(
                             <pre
                               ref={highlightRef}
                               aria-hidden="true"
-                              className="absolute inset-0 m-0 p-4 overflow-hidden text-[13px] leading-[19px] font-mono text-gray-800 whitespace-pre pointer-events-none"
+                              className="absolute inset-0 m-0 p-4 overflow-hidden text-[13px] leading-[19px] font-mono text-slate-800 whitespace-pre pointer-events-none"
                               style={{ fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace" }}
                             >
                               <code className="qp-code-preview language-plaintext">{highlightedCode}</code>
@@ -3255,7 +3255,7 @@ const persistProjectPreferences = useCallback(
                               autoComplete="off"
                               wrap="off"
                               aria-label="Code editor"
-                              className="absolute inset-0 w-full h-full resize-none bg-transparent text-transparent caret-gray-800 outline-none font-mono text-[13px] leading-[19px] p-4 whitespace-pre overflow-auto custom-scrollbar"
+                              className="absolute inset-0 w-full h-full resize-none bg-transparent text-transparent caret-slate-800 outline-none font-mono text-[13px] leading-[19px] p-4 whitespace-pre overflow-auto custom-scrollbar"
                               style={{ fontFamily: "'Fira Code', 'Consolas', 'Monaco', monospace" }}
                             />
                           </div>
@@ -3266,11 +3266,11 @@ const persistProjectPreferences = useCallback(
                     /* Welcome Screen */
                     <div className="flex-1 flex items-center justify-center bg-white ">
                       <div className="text-center">
-                        <span className="w-16 h-16 mb-4 opacity-10 text-gray-400 mx-auto flex items-center justify-center"><FaCode size={64} /></span>
-                        <h3 className="text-lg font-medium text-gray-700 mb-2">
+                        <span className="w-16 h-16 mb-4 opacity-10 text-slate-400 mx-auto flex items-center justify-center"><FaCode size={64} /></span>
+                        <h3 className="text-lg font-medium text-slate-700 mb-2">
                           Welcome to Code Editor
                         </h3>
-                        <p className="text-sm text-gray-500 ">
+                        <p className="text-sm text-slate-500 ">
                           Select a file from the explorer to start viewing code
                         </p>
                       </div>
@@ -3285,24 +3285,24 @@ const persistProjectPreferences = useCallback(
           </div>
         </div>
       </div>
-      
+
 
       {/* Publish Modal */}
       {showPublishPanel && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowPublishPanel(false)} />
-          <div className="relative w-full max-w-lg bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60 ">
+          <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60 ">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-black border border-black/10 ">
                   <FaRocket size={14} />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-gray-900 ">Publish Project</h3>
-                  <p className="text-xs text-gray-600 ">Deploy with Vercel, linked to your GitHub repo</p>
+                  <h3 className="text-base font-semibold text-slate-900 ">Publish Project</h3>
+                  <p className="text-xs text-slate-600 ">Deploy with Vercel, linked to your GitHub repo</p>
                 </div>
               </div>
-              <button onClick={() => setShowPublishPanel(false)} className="text-gray-400 hover:text-gray-600 ">
+              <button onClick={() => setShowPublishPanel(false)} className="text-slate-400 hover:text-slate-600 ">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
               </button>
             </div>
@@ -3343,13 +3343,13 @@ const persistProjectPreferences = useCallback(
 
               {!githubConnected || !vercelConnected ? (
                 <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 ">
-                  <p className="text-sm font-medium text-gray-900 mb-2">Connect the following services:</p>
+                  <p className="text-sm font-medium text-slate-900 mb-2">Connect the following services:</p>
                   <div className="space-y-1 text-amber-700 text-sm">
                     {!githubConnected && (<div className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-500"/>GitHub repository not connected</div>)}
                     {!vercelConnected && (<div className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-500"/>Vercel project not connected</div>)}
                   </div>
                   <button
-                    className="mt-3 w-full px-4 py-2 rounded-xl border border-gray-200 text-gray-800 hover:bg-gray-50 "
+                    className="mt-3 w-full px-4 py-2 rounded-xl border border-slate-200 text-slate-800 hover:bg-slate-50 "
                     onClick={() => { setShowPublishPanel(false); setShowGlobalSettings(true); }}
                   >
                     Open Settings → Services
@@ -3411,8 +3411,8 @@ const persistProjectPreferences = useCallback(
                 }}
                 className={`w-full px-4 py-3 rounded-xl font-medium text-white transition ${
                   publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-black hover:bg-gray-900'
+                    ? 'bg-slate-400 cursor-not-allowed'
+                    : 'bg-black hover:bg-slate-900'
                 }`}
               >
                 {publishLoading ? 'Publishing…' : deploymentStatus === 'deploying' ? 'Deploying…' : (!githubConnected || !vercelConnected) ? 'Connect Services First' : (deploymentStatus === 'ready' && publishedUrl ? 'Update' : 'Publish')}

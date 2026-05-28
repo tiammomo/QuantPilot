@@ -398,7 +398,7 @@ export default function ChatInput({
       className={`bg-white border rounded-2xl shadow-sm overflow-hidden transition-all duration-200 relative ${
       isDragOver
         ? 'border-blue-400 bg-blue-50'
-        : 'border-gray-200'
+        : 'border-slate-200'
     }`}
     >
       <div className="p-3">
@@ -421,7 +421,7 @@ export default function ChatInput({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full ring-offset-background placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[15px] leading-6 md:text-sm bg-transparent focus:bg-transparent rounded-md px-2 py-2 text-gray-900 border-0"
+            className="w-full ring-offset-background placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[15px] leading-6 md:text-sm bg-transparent focus:bg-transparent rounded-md px-2 py-2 text-slate-900 border-0"
             id="chatinput"
             placeholder={placeholder}
             disabled={disabled || isUploading || isSubmitting}
@@ -442,12 +442,12 @@ export default function ChatInput({
           )}
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {projectId && (
               (!supportsImageUpload) ? (
                 <div
-                  className="flex h-8 w-8 items-center justify-center text-gray-300 cursor-not-allowed opacity-50 rounded-full"
+                  className="flex h-8 w-8 items-center justify-center text-slate-300 cursor-not-allowed opacity-50 rounded-full"
                   title={
                     preferredCli === 'qwen'
                       ? 'Qwen Coder 暂不支持图片输入，请使用 Claude Code。'
@@ -461,7 +461,7 @@ export default function ChatInput({
               ) : (
                 <button
                   type="button"
-                  className="flex h-8 w-8 items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex h-8 w-8 items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title={imageUploadTitle}
                   onClick={() => {
                     if (fileInputRef.current) {
@@ -489,7 +489,7 @@ export default function ChatInput({
                 requestAnimationFrame(() => textareaRef.current?.focus());
               }}
               disabled={cliChangeDisabled || !onCliChange}
-              className="h-8 min-w-[118px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-60"
+              className="h-8 min-w-[118px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
               aria-label="选择助手"
             >
               {cliOptions.length === 0 && <option value={preferredCli}>{preferredCli}</option>}
@@ -509,7 +509,7 @@ export default function ChatInput({
                 }
               }}
               disabled={modelChangeDisabled || !onModelChange || modelOptionsForCli.length === 0}
-              className="h-8 min-w-[136px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 disabled:opacity-60"
+              className="h-8 min-w-[136px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
               aria-label="选择模型"
             >
               {modelOptionsForCli.length === 0 && <option value="">暂无可用模型</option>}
@@ -522,14 +522,14 @@ export default function ChatInput({
                 </option>
               ))}
             </select>
-            <div className="flex items-center rounded-full border border-gray-200 bg-white p-0.5">
+            <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5">
             <button
               type="button"
               onClick={() => onModeChange?.('act')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
                 mode === 'act'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 '
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 '
               }`}
               title="Act Mode: AI can modify code and create/delete files"
             >
@@ -541,8 +541,8 @@ export default function ChatInput({
               onClick={() => onModeChange?.('chat')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
                 mode === 'chat'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 '
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 '
               }`}
               title="Chat Mode: AI provides answers without modifying code"
             >
@@ -578,7 +578,7 @@ export default function ChatInput({
           <div className="flex flex-wrap gap-2">
             {uploadedImages.map((image, index) => (
               <div key={image.id} className="relative group">
-                <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-300">
+                <div className="w-16 h-16 bg-slate-100 rounded-lg overflow-hidden border border-slate-300">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={image.url}
@@ -602,7 +602,7 @@ export default function ChatInput({
               </div>
             ))}
           </div>
-          <div className="mt-2 text-xs text-gray-500">
+          <div className="mt-2 text-xs text-slate-500">
             {uploadedImages.length} 张图片已上传
             {!selectedModelSupportsImages ? ' · 当前模型会作为附件上下文处理' : ' · 可直接识图'}
           </div>

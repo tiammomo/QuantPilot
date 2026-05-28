@@ -99,7 +99,7 @@ export function ProjectSettings({
     >
         <div className="flex h-full">
           {/* Sidebar Tabs */}
-          <div className="w-56 bg-white border-r border-gray-200 ">
+          <div className="w-56 bg-white border-r border-slate-200 ">
           <nav className="p-4 space-y-1">
             {availableTabs.map(tab => (
               <button
@@ -108,10 +108,10 @@ export function ProjectSettings({
                 className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-left transition-all duration-200 ${
                   activeTab === tab.id
                     ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200 '
-                    : 'hover:bg-gray-50 text-gray-600 hover:text-gray-900 '
+                    : 'hover:bg-slate-50 text-slate-600 hover:text-slate-900 '
                 }`}
               >
-                <span className={activeTab === tab.id ? 'text-blue-600 ' : 'text-gray-500 '}>
+                <span className={activeTab === tab.id ? 'text-blue-600 ' : 'text-slate-500 '}>
                   {tab.icon}
                 </span>
                 <span className="text-sm font-medium">{tab.label}</span>

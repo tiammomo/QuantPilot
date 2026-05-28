@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   BarChart3,
   Boxes,
-  Pencil,
+  CheckCircle2,
+  Clock3,
+  Menu,
   ShieldCheck,
-  Trash2,
+  XCircle,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -537,7 +539,7 @@ export default function HomePage() {
                 className="lg:hidden"
                 aria-label="打开任务记录"
               >
-                <Pencil className="h-5 w-5" />
+                <Menu className="h-5 w-5" />
               </Button>
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-base font-bold text-primary-foreground shadow-sm">
                 Q
@@ -587,10 +589,10 @@ export default function HomePage() {
           </header>
 
           {/* Main area */}
-          <main className="relative flex-1 overflow-y-auto">
-            <div className="relative mx-auto flex min-h-full w-full max-w-6xl -translate-y-6 flex-col items-center justify-center px-4 py-8 md:-translate-y-12 md:px-8 lg:-translate-y-14">
+          <main className="relative flex flex-1 flex-col items-center overflow-y-auto px-4 py-12 md:justify-center md:py-8">
+            <div className="flex w-full max-w-4xl flex-col items-center">
               {/* Title */}
-              <div className="mb-6 text-center">
+              <div className="mb-8 text-center">
                 <h2 className="text-3xl font-bold tracking-normal text-primary md:text-5xl">
                   QuantPilot
                 </h2>
@@ -598,6 +600,24 @@ export default function HomePage() {
                   选择角色模块，描述真实需求，等待任务完成并生成可验证的量化看板
                 </p>
               </div>
+
+              {/* Recent projects */}
+              {projects.length > 0 && (
+                <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
+                  <Clock3 className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="text-xs text-slate-500">最近任务</span>
+                  {projects.slice(0, 4).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => openProject(p)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                    >
+                      {p.name || p.initialPrompt?.slice(0, 20) || "未命名"}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Create form */}
               <CreateTaskForm
@@ -688,29 +708,9 @@ export default function HomePage() {
                 }`}
               >
                 {toast.type === "success" ? (
-                  <svg
-                    className="h-5 w-5 shrink-0"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <CheckCircle2 className="h-5 w-5 shrink-0" />
                 ) : (
-                  <svg
-                    className="h-5 w-5 shrink-0"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <XCircle className="h-5 w-5 shrink-0" />
                 )}
                 <p className="text-sm font-medium">{toast.message}</p>
               </div>

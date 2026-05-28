@@ -47,7 +47,7 @@ const CLI_OPTIONS: CLIOption[] = [
     name: 'Codex CLI',
     icon: '🧠',
     description: 'OpenAI Codex agent with GPT-5 support',
-    color: 'from-slate-900 to-gray-700',
+    color: 'from-slate-900 to-slate-700',
     downloadUrl: 'https://github.com/openai/codex',
     installCommand: 'npm install -g @openai/codex',
     models: getModelDefinitionsForCli('codex').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
@@ -66,7 +66,7 @@ const CLI_OPTIONS: CLIOption[] = [
     name: 'Cursor Agent',
     icon: '🖱️',
     description: 'Cursor CLI with multi-model routing and session resume',
-    color: 'from-slate-500 to-gray-600',
+    color: 'from-slate-500 to-slate-600',
     downloadUrl: 'https://docs.cursor.com/en/cli/overview',
     installCommand: 'curl https://cursor.com/install -fsS | bash',
     models: getModelDefinitionsForCli('cursor').map(({ id, name, description, supportsImages }) => ({
@@ -331,7 +331,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const handleInitializationComplete = (projectId: string) => {
     // Store the initial prompt before resetting
     const initialPrompt = prompt;
-    
+
     // Reset form
     setProjectName('');
     setPrompt('');
@@ -344,7 +344,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     setImageError('');
     setShowInitialization(false);
     setInitializingProjectId(null);
-    
+
     // Reset to global defaults or fallback
     if (globalSettings) {
       setSelectedCLI(globalSettings.default_cli || 'claude');
@@ -356,15 +356,15 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       setSelectedModel(DEFAULT_MODEL_ID);
       setFallbackEnabled(true);
     }
-    
+
     // Close modal and navigate to chat with initial prompt
     onClose();
-    
+
     // Construct the URL with initial prompt as a query parameter if it exists
-    const chatUrl = initialPrompt 
+    const chatUrl = initialPrompt
       ? `/${projectId}/chat?initial_prompt=${encodeURIComponent(initialPrompt)}`
       : `/${projectId}/chat`;
-    
+
     router.push(chatUrl);
   };
 
@@ -397,41 +397,41 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
   async function submit() {
     if (!projectName.trim() || !prompt.trim()) return;
-    
+
     // Determine CLI and model based on useDefaultSettings
     let finalCLI = selectedCLI;
     let finalModel = selectedModel;
-    
+
     if (useDefaultSettings && globalSettings) {
       finalCLI = globalSettings.default_cli || 'claude';
       const cliSettings = globalSettings.cli_settings?.[finalCLI];
       finalModel = sanitizeModel(finalCLI, cliSettings?.model || selectedModel || DEFAULT_MODEL_ID);
     }
-    
+
     if (!finalCLI || !finalModel) {
       console.error('Missing CLI or model selection:', { finalCLI, finalModel, useDefaultSettings, globalSettings });
       return;
     }
-    
+
     // Check image compatibility before submitting
     if (imageUrl && selectedModelOption && !selectedModelOption.supportsImages) {
       return; // Don't submit if there's an image compatibility error
     }
-    
+
     console.log('Creating project with:', { finalCLI, finalModel, useDefaultSettings, globalSettings });
-    
+
     const name = projectName.trim() || 'New Project';
     const projectUuid = generateUUID();
-    
+
     // 1. Show loading spinner immediately
     setLoading(false); // Turn off button loading
     setShowInitialization(true); // Show initialization spinner immediately
     setInitializationStep('Preparing project...');
     setInitializingProjectId(projectUuid);
-    
+
     // 2. Start WebSocket connection
     const wsCleanup = connectToProjectWebSocket(projectUuid);
-    
+
     try {
       const projectData: any = {
         project_id: projectUuid,
@@ -456,19 +456,19 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       if (imageUrl) {
         projectData.imageUrl = imageUrl;
       }
-      
+
       console.log('Sending project data:', JSON.stringify(projectData, null, 2));
-      
+
       // 3. Project creation request
       setInitializationStep('Creating project...');
-      
+
       const apiUrl = `${API_BASE}/api/projects/`;
-      const r = await fetch(apiUrl, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(projectData) 
+      const r = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectData)
       });
-      
+
       if (!r.ok) {
         const errorText = await r.text();
         setInitializationStep(`Failed to create project: ${errorText}`);
@@ -478,14 +478,14 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         }, 2000);
         return;
       }
-      
+
       // 4. On success, wait for real-time progress via WebSocket
       setInitializationStep('Setting up environment...');
       onCreated();
-      
+
       // Add fallback timeout and polling mechanism in case WebSocket doesn't respond
       let pollInterval: NodeJS.Timeout | null = null;
-      
+
       // Start polling project status as a fallback
       pollInterval = setInterval(async () => {
         try {
@@ -495,7 +495,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
             const payload = await response.json();
             const project = payload?.data ?? payload;
             console.log('📊 Project status from polling:', project?.status);
-            
+
             if (project?.status === 'active') {
               if (pollInterval) clearInterval(pollInterval);
               setInitializationStep('Project ready! Redirecting...');
@@ -515,7 +515,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           console.error('Error polling project status:', error);
         }
       }, 3000); // Poll every 3 seconds
-      
+
       // Ultimate fallback timeout
       setTimeout(() => {
         if (showInitialization && initializingProjectId === projectUuid) {
@@ -527,7 +527,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           }, 1000);
         }
       }, 60000); // 60 second ultimate timeout
-      
+
     } catch (error) {
       console.error('Error creating project:', error);
       setShowInitialization(false);
@@ -548,32 +548,32 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   };
 
   if (!open) return null;
-  
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onKeyDown={handleKeyDown}>
       {/* Backdrop */}
-      <div 
+      <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      
+
       {/* Modal Content */}
-      <div 
+      <div
         className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-auto max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 ">
+        <div className="flex items-center justify-between p-6 border-b border-slate-200 ">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 ">Create New Project</h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <h1 className="text-2xl font-bold text-slate-900 ">Create New Project</h1>
+            <p className="text-sm text-slate-500 mt-1">
               Describe your project and configure your AI assistant
             </p>
           </div>
-          
+
           <button
             onClick={onClose}
-            className="p-2 transition-colors text-gray-400 hover:text-gray-600 "
+            className="p-2 transition-colors text-slate-400 hover:text-slate-600 "
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -586,7 +586,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           <div className="space-y-4 mb-6">
             {/* Project Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
                 Project Name <span className="text-red-500">*</span>
               </label>
               <input
@@ -594,7 +594,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="My awesome project"
-                className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-3 border border-slate-200 rounded-lg bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 maxLength={100}
               />
             </div>
@@ -603,7 +603,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
           {/* Quant Capability */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
               量化能力
             </label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -614,14 +614,14 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                   onClick={() => setSelectedCapability(capability.id)}
                   className={`rounded-lg border p-3 text-left transition-colors ${
                     selectedCapability === capability.id
-                      ? 'border-gray-900 bg-gray-900 text-white'
-                      : 'border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50'
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <div className="text-sm font-semibold">{capability.name}</div>
                   <div
                     className={`mt-1 text-xs leading-relaxed ${
-                      selectedCapability === capability.id ? 'text-gray-200' : 'text-gray-500'
+                      selectedCapability === capability.id ? 'text-slate-200' : 'text-slate-500'
                     }`}
                   >
                     {capability.description}
@@ -634,26 +634,26 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           {/* Project Description */}
           <div className="text-center mb-6">
             <div className="text-4xl mb-3">✨</div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
               What would you like to build?
             </h2>
-            <p className="text-gray-600 ">
+            <p className="text-slate-600 ">
               Describe your project idea in detail
             </p>
           </div>
 
-          <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-4">
-            <textarea 
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 mb-4">
+            <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="I want to build a social media app with user profiles, posts, and real-time chat..."
-              className="w-full h-32 border-none outline-none resize-none bg-transparent text-gray-700 placeholder-gray-500 leading-relaxed"
+              className="w-full h-32 border-none outline-none resize-none bg-transparent text-slate-700 placeholder-slate-500 leading-relaxed"
               autoFocus
               maxLength={1000}
             />
-            
+
             {/* Input Actions Row */}
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200 ">
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200 ">
               <div className="flex items-center gap-2">
                 {/* Image Upload Button */}
                 <button
@@ -661,7 +661,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                   className={`p-2 rounded-lg transition-colors ${
                     showImageInput || imageUrl
                       ? 'bg-blue-100 text-blue-600 '
-                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 '
+                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 '
                   }`}
                   title="Add reference image"
                 >
@@ -678,7 +678,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                   className={`p-2 rounded-lg transition-colors ${
                     showWebsiteInput || websiteUrl
                       ? 'bg-blue-100 text-blue-600 '
-                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 '
+                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 '
                   }`}
                   title="Add reference website"
                 >
@@ -690,7 +690,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                 </button>
               </div>
 
-              <span className="text-xs text-gray-500 ">
+              <span className="text-xs text-slate-500 ">
                 {prompt.length}/1000 characters
               </span>
             </div>
@@ -714,7 +714,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
                     placeholder="https://example.com/image.jpg"
-                    className="w-full px-3 py-2 border border-blue-200 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-blue-200 rounded-lg bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   {imageError && (
                     <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -741,7 +741,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                     value={websiteUrl}
                     onChange={(e) => setWebsiteUrl(e.target.value)}
                     placeholder="https://example.com"
-                    className="w-full px-3 py-2 border border-green-200 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-3 py-2 border border-green-200 rounded-lg bg-white text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
               </MotionDiv>
@@ -757,9 +757,9 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                 className="mt-0.5 flex-shrink-0"
               >
                 <div className={`w-5 h-5 border-2 rounded transition-colors ${
-                  useDefaultSettings 
-                    ? 'bg-gray-900 border-gray-900 ' 
-                    : 'border-gray-300 '
+                  useDefaultSettings
+                    ? 'bg-slate-900 border-slate-900 '
+                    : 'border-slate-300 '
                 }`}>
                   {useDefaultSettings && (
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white ">
@@ -769,28 +769,28 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                 </div>
               </button>
               <div className="flex-1">
-                <label 
+                <label
                   onClick={() => setUseDefaultSettings(!useDefaultSettings)}
-                  className="text-sm font-medium text-gray-900 cursor-pointer"
+                  className="text-sm font-medium text-slate-900 cursor-pointer"
                 >
                   Use default AI settings
                 </label>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   {globalSettings ? (
-                    <>Use {enabledCLIs.find(cli => cli.id === globalSettings.default_cli)?.name || 'default'} AI with your preferred model. Change this in <button 
+                    <>Use {enabledCLIs.find(cli => cli.id === globalSettings.default_cli)?.name || 'default'} AI with your preferred model. Change this in <button
                       onClick={() => {
                         onClose();
                         onOpenGlobalSettings?.();
                       }}
-                      className="text-gray-900 hover:underline"
+                      className="text-slate-900 hover:underline"
                     >Global Settings</button>.</>
                   ) : (
-                    <>Quick start with Claude AI. Customize AI preferences in <button 
+                    <>Quick start with Claude AI. Customize AI preferences in <button
                       onClick={() => {
                         onClose();
                         onOpenGlobalSettings?.();
                       }}
-                      className="text-gray-900 hover:underline"
+                      className="text-slate-900 hover:underline"
                     >Global Settings</button>.</>
                   )}
                 </p>
@@ -802,19 +802,19 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* CLI Selection Dropdown */}
                 <div className="relative">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     AI Assistant
                   </label>
                   <div className="relative">
                     <button
                       onClick={() => setShowCLIDropdown(!showCLIDropdown)}
-                      className="w-full p-3 bg-white border border-gray-200 rounded-lg text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full p-3 bg-white border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <div className="flex items-center gap-3">
                         <span className="text-lg">{selectedCLIOption?.icon}</span>
                         <div>
-                          <div className="font-medium text-gray-900 ">{selectedCLIOption?.name}</div>
-                          <div className="text-xs text-gray-500 ">{selectedCLIOption?.description}</div>
+                          <div className="font-medium text-slate-900 ">{selectedCLIOption?.name}</div>
+                          <div className="text-xs text-slate-500 ">{selectedCLIOption?.description}</div>
                         </div>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`transition-transform ${showCLIDropdown ? 'rotate-180' : ''}`}>
@@ -828,22 +828,22 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
-                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
+                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
                         >
                           {enabledCLIs.map((cli) => {
                             const cliStatusInfo = cliStatus?.[cli.id];
                             const isInstalled = cliStatusInfo?.installed ?? true;
-                            
+
                             return (
                               <button
                                 key={cli.id}
                                 onClick={() => handleCLIChange(cli.id)}
-                                className="w-full p-3 text-left hover:bg-gray-50 flex items-center gap-3 border-b border-gray-100 last:border-b-0"
+                                className="w-full p-3 text-left hover:bg-slate-50 flex items-center gap-3 border-b border-slate-100 last:border-b-0"
                               >
                                 <span className="text-lg">{cli.icon}</span>
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2">
-                                    <div className="font-medium text-gray-900 ">{cli.name}</div>
+                                    <div className="font-medium text-slate-900 ">{cli.name}</div>
                                     {isInstalled ? (
                                       <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
                                         ✓
@@ -854,7 +854,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-xs text-gray-500 ">{cli.description}</div>
+                                  <div className="text-xs text-slate-500 ">{cli.description}</div>
                                 </div>
                               </button>
                             );
@@ -867,24 +867,24 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
                 {/* Model Selection Dropdown */}
                 <div className="relative">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Model
                   </label>
                   <div className="relative">
                     <button
                       onClick={() => setShowModelDropdown(!showModelDropdown)}
-                      className="w-full p-3 bg-white border border-gray-200 rounded-lg text-left flex items-center justify-between hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full p-3 bg-white border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <div>
                         <div className="flex items-center gap-2">
-                          <div className="font-medium text-gray-900 ">{selectedModelOption?.name}</div>
+                          <div className="font-medium text-slate-900 ">{selectedModelOption?.name}</div>
                           {selectedModelOption?.supportsImages && (
                             <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
                               📷
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500 ">{selectedModelOption?.description}</div>
+                        <div className="text-xs text-slate-500 ">{selectedModelOption?.description}</div>
                       </div>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`transition-transform ${showModelDropdown ? 'rotate-180' : ''}`}>
                         <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -897,23 +897,23 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
-                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
+                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
                         >
                           {selectedCLIOption.models.map((model) => (
                             <button
                               key={model.id}
                               onClick={() => handleModelChange(model.id)}
-                              className="w-full p-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                              className="w-full p-3 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
                             >
                               <div className="flex items-center gap-2 mb-1">
-                                <div className="font-medium text-gray-900 ">{model.name}</div>
+                                <div className="font-medium text-slate-900 ">{model.name}</div>
                                 {model.supportsImages && (
                                   <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
                                     📷
                                   </span>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-500 ">{model.description}</div>
+                              <div className="text-xs text-slate-500 ">{model.description}</div>
                             </button>
                           ))}
                         </MotionDiv>
@@ -927,9 +927,9 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end pt-4 border-t border-gray-200 ">
-            <button 
-              className="bg-gray-900 hover:bg-gray-800 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+          <div className="flex justify-end pt-4 border-t border-slate-200 ">
+            <button
+              className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               onClick={submit}
               disabled={loading || !projectName.trim() || !prompt.trim() || !!imageError}
             >
@@ -938,11 +938,11 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           </div>
         </div>
       </div>
-      
+
       {/* Project Initialization Loading Modal */}
       <AnimatePresence>
         {showInitialization && (
-          <MotionDiv 
+          <MotionDiv
             className="fixed inset-0 z-[60] flex items-center justify-center p-4"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -950,68 +950,68 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
           >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-            
+
             {/* Modal Content */}
-            <MotionDiv 
+            <MotionDiv
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="relative bg-black/90 backdrop-blur-md rounded-2xl shadow-2xl p-8 max-w-md mx-auto text-center border border-gray-800"
+              className="relative bg-black/90 backdrop-blur-md rounded-2xl shadow-2xl p-8 max-w-md mx-auto text-center border border-slate-800"
             >
               {/* Sophisticated Multi-Layer Spinner */}
               <div className="relative mb-10 flex justify-center">
                 {/* Outer ring */}
                 <MotionDiv
-                  className="absolute w-20 h-20 border-2 border-gray-700 rounded-full"
+                  className="absolute w-20 h-20 border-2 border-slate-700 rounded-full"
                   animate={{ rotate: 360 }}
                   transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
                 />
-                
+
                 {/* Middle ring */}
                 <MotionDiv
-                  className="absolute w-16 h-16 border-2 border-t-white border-r-gray-500 border-b-gray-500 border-l-gray-500 rounded-full"
+                  className="absolute w-16 h-16 border-2 border-t-white border-r-slate-500 border-b-slate-500 border-l-slate-500 rounded-full"
                   animate={{ rotate: -360 }}
                   transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
                 />
-                
+
                 {/* Inner ring */}
                 <MotionDiv
-                  className="w-12 h-12 border-2 border-t-gray-300 border-r-gray-600 border-b-gray-600 border-l-gray-600 rounded-full"
+                  className="w-12 h-12 border-2 border-t-slate-300 border-r-slate-600 border-b-slate-600 border-l-slate-600 rounded-full"
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
                 />
-                
+
                 {/* Center dot */}
                 <MotionDiv
                   className="absolute top-1/2 left-1/2 w-2 h-2 bg-white rounded-full transform -translate-x-1/2 -translate-y-1/2"
-                  animate={{ 
+                  animate={{
                     scale: [1, 1.2, 1],
                     opacity: [0.7, 1, 0.7]
                   }}
                   transition={{ duration: 2, repeat: Infinity }}
                 />
               </div>
-              
+
               {/* Content */}
               <h3 className="text-xl font-semibold text-white mb-3">
                 Setting Up Your Project
               </h3>
-              
-              <MotionP 
+
+              <MotionP
                 key={initializationStep}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-gray-300 mb-8"
+                className="text-slate-300 mb-8"
               >
                 {initializationStep || 'Preparing workspace...'}
               </MotionP>
-              
+
               {/* Progress indicator dots */}
               <div className="flex justify-center space-x-2">
                 {[0, 1, 2].map((i) => (
                   <MotionDiv
                     key={i}
-                    className="w-2 h-2 bg-gray-500 rounded-full"
+                    className="w-2 h-2 bg-slate-500 rounded-full"
                     animate={{
                       backgroundColor: ['#6B7280', '#E5E7EB', '#6B7280'],
                       scale: [1, 1.2, 1]

@@ -224,26 +224,26 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-1">
+        <h3 className="text-lg font-medium text-slate-900 mb-1">
           Service Integrations
         </h3>
-        <p className="text-sm text-gray-600 mb-4">Connect GitHub, Supabase and Vercel with a consistent, polished experience.</p>
+        <p className="text-sm text-slate-600 mb-4">Connect GitHub, Supabase and Vercel with a consistent, polished experience.</p>
 
         <div className="space-y-4">
           {services.map(service => (
             <div
               key={service.id}
-              className="relative group overflow-hidden rounded-2xl border border-gray-200/80 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 transition-all duration-200 hover:shadow-lg"
+              className="relative group overflow-hidden rounded-2xl border border-slate-200/80 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 transition-all duration-200 hover:shadow-lg"
             >
-              <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+              <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
               <div className="p-5 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 justify-between">
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <div className="w-10 h-10 rounded-xl ring-1 ring-inset ring-gray-200 bg-gray-50 text-gray-700 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl ring-1 ring-inset ring-slate-200 bg-slate-50 text-slate-700 flex items-center justify-center">
                     {getProviderIcon(service.icon)}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-3 mb-1 min-w-0">
-                      <h4 className="text-[15px] font-semibold tracking-tight text-gray-900 ">
+                      <h4 className="text-[15px] font-semibold tracking-tight text-slate-900 ">
                         {service.name}
                       </h4>
                       {service.connected && (
@@ -260,13 +260,13 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
                       )}
                     </div>
 
-                    <div className="text-sm leading-6 text-gray-600 min-w-0">
+                    <div className="text-sm leading-6 text-slate-600 min-w-0">
                       {!service.connected ? (
                         <p className="truncate whitespace-nowrap sm:whitespace-normal sm:overflow-visible sm:max-w-[60ch]">
                           {service.description}
                         </p>
                       ) : (
-                        <div className="text-gray-700 ">
+                        <div className="text-slate-700 ">
                           {service.id === 'github' && service.connection?.service_data?.repo_url ? (
                             <div className="flex items-center gap-2">
                               <span className="shrink-0">Repository:</span>

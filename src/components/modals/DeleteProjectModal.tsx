@@ -10,12 +10,12 @@ interface DeleteProjectModalProps {
   isDeleting?: boolean;
 }
 
-export default function DeleteProjectModal({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  projectName, 
-  isDeleting = false 
+export default function DeleteProjectModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  projectName,
+  isDeleting = false
 }: DeleteProjectModalProps) {
   const [confirmText, setConfirmText] = useState('');
   const canDelete = confirmText.toLowerCase() === 'delete';
@@ -41,7 +41,7 @@ export default function DeleteProjectModal({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
           >
             <div
-              className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-6 w-full max-w-md"
+              className="bg-white rounded-2xl shadow-2xl border border-slate-200 p-6 w-full max-w-md"
               onClick={e => e.stopPropagation()}
             >
             {/* Warning Icon */}
@@ -52,27 +52,27 @@ export default function DeleteProjectModal({
             </div>
 
             {/* Title */}
-            <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
+            <h3 className="text-xl font-bold text-slate-900 text-center mb-2">
               Delete Project
             </h3>
 
             {/* Description */}
-            <p className="text-gray-600 text-center mb-6">
+            <p className="text-slate-600 text-center mb-6">
               You&apos;re about to permanently delete the project{' '}
-              <span className="font-semibold text-gray-900 ">&quot;{projectName}&quot;</span>. 
+              <span className="font-semibold text-slate-900 ">&quot;{projectName}&quot;</span>.
               This action cannot be undone.
             </p>
 
             {/* Confirmation Input */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
                 To confirm, type &quot;delete&quot; below:
               </label>
               <input
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all"
                 placeholder="Type &apos;delete&apos; to confirm"
                 disabled={isDeleting}
               />
@@ -83,7 +83,7 @@ export default function DeleteProjectModal({
               <button
                 onClick={handleClose}
                 disabled={isDeleting}
-                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>

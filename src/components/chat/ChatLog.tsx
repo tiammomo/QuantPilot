@@ -1359,7 +1359,7 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     const key = `inline-${index++}`;
     if (token.startsWith('`') && token.endsWith('`')) {
       nodes.push(
-        <code key={key} className="bg-gray-100 px-2 py-1 rounded text-xs font-mono break-all">
+        <code key={key} className="bg-slate-100 px-2 py-1 rounded text-xs font-mono break-all">
           {token.slice(1, -1)}
         </code>
       );
@@ -1403,14 +1403,14 @@ const isMarkdownTableSeparator = (line: string): boolean => {
 };
 
 const renderMarkdownTable = (headers: string[], rows: string[][], key: string): ReactElement => (
-  <div key={key} className="my-3 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+  <div key={key} className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
     <table className="min-w-full border-collapse text-sm">
-      <thead className="bg-gray-50">
+      <thead className="bg-slate-50">
         <tr>
           {headers.map((header, index) => (
             <th
               key={index}
-              className="border-b border-gray-200 px-3 py-2 text-left font-semibold text-gray-800"
+              className="border-b border-slate-200 px-3 py-2 text-left font-semibold text-slate-800"
             >
               {renderInlineMarkdown(header)}
             </th>
@@ -1419,9 +1419,9 @@ const renderMarkdownTable = (headers: string[], rows: string[][], key: string): 
       </thead>
       <tbody>
         {rows.map((row, rowIndex) => (
-          <tr key={rowIndex} className="border-t border-gray-100">
+          <tr key={rowIndex} className="border-t border-slate-100">
             {headers.map((_, cellIndex) => (
-              <td key={cellIndex} className="px-3 py-2 align-top text-gray-700">
+              <td key={cellIndex} className="px-3 py-2 align-top text-slate-700">
                 {renderInlineMarkdown(row[cellIndex] ?? '')}
               </td>
             ))}
@@ -1446,7 +1446,7 @@ function renderLightMarkdown(content: string, options: { codeBreakAll?: boolean 
     if (text.includes('Planning for next moves...')) {
       blocks.push(
         <p key={`p-${blocks.length}`} className="mb-2 last:mb-0 break-words">
-          <code className="bg-gray-100 px-2 py-1 rounded text-xs font-mono">Planning for next moves...</code>
+          <code className="bg-slate-100 px-2 py-1 rounded text-xs font-mono">Planning for next moves...</code>
         </p>
       );
       return;
@@ -1477,7 +1477,7 @@ function renderLightMarkdown(content: string, options: { codeBreakAll?: boolean 
   const flushCodeFence = () => {
     if (!codeFence) return;
     blocks.push(
-      <pre key={`pre-${blocks.length}`} className="bg-gray-100 p-3 rounded-lg my-2 overflow-x-auto text-xs break-words">
+      <pre key={`pre-${blocks.length}`} className="bg-slate-100 p-3 rounded-lg my-2 overflow-x-auto text-xs break-words">
         <code>{codeFence.lines.join('\n')}</code>
       </pre>
     );
@@ -1510,8 +1510,8 @@ function renderLightMarkdown(content: string, options: { codeBreakAll?: boolean 
       const level = headingMatch[1].length;
       const headingClassName =
         level <= 2
-          ? 'mb-2 mt-3 text-sm font-semibold text-gray-900 first:mt-0'
-          : 'mb-2 mt-2 text-xs font-semibold text-gray-800 first:mt-0';
+          ? 'mb-2 mt-3 text-sm font-semibold text-slate-900 first:mt-0'
+          : 'mb-2 mt-2 text-xs font-semibold text-slate-800 first:mt-0';
       const Tag = level <= 2 ? 'h3' : 'h4';
       blocks.push(
         <Tag key={`heading-${blocks.length}`} className={headingClassName}>
@@ -3009,9 +3009,9 @@ const ToolResultMessage = ({
         switch (role) {
           case 'user':
             return {
-              bgClass: 'bg-white border border-gray-200 ',
-              textColor: 'text-gray-900 ',
-              labelColor: 'text-gray-600 '
+              bgClass: 'bg-white border border-slate-200 ',
+              textColor: 'text-slate-900 ',
+              labelColor: 'text-slate-600 '
             };
           case 'system':
             return {
@@ -3028,9 +3028,9 @@ const ToolResultMessage = ({
           case 'assistant':
           default:
             return {
-              bgClass: 'bg-white border border-gray-200 ',
-              textColor: 'text-gray-900 ',
-              labelColor: 'text-gray-600 '
+              bgClass: 'bg-white border border-slate-200 ',
+              textColor: 'text-slate-900 ',
+              labelColor: 'text-slate-600 '
             };
         }
     }
@@ -3223,37 +3223,37 @@ const ToolResultMessage = ({
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
         >
-          <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[80vh] overflow-auto border border-gray-200 ">
+          <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[80vh] overflow-auto border border-slate-200 ">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 ">Log Details</h3>
+            <h3 className="text-lg font-semibold text-slate-900 ">Log Details</h3>
             <button
               onClick={closeDetailModal}
-              className="text-gray-500 hover:text-gray-700 text-xl"
+              className="text-slate-500 hover:text-slate-700 text-xl"
             >
               ✕
             </button>
           </div>
 
           <div className="space-y-4">
-            <div className="text-gray-900 ">
-              <strong className="text-gray-700 ">Type:</strong> {type}
+            <div className="text-slate-900 ">
+              <strong className="text-slate-700 ">Type:</strong> {type}
             </div>
-            <div className="text-gray-900 ">
-              <strong className="text-gray-700 ">Time:</strong> {formatTime(selectedLog.timestamp)}
+            <div className="text-slate-900 ">
+              <strong className="text-slate-700 ">Time:</strong> {formatTime(selectedLog.timestamp)}
             </div>
 
             {type === 'tool_result' && data.diff_info && (
               <div>
-                <strong className="text-gray-700 ">Changes:</strong>
-                <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
+                <strong className="text-slate-700 ">Changes:</strong>
+                <pre className="bg-slate-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
                   {data.diff_info}
                 </pre>
               </div>
             )}
 
             <div>
-              <strong className="text-gray-700 ">Detailed Data:</strong>
-              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
+              <strong className="text-slate-700 ">Detailed Data:</strong>
+              <pre className="bg-slate-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
                 {JSON.stringify(data, null, 2)}
               </pre>
             </div>
@@ -3366,16 +3366,16 @@ const ToolResultMessage = ({
       {/* Display messages and logs together */}
       <div className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar ">
         {isLoading && !hasLoadedOnce && !hasError && (
-          <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+          <div className="flex items-center justify-center h-32 text-slate-400 text-sm">
             <div className="flex flex-col items-center">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mb-2 mx-auto"></div>
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-slate-900 mb-2 mx-auto"></div>
               <p>Loading chat history...</p>
             </div>
           </div>
         )}
         
         {!isLoading && messages.length === 0 && logs.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
+          <div className="flex items-center justify-center h-32 text-slate-400 text-sm">
             <div className="text-center">
               <div className="text-2xl mb-2">💬</div>
               <p>Start a conversation with your agent</p>
@@ -3388,7 +3388,7 @@ const ToolResultMessage = ({
           <div className="mb-4 flex justify-center">
             <button
               onClick={loadOlderMessages}
-              className="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-4 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
               disabled={isLoading}
             >
               {isLoading ? 'Loading...' : `Load older messages (${totalMessageCount - messages.length} remaining)`}
@@ -3417,8 +3417,8 @@ const ToolResultMessage = ({
                 {message.role === 'user' ? (
                   // User message - boxed on the right
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] bg-gray-100 rounded-lg px-4 py-3">
-                      <div className="text-sm text-gray-900 break-words">
+                    <div className="max-w-[80%] bg-slate-100 rounded-lg px-4 py-3">
+                      <div className="text-sm text-slate-900 break-words">
                         {(() => {
                           const cleanedMessage = cleanUserMessage(messageText);
                           
@@ -3497,11 +3497,11 @@ const ToolResultMessage = ({
 
                                         return (
                                           <div key={idx} className="relative group">
-                                            <div className="w-40 h-40 bg-gray-200 rounded-lg overflow-hidden border border-gray-300 ">
+                                            <div className="w-40 h-40 bg-slate-200 rounded-lg overflow-hidden border border-slate-300 ">
                                               {allCandidatesFailed ? (
                                                 // Show an icon when loading fails
                                                 <div className="w-full h-full flex items-center justify-center">
-                                                  <svg className="w-16 h-16 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                  <svg className="w-16 h-16 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                                   </svg>
                                                 </div>
@@ -3522,7 +3522,7 @@ const ToolResultMessage = ({
                                               </span>
                                             </div>
                                             {/* Tooltip with filename */}
-                                            <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                            <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
                                               {toRelativePath(attachment.name)}
                                             </div>
                                           </div>
@@ -3538,8 +3538,8 @@ const ToolResultMessage = ({
                                         const filename = path.split('/').pop() || 'image';
                                         return (
                                           <div key={idx} className="relative group">
-                                            <div className="w-40 h-40 bg-gray-200 rounded-lg overflow-hidden border border-gray-300 flex items-center justify-center">
-                                              <svg className="w-16 h-16 text-gray-400 " fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <div className="w-40 h-40 bg-slate-200 rounded-lg overflow-hidden border border-slate-300 flex items-center justify-center">
+                                              <svg className="w-16 h-16 text-slate-400 " fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                               </svg>
                                             </div>
@@ -3549,7 +3549,7 @@ const ToolResultMessage = ({
                                               </span>
                                             </div>
                                             {/* Tooltip with filename */}
-                                            <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                                            <div className="absolute bottom-full mb-1 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
                                               {filename}
                                             </div>
                                           </div>
@@ -3586,7 +3586,7 @@ const ToolResultMessage = ({
                       />
                     ) : (
                       // Regular agent message - plain text
-                      <div className="text-sm text-gray-900 leading-relaxed">
+                      <div className="text-sm text-slate-900 leading-relaxed">
                         {renderContentWithThinking(shortenPath(messageText))}
                       </div>
                     )}
@@ -3607,7 +3607,7 @@ const ToolResultMessage = ({
             className="mb-4 w-full cursor-pointer"
             onClick={() => openDetailModal(log)}
           >
-            <div className="text-sm text-gray-900 leading-relaxed">
+            <div className="text-sm text-slate-900 leading-relaxed">
               {renderLogEntry(log)}
             </div>
           </div>
@@ -3616,7 +3616,7 @@ const ToolResultMessage = ({
         {/* Loading indicator for waiting response */}
         {isWaitingForResponse && (
           <div className="mb-4 w-full">
-            <div className="text-xl text-gray-900 leading-relaxed font-bold">
+            <div className="text-xl text-slate-900 leading-relaxed font-bold">
               <span className="animate-pulse">...</span>
             </div>
           </div>

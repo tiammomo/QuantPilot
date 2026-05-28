@@ -228,7 +228,7 @@ export default function GitHubRepoModal({
           </motion.div>
         </div>
         
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-200 ">
+        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 ">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -237,22 +237,22 @@ export default function GitHubRepoModal({
             data-testid="github-repo-modal"
           >
           {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 ">
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 ">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gray-900 text-white rounded-full flex items-center justify-center">
+                <div className="w-8 h-8 bg-slate-900 text-white rounded-full flex items-center justify-center">
                   <svg width="20" height="20" viewBox="0 0 98 96" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path fillRule="evenodd" clipRule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="currentColor"/>
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900 ">Create a new repository</h2>
-                  <p className="text-sm text-gray-600 ">A repository contains all project files, including revision history.</p>
+                  <h2 className="text-xl font-semibold text-slate-900 ">Create a new repository</h2>
+                  <p className="text-sm text-slate-600 ">A repository contains all project files, including revision history.</p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 p-1"
+                className="text-slate-400 hover:text-slate-600 p-1"
                 disabled={isLoading}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -267,7 +267,7 @@ export default function GitHubRepoModal({
             <div className="space-y-6">
               {/* Repository Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">
+                <label className="block text-sm font-medium text-slate-900 mb-2">
                   Repository name <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
@@ -275,10 +275,10 @@ export default function GitHubRepoModal({
                     type="text"
                     value={repoName}
                     onChange={(e) => handleRepoNameChange(e.target.value)}
-                    className={`w-full px-3 py-2 pr-10 border rounded-md bg-white text-gray-900 focus:ring-2 focus:border-transparent ${
+                    className={`w-full px-3 py-2 pr-10 border rounded-md bg-white text-slate-900 focus:ring-2 focus:border-transparent ${
                       nameError 
                         ? 'border-red-500 focus:ring-red-500' 
-                        : 'border-gray-300 focus:ring-blue-500'
+                        : 'border-slate-300 focus:ring-blue-500'
                     }`}
                     placeholder="my-awesome-project"
                     required
@@ -287,7 +287,7 @@ export default function GitHubRepoModal({
                   />
                   {isCheckingAvailability && (
                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900 "></div>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-900 "></div>
                     </div>
                   )}
                 </div>
@@ -302,8 +302,8 @@ export default function GitHubRepoModal({
                   </p>
                 )}
                 {!nameError && !isCheckingAvailability && (
-                  <p className="mt-1 text-xs text-gray-500 ">
-                    Great repository names are short and memorable. Need inspiration? How about <button type="button" className="text-gray-900 hover:underline" onClick={() => {
+                  <p className="mt-1 text-xs text-slate-500 ">
+                    Great repository names are short and memorable. Need inspiration? How about <button type="button" className="text-slate-900 hover:underline" onClick={() => {
                       const suggestion = sanitizeRepoName(`${projectName || 'project'}-${Math.random().toString(36).substring(7)}`);
                       handleRepoNameChange(suggestion);
                     }}>
@@ -320,14 +320,14 @@ export default function GitHubRepoModal({
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">
-                  Description <span className="text-gray-500">(optional)</span>
+                <label className="block text-sm font-medium text-slate-900 mb-2">
+                  Description <span className="text-slate-500">(optional)</span>
                 </label>
                 <input
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="A short description of your repository"
                   disabled={isLoading}
                 />
@@ -335,17 +335,17 @@ export default function GitHubRepoModal({
 
               {/* Repository Visibility */}
               <div>
-                <label className="block text-sm font-medium text-gray-900 mb-3">
+                <label className="block text-sm font-medium text-slate-900 mb-3">
                   Repository visibility
                 </label>
                 <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 ">
+                  <label className="flex items-start gap-3 p-3 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 ">
                     <input
                       type="radio"
                       name="visibility"
                       checked={!isPrivate}
                       onChange={() => setIsPrivate(false)}
-                      className="mt-1 text-gray-900 "
+                      className="mt-1 text-slate-900 "
                       disabled={isLoading}
                     />
                     <div>
@@ -354,21 +354,21 @@ export default function GitHubRepoModal({
                           <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2z" stroke="currentColor" strokeWidth="2"/>
                           <path d="M7 7V5a5 5 0 0 1 10 0v2" stroke="currentColor" strokeWidth="2"/>
                         </svg>
-                        <span className="font-medium text-gray-900 ">Public</span>
+                        <span className="font-medium text-slate-900 ">Public</span>
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-sm text-slate-600 mt-1">
                         Anyone on the internet can see this repository. You choose who can commit.
                       </p>
                     </div>
                   </label>
                   
-                  <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-md cursor-pointer hover:bg-gray-50 ">
+                  <label className="flex items-start gap-3 p-3 border border-slate-200 rounded-md cursor-pointer hover:bg-slate-50 ">
                     <input
                       type="radio"
                       name="visibility"
                       checked={isPrivate}
                       onChange={() => setIsPrivate(true)}
-                      className="mt-1 text-gray-900 "
+                      className="mt-1 text-slate-900 "
                       disabled={isLoading}
                     />
                     <div>
@@ -376,9 +376,9 @@ export default function GitHubRepoModal({
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path d="M19 11H5m14 0a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2m14 0V9a7 7 0 0 0-14 0v2" stroke="currentColor" strokeWidth="2"/>
                         </svg>
-                        <span className="font-medium text-gray-900 ">Private</span>
+                        <span className="font-medium text-slate-900 ">Private</span>
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">
+                      <p className="text-sm text-slate-600 mt-1">
                         You choose who can see and commit to this repository.
                       </p>
                     </div>
@@ -389,11 +389,11 @@ export default function GitHubRepoModal({
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200 ">
+            <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-200 ">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-slate-700 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
                 disabled={isLoading}
               >
                 Cancel

@@ -81,7 +81,7 @@ export function SkillsVersionManagerDialog({
               <History className="h-7 w-7" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-xl font-bold tracking-normal text-gray-950 sm:text-2xl">版本管理</h2>
+              <h2 className="text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">版本管理</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 QuantPilot Skills 管理 · Skill: {selectedSkill.id}
               </p>
@@ -90,7 +90,7 @@ export function SkillsVersionManagerDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-gray-950"
+            className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-slate-950"
             aria-label="关闭版本管理"
           >
             <X className="h-5 w-5" />
@@ -101,7 +101,7 @@ export function SkillsVersionManagerDialog({
           <div className="min-w-0 px-4 py-4 sm:px-6 sm:py-5">
             <div className="max-w-full overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[920px] text-left text-sm">
-                <thead className="bg-muted/40 text-xs font-semibold text-gray-500">
+                <thead className="bg-muted/40 text-xs font-semibold text-slate-500">
                   <tr>
                     <th className="w-[150px] px-4 py-3">版本号</th>
                     <th className="px-4 py-3">变更说明</th>
@@ -116,7 +116,7 @@ export function SkillsVersionManagerDialog({
                       const current = release.version === selectedSkill.version;
                       return (
                         <tr key={`${release.version}-${release.date}`} className="border-t">
-                          <td className="px-4 py-4 font-semibold text-gray-950">
+                          <td className="px-4 py-4 font-semibold text-slate-950">
                             <div className="flex flex-wrap items-center gap-2">
                               v{release.version}
                               {current && (
@@ -126,7 +126,7 @@ export function SkillsVersionManagerDialog({
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-4 text-gray-700">
+                          <td className="px-4 py-4 text-slate-700">
                             <div className="max-w-xl">
                               <div>{release.summary || '-'}</div>
                               {release.changes.length > 0 && (
@@ -294,12 +294,12 @@ export function SkillsVersionManagerDialog({
                             }`}>
                               {file.status === 'added' ? '新增' : file.status === 'deleted' ? '删除' : '修改'}
                             </span>
-                            <span className="min-w-0 break-all font-mono text-gray-950">{file.path}</span>
+                            <span className="min-w-0 break-all font-mono text-slate-950">{file.path}</span>
                           </div>
                           <div className="mt-2 text-xs text-muted-foreground">
                             +{file.addedLines} / -{file.removedLines} · {formatBytes(file.currentSize ?? file.previousSize ?? 0)}
                           </div>
-                          <pre className="mt-2 max-h-28 overflow-auto rounded bg-gray-950 p-2 text-[11px] leading-4 text-gray-100">
+                          <pre className="mt-2 max-h-28 overflow-auto rounded bg-slate-950 p-2 text-[11px] leading-4 text-slate-100">
                             {file.preview.join('\n')}
                           </pre>
                         </div>
