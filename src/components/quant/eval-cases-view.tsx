@@ -128,7 +128,7 @@ export function EvalCasesView({
                     <div className="flex justify-end gap-1.5">
                       {latestRun && result && (
                         <Button variant="ghost" size="icon" asChild>
-                          <Link href={`/evals/runs/${latestRun.id}#case-${result.id}`} aria-label="查看报告">
+                          <Link href={`/eval-platform/runs/${latestRun.id}#case-${result.id}`} aria-label="查看报告">
                             <FileText className="h-4 w-4" />
                           </Link>
                         </Button>

@@ -14,10 +14,14 @@ export default function Header() {
   const isChatPage = pathname.includes('/chat');
   const isMainPage = pathname === '/';
   const isSkillsPage = pathname === '/skills';
-  const isCapabilitiesPage = pathname === '/capabilities';
-  const isStrategiesPage = pathname === '/strategies';
-  const isEvalsPage = pathname === '/evals' || pathname.startsWith('/evals/');
-  const isWorkspacesPage = pathname === '/workspaces';
+  const isCapabilitiesPage = pathname === '/data-platform' || pathname === '/capabilities';
+  const isStrategiesPage = pathname === '/strategy-platform' || pathname === '/strategies';
+  const isEvalsPage =
+    pathname === '/eval-platform' ||
+    pathname.startsWith('/eval-platform/') ||
+    pathname === '/evals' ||
+    pathname.startsWith('/evals/');
+  const isWorkspacesPage = pathname === '/ops-platform' || pathname === '/workspaces';
 
   if (isChatPage || isMainPage || isSkillsPage || isCapabilitiesPage || isStrategiesPage || isEvalsPage || isWorkspacesPage) {
     return null;

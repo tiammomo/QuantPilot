@@ -80,7 +80,7 @@ export function EvalRunsView({
                   <td className="px-4 py-3 text-slate-600">{formatDuration(run.durationMs)}</td>
                   <td className="px-4 py-3 text-right">
                     <Button variant="ghost" size="icon" asChild>
-                      <Link href={`/evals/runs/${run.id}`} aria-label="查看详情">
+                      <Link href={`/eval-platform/runs/${run.id}`} aria-label="查看详情">
                         <ChevronRight className="h-4 w-4" />
                       </Link>
                     </Button>
@@ -113,7 +113,7 @@ export function EvalRunsView({
                 <span className={`font-semibold ${passRateClass(item.latestPassRate)}`}>{item.latestPassRate}%</span>
                 <span className={`font-semibold ${scoreClass(item.averageScore)}`}>{item.averageScore}</span>
                 <Button variant="ghost" size="icon" asChild>
-                  <Link href={`/evals/runs/${item.latestRunId}`} aria-label="查看最新模型报告">
+                  <Link href={`/eval-platform/runs/${item.latestRunId}`} aria-label="查看最新模型报告">
                     <ChevronRight className="h-4 w-4" />
                   </Link>
                 </Button>

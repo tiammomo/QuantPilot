@@ -5,7 +5,7 @@
 入口：
 
 ```text
-http://localhost:3000/evals
+http://localhost:3000/eval-platform
 ```
 
 ## 运行时

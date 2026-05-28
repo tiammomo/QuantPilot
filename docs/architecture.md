@@ -13,10 +13,10 @@ flowchart LR
   R --> P[data/projects/project-*]
   M --> P
   P --> V[生成项目预览 :3100+]
-  P --> H[运维平台 /workspaces]
-  W --> T[策略平台 /strategies]
-  W --> C[数据平台 /capabilities]
-  W --> E[评测后台 /evals]
+  P --> H[运维平台 /ops-platform]
+  W --> T[策略平台 /strategy-platform]
+  W --> C[数据平台 /data-platform]
+  W --> E[评测平台 /eval-platform]
   W --> A[Skills 管理 /skills]
 ```
 
@@ -31,7 +31,7 @@ flowchart LR
 7. Agent 使用可视化 skill 生成 Next.js 看板。
 8. 平台执行自动验证、产物契约检查和视觉检查。
 9. 失败时生成修复计划并触发自动修复。
-10. 工作空间健康、生成观测和评测后台提供运行后的治理入口。
+10. 工作空间健康、生成观测和评测平台提供运行后的治理入口。
 
 ## 运行时
 
@@ -91,10 +91,10 @@ flowchart LR
 | --- | --- | --- |
 | 首页工作台 | `/` | 创建任务、进入项目、管理主工作流 |
 | Skills 管理 | `/skills` | 编辑、发布、回滚和导入核心 skills |
-| 策略平台 | `/strategies` | 管理策略模板、扫描队列、参数结果对比、版本口径、回测归档和关联策略工作空间 |
-| 数据平台 | `/capabilities` | 查看能力域、数据接口、产物契约和验证规则 |
-| 运维平台 | `/workspaces` | 查看 workspace 健康、生成链路状态、队列、阶段事件、产物和 trace |
-| 评测后台 | `/evals` | 管理用例、评测集、运行队列、报告和失败修复 |
+| 策略平台 | `/strategy-platform` | 管理策略模板、扫描队列、参数结果对比、版本口径、回测归档和关联策略工作空间 |
+| 数据平台 | `/data-platform` | 查看能力域、数据接口、产物契约和验证规则 |
+| 运维平台 | `/ops-platform` | 查看 workspace 健康、生成链路状态、队列、阶段事件、产物和 trace |
+| 评测平台 | `/eval-platform` | 管理用例、评测集、运行队列、报告和失败修复 |
 
 项目目录和分层边界见 [项目结构与分层边界](project-structure.md)。
 

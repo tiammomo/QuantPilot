@@ -117,7 +117,7 @@ export default function EvalRunDetailClient({ run }: Props) {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" asChild>
-              <Link href="/evals" aria-label="返回评测后台">
+              <Link href="/eval-platform" aria-label="返回评测平台">
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
@@ -135,7 +135,7 @@ export default function EvalRunDetailClient({ run }: Props) {
             </div>
           </div>
           <Button variant="outline" asChild>
-            <Link href="/evals">返回总览</Link>
+            <Link href="/eval-platform">返回总览</Link>
           </Button>
         </div>
       </header>

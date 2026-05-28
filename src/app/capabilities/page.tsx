@@ -1,14 +1,5 @@
-import { getCapabilityCenterData } from '@/lib/quant/capability-center';
-import CapabilityCenterClient from './CapabilityCenterClient';
-import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = {
-  title: '数据平台 · QuantPilot',
-};
-
-export default async function CapabilitiesPage() {
-  const data = await getCapabilityCenterData();
-  return <CapabilityCenterClient initialData={data} />;
+export default function LegacyCapabilitiesPage() {
+  redirect('/data-platform');
 }
-
-export const dynamic = 'force-dynamic';

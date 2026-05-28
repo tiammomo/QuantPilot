@@ -83,7 +83,7 @@ export function EvalQueueView({
                 </div>
                 {item.reportId ? (
                   <Button variant="ghost" size="icon" asChild>
-                    <Link href={`/evals/runs/${item.reportId}`} aria-label="查看报告">
+                    <Link href={`/eval-platform/runs/${item.reportId}`} aria-label="查看报告">
                       <ChevronRight className="h-4 w-4" />
                     </Link>
                   </Button>

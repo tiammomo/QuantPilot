@@ -248,7 +248,7 @@ export default function EvalsDashboardClient({ data }: Props) {
   return (
     <div className="min-h-screen bg-surface text-slate-900">
       <PageHeader
-        title="评测后台"
+        title="评测平台"
         badge={<Badge variant="outline" className="bg-white text-slate-500">{viewBadge[activeView]}</Badge>}
         subtitle="Agent 评测控制台：管理测试用例、评测集、运行队列、报告和失败修复"
       />

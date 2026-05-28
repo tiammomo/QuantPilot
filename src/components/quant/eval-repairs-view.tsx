@@ -42,7 +42,7 @@ export function EvalRepairsView({ repairTickets, warningResults, latestRun }: Ev
                   </p>
                 </div>
                 <Button variant="ghost" size="icon" asChild>
-                  <Link href={`/evals/runs/${ticket.runId}`} aria-label="查看修复单报告">
+                  <Link href={`/eval-platform/runs/${ticket.runId}`} aria-label="查看修复单报告">
                     <ChevronRight className="h-4 w-4" />
                   </Link>
                 </Button>
@@ -58,7 +58,7 @@ export function EvalRepairsView({ repairTickets, warningResults, latestRun }: Ev
           {warningResults.slice(0, 10).map((result) => (
             <Link
               key={result.id}
-              href={latestRun ? `/evals/runs/${latestRun.id}#case-${result.id}` : '#'}
+              href={latestRun ? `/eval-platform/runs/${latestRun.id}#case-${result.id}` : '#'}
               className="block rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
             >
               {result.name}

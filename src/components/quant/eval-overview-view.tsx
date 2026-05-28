@@ -209,7 +209,7 @@ export function EvalOverviewView({
                   </p>
                 </div>
                 <Button variant="outline" className="w-full" asChild>
-                  <Link href={`/evals/runs/${latestRun.id}`}>
+                  <Link href={`/eval-platform/runs/${latestRun.id}`}>
                     <FileText className="h-4 w-4" />
                     查看详情
                   </Link>

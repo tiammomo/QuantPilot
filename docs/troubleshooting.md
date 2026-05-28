@@ -115,8 +115,8 @@ evidence/data_quality.json
 通常说明取数、final 数据文件或 `quant-visualization-html` 没有完整执行。优先查看：
 
 - 聊天页执行过程。
-- `/workspaces` 工作空间健康。
-- `/workspaces` 链路观测。
+- `/ops-platform` 工作空间健康。
+- `/ops-platform` 链路观测。
 - `.quantpilot/events.jsonl`。
 - `.quantpilot/validation.json`。
 - `.quantpilot/validation-repair-plan.json`。
@@ -135,7 +135,7 @@ evidence/data_quality.json
 如果用户已取消请求但队列仍显示 running，优先查看：
 
 - `POST /api/chat/<project_id>/pause`
-- `/workspaces` 中的 active request。
+- `/ops-platform` 中的 active request。
 - `.quantpilot/events.jsonl` 中最近的 queue 事件。
 
 ## 自动验证失败后没有修复

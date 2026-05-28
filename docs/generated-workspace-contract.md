@@ -123,5 +123,5 @@ npm run check:generated-artifacts
 控制台入口：
 
 ```text
-http://localhost:3000/workspaces
+http://localhost:3000/ops-platform
 ```

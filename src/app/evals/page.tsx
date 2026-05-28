@@ -1,9 +1,5 @@
-import { getQuantEvalDashboardData } from '@/lib/quant/evals';
-import EvalsDashboardClient from './EvalsDashboardClient';
+import { redirect } from 'next/navigation';
 
-export default async function EvalsPage() {
-  const data = await getQuantEvalDashboardData();
-  return <EvalsDashboardClient data={data} />;
+export default function LegacyEvalsPage() {
+  redirect('/eval-platform');
 }
-
-export const dynamic = 'force-dynamic';

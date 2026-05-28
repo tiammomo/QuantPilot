@@ -558,7 +558,7 @@ export default function HomePage() {
             <div className="flex items-center gap-2">
               <Button
                 type="button"
-                onClick={() => router.push("/strategies")}
+                onClick={() => router.push("/strategy-platform")}
                 variant="ghost"
                 className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
               >
@@ -567,7 +567,7 @@ export default function HomePage() {
               </Button>
               <Button
                 type="button"
-                onClick={() => router.push("/workspaces")}
+                onClick={() => router.push("/ops-platform")}
                 variant="ghost"
                 className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
               >
@@ -576,7 +576,7 @@ export default function HomePage() {
               </Button>
               <Button
                 type="button"
-                onClick={() => router.push("/capabilities")}
+                onClick={() => router.push("/data-platform")}
                 variant="ghost"
                 className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
               >

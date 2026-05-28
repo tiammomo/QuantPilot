@@ -176,12 +176,12 @@ function Sidebar({
       <div className="border-t p-3">
         <Button
           type="button"
-          onClick={() => router.push("/evals")}
+          onClick={() => router.push("/eval-platform")}
           variant="ghost"
           className="mb-0.5 w-full justify-start"
         >
           <Gauge className="h-4 w-4" />
-          Agent 评测后台
+          评测平台
         </Button>
         <Button
           type="button"

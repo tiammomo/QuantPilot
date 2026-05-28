@@ -14,7 +14,7 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - **数据平台**：集中查看能力域、必需 skills、数据接口、产物契约和验证边界。
 - **策略平台**：承载策略模板、扫描执行队列、参数结果对比、版本口径、回测归档、风控限制和关联策略工作空间。
 - **自动验证与修复**：生成后自动检查 build、HTTP 200、数据文件、证据文件、图表、产物策略和视觉呈现，失败后进入修复链路。
-- **Agent 评测后台**：提供测试用例、评测集、评测器 dry-run、运行队列、运行记录、失败修复和定时回归。
+- **评测平台**：提供测试用例、评测集、评测器 dry-run、运行队列、运行记录、失败修复和定时回归。
 
 ## 快速启动
 
@@ -77,11 +77,10 @@ http://localhost:3000
 | --- | --- | --- |
 | AI 工作台 | `http://localhost:3000` | 创建任务、进入项目聊天和预览 |
 | Skills 管理 | `http://localhost:3000/skills` | 编辑、发布、回滚和导入核心 skills |
-| 策略平台 | `http://localhost:3000/strategies` | 管理策略模板、扫描队列、结果对比、版本口径、回测归档和关联工作空间 |
-| 数据平台 | `http://localhost:3000/capabilities` | 查看能力域、数据接口、契约和验证边界 |
-| 运维平台 | `http://localhost:3000/workspaces` | 查看 workspace 健康、产物、队列和 trace |
-| 生成观测 | `http://localhost:3000/observability` | 聚合生成链路事件和阶段状态 |
-| 评测后台 | `http://localhost:3000/evals` | 运行评测、管理评测集、查看队列和报告 |
+| 策略平台 | `http://localhost:3000/strategy-platform` | 管理策略模板、扫描队列、结果对比、版本口径、回测归档和关联工作空间 |
+| 数据平台 | `http://localhost:3000/data-platform` | 查看能力域、数据接口、契约和验证边界 |
+| 运维平台 | `http://localhost:3000/ops-platform` | 查看 workspace 健康、产物、队列和 trace |
+| 评测平台 | `http://localhost:3000/eval-platform` | 运行评测、管理评测集、查看队列和报告 |
 
 ## 端口约定
 
@@ -204,10 +203,10 @@ PREVIEW_PORT_END=3999
 | `src/app/` | Next.js App Router 页面和 API |
 | `src/app/[project_id]/chat/` | 项目聊天、执行过程、预览和生成工作台 |
 | `src/app/skills/` | Skills 管理界面 |
-| `src/app/evals/` | Agent 评测后台 |
-| `src/app/strategies/` | 策略平台 |
-| `src/app/workspaces/` | 工作空间健康和生成链路观测 |
-| `src/app/capabilities/` | 数据平台 |
+| `src/app/eval-platform/` | 评测平台 |
+| `src/app/strategy-platform/` | 策略平台 |
+| `src/app/ops-platform/` | 工作空间健康和生成链路观测 |
+| `src/app/data-platform/` | 数据平台 |
 | `services/market-data/` | Python/FastAPI 量化数据后端 |
 | `.claude/skills/` | 核心 skills 源码目录 |
 | `.claude/skill-packages/` | skills 发布包和历史版本包 |
@@ -230,13 +229,11 @@ PREVIEW_PORT_END=3999
 - [基础设施配置](docs/infrastructure.md)
 - [项目结构与分层边界](docs/project-structure.md)
 - [本地产物与生成文件边界](docs/local-generated-files.md)
-- [控制台使用指南](docs/console-guide.md)
 - [生成工作空间契约](docs/generated-workspace-contract.md)
 - [Agent 评测指南](docs/evals-guide.md)
 - [Skills 治理规范](docs/skills-governance.md)
 - [故障排查](docs/troubleshooting.md)
 - [量化数据后端](services/market-data/README.md)
-- [shadcn/ui 迁移记录](docs/ui-shadcn-migration.md)
 
 ## 本地数据与 Git 边界
 
