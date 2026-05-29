@@ -11,6 +11,8 @@ import {
   History,
   Loader2,
   PackageOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCcw,
   Search,
   TriangleAlert,
@@ -115,6 +117,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const [skillListWidth, setSkillListWidth] = useState(SKILL_LIST_DEFAULT_WIDTH);
+  const [isSkillListCollapsed, setIsSkillListCollapsed] = useState(false);
   const [isResizingSkillList, setIsResizingSkillList] = useState(false);
   const activeSourceRequest = useRef(0);
   const skillListResize = useRef({ startX: 0, startWidth: SKILL_LIST_DEFAULT_WIDTH });
@@ -360,6 +363,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   useEffect(() => { if (isVersionManagerOpen) setSourceActionMenu(null); }, [isVersionManagerOpen]);
 
   useEffect(() => {
+    if (isSkillListCollapsed) setIsResizingSkillList(false);
+  }, [isSkillListCollapsed]);
+
+  useEffect(() => {
     if (!selectedSkill) return;
     setExpandedSourcePaths((prev) => { const n = new Set(prev); selectedSkill.source.directories.forEach((d) => { if (sourceFileQuery.trim() || selectedFilePath.startsWith(`${d.path}/`)) n.add(d.path); }); return n; });
   }, [selectedSkill, selectedFilePath, sourceFileQuery]);
@@ -391,10 +398,11 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   }, [isResizingSkillList]);
 
   const startSkillListResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (isSkillListCollapsed) return;
     event.preventDefault();
     skillListResize.current = { startX: event.clientX, startWidth: skillListWidth };
     setIsResizingSkillList(true);
-  }, [skillListWidth]);
+  }, [isSkillListCollapsed, skillListWidth]);
 
   // ── Render ───────────────────────────────────────────────────
   const pendingCount = payload.totals.warning + payload.totals.error;
@@ -439,16 +447,49 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
       </div>
 
       {/* Main content: Skill List | Editor */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Left: Skill List (always visible) ──────────────── */}
+      <div className="relative flex flex-1 overflow-hidden">
+        {isSkillListCollapsed && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSkillListCollapsed(false)}
+            className="absolute left-2 top-3 z-30 h-8 w-8 rounded-full border-slate-200 bg-white p-0 shadow-sm"
+            aria-label="展开 Skill 列表"
+            title="展开 Skill 列表"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+        )}
+
+        {/* ── Left: Skill List ───────────────────────────────── */}
         <aside
-          className="relative flex shrink-0 flex-col border-r border-slate-200 bg-white"
-          style={{ width: skillListWidth }}
+          className={cn(
+            "relative flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-out",
+            isSkillListCollapsed
+              ? "min-w-0 -translate-x-4 overflow-hidden border-r-0 opacity-0 pointer-events-none"
+              : "translate-x-0 opacity-100"
+          )}
+          style={{ width: isSkillListCollapsed ? 0 : skillListWidth }}
+          aria-hidden={isSkillListCollapsed}
         >
           <div className="border-b border-slate-100 p-3">
-            <div className="relative mb-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索 skill..." className="h-8 border-slate-200 bg-white pl-9 text-sm" />
+            <div className="mb-2 flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索 skill..." className="h-8 border-slate-200 bg-white pl-9 text-sm" />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsSkillListCollapsed(true)}
+                className="h-8 w-8 shrink-0 border border-transparent p-0 text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+                aria-label="收起 Skill 列表"
+                title="收起 Skill 列表"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
             </div>
             <div className="flex gap-1">
               {FILTER_CHIPS.map((chip) => (
@@ -498,32 +539,34 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
               <EmptyState title="没有匹配的 skill" description="尝试其他关键词" className="mx-2 border-0 py-8" />
             )}
           </div>
-          <div
-            role="separator"
-            aria-label="调整 Skill 列表宽度"
-            aria-orientation="vertical"
-            tabIndex={0}
-            onPointerDown={startSkillListResize}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowLeft") {
-                event.preventDefault();
-                setSkillListWidth((width) => clampSkillListWidth(width - 16));
-              }
-              if (event.key === "ArrowRight") {
-                event.preventDefault();
-                setSkillListWidth((width) => clampSkillListWidth(width + 16));
-              }
-            }}
-            className={cn(
-              "absolute -right-1 top-0 z-20 flex h-full w-2 cursor-col-resize items-center justify-center outline-none",
-              "after:h-12 after:w-1 after:rounded-full after:bg-slate-300 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:after:opacity-100",
-              isResizingSkillList && "after:opacity-100"
-            )}
-          />
+          {!isSkillListCollapsed && (
+            <div
+              role="separator"
+              aria-label="调整 Skill 列表宽度"
+              aria-orientation="vertical"
+              tabIndex={0}
+              onPointerDown={startSkillListResize}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  setSkillListWidth((width) => clampSkillListWidth(width - 16));
+                }
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  setSkillListWidth((width) => clampSkillListWidth(width + 16));
+                }
+              }}
+              className={cn(
+                "absolute -right-1 top-0 z-20 flex h-full w-2 cursor-col-resize items-center justify-center outline-none",
+                "after:h-12 after:w-1 after:rounded-full after:bg-slate-300 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:after:opacity-100",
+                isResizingSkillList && "after:opacity-100"
+              )}
+            />
+          )}
         </aside>
 
         {/* ── Right: Editor Area ──────────────────────────────── */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className={cn("flex min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-300", isSkillListCollapsed && "pl-10")}>
           {selectedSkill ? (
             <>
               {/* Skill overview bar */}

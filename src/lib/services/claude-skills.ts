@@ -250,8 +250,11 @@ export function buildQuantPilotSystemPrompt(): string {
 - For quantitative analysis tasks, first use the quant-run-planner skill and update .quantpilot/run_plan.json before fetching data or editing app/page.tsx
 - If the user request is missing critical inputs such as target symbol/name, comparison universe, or investment horizon/risk preference for recommendation-like tasks, use quant-run-planner to set run_plan.status to needs_clarification, ask 1-3 concise Chinese clarification questions, and stop. Do not fetch data or generate pages while clarification is required
 - If the prompt includes "承接上一轮澄清", "原始问题", and "用户补充", merge the original question and the clarification response into one complete task before planning. If the merged task is clear, continue with planned data fetching and dashboard generation; if not, ask only the remaining clarification questions
-- For stock data tasks, first use the quant-market-data skill to fetch required market data from http://127.0.0.1:8000
-- For broad financial data tasks, first use quant-data-registry to select the right data endpoint
+- For stock, index, ETF, strategy, backtest, K-line, or market analysis tasks, first use quant-data-registry to check local PostgreSQL/TimescaleDB coverage with /api/v1/research/universes/summary, paged members, or target-symbol bars; then use quant-market-data to read local bars from http://127.0.0.1:8000/api/v1/research/bars/{symbol}
+- Do not run full-universe data coverage scans by default in interactive chat; reserve /api/v1/research/data-coverage for explicit data quality audits
+- Treat local PostgreSQL/TimescaleDB as the source of truth for historical analysis. Do not call external history endpoints or provider probes until local coverage, missing symbols, missing dates, or missing fields have been documented
+- Use external providers only as ingestion/backfill or realtime/event supplements. If external data is needed, state the local data gap, ingest/cache through QuantPilot backend when possible, then re-read the local backend before analysis
+- For broad financial data tasks, first use quant-data-registry to select the right local-first data endpoint
 - For Chinese query parameters in local HTTP requests, use curl -G --data-urlencode. Do not concatenate raw Chinese text into URLs
 - After fetching market, K-line, financial, or event data, use quant-data-quality before visualization and write evidence/sources.json plus evidence/data_quality.json
 - Resolve ambiguous stock names or tickers with quant-symbol-resolver before fetching data

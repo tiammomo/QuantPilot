@@ -22,6 +22,17 @@
     "quant-data-registry": {
       "releases": [
         {
+          "version": "0.3.0",
+          "date": "2026-05-29",
+          "summary": "强化本地 PostgreSQL/TimescaleDB 优先的数据选择规则。",
+          "changes": [
+            "新增 /api/v1/research/universes/summary、/api/v1/research/data-coverage 和 /api/v1/research/bars/{symbol} 作为历史分析前置检查。",
+            "要求首页对话、生成工作空间和策略分析先说明本地覆盖，再决定是否补数。",
+            "交互式对话默认使用 universe summary、分页 members 和指定标的 bars，避免每次全量扫描 data-coverage。",
+            "明确外部 provider 只作为实时补充或本地缺口补数入口，补数后必须回读本地库。"
+          ]
+        },
+        {
           "version": "0.2.0",
           "date": "2026-05-29",
           "summary": "补充行情字段补数、provider 优先级和数据源知识库使用规则。",
@@ -69,6 +80,16 @@
     },
     "quant-market-data": {
       "releases": [
+        {
+          "version": "0.4.0",
+          "date": "2026-05-29",
+          "summary": "将历史行情、策略分析和回测的数据入口调整为本地 TimescaleDB 优先。",
+          "changes": [
+            "新增本地数据库优先原则，要求历史 K 线、均线、涨跌停、成交额和换手率优先读取 /api/v1/research/bars/{symbol}。",
+            "补充股票池 summary、分页成员和本地 bars 的标准 curl 示例。",
+            "禁止本地库已有覆盖时优先请求外部历史 K 线接口。"
+          ]
+        },
         {
           "version": "0.3.0",
           "date": "2026-05-29",
@@ -118,6 +139,16 @@
     },
     "quant-backtest": {
       "releases": [
+        {
+          "version": "0.2.0",
+          "date": "2026-05-29",
+          "summary": "将回测技能调整为先检查本地 TimescaleDB bars 覆盖。",
+          "changes": [
+            "要求回测前读取 /api/v1/research/bars/{symbol} 并记录样本区间、行数和复权口径。",
+            "新增 backtest.localBarsCoverage 输出建议。",
+            "如果回测接口来源无法确认本地化，要求在数据质量中显式标记限制。"
+          ]
+        },
         {
           "version": "0.1.0",
           "date": "2026-05-25",

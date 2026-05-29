@@ -6,14 +6,14 @@
       "version": "0.2.0",
       "packagePath": ".claude/skill-packages/quant-run-planner.tgz",
       "sourceSha256": "0d3a1864abb8c4fd6a1be2c279955c3a1aa73394b52cb96a2ddaa59cdb28be7f",
-      "packageSha256": "a44e37aa0c19df0680879d7e9ad826579f59143e7838f8b86ee0cfef82f8eb54",
+      "packageSha256": "6e1e65eec10a84cd9eafa9a35889fadec685c99b4bf728a0fe55c7680967cf31",
       "fileCount": 2
     },
     "quant-data-registry": {
-      "version": "0.2.0",
+      "version": "0.3.0",
       "packagePath": ".claude/skill-packages/quant-data-registry.tgz",
-      "sourceSha256": "7fc4bb20036c8e950b0a280df0596f2c4f9225d2a988506443ade4242329cb7f",
-      "packageSha256": "1013bf8c58d9b880b3b4d9fb17a2f4d3c1c2db89f0ea5232950f1bcf8152b94a",
+      "sourceSha256": "d0c0ff2c5a188add6b1c1d6823821b58b8f8349e255a6c97313cd6e66eaf9dce",
+      "packageSha256": "b56d9e6ba757a3961c871e51c8b6abc2c229434794c2bf3d8617c4a49fbfc0f0",
       "fileCount": 1
     },
     "quant-symbol-resolver": {
@@ -24,10 +24,10 @@
       "fileCount": 1
     },
     "quant-market-data": {
-      "version": "0.3.0",
+      "version": "0.4.0",
       "packagePath": ".claude/skill-packages/quant-market-data.tgz",
-      "sourceSha256": "ae553f7c63929118e676affdba867bc46871d080c804c5254700f3a15b1d309f",
-      "packageSha256": "f47a2f7bc6d92c66a681f01b7a9274dd0d1fdab8b75058ca589ff184a73e99d3",
+      "sourceSha256": "ed045d8479628c7c891efcee5ffed02a12fa0f25f358b77f076cd2d56f145df7",
+      "packageSha256": "13d557bec5b7e68b74f478f8ff18e7ce92ef355d5ee573cda700acbec74869d3",
       "fileCount": 1
     },
     "quant-fundamentals": {
@@ -45,10 +45,10 @@
       "fileCount": 4
     },
     "quant-backtest": {
-      "version": "0.1.0",
+      "version": "0.2.0",
       "packagePath": ".claude/skill-packages/quant-backtest.tgz",
-      "sourceSha256": "ffe15c46d8c93028a51e9648fd60a43586fd7523b25f26336486d0b4bf0d21e7",
-      "packageSha256": "4d76c7a2b68cb119a0e193348c603f33e8ccac20299d9a5882d9433e444ff540",
+      "sourceSha256": "372fac437a34171e902e753ca78180477735f992ef045d452ba4c493ac5707a7",
+      "packageSha256": "2ae74b065e446c1528d5c3f4292f1ee1f02eacd5cc1612313c591d39baced3f1",
       "fileCount": 1
     },
     "quant-data-quality": {

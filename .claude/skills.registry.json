@@ -23,12 +23,24 @@
     {
       "id": "quant-data-registry",
       "name": "数据注册与信源选择",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "status": "stable",
-      "boundary": "查询后端数据能力、候选信源、缓存、主备源、字段补数和降级规则。",
-      "inputs": ["run_plan", "后端 /api/v1/registry", "后端 /api/v1/provider-candidates", "docs/market-data-source-knowledge.md"],
-      "outputs": ["数据源选择说明", "候选源限制说明", "字段补数计划"],
-      "validation": ["必须说明 source、as_of、fetched_at 和 data_quality", "历史 K 线补数必须说明字段来源和 provider 边界"]
+      "boundary": "查询后端数据能力、本地 TimescaleDB 覆盖、候选信源、缓存、主备源、字段补数和降级规则。",
+      "inputs": [
+        "run_plan",
+        "后端 /api/v1/registry",
+        "后端 /api/v1/research/universes/summary",
+        "后端 /api/v1/research/universes/{universe_id}/members",
+        "后端 /api/v1/research/data-coverage",
+        "后端 /api/v1/provider-candidates",
+        "docs/market-data-source-knowledge.md"
+      ],
+      "outputs": ["本地覆盖说明", "数据源选择说明", "候选源限制说明", "字段补数计划"],
+      "validation": [
+        "必须先说明本地库覆盖、source/provider、as_of、fetched_at 和 data_quality",
+        "历史 K 线补数必须说明字段来源和 provider 边界",
+        "本地库已有覆盖时不得优先调用外部历史接口"
+      ]
     },
     {
       "id": "quant-symbol-resolver",
@@ -58,12 +70,16 @@
     {
       "id": "quant-market-data",
       "name": "行情数据",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "status": "stable",
-      "boundary": "实时行情、历史 K 线、指数/ETF、批量行情、多源 fallback 和本地字段补数。",
+      "boundary": "本地 TimescaleDB K 线、实时行情、指数/ETF、批量行情、多源 fallback 和本地字段补数。",
       "inputs": ["symbols", "timeRange", "period", "adjustment"],
-      "outputs": ["quote", "kline.bars", "assets[]", "field_enrichment"],
+      "outputs": ["local_coverage", "quote", "kline.bars", "assets[]", "field_enrichment"],
       "endpoints": [
+        "GET /api/v1/research/universes/summary",
+        "GET /api/v1/research/data-coverage",
+        "GET /api/v1/research/universes/{universe_id}/members",
+        "GET /api/v1/research/bars/{symbol}",
         "GET /api/v1/quotes/realtime/{symbol}",
         "POST /api/v1/quotes/realtime",
         "GET /api/v1/quotes/history/{symbol}",
@@ -72,7 +88,11 @@
         "GET /api/v1/provider-candidates"
       ],
       "legacyAliases": ["quant-a-share-history", "quant-index-etf-market", "quant-comparison"],
-      "validation": ["趋势类任务必须有 K 线或明确的 K 线错误面板", "成交额、换手率和振幅缺失时必须说明补数状态"]
+      "validation": [
+        "趋势类任务必须优先读取 /api/v1/research/bars/{symbol}",
+        "趋势类任务必须有 K 线或明确的 K 线错误面板",
+        "成交额、换手率和振幅缺失时必须说明补数状态"
+      ]
     },
     {
       "id": "quant-fundamentals",
@@ -111,13 +131,16 @@
     {
       "id": "quant-backtest",
       "name": "回测复盘",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "status": "stable",
-      "boundary": "策略参数、回测执行、净值曲线、回撤、交易明细和限制说明。",
-      "inputs": ["symbols", "strategyParams", "kline.bars"],
-      "outputs": ["backtest", "trades", "equityCurve"],
-      "endpoints": ["GET /api/v1/backtests/ma-crossover/{symbol}"],
-      "validation": ["必须说明费用、样本、滑点和策略限制"]
+      "boundary": "基于本地 TimescaleDB K 线的策略参数、回测执行、净值曲线、回撤、交易明细和限制说明。",
+      "inputs": ["symbols", "strategyParams", "local kline.bars"],
+      "outputs": ["backtest", "trades", "equityCurve", "localBarsCoverage"],
+      "endpoints": [
+        "GET /api/v1/research/bars/{symbol}",
+        "GET /api/v1/backtests/ma-crossover/{symbol}"
+      ],
+      "validation": ["必须先确认本地 bars 覆盖", "必须说明费用、样本、滑点和策略限制"]
     },
     {
       "id": "quant-data-quality",
