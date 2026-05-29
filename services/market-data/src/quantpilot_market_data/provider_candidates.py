@@ -87,27 +87,35 @@ CANDIDATE_PROVIDERS: list[CandidateProvider] = [
         id="baostock-a-share-history",
         name="Baostock A 股历史行情",
         market="a-share",
-        status="planned",
+        status="testing",
         requires_key=False,
         free_tier="免费 Python SDK。",
         best_for=["A 股历史日线", "成交额/换手率字段补齐", "复权历史样本"],
         docs_url="https://pypi.org/project/baostock/",
-        limitations=["当前服务环境未安装 baostock 包，需作为后端 provider 接入后再做探针。"],
-        notes="适合作为东方财富历史 K 线失败后的 A 股日线主兜底源。",
+        limitations=["适合历史日/周/月线补数，不提供实时行情。"],
+        notes=(
+            "已沉淀为 /api/v1/ingestion/baostock/history，"
+            "可在东方财富历史 K 线失败后补成交额和换手率。"
+        ),
     ),
     CandidateProvider(
         id="akshare-python",
         name="AKShare 聚合接口",
         market="mixed",
-        status="planned",
+        status="testing",
         requires_key=False,
         free_tier="免费开源 Python SDK。",
-        best_for=["A 股/港股/基金等多源聚合", "东方财富、新浪、同花顺等网页接口快速验证"],
+        best_for=[
+            "A 股历史成交额/振幅/涨跌额/换手率补数",
+            "A 股/港股/基金等多源聚合",
+            "东方财富、新浪、同花顺等网页接口快速验证",
+        ],
         docs_url="https://akshare.akfamily.xyz/data/stock/stock.html",
         limitations=[
-            "当前服务环境未安装 akshare 包。",
+            "服务需安装可选依赖 `uv sync --extra akshare` 后才能执行入库补数。",
             "部分接口仍依赖东方财富网页端点，必须逐接口探针，不能视为独立主源。",
         ],
+        notes="已沉淀为 /api/v1/ingestion/akshare/history，用于 stock_bars 高价值字段增强。",
     ),
     CandidateProvider(
         id="stooq-daily",

@@ -27,6 +27,7 @@ const config = [
   {
     ignores: [
       '.next/**',
+      '**/.venv/**',
       'build/**',
       'coverage/**',
       'data/**',

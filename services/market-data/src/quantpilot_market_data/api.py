@@ -5,10 +5,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from quantpilot_market_data.backtest import build_ma_crossover_backtest
+from quantpilot_market_data.backtest import build_ma_crossover_backtest, build_strategy_backtest
 from quantpilot_market_data.cache import MarketDataCache, ttl_from_env
 from quantpilot_market_data.database import (
     DatabaseError,
@@ -18,6 +18,7 @@ from quantpilot_market_data.database import (
     finish_ingestion_job,
     get_local_kline,
     get_universe_fetch_targets,
+    list_ingestion_jobs,
     list_market_data_coverage,
     list_research_universe_members_page,
     list_research_universe_summaries,
@@ -42,9 +43,11 @@ from quantpilot_market_data.models import (
     ETFUniverseBatchImportResponse,
     FinancialReportsResponse,
     FundamentalIndicatorsResponse,
+    HistoryBatchIngestionRequest,
     HistoryIngestionRequest,
     HistoryIngestionResponse,
     HistoryIngestionSymbolResult,
+    IngestionJobsResponse,
     KlinePeriod,
     KlineResponse,
     LocalKlineResponse,
@@ -66,6 +69,8 @@ from quantpilot_market_data.provider_candidates import (
     get_candidate_provider,
     probe_candidate_provider,
 )
+from quantpilot_market_data.providers.akshare import AkShareClient, AkShareError
+from quantpilot_market_data.providers.baostock import BaoStockClient, BaoStockError
 from quantpilot_market_data.providers.eastmoney import EastMoneyClient, EastMoneyError
 
 QUOTE_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_QUOTE_CACHE_TTL_SECONDS", 5)
@@ -124,14 +129,17 @@ DATA_PROVIDERS = [
     ),
     DataProviderInfo(
         id="quantpilot-ma-crossover-backtest",
-        name="QuantPilot 均线突破回测",
+        name="QuantPilot 策略回测",
         category="backtest",
         status="available",
         description=(
-            "基于历史 K 线运行单标的均线突破策略，输出净值、回撤、交易明细、胜率、"
-            "夏普和相对标的收益。"
+            "基于历史 K 线运行单标的趋势、突破、均值回归和波动率策略，"
+            "输出净值、回撤、交易明细、胜率、夏普和相对标的收益。"
         ),
-        endpoints=["/api/v1/backtests/ma-crossover/{symbol}"],
+        endpoints=[
+            "/api/v1/backtests/ma-crossover/{symbol}",
+            "/api/v1/backtests/strategies/{strategy_id}/{symbol}",
+        ],
         cache_ttl_seconds=KLINE_CACHE_TTL_SECONDS,
         limitations=["当前为单标的、全仓/空仓、日线级回测，暂不包含滑点、停牌和分红再投资建模。"],
     ),
@@ -147,6 +155,7 @@ DATA_PROVIDERS = [
             "/api/v1/research/etf/import-batch",
             "/api/v1/research/data-coverage",
             "/api/v1/research/bars/{symbol}",
+            "/api/v1/ingestion/jobs",
         ],
         cache_ttl_seconds=None,
     ),
@@ -204,27 +213,38 @@ DATA_PROVIDERS = [
     DataProviderInfo(
         id="baostock-a-share-history",
         name="Baostock A 股历史行情",
-        category="planned-provider",
-        status="planned",
-        description="独立 A 股历史数据服务，适合补日线、成交额、换手率和复权字段。",
-        endpoints=["Python SDK: baostock.query_history_k_data_plus"],
+        category="enrichment-provider",
+        status="available",
+        description="独立 A 股历史数据服务，已接入用于补日线成交额、换手率、涨跌幅和复权字段。",
+        endpoints=[
+            "/api/v1/ingestion/baostock/history",
+            "/api/v1/ingestion/baostock/history/batch",
+            "Python SDK: baostock.query_history_k_data_plus",
+        ],
         cache_ttl_seconds=None,
         limitations=[
-            "当前服务环境尚未安装 baostock 包，需要作为后端 provider 正式接入。",
-            "适合 A 股日线历史补数，不用于实时行情主链路。",
+            "适合 A 股日/周/月历史补数，不用于实时行情主链路。",
+            "当前已沉淀成交额、换手率、停牌/ST、涨跌停和 PE/PB/PS/PCF 等估值字段。",
+            "Baostock volume 为股数，入库时折算成手，避免破坏现有 K 线量能展示口径。",
         ],
     ),
     DataProviderInfo(
         id="akshare-provider",
         name="AKShare 聚合数据源",
-        category="planned-provider",
-        status="planned",
-        description="Python 聚合数据源，封装东方财富、新浪、同花顺等多类公开财经数据接口。",
-        endpoints=["Python SDK: akshare"],
+        category="enrichment-provider",
+        status="degraded",
+        description=(
+            "Python 聚合数据源；当前用于补 A 股历史 K 线的成交额、振幅、"
+            "涨跌额和换手率，作为东方财富历史端点不可达时的字段增强层。"
+        ),
+        endpoints=[
+            "/api/v1/ingestion/akshare/history",
+            "Python SDK: akshare.stock_zh_a_hist",
+        ],
         cache_ttl_seconds=None,
         limitations=[
-            "当前服务环境尚未安装 akshare 包。",
-            "部分 AKShare 接口本质仍依赖东方财富或网页公开端点，需要逐接口探针和字段契约验证。",
+            "需要安装可选依赖：cd services/market-data && uv sync --extra akshare。",
+            "部分 AKShare 接口本质仍依赖东方财富或网页公开端点，需要低频补数和字段质量检查。",
         ],
     ),
     DataProviderInfo(
@@ -406,6 +426,38 @@ async def fetch_kline_for_ingestion(
     return kline
 
 
+async def fetch_akshare_kline_for_ingestion(
+    client: AkShareClient,
+    symbol_or_secid: str,
+    request: HistoryIngestionRequest,
+) -> KlineResponse:
+    start_date = _lookback_cutoff_date(request.lookback_years).strftime("%Y%m%d")
+    return await client.get_kline_range(
+        symbol_or_secid,
+        period=request.period,
+        adjustment=request.adjustment,
+        start_date=start_date,
+        end_date=request.end,
+        limit=request.limit,
+    )
+
+
+async def fetch_baostock_kline_for_ingestion(
+    client: BaoStockClient,
+    symbol_or_secid: str,
+    request: HistoryIngestionRequest,
+) -> KlineResponse:
+    start_date = _lookback_cutoff_date(request.lookback_years).strftime("%Y-%m-%d")
+    return await client.get_kline_range(
+        symbol_or_secid,
+        period=request.period,
+        adjustment=request.adjustment,
+        start_date=start_date,
+        end_date=request.end,
+        limit=request.limit,
+    )
+
+
 async def resolve_research_security(
     client: EastMoneyClient,
     query: str,
@@ -443,6 +495,22 @@ async def resolve_research_security(
     return resolved, [resolved]
 
 
+def strategy_backtest_parameters(request: Request) -> dict[str, str]:
+    reserved = {
+        "period",
+        "adjustment",
+        "limit",
+        "end",
+        "initial_cash",
+        "fee_bps",
+    }
+    return {
+        key: value
+        for key, value in request.query_params.items()
+        if key not in reserved and value not in {"", "undefined", "null"}
+    }
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="QuantPilot Market Data API",
@@ -457,6 +525,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     client = EastMoneyClient()
+    akshare_client = AkShareClient()
+    baostock_client = BaoStockClient()
     cache = MarketDataCache()
 
     @app.get("/health")
@@ -570,6 +640,18 @@ def create_app() -> FastAPI:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+    @app.get("/api/v1/ingestion/jobs", response_model=IngestionJobsResponse)
+    async def get_market_data_ingestion_jobs(
+        universe_id: str | None = None,
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> IngestionJobsResponse:
+        try:
+            return IngestionJobsResponse(
+                jobs=await list_ingestion_jobs(universe_id=universe_id, limit=limit)
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
     @app.get(
         "/api/v1/research/universes/{universe_id}/members",
         response_model=ResearchUniverseMembersPageResponse,
@@ -665,6 +747,7 @@ def create_app() -> FastAPI:
             await create_ingestion_job(
                 job_id=job_id,
                 universe_id=request.universe_id,
+                provider="eastmoney",
                 timeframe=request.period,
                 adjustment=request.adjustment,
                 total_symbols=len(targets),
@@ -718,6 +801,7 @@ def create_app() -> FastAPI:
             failed_symbols = len([item for item in symbol_results if item.status == "failed"])
             response = HistoryIngestionResponse(
                 job_id=job_id,
+                provider="eastmoney",
                 status=(
                     "failed"
                     if completed_symbols == 0
@@ -735,6 +819,371 @@ def create_app() -> FastAPI:
                 rows_received=sum(item.bars_received for item in symbol_results),
                 rows_upserted=sum(item.rows_upserted for item in symbol_results),
                 symbols=symbol_results,
+                started_at=started_at,
+                completed_at=datetime.now(UTC),
+            )
+            await finish_ingestion_job(response)
+            return response
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post("/api/v1/ingestion/akshare/history", response_model=HistoryIngestionResponse)
+    async def ingest_akshare_history(
+        request: HistoryIngestionRequest,
+    ) -> HistoryIngestionResponse:
+        started_at = datetime.now(UTC)
+        job_id = f"ingest-akshare-{started_at.strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
+        try:
+            targets = [
+                {"symbol": symbol, "query": normalize_fetch_symbol(symbol)}
+                for symbol in (request.symbols or [])
+            ]
+            if not targets and request.universe_id:
+                targets = await get_universe_fetch_targets(request.universe_id)
+            if not targets:
+                raise HTTPException(status_code=400, detail="未指定 symbols，且股票池没有成员。")
+
+            await create_ingestion_job(
+                job_id=job_id,
+                universe_id=request.universe_id,
+                provider="akshare",
+                timeframe=request.period,
+                adjustment=request.adjustment,
+                total_symbols=len(targets),
+                metadata={
+                    "symbols": targets,
+                    "limit": request.limit,
+                    "lookback_years": request.lookback_years,
+                    "end": request.end,
+                    "request_delay_seconds": request.request_delay_seconds,
+                    "max_retries": request.max_retries,
+                    "source_strategy": "akshare-field-enrichment",
+                    "field_contract": [
+                        "amount",
+                        "amplitude",
+                        "change_percent",
+                        "change_amount",
+                        "turnover",
+                    ],
+                },
+            )
+
+            symbol_results: list[HistoryIngestionSymbolResult] = []
+            for target_index, target in enumerate(targets):
+                try:
+                    kline = await fetch_akshare_kline_for_ingestion(
+                        akshare_client,
+                        target["query"],
+                        request,
+                    )
+                    symbol, rows_upserted, first_date, last_date = await upsert_kline_response(
+                        kline,
+                        universe_id=request.universe_id,
+                        lookback_years=request.lookback_years,
+                    )
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=symbol,
+                            name=kline.name,
+                            secid=kline.secid,
+                            source=kline.source,
+                            status="success" if rows_upserted else "skipped",
+                            bars_received=len(kline.bars),
+                            rows_upserted=rows_upserted,
+                            first_date=first_date,
+                            last_date=last_date,
+                        )
+                    )
+                except (ValueError, AkShareError, DatabaseError) as error:
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=target["symbol"],
+                            status="failed",
+                            error=str(error),
+                        )
+                    )
+                if target_index < len(targets) - 1 and request.request_delay_seconds:
+                    await asyncio.sleep(request.request_delay_seconds)
+
+            completed_symbols = len(
+                [item for item in symbol_results if item.status in {"success", "skipped"}]
+            )
+            failed_symbols = len([item for item in symbol_results if item.status == "failed"])
+            response = HistoryIngestionResponse(
+                job_id=job_id,
+                provider="akshare",
+                status=(
+                    "failed"
+                    if completed_symbols == 0
+                    else "partial"
+                    if failed_symbols
+                    else "completed"
+                ),
+                universe_id=request.universe_id,
+                period=request.period,
+                adjustment=request.adjustment,
+                lookback_years=request.lookback_years,
+                total_symbols=len(targets),
+                completed_symbols=completed_symbols,
+                failed_symbols=failed_symbols,
+                rows_received=sum(item.bars_received for item in symbol_results),
+                rows_upserted=sum(item.rows_upserted for item in symbol_results),
+                symbols=symbol_results,
+                started_at=started_at,
+                completed_at=datetime.now(UTC),
+            )
+            await finish_ingestion_job(response)
+            return response
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post("/api/v1/ingestion/baostock/history", response_model=HistoryIngestionResponse)
+    async def ingest_baostock_history(
+        request: HistoryIngestionRequest,
+    ) -> HistoryIngestionResponse:
+        started_at = datetime.now(UTC)
+        job_id = f"ingest-baostock-{started_at.strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
+        try:
+            targets = [
+                {"symbol": symbol, "query": normalize_fetch_symbol(symbol)}
+                for symbol in (request.symbols or [])
+            ]
+            if not targets and request.universe_id:
+                targets = await get_universe_fetch_targets(request.universe_id)
+            if not targets:
+                raise HTTPException(status_code=400, detail="未指定 symbols，且股票池没有成员。")
+
+            await create_ingestion_job(
+                job_id=job_id,
+                universe_id=request.universe_id,
+                provider="baostock",
+                timeframe=request.period,
+                adjustment=request.adjustment,
+                total_symbols=len(targets),
+                metadata={
+                    "symbols": targets,
+                    "limit": request.limit,
+                    "lookback_years": request.lookback_years,
+                    "end": request.end,
+                    "request_delay_seconds": request.request_delay_seconds,
+                    "max_retries": request.max_retries,
+                    "source_strategy": "baostock-field-enrichment",
+                    "field_contract": [
+                        "previous_close",
+                        "amount",
+                        "amplitude",
+                        "change_percent",
+                        "change_amount",
+                        "turnover",
+                        "trade_status",
+                        "is_st",
+                        "limit_up",
+                        "limit_down",
+                        "pe_ttm",
+                        "pb_mrq",
+                        "ps_ttm",
+                        "pcf_ncf_ttm",
+                    ],
+                },
+            )
+
+            symbol_results: list[HistoryIngestionSymbolResult] = []
+            for target_index, target in enumerate(targets):
+                try:
+                    kline = await fetch_baostock_kline_for_ingestion(
+                        baostock_client,
+                        target["query"],
+                        request,
+                    )
+                    symbol, rows_upserted, first_date, last_date = await upsert_kline_response(
+                        kline,
+                        universe_id=request.universe_id,
+                        lookback_years=request.lookback_years,
+                    )
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=symbol,
+                            name=kline.name,
+                            secid=kline.secid,
+                            source=kline.source,
+                            status="success" if rows_upserted else "skipped",
+                            bars_received=len(kline.bars),
+                            rows_upserted=rows_upserted,
+                            first_date=first_date,
+                            last_date=last_date,
+                        )
+                    )
+                except (ValueError, BaoStockError, DatabaseError) as error:
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=target["symbol"],
+                            status="failed",
+                            error=str(error),
+                        )
+                    )
+                if target_index < len(targets) - 1 and request.request_delay_seconds:
+                    await asyncio.sleep(request.request_delay_seconds)
+
+            completed_symbols = len(
+                [item for item in symbol_results if item.status in {"success", "skipped"}]
+            )
+            failed_symbols = len([item for item in symbol_results if item.status == "failed"])
+            response = HistoryIngestionResponse(
+                job_id=job_id,
+                provider="baostock",
+                status=(
+                    "failed"
+                    if completed_symbols == 0
+                    else "partial"
+                    if failed_symbols
+                    else "completed"
+                ),
+                universe_id=request.universe_id,
+                period=request.period,
+                adjustment=request.adjustment,
+                lookback_years=request.lookback_years,
+                total_symbols=len(targets),
+                completed_symbols=completed_symbols,
+                failed_symbols=failed_symbols,
+                rows_received=sum(item.bars_received for item in symbol_results),
+                rows_upserted=sum(item.rows_upserted for item in symbol_results),
+                symbols=symbol_results,
+                started_at=started_at,
+                completed_at=datetime.now(UTC),
+            )
+            await finish_ingestion_job(response)
+            return response
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/ingestion/baostock/history/batch",
+        response_model=HistoryIngestionResponse,
+    )
+    async def ingest_baostock_history_batch(
+        request: HistoryBatchIngestionRequest,
+    ) -> HistoryIngestionResponse:
+        started_at = datetime.now(UTC)
+        job_id = f"ingest-baostock-batch-{started_at.strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
+        try:
+            all_targets = [
+                {"symbol": symbol, "query": normalize_fetch_symbol(symbol)}
+                for symbol in (request.symbols or [])
+            ]
+            if not all_targets and request.universe_id:
+                all_targets = await get_universe_fetch_targets(request.universe_id)
+            if not all_targets:
+                raise HTTPException(status_code=400, detail="未指定 symbols，且股票池没有成员。")
+
+            effective_offset = request.offset if request.offset < len(all_targets) else 0
+            targets = all_targets[effective_offset : effective_offset + request.batch_size]
+            next_offset = effective_offset + len(targets)
+            if next_offset >= len(all_targets):
+                next_offset = 0
+
+            await create_ingestion_job(
+                job_id=job_id,
+                universe_id=request.universe_id,
+                provider="baostock",
+                timeframe=request.period,
+                adjustment=request.adjustment,
+                total_symbols=len(targets),
+                metadata={
+                    "symbols": targets,
+                    "limit": request.limit,
+                    "lookback_years": request.lookback_years,
+                    "end": request.end,
+                    "request_delay_seconds": request.request_delay_seconds,
+                    "max_retries": request.max_retries,
+                    "source_strategy": "baostock-low-frequency-batch-enrichment",
+                    "batch_offset": effective_offset,
+                    "batch_size": request.batch_size,
+                    "next_offset": next_offset,
+                    "universe_total_symbols": len(all_targets),
+                    "field_contract": [
+                        "previous_close",
+                        "amount",
+                        "amplitude",
+                        "change_percent",
+                        "change_amount",
+                        "turnover",
+                        "trade_status",
+                        "is_st",
+                        "limit_up",
+                        "limit_down",
+                        "pe_ttm",
+                        "pb_mrq",
+                        "ps_ttm",
+                        "pcf_ncf_ttm",
+                    ],
+                },
+            )
+
+            symbol_results: list[HistoryIngestionSymbolResult] = []
+            for target_index, target in enumerate(targets):
+                try:
+                    kline = await fetch_baostock_kline_for_ingestion(
+                        baostock_client,
+                        target["query"],
+                        request,
+                    )
+                    symbol, rows_upserted, first_date, last_date = await upsert_kline_response(
+                        kline,
+                        universe_id=request.universe_id,
+                        lookback_years=request.lookback_years,
+                    )
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=symbol,
+                            name=kline.name,
+                            secid=kline.secid,
+                            source=kline.source,
+                            status="success" if rows_upserted else "skipped",
+                            bars_received=len(kline.bars),
+                            rows_upserted=rows_upserted,
+                            first_date=first_date,
+                            last_date=last_date,
+                        )
+                    )
+                except (ValueError, BaoStockError, DatabaseError) as error:
+                    symbol_results.append(
+                        HistoryIngestionSymbolResult(
+                            symbol=target["symbol"],
+                            status="failed",
+                            error=str(error),
+                        )
+                    )
+                if target_index < len(targets) - 1 and request.request_delay_seconds:
+                    await asyncio.sleep(request.request_delay_seconds)
+
+            completed_symbols = len(
+                [item for item in symbol_results if item.status in {"success", "skipped"}]
+            )
+            failed_symbols = len([item for item in symbol_results if item.status == "failed"])
+            response = HistoryIngestionResponse(
+                job_id=job_id,
+                provider="baostock",
+                status=(
+                    "failed"
+                    if completed_symbols == 0
+                    else "partial"
+                    if failed_symbols
+                    else "completed"
+                ),
+                universe_id=request.universe_id,
+                period=request.period,
+                adjustment=request.adjustment,
+                lookback_years=request.lookback_years,
+                total_symbols=len(targets),
+                completed_symbols=completed_symbols,
+                failed_symbols=failed_symbols,
+                rows_received=sum(item.bars_received for item in symbol_results),
+                rows_upserted=sum(item.rows_upserted for item in symbol_results),
+                symbols=symbol_results,
+                batch_offset=effective_offset,
+                batch_size=request.batch_size,
+                next_offset=next_offset,
+                universe_total_symbols=len(all_targets),
                 started_at=started_at,
                 completed_at=datetime.now(UTC),
             )
@@ -972,6 +1421,70 @@ def create_app() -> FastAPI:
                 kline,
                 fast_window=normalized_fast,
                 slow_window=normalized_slow,
+                initial_cash=initial_cash,
+                fee_bps=fee_bps,
+            )
+            return cache_response(
+                cache,
+                cache_key,
+                KLINE_CACHE_TTL_SECONDS,
+                response,
+                BacktestResponse,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except EastMoneyError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/backtests/strategies/{strategy_id}/{symbol}",
+        response_model=BacktestResponse,
+    )
+    async def get_strategy_backtest(
+        request: Request,
+        strategy_id: str,
+        symbol: str,
+        period: KlinePeriod = "daily",
+        adjustment: Adjustment = "qfq",
+        limit: int = 1000,
+        end: str = "20500101",
+        initial_cash: Decimal = Decimal("1"),
+        fee_bps: Decimal = Decimal("5"),
+    ) -> BacktestResponse:
+        normalized_limit = max(80, min(limit, 1500))
+        parameters = strategy_backtest_parameters(request)
+        cache_key = cache.build_key(
+            "backtest-strategy",
+            {
+                "strategy_id": strategy_id,
+                "symbol": symbol,
+                "parameters": parameters,
+                "period": period,
+                "adjustment": adjustment,
+                "limit": normalized_limit,
+                "end": end,
+                "initial_cash": str(initial_cash),
+                "fee_bps": str(fee_bps),
+            },
+        )
+        try:
+            cached = cache.read(cache_key)
+            if cached is not None:
+                return BacktestResponse.model_validate(cached.payload).model_copy(
+                    update={"fetch": cached.to_fetch_metadata("hit")}
+                )
+
+            kline = await client.get_kline(
+                symbol,
+                period=period,
+                adjustment=adjustment,
+                limit=normalized_limit,
+                end=end,
+            )
+            response = build_strategy_backtest(
+                kline,
+                strategy_id=strategy_id,
+                parameters=parameters,
                 initial_cash=initial_cash,
                 fee_bps=fee_bps,
             )

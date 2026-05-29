@@ -857,6 +857,7 @@ def parse_tencent_kline_row(row: list[Any]) -> KlineBar:
         close=close_value,
         high=_to_decimal(padded[3]),
         low=_to_decimal(padded[4]),
+        previous_close=previous_close,
         volume=_to_int(padded[5]),
         amount=None,
         amplitude=None,
@@ -899,6 +900,7 @@ def enrich_kline_change_fields(bars: list[KlineBar]) -> list[KlineBar]:
         enriched.append(
             bar.model_copy(
                 update={
+                    "previous_close": bar.previous_close or previous_close,
                     "change_amount": change_amount,
                     "change_percent": change_percent,
                 }

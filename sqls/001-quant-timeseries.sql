@@ -15,8 +15,17 @@ CREATE TABLE IF NOT EXISTS quant.stock_bars (
   high NUMERIC(20, 8) NOT NULL,
   low NUMERIC(20, 8) NOT NULL,
   close NUMERIC(20, 8) NOT NULL,
+  previous_close NUMERIC(20, 8),
   volume NUMERIC(24, 4) NOT NULL DEFAULT 0,
   amount NUMERIC(24, 4),
+  amplitude NUMERIC(20, 8),
+  change_percent NUMERIC(20, 8),
+  change_amount NUMERIC(20, 8),
+  turnover NUMERIC(20, 8),
+  trade_status TEXT,
+  is_st BOOLEAN,
+  limit_up BOOLEAN,
+  limit_down BOOLEAN,
   provider TEXT NOT NULL DEFAULT 'unknown',
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -24,7 +33,16 @@ CREATE TABLE IF NOT EXISTS quant.stock_bars (
 );
 
 ALTER TABLE quant.stock_bars
-  ADD COLUMN IF NOT EXISTS adjustment TEXT NOT NULL DEFAULT 'qfq';
+  ADD COLUMN IF NOT EXISTS adjustment TEXT NOT NULL DEFAULT 'qfq',
+  ADD COLUMN IF NOT EXISTS previous_close NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS amplitude NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS change_percent NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS change_amount NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS turnover NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS trade_status TEXT,
+  ADD COLUMN IF NOT EXISTS is_st BOOLEAN,
+  ADD COLUMN IF NOT EXISTS limit_up BOOLEAN,
+  ADD COLUMN IF NOT EXISTS limit_down BOOLEAN;
 
 DO $$
 DECLARE
@@ -74,6 +92,15 @@ CREATE INDEX IF NOT EXISTS stock_bars_symbol_timeframe_adjustment_ts_desc_idx
   ON quant.stock_bars (symbol, timeframe, adjustment, ts DESC);
 
 COMMENT ON COLUMN quant.stock_bars.amount IS '成交额；东方财富 K 线 f57。';
+COMMENT ON COLUMN quant.stock_bars.previous_close IS '前收盘价；Baostock preclose / 腾讯历史行可提供。';
+COMMENT ON COLUMN quant.stock_bars.amplitude IS '振幅，单位%；东方财富 K 线 f58 / AKShare 振幅。';
+COMMENT ON COLUMN quant.stock_bars.change_percent IS '涨跌幅，单位%；东方财富 K 线 f59 / AKShare 涨跌幅。';
+COMMENT ON COLUMN quant.stock_bars.change_amount IS '涨跌额；东方财富 K 线 f60 / AKShare 涨跌额。';
+COMMENT ON COLUMN quant.stock_bars.turnover IS '换手率，单位%；东方财富 K 线 f61 / AKShare 换手率。';
+COMMENT ON COLUMN quant.stock_bars.trade_status IS '交易状态；Baostock tradestatus，1 通常代表正常交易。';
+COMMENT ON COLUMN quant.stock_bars.is_st IS '是否 ST；Baostock isST。';
+COMMENT ON COLUMN quant.stock_bars.limit_up IS '是否涨停；按 ST/主板/创业板/科创板/北交所规则由数据源涨跌幅推导。';
+COMMENT ON COLUMN quant.stock_bars.limit_down IS '是否跌停；按 ST/主板/创业板/科创板/北交所规则由数据源涨跌幅推导。';
 COMMENT ON COLUMN quant.stock_bars.metadata IS
   'K 线扩展字段与数据源原始字段；东方财富 f51-f61、振幅、涨跌幅、涨跌额、换手率和 raw row 均保存在此处。';
 
@@ -92,6 +119,9 @@ SELECT create_hypertable('quant.stock_factors', 'ts', if_not_exists => TRUE, mig
 
 CREATE INDEX IF NOT EXISTS stock_factors_factor_ts_desc_idx
   ON quant.stock_factors (factor_key, ts DESC);
+
+CREATE INDEX IF NOT EXISTS stock_factors_symbol_factor_ts_desc_idx
+  ON quant.stock_factors (symbol, factor_key, ts DESC);
 
 CREATE TABLE IF NOT EXISTS quant.strategy_signals (
   strategy_id TEXT NOT NULL,

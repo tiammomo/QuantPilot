@@ -38,6 +38,12 @@ cd services/market-data
 uv sync
 ```
 
+如果需要补 A 股历史 K 线的成交额、振幅、涨跌额和换手率，可安装 Baostock / AKShare 可选依赖：
+
+```bash
+uv sync --extra baostock --extra akshare
+```
+
 启动服务：
 
 ```bash
@@ -133,6 +139,18 @@ curl 'http://127.0.0.1:8000/api/v1/quotes/history/600519?period=daily&adjustment
 
 说明：当前东方财富历史 K 线外部源偶发断连，注册表会将能力标记为 `degraded`。调用失败时应展示真实错误，并降级到实时行情、财务摘要和公告事件。
 
+### 历史 K 线字段补数
+
+Baostock / AKShare 补数端点用于把 `amount`、`amplitude`、`change_percent`、`change_amount`、`turnover` 写入 `quant.stock_bars` 正式列。它不会删除已有更早历史，稀疏源也不会覆盖已有非空增强字段。当前本地优先使用 Baostock，因为它不依赖东方财富历史域名。
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/ingestion/baostock/history' \
+  -H 'Content-Type: application/json' \
+  -d '{"symbols":["002156.SZ","002555.SZ"],"period":"daily","adjustment":"qfq","lookback_years":5,"limit":1260,"request_delay_seconds":1.5}'
+```
+
+更完整的 provider 选择和字段口径见项目根目录的 `docs/market-data-source-knowledge.md`。
+
 ### 技术指标
 
 ```bash
@@ -176,6 +194,8 @@ curl 'http://127.0.0.1:8000/api/v1/events/announcements/600519?limit=20'
 
 - `quantpilot_market_data/cache.py`：本地 JSON 缓存、TTL 和 fetch 元信息。
 - `quantpilot_market_data/providers/eastmoney.py`：东方财富数据源客户端。
+- `quantpilot_market_data/providers/baostock.py`：Baostock A 股历史字段补数 provider。
+- `quantpilot_market_data/providers/akshare.py`：AKShare 可选补数字段 provider。
 - `quantpilot_market_data/models.py`：行情数据模型。
 - `quantpilot_market_data/api.py`：FastAPI HTTP 服务。
 - `quantpilot_market_data/cli.py`：启动入口。

@@ -13,6 +13,17 @@ dependencies = [
     "uvicorn[standard]>=0.38.0",
 ]
 
+[project.optional-dependencies]
+akshare = [
+    "akshare>=1.17.0",
+]
+baostock = [
+    "baostock>=0.8.9",
+]
+tushare = [
+    "tushare>=1.4.0",
+]
+
 [project.scripts]
 quantpilot-market-api = "quantpilot_market_data.cli:main"
 

@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from quantpilot_market_data.models import (
     HistoryIngestionResponse,
+    IngestionJobSummary,
     KlineResponse,
     LocalKlineBar,
     LocalKlineResponse,
@@ -167,6 +168,19 @@ def decimal_from_json(value: Any) -> Decimal | None:
         return None
 
 
+def bool_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "t", "yes", "y"}:
+        return True
+    if normalized in {"0", "false", "f", "no", "n"}:
+        return False
+    return None
+
+
 def json_array(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value]
@@ -177,15 +191,23 @@ def json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def first_decimal(*values: Any) -> Decimal | None:
+    for value in values:
+        parsed = decimal_from_json(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def first_text(*values: Any) -> str | None:
     for value in values:
         if isinstance(value, str):
             text = value.strip()
-            if text:
+            if text and text not in {"-", "--", "无", "暂无"}:
                 return text
         elif value is not None:
             text = str(value).strip()
-            if text:
+            if text and text not in {"-", "--", "无", "暂无"}:
                 return text
     return None
 
@@ -204,7 +226,11 @@ def split_sector_values(value: Any) -> list[str]:
         values = normalized.split(",")
     else:
         values = []
-    return [text for item in values if (text := str(item).strip())]
+    return [
+        text
+        for item in values
+        if (text := str(item).strip()) and text not in {"-", "--", "无", "暂无"}
+    ]
 
 
 def unique_non_empty(values: list[str | None]) -> list[str]:
@@ -214,7 +240,7 @@ def unique_non_empty(values: list[str | None]) -> list[str]:
         if not value:
             continue
         text = value.strip()
-        if not text or text in seen:
+        if not text or text in {"-", "--", "无", "暂无"} or text in seen:
             continue
         seen.add(text)
         result.append(text)
@@ -278,6 +304,7 @@ def research_member_from_row(row: dict[str, Any]) -> ResearchUniverseMember:
     sector_fields = security_sector_fields(row["security_metadata"])
     latest_close = decimal_or_none(row["latest_close"])
     previous_close = decimal_or_none(row["previous_close"])
+    latest_change_percent = decimal_or_none(row.get("latest_change_percent"))
     close_20d = decimal_or_none(row["close_20d"])
     close_60d = decimal_or_none(row["close_60d"])
     ma20 = decimal_or_none(row["ma20"])
@@ -306,7 +333,13 @@ def research_member_from_row(row: dict[str, Any]) -> ResearchUniverseMember:
         last_ts=row["last_ts"],
         data_provider=row["data_provider"],
         latest_close=latest_close,
-        latest_change_pct=percent_change(latest_close, previous_close),
+        latest_change_pct=(
+            latest_change_percent
+            if latest_change_percent is not None
+            else percent_change(latest_close, previous_close)
+        ),
+        latest_amount=decimal_or_none(row.get("latest_amount")),
+        latest_turnover=decimal_or_none(row.get("latest_turnover")),
         strength_20d_pct=percent_change(latest_close, close_20d),
         strength_60d_pct=percent_change(latest_close, close_60d),
         ma20=ma20,
@@ -319,6 +352,15 @@ def research_member_from_row(row: dict[str, Any]) -> ResearchUniverseMember:
         ),
         avg_amount_20d=decimal_or_none(row["avg_amount_20d"]),
         avg_volume_20d=decimal_or_none(row["avg_volume_20d"]),
+        avg_turnover_20d=decimal_or_none(row.get("avg_turnover_20d")),
+        trade_status=row.get("trade_status"),
+        is_st=bool_or_none(row.get("is_st")),
+        limit_up=bool_or_none(row.get("limit_up")),
+        limit_down=bool_or_none(row.get("limit_down")),
+        pe_ttm=decimal_or_none(row.get("pe_ttm")),
+        pb_mrq=decimal_or_none(row.get("pb_mrq")),
+        ps_ttm=decimal_or_none(row.get("ps_ttm")),
+        pcf_ncf_ttm=decimal_or_none(row.get("pcf_ncf_ttm")),
         data_status=coverage_status(row_count, row["last_ts"]),
     )
 
@@ -385,12 +427,24 @@ async def list_research_universes() -> list[ResearchUniverse]:
                   market_metrics.sample_count,
                   market_metrics.latest_close,
                   market_metrics.previous_close,
+                  market_metrics.latest_change_percent,
+                  market_metrics.latest_amount,
+                  market_metrics.latest_turnover,
                   market_metrics.close_20d,
                   market_metrics.close_60d,
                   market_metrics.ma20,
                   market_metrics.ma60,
                   market_metrics.avg_amount_20d,
-                  market_metrics.avg_volume_20d
+                  market_metrics.avg_volume_20d,
+                  market_metrics.avg_turnover_20d,
+                  market_metrics.trade_status,
+                  market_metrics.is_st,
+                  market_metrics.limit_up,
+                  market_metrics.limit_down,
+                  factor_metrics.pe_ttm,
+                  factor_metrics.pb_mrq,
+                  factor_metrics.ps_ttm,
+                  factor_metrics.pcf_ncf_ttm
                 FROM quant.security_universes universes
                 LEFT JOIN quant.security_universe_members members
                   ON members.universe_id = universes.id
@@ -418,6 +472,10 @@ async def list_research_universes() -> list[ResearchUniverse]:
                     count(*)::INT AS sample_count,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[1] AS latest_close,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[2] AS previous_close,
+                    (array_agg(recent.change_percent ORDER BY recent.ts DESC))[1]
+                      AS latest_change_percent,
+                    (array_agg(recent.amount ORDER BY recent.ts DESC))[1] AS latest_amount,
+                    (array_agg(recent.turnover ORDER BY recent.ts DESC))[1] AS latest_turnover,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[21] AS close_20d,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[61] AS close_60d,
                     avg(recent.close) FILTER (WHERE recent.rn <= 20) AS ma20,
@@ -425,13 +483,26 @@ async def list_research_universes() -> list[ResearchUniverse]:
                     avg(recent.amount) FILTER (
                       WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
                     ) AS avg_amount_20d,
-                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d
+                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d,
+                    avg(recent.turnover) FILTER (
+                      WHERE recent.rn <= 20 AND recent.turnover IS NOT NULL
+                    ) AS avg_turnover_20d,
+                    (array_agg(recent.trade_status ORDER BY recent.ts DESC))[1] AS trade_status,
+                    (array_agg(recent.is_st ORDER BY recent.ts DESC))[1] AS is_st,
+                    (array_agg(recent.limit_up ORDER BY recent.ts DESC))[1] AS limit_up,
+                    (array_agg(recent.limit_down ORDER BY recent.ts DESC))[1] AS limit_down
                   FROM (
                     SELECT
                       bars.ts,
                       bars.close,
                       bars.amount,
                       bars.volume,
+                      bars.change_percent,
+                      bars.turnover,
+                      bars.trade_status,
+                      bars.is_st,
+                      bars.limit_up,
+                      bars.limit_down,
                       row_number() OVER (ORDER BY bars.ts DESC) AS rn
                     FROM quant.stock_bars bars
                     WHERE bars.symbol = securities.symbol
@@ -447,6 +518,22 @@ async def list_research_universes() -> list[ResearchUniverse]:
                     LIMIT 61
                   ) recent
                 ) market_metrics ON TRUE
+                LEFT JOIN LATERAL (
+                  SELECT
+                    max(factor_value) FILTER (WHERE factor_key = 'pe_ttm') AS pe_ttm,
+                    max(factor_value) FILTER (WHERE factor_key = 'pb_mrq') AS pb_mrq,
+                    max(factor_value) FILTER (WHERE factor_key = 'ps_ttm') AS ps_ttm,
+                    max(factor_value) FILTER (WHERE factor_key = 'pcf_ncf_ttm')
+                      AS pcf_ncf_ttm
+                  FROM (
+                    SELECT DISTINCT ON (factor_key)
+                      factor_key,
+                      factor_value
+                    FROM quant.stock_factors
+                    WHERE symbol = securities.symbol
+                    ORDER BY factor_key, ts DESC
+                  ) latest_factors
+                ) factor_metrics ON TRUE
                 ORDER BY
                   CASE
                     WHEN universes.metadata->>'display_order' ~ '^[0-9]+$'
@@ -705,12 +792,24 @@ async def list_research_universe_members_page(
                   market_metrics.sample_count,
                   market_metrics.latest_close,
                   market_metrics.previous_close,
+                  market_metrics.latest_change_percent,
+                  market_metrics.latest_amount,
+                  market_metrics.latest_turnover,
                   market_metrics.close_20d,
                   market_metrics.close_60d,
                   market_metrics.ma20,
                   market_metrics.ma60,
                   market_metrics.avg_amount_20d,
-                  market_metrics.avg_volume_20d
+                  market_metrics.avg_volume_20d,
+                  market_metrics.avg_turnover_20d,
+                  market_metrics.trade_status,
+                  market_metrics.is_st,
+                  market_metrics.limit_up,
+                  market_metrics.limit_down,
+                  factor_metrics.pe_ttm,
+                  factor_metrics.pb_mrq,
+                  factor_metrics.ps_ttm,
+                  factor_metrics.pcf_ncf_ttm
                 FROM filtered_members
                 LEFT JOIN LATERAL (
                   SELECT sync_row.*
@@ -737,6 +836,10 @@ async def list_research_universe_members_page(
                     count(*)::INT AS sample_count,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[1] AS latest_close,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[2] AS previous_close,
+                    (array_agg(recent.change_percent ORDER BY recent.ts DESC))[1]
+                      AS latest_change_percent,
+                    (array_agg(recent.amount ORDER BY recent.ts DESC))[1] AS latest_amount,
+                    (array_agg(recent.turnover ORDER BY recent.ts DESC))[1] AS latest_turnover,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[21] AS close_20d,
                     (array_agg(recent.close ORDER BY recent.ts DESC))[61] AS close_60d,
                     avg(recent.close) FILTER (WHERE recent.rn <= 20) AS ma20,
@@ -744,13 +847,26 @@ async def list_research_universe_members_page(
                     avg(recent.amount) FILTER (
                       WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
                     ) AS avg_amount_20d,
-                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d
+                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d,
+                    avg(recent.turnover) FILTER (
+                      WHERE recent.rn <= 20 AND recent.turnover IS NOT NULL
+                    ) AS avg_turnover_20d,
+                    (array_agg(recent.trade_status ORDER BY recent.ts DESC))[1] AS trade_status,
+                    (array_agg(recent.is_st ORDER BY recent.ts DESC))[1] AS is_st,
+                    (array_agg(recent.limit_up ORDER BY recent.ts DESC))[1] AS limit_up,
+                    (array_agg(recent.limit_down ORDER BY recent.ts DESC))[1] AS limit_down
                   FROM (
                     SELECT
                       bars.ts,
                       bars.close,
                       bars.amount,
                       bars.volume,
+                      bars.change_percent,
+                      bars.turnover,
+                      bars.trade_status,
+                      bars.is_st,
+                      bars.limit_up,
+                      bars.limit_down,
                       row_number() OVER (ORDER BY bars.ts DESC) AS rn
                     FROM quant.stock_bars bars
                     WHERE bars.symbol = filtered_members.symbol
@@ -766,6 +882,22 @@ async def list_research_universe_members_page(
                     LIMIT 61
                   ) recent
                 ) market_metrics ON TRUE
+                LEFT JOIN LATERAL (
+                  SELECT
+                    max(factor_value) FILTER (WHERE factor_key = 'pe_ttm') AS pe_ttm,
+                    max(factor_value) FILTER (WHERE factor_key = 'pb_mrq') AS pb_mrq,
+                    max(factor_value) FILTER (WHERE factor_key = 'ps_ttm') AS ps_ttm,
+                    max(factor_value) FILTER (WHERE factor_key = 'pcf_ncf_ttm')
+                      AS pcf_ncf_ttm
+                  FROM (
+                    SELECT DISTINCT ON (factor_key)
+                      factor_key,
+                      factor_value
+                    FROM quant.stock_factors
+                    WHERE symbol = filtered_members.symbol
+                    ORDER BY factor_key, ts DESC
+                  ) latest_factors
+                ) factor_metrics ON TRUE
                 ORDER BY filtered_members.member_order NULLS LAST, filtered_members.symbol
                 """,
             (*filter_params, page_size, offset),
@@ -1122,9 +1254,14 @@ def aggregate_local_bars(
                 high=max(item.high for item in ordered),
                 low=min(item.low for item in ordered),
                 close=ordered[-1].close,
+                previous_close=ordered[0].previous_close,
                 volume=sum((item.volume for item in ordered), Decimal("0")),
                 amount=sum(amount_values, Decimal("0")) if amount_values else None,
                 turnover=sum(turnover_values, Decimal("0")) if turnover_values else None,
+                trade_status=ordered[-1].trade_status,
+                is_st=ordered[-1].is_st,
+                limit_up=None,
+                limit_down=None,
                 provider=ordered[-1].provider,
                 metadata={
                     "aggregated_from": "daily",
@@ -1141,23 +1278,25 @@ def enrich_local_change_fields(bars: list[LocalKlineBar]) -> list[LocalKlineBar]
     enriched: list[LocalKlineBar] = []
     previous_close: Decimal | None = None
     for bar in bars:
+        base_close = bar.previous_close or previous_close
         change_amount = bar.change_amount
         change_percent = bar.change_percent
         if (
             bar.close is not None
-            and previous_close is not None
-            and previous_close != 0
+            and base_close is not None
+            and base_close != 0
         ):
-            calculated_amount = bar.close - previous_close
+            calculated_amount = bar.close - base_close
             change_amount = change_amount if change_amount is not None else calculated_amount
             change_percent = (
                 change_percent
                 if change_percent is not None
-                else (calculated_amount / previous_close) * Decimal("100")
+                else (calculated_amount / base_close) * Decimal("100")
             )
         enriched.append(
             bar.model_copy(
                 update={
+                    "previous_close": base_close,
                     "change_amount": change_amount,
                     "change_percent": change_percent,
                 }
@@ -1221,8 +1360,17 @@ async def get_local_kline(
               selected_bars.high,
               selected_bars.low,
               selected_bars.close,
+              selected_bars.previous_close,
               selected_bars.volume,
               selected_bars.amount,
+              selected_bars.amplitude,
+              selected_bars.change_percent,
+              selected_bars.change_amount,
+              selected_bars.turnover,
+              selected_bars.trade_status,
+              selected_bars.is_st,
+              selected_bars.limit_up,
+              selected_bars.limit_down,
               selected_bars.provider AS data_provider,
               selected_bars.metadata AS bar_metadata,
               coverage_summary.coverage_row_count,
@@ -1275,12 +1423,35 @@ async def get_local_kline(
                 high=row["high"],
                 low=row["low"],
                 close=row["close"],
+                previous_close=first_decimal(row["previous_close"], metadata.get("previous_close")),
                 volume=row["volume"],
                 amount=row["amount"],
-                amplitude=decimal_from_json(metadata.get("amplitude")),
-                change_percent=decimal_from_json(metadata.get("change_percent")),
-                change_amount=decimal_from_json(metadata.get("change_amount")),
-                turnover=decimal_from_json(metadata.get("turnover")),
+                amplitude=first_decimal(row["amplitude"], metadata.get("amplitude")),
+                change_percent=first_decimal(
+                    row["change_percent"],
+                    metadata.get("change_percent"),
+                ),
+                change_amount=first_decimal(
+                    row["change_amount"],
+                    metadata.get("change_amount"),
+                ),
+                turnover=first_decimal(row["turnover"], metadata.get("turnover")),
+                trade_status=first_text(row["trade_status"], metadata.get("trade_status")),
+                is_st=(
+                    bool_or_none(row["is_st"])
+                    if row["is_st"] is not None
+                    else bool_or_none(metadata.get("is_st"))
+                ),
+                limit_up=(
+                    bool_or_none(row["limit_up"])
+                    if row["limit_up"] is not None
+                    else bool_or_none(metadata.get("limit_up"))
+                ),
+                limit_down=(
+                    bool_or_none(row["limit_down"])
+                    if row["limit_down"] is not None
+                    else bool_or_none(metadata.get("limit_down"))
+                ),
                 provider=str(row["data_provider"]),
                 metadata=metadata,
             )
@@ -1308,10 +1479,10 @@ async def get_local_kline(
         first_ts=summary_first_ts,
         last_ts=summary_last_ts,
         latest_close=latest.close if latest else None,
-        previous_close=previous.close if previous else None,
+        previous_close=(previous.close if previous else latest.previous_close if latest else None),
         return_pct=calculate_return_pct(
             latest.close if latest else None,
-            previous.close if previous else None,
+            previous.close if previous else latest.previous_close if latest else None,
         ),
         high=max((bar.high for bar in bars), default=None),
         low=min((bar.low for bar in bars), default=None),
@@ -1327,7 +1498,7 @@ async def get_local_kline(
         currency=first_row["currency"] or "CNY",
         timezone=first_row["timezone"] or "Asia/Shanghai",
         secid=first_row["secid"],
-        provider=first_row["provider"],
+        provider=str(first_row["data_provider"] or first_row["provider"]),
         timeframe=timeframe,
         adjustment=str(first_row["adjustment"] or adjustment),
         bars=bars,
@@ -1339,6 +1510,7 @@ async def create_ingestion_job(
     *,
     job_id: str,
     universe_id: str | None,
+    provider: str,
     timeframe: str,
     adjustment: str,
     total_symbols: int,
@@ -1351,15 +1523,16 @@ async def create_ingestion_job(
                   id, universe_id, provider, timeframe, adjustment, status, total_symbols,
                   metadata, started_at, created_at, updated_at
                 )
-                VALUES (%s, %s, 'eastmoney', %s, %s, 'running', %s, %s, now(), now(), now())
+                VALUES (%s, %s, %s, %s, %s, 'running', %s, %s, now(), now(), now())
                 ON CONFLICT (id) DO UPDATE SET
+                  provider = EXCLUDED.provider,
                   status = 'running',
                   total_symbols = EXCLUDED.total_symbols,
                   metadata = quant.market_data_ingestion_jobs.metadata || EXCLUDED.metadata,
                   started_at = now(),
                   updated_at = now()
                 """,
-            (job_id, universe_id, timeframe, adjustment, total_symbols, Jsonb(metadata)),
+            (job_id, universe_id, provider, timeframe, adjustment, total_symbols, Jsonb(metadata)),
         )
 
 
@@ -1394,12 +1567,88 @@ async def finish_ingestion_job(response: HistoryIngestionResponse) -> None:
                 "; ".join(f"{item['symbol']}: {item['error']}" for item in errors)[:2000]
                 or None,
                 Jsonb(
-                    {"symbol_results": [item.model_dump(mode="json") for item in response.symbols]}
+                    {
+                        "symbol_results": [
+                            item.model_dump(mode="json") for item in response.symbols
+                        ],
+                        "batch_offset": response.batch_offset,
+                        "batch_size": response.batch_size,
+                        "next_offset": response.next_offset,
+                        "universe_total_symbols": response.universe_total_symbols,
+                    }
                 ),
                 response.completed_at,
                 response.job_id,
             ),
         )
+
+
+async def list_ingestion_jobs(
+    *,
+    universe_id: str | None = None,
+    limit: int = 20,
+) -> list[IngestionJobSummary]:
+    normalized_limit = max(1, min(limit, 100))
+    params: tuple[Any, ...]
+    where_sql = ""
+    if universe_id:
+        where_sql = "WHERE universe_id = %s"
+        params = (universe_id, normalized_limit)
+    else:
+        params = (normalized_limit,)
+
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            f"""
+                SELECT
+                  id,
+                  universe_id,
+                  provider,
+                  timeframe,
+                  adjustment,
+                  status,
+                  total_symbols,
+                  completed_symbols,
+                  failed_symbols,
+                  rows_received,
+                  rows_upserted,
+                  error,
+                  metadata,
+                  started_at,
+                  completed_at,
+                  created_at,
+                  updated_at
+                FROM quant.market_data_ingestion_jobs
+                {where_sql}
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+            params,
+        )
+        rows = await cursor.fetchall()
+
+    return [
+        IngestionJobSummary(
+            id=str(row["id"]),
+            universe_id=row["universe_id"],
+            provider=str(row["provider"]),
+            timeframe=str(row["timeframe"]),
+            adjustment=str(row["adjustment"]),
+            status=str(row["status"]),
+            total_symbols=int(row["total_symbols"] or 0),
+            completed_symbols=int(row["completed_symbols"] or 0),
+            failed_symbols=int(row["failed_symbols"] or 0),
+            rows_received=int(row["rows_received"] or 0),
+            rows_upserted=int(row["rows_upserted"] or 0),
+            error=row["error"],
+            metadata=json_object(row["metadata"]),
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+        for row in rows
+    ]
 
 
 async def upsert_kline_response(
@@ -1411,6 +1660,7 @@ async def upsert_kline_response(
     symbol = canonical_symbol(kline.symbol, kline.market)
     cutoff = lookback_cutoff_datetime(lookback_years)
     bars: list[tuple[Any, ...]] = []
+    factor_rows: list[tuple[Any, ...]] = []
     first_date: str | None = None
     last_date: str | None = None
     for bar in kline.bars:
@@ -1431,6 +1681,9 @@ async def upsert_kline_response(
             "source": kline.source,
             "source_response": kline.metadata,
             "source_bar": bar.metadata,
+            "previous_close": (
+                str(bar.previous_close) if bar.previous_close is not None else None
+            ),
             "amplitude": str(bar.amplitude) if bar.amplitude is not None else None,
             "change_percent": (
                 str(bar.change_percent) if bar.change_percent is not None else None
@@ -1439,6 +1692,10 @@ async def upsert_kline_response(
                 str(bar.change_amount) if bar.change_amount is not None else None
             ),
             "turnover": str(bar.turnover) if bar.turnover is not None else None,
+            "trade_status": bar.trade_status,
+            "is_st": bar.is_st,
+            "limit_up": bar.limit_up,
+            "limit_down": bar.limit_down,
             "universe_id": universe_id,
         }
         bars.append(
@@ -1451,12 +1708,42 @@ async def upsert_kline_response(
                 bar.high,
                 bar.low,
                 bar.close,
+                decimal_or_none(bar.previous_close),
                 decimal_or_zero(bar.volume),
                 decimal_or_none(bar.amount),
+                decimal_or_none(bar.amplitude),
+                decimal_or_none(bar.change_percent),
+                decimal_or_none(bar.change_amount),
+                decimal_or_none(bar.turnover),
+                bar.trade_status,
+                bar.is_st,
+                bar.limit_up,
+                bar.limit_down,
                 kline.source,
                 Jsonb(bar_metadata),
             )
         )
+        factors = json_object(bar.metadata.get("factors"))
+        for factor_key, factor_value in factors.items():
+            parsed_factor = decimal_from_json(factor_value)
+            if parsed_factor is None:
+                continue
+            factor_rows.append(
+                (
+                    symbol,
+                    ts,
+                    factor_key,
+                    float(parsed_factor),
+                    kline.source,
+                    Jsonb(
+                        {
+                            "source": kline.source,
+                            "source_bar": bar.metadata,
+                            "universe_id": universe_id,
+                        }
+                    ),
+                )
+            )
 
     if not bars:
         return symbol, 0, first_date, last_date
@@ -1496,42 +1783,66 @@ async def upsert_kline_response(
         await cursor.executemany(
             """
                 INSERT INTO quant.stock_bars (
-                  symbol, ts, timeframe, adjustment, open, high, low, close, volume, amount,
-                  provider, metadata, created_at
+                  symbol, ts, timeframe, adjustment, open, high, low, close, previous_close,
+                  volume, amount, amplitude, change_percent, change_amount, turnover,
+                  trade_status, is_st, limit_up, limit_down, provider, metadata, created_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                VALUES (
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                  %s, %s, %s, now()
+                )
                 ON CONFLICT (symbol, timeframe, adjustment, ts) DO UPDATE SET
                   open = EXCLUDED.open,
                   high = EXCLUDED.high,
                   low = EXCLUDED.low,
                   close = EXCLUDED.close,
+                  previous_close = COALESCE(
+                    EXCLUDED.previous_close,
+                    quant.stock_bars.previous_close
+                  ),
                   volume = EXCLUDED.volume,
                   amount = COALESCE(EXCLUDED.amount, quant.stock_bars.amount),
+                  amplitude = COALESCE(EXCLUDED.amplitude, quant.stock_bars.amplitude),
+                  change_percent = COALESCE(
+                    EXCLUDED.change_percent,
+                    quant.stock_bars.change_percent
+                  ),
+                  change_amount = COALESCE(
+                    EXCLUDED.change_amount,
+                    quant.stock_bars.change_amount
+                  ),
+                  turnover = COALESCE(EXCLUDED.turnover, quant.stock_bars.turnover),
+                  trade_status = COALESCE(EXCLUDED.trade_status, quant.stock_bars.trade_status),
+                  is_st = COALESCE(EXCLUDED.is_st, quant.stock_bars.is_st),
+                  limit_up = COALESCE(EXCLUDED.limit_up, quant.stock_bars.limit_up),
+                  limit_down = COALESCE(EXCLUDED.limit_down, quant.stock_bars.limit_down),
                   provider = CASE
                     WHEN EXCLUDED.amount IS NULL
-                     AND EXCLUDED.metadata->>'turnover' IS NULL
+                     AND EXCLUDED.turnover IS NULL
                      AND (
                        quant.stock_bars.amount IS NOT NULL
-                       OR quant.stock_bars.metadata->>'turnover' IS NOT NULL
+                       OR quant.stock_bars.turnover IS NOT NULL
                      )
                     THEN quant.stock_bars.provider
                     ELSE EXCLUDED.provider
                   END,
                   metadata = quant.stock_bars.metadata || jsonb_strip_nulls(EXCLUDED.metadata)
-                """,
+            """,
             bars,
         )
-        if cutoff is not None:
-            await cursor.execute(
+        if factor_rows:
+            await cursor.executemany(
                 """
-                DELETE FROM quant.stock_bars
-                WHERE symbol = %s
-                  AND timeframe = %s
-                  AND adjustment = %s
-                  AND provider = %s
-                  AND ts < %s
-                """,
-                (symbol, kline.period, kline.adjustment, kline.source, cutoff),
+                    INSERT INTO quant.stock_factors (
+                      symbol, ts, factor_key, factor_value, provider, metadata, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, now())
+                    ON CONFLICT (symbol, factor_key, ts) DO UPDATE SET
+                      factor_value = EXCLUDED.factor_value,
+                      provider = EXCLUDED.provider,
+                      metadata = quant.stock_factors.metadata || EXCLUDED.metadata
+                    """,
+                factor_rows,
             )
         await cursor.execute(
             """

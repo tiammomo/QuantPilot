@@ -206,12 +206,17 @@ class KlineBar(BaseModel):
     close: Decimal | None = None
     high: Decimal | None = None
     low: Decimal | None = None
+    previous_close: Decimal | None = Field(default=None, description="前收盘价")
     volume: int | None = Field(default=None, description="成交量")
     amount: Decimal | None = Field(default=None, description="成交额")
     amplitude: Decimal | None = Field(default=None, description="振幅，单位：%")
     change_percent: Decimal | None = Field(default=None, description="涨跌幅，单位：%")
     change_amount: Decimal | None = Field(default=None, description="涨跌额")
     turnover: Decimal | None = Field(default=None, description="换手率，单位：%")
+    trade_status: str | None = Field(default=None, description="交易状态，数据源原始枚举")
+    is_st: bool | None = Field(default=None, description="是否 ST")
+    limit_up: bool | None = Field(default=None, description="是否涨停")
+    limit_down: bool | None = Field(default=None, description="是否跌停")
     metadata: dict[str, Any] = Field(default_factory=dict, description="数据源原始字段与补充信息")
 
 
@@ -280,6 +285,8 @@ class ResearchUniverseMember(BaseModel):
     data_provider: str | None = Field(default=None, description="当前覆盖数据来源")
     latest_close: Decimal | None = Field(default=None, description="最新收盘价")
     latest_change_pct: Decimal | None = Field(default=None, description="最近一日涨跌幅，单位：%")
+    latest_amount: Decimal | None = Field(default=None, description="最近一日成交额")
+    latest_turnover: Decimal | None = Field(default=None, description="最近一日换手率，单位：%")
     strength_20d_pct: Decimal | None = Field(
         default=None,
         description="近 20 个交易日涨跌幅，单位：%",
@@ -296,6 +303,15 @@ class ResearchUniverseMember(BaseModel):
     )
     avg_amount_20d: Decimal | None = Field(default=None, description="近 20 日平均成交额")
     avg_volume_20d: Decimal | None = Field(default=None, description="近 20 日平均成交量")
+    avg_turnover_20d: Decimal | None = Field(default=None, description="近 20 日平均换手率")
+    trade_status: str | None = Field(default=None, description="最近一日交易状态")
+    is_st: bool | None = Field(default=None, description="最近一日是否 ST")
+    limit_up: bool | None = Field(default=None, description="最近一日是否涨停")
+    limit_down: bool | None = Field(default=None, description="最近一日是否跌停")
+    pe_ttm: Decimal | None = Field(default=None, description="TTM 市盈率")
+    pb_mrq: Decimal | None = Field(default=None, description="市净率 MRQ")
+    ps_ttm: Decimal | None = Field(default=None, description="TTM 市销率")
+    pcf_ncf_ttm: Decimal | None = Field(default=None, description="TTM 市现率")
     data_status: Literal["ready", "missing", "stale"] = Field(
         default="missing",
         description="本地数据状态",
@@ -477,12 +493,17 @@ class LocalKlineBar(BaseModel):
     high: Decimal
     low: Decimal
     close: Decimal
+    previous_close: Decimal | None = None
     volume: Decimal
     amount: Decimal | None = None
     amplitude: Decimal | None = None
     change_percent: Decimal | None = None
     change_amount: Decimal | None = None
     turnover: Decimal | None = None
+    trade_status: str | None = None
+    is_st: bool | None = None
+    limit_up: bool | None = None
+    limit_down: bool | None = None
     provider: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -563,6 +584,11 @@ class HistoryIngestionRequest(BaseModel):
     )
 
 
+class HistoryBatchIngestionRequest(HistoryIngestionRequest):
+    batch_size: int = Field(default=25, ge=1, le=200, description="单批最多处理标的数。")
+    offset: int = Field(default=0, ge=0, description="从股票池成员列表的第几个标的开始。")
+
+
 class DividendEvent(BaseModel):
     symbol: str
     name: str | None = None
@@ -625,6 +651,10 @@ class HistoryIngestionResponse(BaseModel):
     rows_received: int
     rows_upserted: int
     symbols: list[HistoryIngestionSymbolResult]
+    batch_offset: int | None = None
+    batch_size: int | None = None
+    next_offset: int | None = None
+    universe_total_symbols: int | None = None
     started_at: datetime
     completed_at: datetime
     data_quality: DataQuality = Field(default_factory=DataQuality)
@@ -638,6 +668,31 @@ class HistoryIngestionResponse(BaseModel):
                 status="warning" if self.completed_symbols else "error",
             )
         return self
+
+
+class IngestionJobSummary(BaseModel):
+    id: str
+    universe_id: str | None = None
+    provider: str
+    timeframe: str
+    adjustment: str
+    status: str
+    total_symbols: int = 0
+    completed_symbols: int = 0
+    failed_symbols: int = 0
+    rows_received: int = 0
+    rows_upserted: int = 0
+    error: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IngestionJobsResponse(BaseModel):
+    jobs: list[IngestionJobSummary]
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class TechnicalIndicatorPoint(BaseModel):
@@ -904,6 +959,7 @@ class BacktestResponse(BaseModel):
     fast_window: int
     slow_window: int
     fee_bps: Decimal
+    parameters: dict[str, Any] = Field(default_factory=dict, description="策略参数快照")
     period: KlinePeriod
     adjustment: Adjustment
     side: StrategySide = "long"

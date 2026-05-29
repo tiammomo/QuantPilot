@@ -5,7 +5,16 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE SCHEMA IF NOT EXISTS quant;
 
 ALTER TABLE quant.stock_bars
-  ADD COLUMN IF NOT EXISTS adjustment TEXT NOT NULL DEFAULT 'qfq';
+  ADD COLUMN IF NOT EXISTS adjustment TEXT NOT NULL DEFAULT 'qfq',
+  ADD COLUMN IF NOT EXISTS previous_close NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS amplitude NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS change_percent NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS change_amount NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS turnover NUMERIC(20, 8),
+  ADD COLUMN IF NOT EXISTS trade_status TEXT,
+  ADD COLUMN IF NOT EXISTS is_st BOOLEAN,
+  ADD COLUMN IF NOT EXISTS limit_up BOOLEAN,
+  ADD COLUMN IF NOT EXISTS limit_down BOOLEAN;
 
 DO $$
 DECLARE
@@ -51,6 +60,9 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS stock_bars_symbol_timeframe_adjustment_ts_desc_idx
   ON quant.stock_bars (symbol, timeframe, adjustment, ts DESC);
+
+CREATE INDEX IF NOT EXISTS stock_factors_symbol_factor_ts_desc_idx
+  ON quant.stock_factors (symbol, factor_key, ts DESC);
 
 CREATE TABLE IF NOT EXISTS quant.securities (
   symbol TEXT PRIMARY KEY,
