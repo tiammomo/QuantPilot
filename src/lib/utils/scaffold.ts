@@ -1935,6 +1935,799 @@ td small {
 `;
 }
 
+function holdingAnalysisPageTemplate() {
+  return `import fs from 'fs/promises';
+import path from 'path';
+
+type JsonRecord = Record<string, unknown>;
+
+const DATA_FILE = 'data_file/final/dashboard-data.json';
+const SOURCES_FILE = 'evidence/sources.json';
+
+function asRecord(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as JsonRecord;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function numeric(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatNumber(value: unknown, digits = 2): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(number);
+}
+
+function formatPercent(value: unknown): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
+}
+
+function formatMoney(value: unknown): string {
+  const number = numeric(value);
+  if (number === null) return '-';
+  if (Math.abs(number) >= 100000000) return formatNumber(number / 100000000, 2) + ' 亿';
+  if (Math.abs(number) >= 10000) return formatNumber(number / 10000, 2) + ' 万';
+  return formatNumber(number);
+}
+
+function sourceDisplayName(source: unknown, datasetType?: unknown): string {
+  const normalized = String(source ?? '').toLowerCase();
+  const type = String(datasetType ?? '').toLowerCase();
+  if (normalized.includes('eastmoney')) {
+    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
+    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
+    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
+    return '东方财富实时行情接口';
+  }
+  if (normalized.includes('uploaded_image')) return '用户上传截图';
+  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端预取';
+  if (normalized.includes('tencent')) return '腾讯证券行情接口';
+  if (normalized.includes('sina')) return '新浪财经行情接口';
+  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
+  if (normalized.includes('local')) return '本地计算结果';
+  return String(source ?? '未知信源');
+}
+
+function tone(value: unknown): 'up' | 'down' | 'neutral' {
+  const number = numeric(value);
+  if (number === null || number === 0) return 'neutral';
+  return number > 0 ? 'up' : 'down';
+}
+
+async function readDashboardData(): Promise<JsonRecord | null> {
+  try {
+    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    return asRecord(JSON.parse(content));
+  } catch {
+    return null;
+  }
+}
+
+function getAssets(data: JsonRecord | null): JsonRecord[] {
+  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function getHoldings(data: JsonRecord | null): JsonRecord[] {
+  const raw = asArray(data?.holdings).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (raw.length > 0) {
+    return raw.map((h) => ({
+      symbol: h.symbol,
+      name: h.name,
+      weight: h.weight ?? h.position_pct,
+      quantity: h.quantity ?? h.shares,
+      cost: h.cost ?? h.cost_price,
+      current_price: h.current_price ?? h.price,
+      market_value: h.market_value ?? h.marketValue,
+      pnl: h.pnl ?? h.profit_loss,
+      pnl_pct: h.pnl_pct ?? h.profit_loss_pct,
+      as_of: h.as_of ?? h.quote_time ?? h.fetched_at,
+      source: h.source,
+    }));
+  }
+  return getAssets(data).map((asset) => {
+    const quote = asRecord(asset.quote);
+    const position = asRecord(asset.position);
+    return {
+      symbol: asset.symbol ?? quote?.symbol ?? position?.symbol,
+      name: asset.name ?? quote?.name ?? position?.name ?? asset.symbol,
+      weight: position?.weight ?? asset.weight,
+      quantity: position?.quantity ?? position?.shares ?? asset.quantity ?? asset.shares,
+      cost: position?.cost ?? position?.cost_price ?? asset.cost ?? asset.cost_price,
+      current_price: quote?.price ?? position?.current_price,
+      market_value: position?.market_value ?? asset.market_value,
+      pnl: position?.pnl ?? asset.pnl,
+      pnl_pct: position?.pnl_pct ?? asset.pnl_pct,
+      as_of: asset.as_of ?? quote?.quote_time ?? quote?.fetched_at,
+      source: asset.source ?? quote?.source,
+    };
+  });
+}
+
+function getPortfolio(data: JsonRecord | null): JsonRecord | null {
+  const portfolio = asRecord(data?.portfolio);
+  if (portfolio && (numeric(portfolio.total_value) !== null || numeric(portfolio.total_asset) !== null || numeric(portfolio.market_value) !== null)) {
+    return portfolio;
+  }
+  const holdings = getHoldings(data);
+  if (holdings.length === 0) return null;
+  const totalMarketValue = holdings.reduce((sum, h) => sum + (numeric(h.market_value) ?? 0), 0);
+  const totalCost = holdings.reduce((sum, h) => sum + (numeric(h.cost) ?? 0) * (numeric(h.quantity) ?? 0), 0);
+  const hasCostData = holdings.some((h) => numeric(h.cost) !== null && numeric(h.quantity) !== null);
+  const totalPnl = hasCostData ? totalMarketValue - totalCost : null;
+  return {
+    total_value: totalMarketValue,
+    cost_basis: hasCostData ? totalCost : null,
+    total_pnl: totalPnl,
+    total_pnl_pct: hasCostData && totalCost > 0 ? (totalPnl! / totalCost) * 100 : null,
+    holdings_count: holdings.length,
+    as_of: holdings[0]?.as_of ?? data?.as_of,
+  };
+}
+
+function getRiskMetrics(data: JsonRecord | null): JsonRecord | null {
+  return asRecord(data?.risk) ?? asRecord(data?.risk_metrics);
+}
+
+function getComparisonRows(data: JsonRecord | null): JsonRecord[] {
+  const comparison = asRecord(data?.comparison);
+  const rows = asArray(comparison?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (rows.length > 0) return rows;
+  return getAssets(data).map((asset) => {
+    const quote = asRecord(asset.quote);
+    const metrics = asRecord(asset.computedMetrics);
+    const technical = asRecord(asRecord(asset.technicalIndicators)?.summary);
+    return {
+      symbol: asset.symbol ?? quote?.symbol,
+      name: asset.name ?? quote?.name ?? asset.symbol,
+      price: quote?.price,
+      change_percent: quote?.change_percent,
+      period_return: technical?.return_120d_pct ?? metrics?.periodReturn,
+      max_drawdown: technical?.max_drawdown_pct ?? metrics?.maxDrawdown,
+      volatility20d: technical?.volatility_20d_annualized_pct ?? metrics?.volatility20d,
+      avg_volume_20d: metrics?.avgVolume20d,
+      amount: quote?.amount,
+      as_of: asset.as_of ?? quote?.quote_time ?? quote?.fetched_at,
+    };
+  });
+}
+
+function getSparklineBars(asset: JsonRecord): JsonRecord[] {
+  return asArray(asRecord(asset.kline)?.bars).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}
+
+function weightBarWidth(weight: unknown, maxWeight: number): number {
+  return Math.max(4, Math.min(100, ((numeric(weight) ?? 0) / Math.max(maxWeight, 0.01)) * 100));
+}
+
+function Sparkline({ asset }: { asset: JsonRecord }) {
+  const bars = getSparklineBars(asset).slice(-50);
+  const closes = bars.map((bar) => numeric(bar.close)).filter((value): value is number => value !== null);
+  const min = closes.length ? Math.min(...closes) : 0;
+  const max = closes.length ? Math.max(...closes) : 1;
+  const range = Math.max(max - min, 0.000001);
+  const points = closes.map((value, index) => {
+    const x = (index / Math.max(closes.length - 1, 1)) * 100;
+    const y = 34 - ((value - min) / range) * 28;
+    return x.toFixed(2) + ',' + y.toFixed(2);
+  }).join(' ');
+  return (
+    <svg className="sparkline" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={String(asset.name ?? asset.symbol ?? 'K 线迷你趋势')}>
+      <line x1="0" y1="34" x2="100" y2="34" className="axis" />
+      {points ? <polyline points={points} fill="none" /> : null}
+    </svg>
+  );
+}
+
+function HoldingCards({ holdings, assets }: { holdings: JsonRecord[]; assets: JsonRecord[] }) {
+  return (
+    <section className="holding-grid">
+      {holdings.map((holding, index) => {
+        const asset = assets.find((a) => (a.symbol ?? asRecord(a.quote)?.symbol) === holding.symbol) ?? {};
+        const weight = numeric(holding.weight);
+        const pnl = numeric(holding.pnl);
+        const pnlPct = numeric(holding.pnl_pct);
+        return (
+          <article className="holding-card" key={String(holding.symbol ?? index)}>
+            <div className="holding-card-top">
+              <div>
+                <strong>{String(holding.name ?? holding.symbol)}</strong>
+                <small>{String(holding.symbol ?? '-')} · 权重 {formatPercent(weight)}</small>
+              </div>
+              <Sparkline asset={asset} />
+            </div>
+            <dl>
+              <div><dt>持有数量</dt><dd>{formatNumber(holding.quantity, 0)} 股</dd></div>
+              <div><dt>成本价</dt><dd>{formatNumber(holding.cost)}</dd></div>
+              <div><dt>现价</dt><dd>{formatNumber(holding.current_price)}</dd></div>
+              <div><dt>市值</dt><dd>{formatMoney(holding.market_value)}</dd></div>
+              <div><dt>浮动盈亏</dt><dd className={tone(pnl)}>{formatMoney(pnl)}</dd></div>
+              <div><dt>盈亏幅度</dt><dd className={tone(pnlPct)}>{formatPercent(pnlPct)}</dd></div>
+            </dl>
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function ConcentrationPanel({ holdings }: { holdings: JsonRecord[] }) {
+  const maxWeight = Math.max(0.01, ...holdings.map((h) => numeric(h.weight) ?? 0));
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>仓位集中度</h2>
+          <p>按持仓权重从高到低排列；集中度过高可能放大单只标的风险。</p>
+        </div>
+        <span>{holdings.length} 只</span>
+      </div>
+      <div className="concentration-list">
+        {holdings.map((holding, index) => {
+          const weight = numeric(holding.weight) ?? 0;
+          const pnlPct = numeric(holding.pnl_pct);
+          return (
+            <div key={String(holding.symbol ?? index)} className="concentration-row">
+              <span className="concentration-label">{String(holding.name ?? holding.symbol ?? '-')}</span>
+              <div className="concentration-bar-track">
+                <i className={weight >= 20 ? 'bar-heavy' : weight >= 10 ? 'bar-moderate' : 'bar-light'} style={{ width: weightBarWidth(weight, maxWeight) + '%' }} />
+              </div>
+              <strong className="concentration-pct">{formatPercent(weight)}</strong>
+              <em className={tone(pnlPct)}>{formatPercent(pnlPct)}</em>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function HoldingsTable({ holdings }: { holdings: JsonRecord[] }) {
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>持仓明细</h2>
+          <p>逐只展示持仓数量、成本、现价、市值和浮动盈亏</p>
+        </div>
+        <span>{holdings.length} 只</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>标的</th>
+              <th>数量</th>
+              <th>成本价</th>
+              <th>现价</th>
+              <th>市值</th>
+              <th>浮动盈亏</th>
+              <th>盈亏%</th>
+              <th>权重</th>
+            </tr>
+          </thead>
+          <tbody>
+            {holdings.map((holding, index) => {
+              const pnl = numeric(holding.pnl);
+              const pnlPct = numeric(holding.pnl_pct);
+              return (
+                <tr key={String(holding.symbol ?? index)}>
+                  <td><strong>{String(holding.name ?? holding.symbol)}</strong><small>{String(holding.symbol ?? '-')}</small></td>
+                  <td>{formatNumber(holding.quantity, 0)}</td>
+                  <td>{formatNumber(holding.cost)}</td>
+                  <td>{formatNumber(holding.current_price)}</td>
+                  <td>{formatMoney(holding.market_value)}</td>
+                  <td className={tone(pnl)}>{formatMoney(pnl)}</td>
+                  <td className={tone(pnlPct)}>{formatPercent(pnlPct)}</td>
+                  <td>{formatPercent(holding.weight)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ComparisonMetricsPanel({ rows }: { rows: JsonRecord[] }) {
+  if (rows.length < 2) return null;
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>多标的指标对比</h2>
+          <p>统一窗口下的行情、收益、波动和回撤横向比较</p>
+        </div>
+        <span>{rows.length} 项</span>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>标的</th>
+              <th>最新价</th>
+              <th>涨跌幅</th>
+              <th>区间收益</th>
+              <th>最大回撤</th>
+              <th>波动率</th>
+              <th>20 日均额</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={String(row.symbol ?? index)}>
+                <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
+                <td>{formatNumber(row.price)}</td>
+                <td className={tone(row.change_percent)}>{formatPercent(row.change_percent)}</td>
+                <td className={tone(row.period_return)}>{formatPercent(row.period_return)}</td>
+                <td className="down">{formatPercent(row.max_drawdown)}</td>
+                <td>{formatPercent(row.volatility20d)}</td>
+                <td>{formatMoney(row.avg_volume_20d ?? row.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function RiskPanel({ risk }: { risk: JsonRecord | null }) {
+  if (!risk) return null;
+  const var95 = numeric(risk?.var_95_pct ?? risk?.VaR_95);
+  const var99 = numeric(risk?.var_99_pct ?? risk?.VaR_99);
+  const expectedShortfall = numeric(risk?.expected_shortfall ?? risk?.cvar_95);
+  const correlation = asArray(risk?.correlation_top_pairs).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>组合风险估算</h2>
+          <p>基于历史收益的 VaR、CVaR 和相关性评估；未建模极端事件和流动性冲击。</p>
+        </div>
+        <span>仅供参考</span>
+      </div>
+      <div className="risk-grid">
+        <article><span>VaR 95%</span><strong>{formatPercent(var95)}</strong></article>
+        <article><span>VaR 99%</span><strong>{formatPercent(var99)}</strong></article>
+        <article><span>Expected Shortfall</span><strong>{formatPercent(expectedShortfall)}</strong></article>
+        <article><span>计算区间</span><strong>{String(risk?.window ?? risk?.sample_window ?? '-')}</strong></article>
+      </div>
+      {correlation.length > 0 && (
+        <div className="correlation-list" style={{ marginTop: 14 }}>
+          {correlation.slice(0, 4).map((pair, index) => {
+            const corr = numeric(pair.correlation);
+            return (
+              <div className="correlation-row" key={String(pair.left ?? index) + String(pair.right ?? '')}>
+                <div><strong>{String(pair.left ?? '-')} / {String(pair.right ?? '-')}</strong></div>
+                <div className="correlation-meter"><span style={{ width: Math.max(4, Math.abs(corr ?? 0) * 100) + '%' }} className={(corr ?? 0) >= 0 ? 'corr-positive' : 'corr-negative'} /></div>
+                <em>{formatNumber(corr, 4)}</em>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DataSourcePanel({ assets }: { assets: JsonRecord[] }) {
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>数据信源渠道</h2>
+          <p>逐只标的展示实际数据来源、行情时间和 K 线覆盖。</p>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>标的</th><th>信源渠道</th><th>行情时间</th><th>K 线样本</th></tr>
+          </thead>
+          <tbody>
+            {assets.map((asset, index) => {
+              const quote = asRecord(asset.quote);
+              const kline = asRecord(asset.kline);
+              return (
+                <tr key={String(asset.symbol ?? index)}>
+                  <td><strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong><small>{String(asset.symbol ?? quote?.symbol ?? '-')}</small></td>
+                  <td>{sourceDisplayName(asset.source ?? quote?.source ?? 'eastmoney')}</td>
+                  <td>{String(asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? '-')}</td>
+                  <td>{asArray(kline?.bars).length}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+export default async function Home() {
+  const data = await readDashboardData();
+  const portfolio = getPortfolio(data);
+  const holdings = getHoldings(data);
+  const assets = getAssets(data);
+  const comparisonRows = getComparisonRows(data);
+  const risk = getRiskMetrics(data);
+  const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
+  const totalPnl = numeric(portfolio?.total_pnl);
+  const totalPnlPct = numeric(portfolio?.total_pnl_pct);
+
+  return (
+    <main className="holding-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="holding-analysis">
+      <section className="holding-hero">
+        <div>
+          <p className="eyebrow">QuantPilot 持仓分析</p>
+          <h1>组合持仓风险看板</h1>
+          <p>覆盖 {holdings.length} 只持仓：{holdings.map((h) => String(h.name ?? h.symbol)).join('、')}。以下分析仅用于研究，不构成交易指令。</p>
+        </div>
+        <div className="hero-summary">
+          <article><span>组合市值</span><strong>{formatMoney(portfolio?.total_value)}</strong></article>
+          <article><span>持仓成本</span><strong>{formatMoney(portfolio?.cost_basis)}</strong></article>
+          <article><span>浮动盈亏</span><strong className={tone(totalPnl)}>{formatMoney(totalPnl)}</strong></article>
+          <article><span>盈亏幅度</span><strong className={tone(totalPnlPct)}>{formatPercent(totalPnlPct)}</strong></article>
+        </div>
+        <div className="hero-meta">
+          <span>持仓 {String(portfolio?.holdings_count ?? holdings.length)} 只</span>
+          <span>覆盖 {requestedSymbols.length || assets.length} 个标的</span>
+          <span>数据时间 {String(portfolio?.as_of ?? holdings[0]?.as_of ?? '-')}</span>
+        </div>
+      </section>
+
+      <HoldingCards holdings={holdings} assets={assets} />
+
+      <section className="holding-main-grid">
+        <HoldingsTable holdings={holdings} />
+        <ConcentrationPanel holdings={holdings} />
+      </section>
+
+      <ComparisonMetricsPanel rows={comparisonRows} />
+
+      <RiskPanel risk={risk} />
+
+      <DataSourcePanel assets={assets} />
+    </main>
+  );
+}
+`;
+}
+
+function holdingAnalysisCss() {
+  return `
+
+.holding-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 28px;
+}
+
+.holding-hero {
+  display: grid;
+  gap: 20px;
+  padding: 24px 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.holding-hero h1 {
+  margin: 4px 0 6px;
+  font-size: clamp(26px, 2.8vw, 40px);
+  letter-spacing: 0;
+}
+
+.holding-hero p {
+  color: var(--muted);
+}
+
+.hero-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.hero-summary article {
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-1);
+  border-radius: 8px;
+}
+
+.hero-summary span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hero-summary strong {
+  display: block;
+  font-size: 24px;
+  white-space: nowrap;
+}
+
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.holding-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.holding-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.holding-card-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 114px;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.holding-card-top strong {
+  display: block;
+  font-size: 17px;
+}
+
+.holding-card-top small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.holding-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.holding-card dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.holding-card dd {
+  margin: 2px 0 0;
+  font-weight: 800;
+}
+
+.holding-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.holding-panel,
+.risk-grid article {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.holding-panel {
+  margin-top: 14px;
+  padding: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.panel-heading h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.panel-heading p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.panel-heading span {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.concentration-list {
+  display: grid;
+  gap: 10px;
+}
+
+.concentration-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr) 60px 64px;
+  gap: 12px;
+  align-items: center;
+}
+
+.concentration-label {
+  font-weight: 600;
+}
+
+.concentration-bar-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.concentration-bar-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.bar-heavy { background: var(--red); }
+.bar-moderate { background: #e6a817; }
+.bar-light { background: #8b9cb8; }
+
+.concentration-pct {
+  font-weight: 800;
+  text-align: right;
+}
+
+.risk-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.risk-grid article {
+  padding: 16px;
+}
+
+.risk-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.risk-grid strong {
+  display: block;
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+.correlation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.correlation-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(100px, 1fr) 56px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-1);
+}
+
+.correlation-row strong {
+  font-size: 15px;
+}
+
+.correlation-row em {
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.correlation-meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.correlation-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.corr-positive { background: var(--red); }
+.corr-negative { background: var(--green); }
+
+.sparkline {
+  width: 100%;
+  height: 56px;
+}
+
+.sparkline polyline {
+  stroke: var(--blue);
+  stroke-width: 2.4;
+}
+
+.axis {
+  stroke: var(--line);
+  stroke-width: 0.7;
+}
+
+td small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.up { color: var(--red); }
+.down { color: var(--green); }
+.neutral { color: var(--ink); }
+
+@media (max-width: 980px) {
+  .holding-shell {
+    padding: 16px;
+  }
+
+  .hero-summary,
+  .holding-grid,
+  .holding-main-grid,
+  .risk-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-summary > *,
+  .holding-grid > *,
+  .holding-main-grid > *,
+  .risk-grid > * {
+    min-width: 0;
+  }
+
+  .concentration-row {
+    grid-template-columns: 80px minmax(0, 1fr) 48px 52px;
+    gap: 8px;
+  }
+}
+`;
+}
+
 async function ensureComparisonDashboardTemplate(projectPath: string) {
   const finalData = await readJsonRecord(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'));
   const dashboardKind = typeof finalData?.dashboardKind === 'string' ? finalData.dashboardKind : null;
@@ -1945,9 +2738,27 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
       : typeof visualization?.templateId === 'string'
         ? visualization.templateId
         : null;
-  if (dashboardKind === 'portfolio_rebalance' || dashboardKind === 'portfolio_risk') {
+
+  const isHolding = dashboardKind === 'portfolio_rebalance' || dashboardKind === 'portfolio_risk' || templateId === 'holding-analysis';
+  if (isHolding) {
+    const assets = Array.isArray(finalData?.assets) ? finalData.assets : [];
+    if (assets.length < 2) {
+      return;
+    }
+    const pagePath = path.join(projectPath, 'app', 'page.tsx');
+    const page = await fs.readFile(pagePath, 'utf8').catch(() => '');
+    if (/data-template="holding-analysis"|持仓明细|仓位集中度|组合风险估算|浮动盈亏/.test(page)) {
+      return;
+    }
+    await fs.writeFile(pagePath, holdingAnalysisPageTemplate(), 'utf8');
+    const cssPath = path.join(projectPath, 'app', 'globals.css');
+    const css = await fs.readFile(cssPath, 'utf8').catch(() => '');
+    if (!css.includes('.holding-shell')) {
+      await fs.writeFile(cssPath, `${css.trimEnd()}\n${holdingAnalysisCss()}`, 'utf8');
+    }
     return;
   }
+
   if (templateId && templateId !== 'stock-selection' && templateId !== 'sector-rotation') {
     return;
   }
