@@ -1358,8 +1358,8 @@ function comparisonCss() {
 
 .comparison-shell {
   min-height: 100vh;
-  background: #f7f8fb;
-  color: #111827;
+  background: var(--bg);
+  color: var(--ink);
   padding: 28px;
 }
 
@@ -1368,54 +1368,53 @@ function comparisonCss() {
   justify-content: space-between;
   gap: 24px;
   align-items: flex-end;
-  padding: 28px;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
+  padding: 24px 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .comparison-hero h1 {
-  margin: 6px 0 8px;
-  font-size: clamp(26px, 3vw, 40px);
+  margin: 4px 0 6px;
+  font-size: clamp(26px, 2.8vw, 40px);
   letter-spacing: 0;
 }
 
 .comparison-hero p,
-.panel-heading p,
-.chart-value-row,
-.comparison-matrix small,
 .hero-meta {
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .eyebrow {
   margin: 0;
-  color: #c7352f;
+  color: var(--red);
   font-weight: 700;
+  font-size: 14px;
 }
 
 .hero-meta {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   text-align: right;
+  font-size: 14px;
 }
 
 .leader-grid,
 .chart-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 18px;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .leader-card,
 .comparison-panel,
 .comparison-matrix {
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  background: var(--panel);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .leader-card {
@@ -1424,38 +1423,41 @@ function comparisonCss() {
 
 .leader-card span {
   display: block;
-  color: #6b7280;
+  color: var(--muted);
   margin-bottom: 8px;
+  font-size: 14px;
 }
 
 .leader-card strong {
   display: block;
   font-size: 24px;
+  white-space: nowrap;
 }
 
 .leader-card em {
   display: block;
   margin-top: 8px;
-  font-size: 20px;
+  font-size: 22px;
   font-style: normal;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .comparison-matrix,
 .comparison-panel {
-  margin-top: 18px;
+  margin-top: 14px;
   padding: 20px;
 }
 
 .comparison-two-column {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 16px;
+  gap: 14px;
 }
 
 .correlation-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .correlation-row {
@@ -1464,8 +1466,9 @@ function comparisonCss() {
   gap: 12px;
   align-items: center;
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--surface-1);
 }
 
 .correlation-row strong,
@@ -1476,19 +1479,19 @@ function comparisonCss() {
 
 .correlation-row small {
   margin-top: 2px;
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .correlation-row em {
-  color: #374151;
+  color: var(--ink);
   font-style: normal;
   font-weight: 800;
   text-align: right;
 }
 
 .correlation-meter {
-  height: 10px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: #eef2f7;
@@ -1501,11 +1504,11 @@ function comparisonCss() {
 }
 
 .corr-positive {
-  background: #d33b32;
+  background: var(--red);
 }
 
 .corr-negative {
-  background: #16a36a;
+  background: var(--green);
 }
 
 .panel-heading {
@@ -1513,44 +1516,45 @@ function comparisonCss() {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .panel-heading h2 {
   margin: 0 0 4px;
-  font-size: 20px;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 12px;
-  border-bottom: 1px solid #edf0f5;
-  text-align: left;
-  white-space: nowrap;
-}
-
-th {
-  color: #6b7280;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 700;
 }
 
-td strong,
-td small {
-  display: block;
+.panel-heading p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
-td small {
-  margin-top: 2px;
+.panel-heading span {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.compact-list {
+  display: grid;
+  gap: 10px;
+}
+
+.compact-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(100px, 1fr) 64px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .comparison-bars {
@@ -1559,35 +1563,36 @@ td small {
 }
 
 .axis {
-  stroke: #d1d5db;
+  stroke: var(--line);
   stroke-width: 0.5;
 }
 
 .bar-up rect {
-  fill: #d33b32;
+  fill: var(--red);
 }
 
 .bar-down rect {
-  fill: #16a36a;
+  fill: var(--green);
 }
 
 .chart-value-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .up {
-  color: #d33b32;
+  color: var(--red);
 }
 
 .down {
-  color: #16a36a;
+  color: var(--green);
 }
 
 .neutral {
-  color: #374151;
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {
@@ -1601,7 +1606,7 @@ td small {
   }
 
   .hero-meta {
-    margin-top: 16px;
+    margin-top: 14px;
     text-align: left;
   }
 
@@ -1609,6 +1614,12 @@ td small {
   .chart-grid,
   .comparison-two-column {
     grid-template-columns: 1fr;
+  }
+
+  .leader-grid > *,
+  .chart-grid > *,
+  .comparison-two-column > * {
+    min-width: 0;
   }
 }
 `;
@@ -1619,8 +1630,8 @@ function stockSelectionCss() {
 
 .selection-shell {
   min-height: 100vh;
-  background: #f7f8fb;
-  color: #111827;
+  background: var(--bg);
+  color: var(--ink);
   padding: 28px;
 }
 
@@ -1629,37 +1640,33 @@ function stockSelectionCss() {
   grid-template-columns: minmax(0, 1fr) 260px;
   gap: 24px;
   align-items: stretch;
-  padding: 28px;
-  border: 1px solid #e5e7eb;
-  background: linear-gradient(135deg, #ffffff 0%, #fff7f5 100%);
+  padding: 24px 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .selection-hero h1 {
-  margin: 8px 0;
-  font-size: clamp(28px, 3.2vw, 48px);
-  line-height: 1.05;
+  margin: 6px 0;
+  font-size: clamp(26px, 2.8vw, 42px);
+  line-height: 1.1;
   letter-spacing: 0;
 }
 
 .selection-hero p,
-.selection-hero em,
-.panel-heading p,
-.asset-card small,
-.component-line,
-td small {
-  color: #6b7280;
+.selection-hero em {
+  color: var(--muted);
 }
 
 .selection-hero aside,
 .selection-panel,
 .asset-card,
 .summary-grid article {
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  background: var(--panel);
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .selection-hero aside {
@@ -1671,12 +1678,12 @@ td small {
 
 .selection-hero aside span,
 .summary-grid span {
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .selection-hero aside strong {
-  color: #c7352f;
-  font-size: 26px;
+  color: var(--red);
+  font-size: 28px;
 }
 
 .summary-grid,
@@ -1684,8 +1691,8 @@ td small {
 .chart-grid,
 .main-grid {
   display: grid;
-  gap: 16px;
-  margin-top: 18px;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .summary-grid {
@@ -1719,6 +1726,7 @@ td small {
 .summary-grid strong {
   margin-top: 8px;
   font-size: 24px;
+  white-space: nowrap;
 }
 
 .summary-grid em {
@@ -1740,8 +1748,8 @@ td small {
 }
 
 .asset-card dt {
-  color: #6b7280;
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .asset-card dd {
@@ -1755,12 +1763,12 @@ td small {
 }
 
 .sparkline polyline {
-  stroke: #2f6fed;
+  stroke: var(--blue);
   stroke-width: 2.4;
 }
 
 .selection-panel {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .main-grid .selection-panel {
@@ -1772,17 +1780,34 @@ td small {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .panel-heading h2 {
   margin: 0 0 4px;
-  font-size: 20px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.panel-heading p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.panel-heading span {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .ranking-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .ranking-row {
@@ -1791,14 +1816,16 @@ td small {
   gap: 12px;
   align-items: center;
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--surface-1);
 }
 
 .ranking-row p {
   grid-column: 2 / -1;
   margin: 0;
-  color: #4b5563;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .rank-badge {
@@ -1807,9 +1834,10 @@ td small {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #111827;
-  color: #ffffff;
+  background: var(--ink);
+  color: #fff;
   font-weight: 800;
+  font-size: 15px;
 }
 
 .conclusion-panel ul {
@@ -1834,7 +1862,7 @@ td small {
 }
 
 .bar-row div {
-  height: 10px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: #eef2f7;
@@ -1847,60 +1875,40 @@ td small {
 }
 
 .bar-up {
-  background: #d33b32;
+  background: var(--red);
 }
 
 .bar-down {
-  background: #16a36a;
+  background: var(--green);
 }
 
 .axis {
-  stroke: #d1d5db;
+  stroke: var(--line);
   stroke-width: 0.7;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 12px;
-  border-bottom: 1px solid #edf0f5;
-  text-align: left;
-  white-space: nowrap;
-}
-
-th {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-td strong,
-td small {
-  display: block;
 }
 
 .component-line {
   margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+td small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
 }
 
 .up {
-  color: #d33b32;
+  color: var(--red);
 }
 
 .down {
-  color: #16a36a;
+  color: var(--green);
 }
 
 .neutral {
-  color: #374151;
+  color: var(--ink);
 }
 
 @media (max-width: 980px) {
@@ -1914,6 +1922,14 @@ td small {
   .chart-grid,
   .main-grid {
     grid-template-columns: 1fr;
+  }
+
+  .selection-hero > *,
+  .summary-grid > *,
+  .asset-grid > *,
+  .chart-grid > *,
+  .main-grid > * {
+    min-width: 0;
   }
 }
 `;
@@ -2452,7 +2468,7 @@ function movingAverage(values: Array<number | null>, windowSize: number, index: 
 
 function scaleY(value: number, min: number, max: number): number {
   const range = Math.max(max - min, 0.000001);
-  return 86 - ((value - min) / range) * 70;
+  return 350 - ((value - min) / range) * 320;
 }
 
 function buildLinePath(values: Array<number | null>, min: number, max: number): string {
@@ -2466,7 +2482,7 @@ function buildLinePath(values: Array<number | null>, min: number, max: number): 
       if (value === null) {
         return '';
       }
-      const x = (index / Math.max(values.length - 1, 1)) * 100;
+      const x = 60 + (index / Math.max(values.length - 1, 1)) * 720;
       const y = scaleY(value, min, max);
       const segment = (started ? 'L ' : 'M ') + x.toFixed(2) + ' ' + y.toFixed(2);
       started = true;
@@ -2488,14 +2504,16 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
   const ma5 = closes.map((_, index) => movingAverage(closes, 5, index));
   const ma10 = closes.map((_, index) => movingAverage(closes, 10, index));
   const ma20 = closes.map((_, index) => movingAverage(closes, 20, index));
-  const priceTicks = [maxPrice, minPrice + (maxPrice - minPrice) / 2, minPrice];
+  const priceTicks = [maxPrice, maxPrice - (maxPrice - minPrice) * 0.25, maxPrice - (maxPrice - minPrice) * 0.5, maxPrice - (maxPrice - minPrice) * 0.75, minPrice];
   const dateLabels = visibleBars.length > 0
     ? [
         String(visibleBars[0]?.date ?? '').slice(5) || '-',
-        String(visibleBars[Math.floor(visibleBars.length / 2)]?.date ?? '').slice(5) || '-',
+        String(visibleBars[Math.floor(visibleBars.length * 0.25)]?.date ?? '').slice(5) || '-',
+        String(visibleBars[Math.floor(visibleBars.length * 0.5)]?.date ?? '').slice(5) || '-',
+        String(visibleBars[Math.floor(visibleBars.length * 0.75)]?.date ?? '').slice(5) || '-',
         String(visibleBars[visibleBars.length - 1]?.date ?? '').slice(5) || '-',
       ]
-    : ['-', '-', '-'];
+    : ['-', '-', '-', '-', '-'];
 
   return (
     <div className="chart-panel">
@@ -2512,20 +2530,24 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
         <span className="legend-ma10">MA10</span>
         <span className="legend-ma20">MA20</span>
       </div>
-      <svg className="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="K 线 OHLC 趋势图">
-        <rect x="0" y="0" width="100" height="100" className="chart-bg" />
-        <line x1="0" y1="86" x2="100" y2="86" className="axis" />
-        <line x1="0" y1="16" x2="100" y2="16" className="axis muted" />
-        <line x1="0" y1="51" x2="100" y2="51" className="axis grid" />
-        <line x1="33.33" y1="16" x2="33.33" y2="86" className="axis grid" />
-        <line x1="66.66" y1="16" x2="66.66" y2="86" className="axis grid" />
+      <svg className="trend-chart" viewBox="0 0 800 400" preserveAspectRatio="none" role="img" aria-label="K 线 OHLC 趋势图">
+        <rect x="0" y="0" width="800" height="400" className="chart-bg" />
+        <line x1="60" y1="350" x2="780" y2="350" className="axis" />
+        <line x1="60" y1="30" x2="780" y2="30" className="axis muted" />
+        <line x1="60" y1="110" x2="780" y2="110" className="axis grid" />
+        <line x1="60" y1="190" x2="780" y2="190" className="axis grid" />
+        <line x1="60" y1="270" x2="780" y2="270" className="axis grid" />
+        <line x1="204" y1="30" x2="204" y2="350" className="axis grid" />
+        <line x1="348" y1="30" x2="348" y2="350" className="axis grid" />
+        <line x1="492" y1="30" x2="492" y2="350" className="axis grid" />
+        <line x1="636" y1="30" x2="636" y2="350" className="axis grid" />
         {priceTicks.map((tick, index) => (
-          <text key={index} x="1.2" y={(18 + index * 34).toFixed(1)} className="chart-label">
+          <text key={index} x="56" y={['25', '105', '185', '275', '355'][index] || '185'} className="chart-label chart-price">
             {formatNumber(tick)}
           </text>
         ))}
         {dateLabels.map((label, index) => (
-          <text key={index} x={(index * 50).toFixed(1)} y="97" className="chart-label chart-date">
+          <text key={index} x={(60 + index * 180).toFixed(0)} y="385" className="chart-label chart-date">
             {label}
           </text>
         ))}
@@ -2537,13 +2559,14 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
           if (open === null || close === null) {
             return null;
           }
-          const x = (index / Math.max(visibleBars.length - 1, 1)) * 100;
+          const x = 60 + (index / Math.max(visibleBars.length - 1, 1)) * 720;
           const yHigh = scaleY(high, minPrice, maxPrice);
           const yLow = scaleY(low, minPrice, maxPrice);
           const yOpen = scaleY(open, minPrice, maxPrice);
           const yClose = scaleY(close, minPrice, maxPrice);
           const candleTop = Math.min(yOpen, yClose);
-          const candleHeight = Math.max(Math.abs(yClose - yOpen), 0.8);
+          const candleHeight = Math.max(Math.abs(yClose - yOpen), 1.5);
+          const candleWidth = 6;
           const up = close >= open;
           const candleLabel = \`\${String(bar.date ?? '-')} 开 \${formatNumber(open)} 高 \${formatNumber(high)} 低 \${formatNumber(low)} 收 \${formatNumber(close)}\`;
           return (
@@ -2553,8 +2576,8 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
               aria-label={candleLabel}
               data-tooltip={candleLabel}
             >
-              <line x1={x.toFixed(2)} x2={x.toFixed(2)} y1={yHigh.toFixed(2)} y2={yLow.toFixed(2)} />
-              <rect x={(x - 0.55).toFixed(2)} y={candleTop.toFixed(2)} width="1.1" height={candleHeight.toFixed(2)} />
+              <line x1={x.toFixed(1)} x2={x.toFixed(1)} y1={yHigh.toFixed(1)} y2={yLow.toFixed(1)} />
+              <rect x={(x - candleWidth / 2).toFixed(1)} y={candleTop.toFixed(1)} width={candleWidth} height={candleHeight.toFixed(1)} rx="1" />
             </g>
           );
         })}
@@ -2563,24 +2586,30 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
         <path d={buildLinePath(ma20, minPrice, maxPrice)} className="ma-line ma20" />
       </svg>
 
-      <svg className="volume-chart" viewBox="0 0 100 36" preserveAspectRatio="none" role="img" aria-label="成交量柱状图">
-        <rect x="0" y="0" width="100" height="36" className="chart-bg" />
-        <line x1="0" y1="32" x2="100" y2="32" className="axis" />
-        <line x1="0" y1="16" x2="100" y2="16" className="axis grid" />
+      <svg className="volume-chart" viewBox="0 0 800 120" preserveAspectRatio="none" role="img" aria-label="成交量柱状图">
+        <rect x="0" y="0" width="800" height="120" className="chart-bg" />
+        <line x1="60" y1="100" x2="780" y2="100" className="axis" />
+        <line x1="60" y1="30" x2="780" y2="30" className="axis muted" />
+        <line x1="60" y1="65" x2="780" y2="65" className="axis grid" />
+        <line x1="204" y1="0" x2="204" y2="100" className="axis grid" />
+        <line x1="348" y1="0" x2="348" y2="100" className="axis grid" />
+        <line x1="492" y1="0" x2="492" y2="100" className="axis grid" />
+        <line x1="636" y1="0" x2="636" y2="100" className="axis grid" />
         {visibleBars.map((bar, index) => {
           const open = numeric(bar.open) ?? numeric(bar.close) ?? 0;
           const close = numeric(bar.close) ?? open;
           const volume = numeric(bar.volume) ?? 0;
-          const height = Math.max(1, (volume / maxVolume) * 28);
-          const x = (index / Math.max(visibleBars.length - 1, 1)) * 100;
+          const barHeight = Math.max(2, (volume / Math.max(maxVolume, 1)) * 80);
+          const x = 60 + (index / Math.max(visibleBars.length - 1, 1)) * 720;
           const volumeLabel = \`\${String(bar.date ?? '-')} 成交量 \${formatNumber(volume, 0)}\`;
           return (
             <rect
               key={String(bar.date ?? index)}
-              x={(x - 0.55).toFixed(2)}
-              y={(32 - height).toFixed(2)}
-              width="1.1"
-              height={height.toFixed(2)}
+              x={(x - 4).toFixed(1)}
+              y={(100 - barHeight).toFixed(1)}
+              width="8"
+              height={barHeight.toFixed(1)}
+              rx="1"
               className={close >= open ? 'volume-up' : 'volume-down'}
               aria-label={volumeLabel}
               data-tooltip={volumeLabel}
@@ -2602,8 +2631,8 @@ function buildEquityPath(points: JsonRecord[]): string {
   const range = Math.max(max - min, 0.000001);
   return values
     .map((value, index) => {
-      const x = (index / Math.max(values.length - 1, 1)) * 100;
-      const y = 86 - ((value - min) / range) * 70;
+      const x = 60 + (index / Math.max(values.length - 1, 1)) * 720;
+      const y = 85 - ((value - min) / range) * 70;
       return (index === 0 ? 'M ' : 'L ') + x.toFixed(2) + ' ' + y.toFixed(2);
     })
     .join(' ');
@@ -2631,11 +2660,11 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
         <span>{points.length} 个交易日</span>
       </div>
 
-      <div className="metric-grid backtest-metrics">
-        <article><span>策略收益</span><strong>{formatPercent(summary?.total_return_pct)}</strong></article>
-        <article><span>标的收益</span><strong>{formatPercent(summary?.benchmark_return_pct)}</strong></article>
-        <article><span>最大回撤</span><strong>{formatPercent(summary?.max_drawdown_pct)}</strong></article>
-        <article><span>胜率</span><strong>{formatPercent(summary?.win_rate_pct)}</strong></article>
+      <div className="metric-strip four-col backtest-metrics">
+        <div className="metric-cell"><span className="metric-label">策略收益</span><span className={'metric-value ' + ((numeric(summary?.total_return_pct) ?? 0) >= 0 ? 'red' : 'green')}>{formatPercent(summary?.total_return_pct)}</span></div>
+        <div className="metric-cell"><span className="metric-label">标的收益</span><span className={'metric-value ' + ((numeric(summary?.benchmark_return_pct) ?? 0) >= 0 ? 'red' : 'green')}>{formatPercent(summary?.benchmark_return_pct)}</span></div>
+        <div className="metric-cell"><span className="metric-label">最大回撤</span><span className="metric-value green">{formatPercent(summary?.max_drawdown_pct)}</span></div>
+        <div className="metric-cell"><span className="metric-label">胜率</span><span className="metric-value">{formatPercent(summary?.win_rate_pct)}</span></div>
       </div>
 
       <div className="backtest-grid">
@@ -2647,9 +2676,11 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
             </div>
             <span>净值 {formatNumber(summary?.final_equity, 4)}</span>
           </div>
-          <svg className="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="回测净值曲线">
-            <line x1="0" y1="86" x2="100" y2="86" className="axis" />
-            <line x1="0" y1="16" x2="100" y2="16" className="axis muted" />
+          <svg className="trend-chart" viewBox="0 0 800 100" preserveAspectRatio="none" role="img" aria-label="回测净值曲线">
+            <rect x="0" y="0" width="800" height="100" className="chart-bg" />
+            <line x1="60" y1="85" x2="780" y2="85" className="axis" />
+            <line x1="60" y1="15" x2="780" y2="15" className="axis muted" />
+            <line x1="60" y1="50" x2="780" y2="50" className="axis grid" />
             {equityPath ? <path d={equityPath} className="equity-line" /> : null}
           </svg>
         </div>
@@ -2705,7 +2736,7 @@ function FinancialPanel({
       </div>
 
       <div className="mini-metric-grid">
-        <div><span>最新营收</span><strong>{formatMoney(summary?.latest_revenue)}</strong></div>
+        <div className="mini-metric"><span>最新营收</span><strong>{formatMoney(summary?.latest_revenue)}</strong></div>
         <div><span>归母净利</span><strong>{formatMoney(summary?.latest_parent_net_profit)}</strong></div>
         <div><span>平均 ROE</span><strong>{formatPercent(summary?.avg_roe)}</strong></div>
         <div><span>净利率</span><strong>{formatPercent(summary?.latest_net_margin)}</strong></div>
@@ -3008,21 +3039,26 @@ function SignalPanel({
         <span className={'quality-pill ' + qualityTone(dataQualityStatus)}>{dataQualityStatus}</span>
       </div>
       <div className="signal-list">
-        <div className={aboveMa20 === null ? 'signal-neutral' : aboveMa20 ? 'signal-up' : 'signal-down'}>
-          <span>价格位置</span>
-          <strong className={aboveMa20 === null ? '' : aboveMa20 ? 'red' : 'green'}>
-            {aboveMa20 === null ? '待确认' : aboveMa20 ? '站上 MA20' : '低于 MA20'}
-          </strong>
+        <div className={'signal-item ' + (aboveMa20 === null ? '' : aboveMa20 ? 'signal-up' : 'signal-down')}>
+          <span className="signal-label">价格位置</span>
+          <span className={'signal-value ' + (aboveMa20 === null ? '' : aboveMa20 ? 'red' : 'green')}>
+            {aboveMa20 === null ? '待确认' : (aboveMa20 ? '站上 MA20' : '低于 MA20')}
+            {latestPrice != null && ma20 != null ? <span className="signal-detail"> · {formatNumber(latestPrice)} / {formatNumber(ma20)}</span> : null}
+          </span>
         </div>
-        <div className={maTrend === null ? 'signal-neutral' : maTrend ? 'signal-up' : 'signal-down'}>
-          <span>均线结构</span>
-          <strong className={maTrend === null ? '' : maTrend ? 'red' : 'green'}>
-            {maTrend === null ? '待确认' : maTrend ? '短多排列' : '短线偏弱'}
-          </strong>
+        <div className={'signal-item ' + (maTrend === null ? '' : maTrend ? 'signal-up' : 'signal-down')}>
+          <span className="signal-label">均线结构</span>
+          <span className={'signal-value ' + (maTrend === null ? '' : maTrend ? 'red' : 'green')}>
+            {maTrend === null ? '待确认' : (maTrend ? '短多排列' : '短线偏弱')}
+            {ma5 != null && ma20 != null ? <span className="signal-detail"> · MA5 {formatNumber(ma5)} / MA20 {formatNumber(ma20)}</span> : null}
+          </span>
         </div>
-        <div className={volumeSignal === null ? 'signal-neutral' : volumeSignal >= 1.2 ? 'signal-up' : volumeSignal <= 0.8 ? 'signal-down' : 'signal-neutral'}>
-          <span>量能状态</span>
-          <strong>{volumeSignal === null ? '待确认' : volumeSignal >= 1.2 ? '放量' : volumeSignal <= 0.8 ? '缩量' : '常态'}</strong>
+        <div className={'signal-item ' + (volumeSignal === null ? '' : volumeSignal >= 1.2 ? 'signal-up' : volumeSignal <= 0.8 ? 'signal-down' : '')}>
+          <span className="signal-label">量能状态</span>
+          <span className="signal-value">
+            {volumeSignal === null ? '待确认' : volumeSignal >= 1.2 ? '放量' : volumeSignal <= 0.8 ? '缩量' : '常态'}
+            {volumeSignal != null ? <span className="signal-detail"> · {volumeSignal.toFixed(2)}x</span> : null}
+          </span>
         </div>
       </div>
       {warnings.length > 0 ? (
@@ -3065,36 +3101,60 @@ export default async function Home() {
 
   return (
     <main className="dashboard-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
-      <section className="metric-grid">
-        <article>
-          <span>{name}</span>
-          <strong>{formatNumber(quote?.price ?? latestBar?.close)}</strong>
-          <em className={isUp ? 'red' : 'green'}>{formatPercent(change)}</em>
-        </article>
-        <article>
-          <span>证券代码</span>
-          <strong>{symbol}</strong>
-          <em>{String(data?.source ?? quote?.source ?? 'eastmoney')}</em>
-        </article>
-        <article>
-          <span>区间收益</span>
-          <strong>{formatPercent(summary?.period_return_pct ?? computedMetrics?.periodReturn)}</strong>
-        </article>
-        <article>
-          <span>最大回撤</span>
-          <strong>{formatPercent(summary?.max_drawdown_pct)}</strong>
-        </article>
-        <article>
-          <span>年化波动率</span>
-          <strong>{formatPercent(summary?.volatility_annualized_pct ?? computedMetrics?.volatility20d)}</strong>
-        </article>
-        <article>
-          <span>MA20</span>
-          <strong>{formatNumber(summary?.ma20 ?? computedMetrics?.ma20)}</strong>
-        </article>
-      </section>
+      <div className="top-bar">
+        <span>{String(data?.source ?? quote?.source ?? 'eastmoney')}</span>
+        <span className="freshness">数据更新于 {String(quote?.quote_time ?? data?.as_of ?? '-')}</span>
+      </div>
 
-      <section className="main-grid">
+      <div className="price-header">
+        <div className="id-area">
+          <span className="name">{name}</span>
+          <span className="symbol">{symbol}</span>
+        </div>
+        <div className="quote-area">
+          <span className="price">{formatNumber(quote?.price ?? latestBar?.close)}</span>
+          <span className={'change ' + (isUp ? 'up' : 'down')}>{formatPercent(change)}</span>
+        </div>
+      </div>
+
+      <div className="meta-row">
+        <div className="meta-item"><span className="meta-label">昨收</span><span className="meta-value">{formatNumber(quote?.preClose ?? latestBar?.close)}</span></div>
+        <div className="meta-item"><span className="meta-label">今开</span><span className="meta-value">{formatNumber(latestBar?.open)}</span></div>
+        <div className="meta-item"><span className="meta-label">最高</span><span className="meta-value">{formatNumber(latestBar?.high)}</span></div>
+        <div className="meta-item"><span className="meta-label">最低</span><span className="meta-value">{formatNumber(latestBar?.low)}</span></div>
+        <div className="meta-item"><span className="meta-label">成交量</span><span className="meta-value">{formatNumber(latestBar?.volume, 0)}</span></div>
+        <div className="meta-item"><span className="meta-label">成交额</span><span className="meta-value">{formatMoney(latestBar?.amount)}</span></div>
+        <span className="meta-source">数据来源：{String(data?.source ?? quote?.source ?? 'eastmoney')}</span>
+      </div>
+
+      <div className="metric-strip">
+        <div className="metric-cell">
+          <span className="metric-label">最新价</span>
+          <span className="metric-value">{formatNumber(quote?.price ?? latestBar?.close)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">涨跌幅</span>
+          <span className={'metric-value ' + (isUp ? 'red' : 'green')}>{formatPercent(change)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">PE-TTM</span>
+          <span className="metric-value">{formatNumber(quote?.pe_ttm ?? quote?.pe ?? summary?.pe_ttm)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">总市值</span>
+          <span className="metric-value">{formatMoney(quote?.total_market_cap ?? quote?.market_cap ?? summary?.market_cap)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">换手率</span>
+          <span className="metric-value">{formatPercent(quote?.turnover_rate ?? computedMetrics?.turnoverRate)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">MA20</span>
+          <span className="metric-value">{formatNumber(summary?.ma20 ?? computedMetrics?.ma20)}</span>
+        </div>
+      </div>
+
+      <section className="chart-zone">
         <TrendChart bars={bars} />
         <SignalPanel
           quote={quote}
@@ -3107,26 +3167,26 @@ export default async function Home() {
 
       <BacktestPanel backtest={backtest} />
 
-      <section className="metric-grid financial-metrics">
-        <article>
-          <span>最新营收</span>
-          <strong>{formatMoney(fundamentalSummary?.latest_revenue)}</strong>
-        </article>
-        <article>
-          <span>归母净利润</span>
-          <strong>{formatMoney(fundamentalSummary?.latest_parent_net_profit)}</strong>
-        </article>
-        <article>
-          <span>平均毛利率</span>
-          <strong>{formatPercent(fundamentalSummary?.avg_gross_margin)}</strong>
-        </article>
-        <article>
-          <span>平均净利率</span>
-          <strong>{formatPercent(fundamentalSummary?.avg_net_margin)}</strong>
-        </article>
-      </section>
+      <div className="metric-strip four-col">
+        <div className="metric-cell">
+          <span className="metric-label">最新营收</span>
+          <span className="metric-value">{formatMoney(fundamentalSummary?.latest_revenue)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">归母净利润</span>
+          <span className="metric-value">{formatMoney(fundamentalSummary?.latest_parent_net_profit)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">平均毛利率</span>
+          <span className="metric-value">{formatPercent(fundamentalSummary?.avg_gross_margin)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">平均净利率</span>
+          <span className="metric-value">{formatPercent(fundamentalSummary?.avg_net_margin)}</span>
+        </div>
+      </div>
 
-      <section className="detail-grid">
+      <section className="content-grid">
         <article className="data-panel">
           <div className="panel-heading compact">
             <div>
@@ -3176,22 +3236,22 @@ export default async function Home() {
         </article>
       </section>
 
-      <section className="detail-grid wide">
+      <section className="content-grid wide">
         <FinancialPanel reports={reports} summary={fundamentalSummary} />
         <AnnouncementPanel announcements={announcements} />
       </section>
 
-      <section className="detail-grid wide">
+      <section className="content-grid wide">
         <LiquidityPanel rows={liquidityRows} />
         <CorrelationPanel pairs={correlationPairs} />
       </section>
 
-      <section className="detail-grid wide">
+      <section className="content-grid wide">
         <ValuationPanel rows={valuationRows} />
         <TrendTemplatePanel rows={trendTemplateRows} />
       </section>
 
-      <section className="detail-grid wide">
+      <section className="content-grid wide">
         <VisualizationPlanPanel visualization={visualization} />
       </section>
     </main>
@@ -3204,20 +3264,29 @@ export default async function Home() {
     path.join(projectPath, 'app/globals.css'),
     `:root {
   color-scheme: light;
-  --bg: #f7f8fb;
-  --ink: #182033;
-  --muted: #647087;
-  --line: #dfe4ec;
+  --bg: #f2f3f7;
+  --ink: #1a1e2b;
+  --muted: #5f6b7f;
+  --line: #d8dce6;
+  --line-light: #e9ecf2;
   --panel: #ffffff;
   --red: #d9363e;
-  --green: #15945b;
-  --blue: #2f6fed;
+  --green: #0e9d5d;
+  --blue: #2b6de5;
   --gold: #b88719;
   --purple: #7c3aed;
   --amber-bg: #fff8e5;
-  --red-bg: #fff1f0;
-  --green-bg: #edf9f2;
+  --red-bg: #fef2f2;
+  --green-bg: #f0fdf4;
   --blue-bg: #eef4ff;
+  --surface-1: #f7f8fb;
+  --surface-2: #fafbfd;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.06);
+  --red-fill: #fef0ef;
+  --green-fill: #edf9f2;
+  --volume-up-fill: #f2c4c0;
+  --volume-down-fill: #b0e0c6;
 }
 
 *,
@@ -3232,9 +3301,12 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family:
-    Arial,
-    "Microsoft YaHei",
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-variant-numeric: tabular-nums;
 }
 
 button,
@@ -3244,159 +3316,257 @@ textarea {
   font: inherit;
 }
 
+/* ==================== SHELL ==================== */
+
 .dashboard-shell {
-  width: min(1180px, calc(100vw - 32px));
+  width: min(1280px, calc(100vw - 48px));
   margin: 0 auto;
-  padding: 32px 0 48px;
+  padding: 20px 0 56px;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  color: var(--gold);
+/* ==================== TOP BAR ==================== */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
   font-size: 13px;
-  font-weight: 700;
+  color: var(--muted);
 }
 
-h1,
-h2,
-p {
+.top-bar .freshness {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.top-bar .freshness::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+/* ==================== PRICE HEADER ==================== */
+
+.price-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 4px;
+}
+
+.price-header .id-area {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.price-header .id-area .name {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.price-header .id-area .symbol {
+  font-size: 15px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.price-header .quote-area {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.price-header .quote-area .price {
+  font-size: 36px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: -0.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.price-header .quote-area .change {
+  font-size: 16px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.price-header .quote-area .change.up {
+  background: var(--red);
+}
+
+.price-header .quote-area .change.down {
+  background: var(--green);
+}
+
+/* ==================== META ROW ==================== */
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-light);
+}
+
+.meta-row .meta-item {
+  display: inline-flex;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.meta-row .meta-item .meta-label {
+  color: var(--muted);
+}
+
+.meta-row .meta-item .meta-value {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.meta-row .meta-source {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ==================== METRIC STRIP ==================== */
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 24px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.metric-strip .metric-cell {
+  padding: 14px 16px;
+  background: var(--panel);
+}
+
+.metric-strip .metric-cell .metric-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.metric-strip .metric-cell .metric-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.metric-strip.four-col {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ==================== SECTION DIVIDER ==================== */
+
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 28px 0 14px;
+}
+
+.section-divider:first-of-type {
   margin-top: 0;
 }
 
-h1 {
-  margin-bottom: 14px;
-  font-size: clamp(26px, 3vw, 42px);
-  line-height: 1.12;
-  letter-spacing: 0;
+.section-divider h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
-h2 {
-  margin-bottom: 6px;
-  font-size: 18px;
-}
-
-.panel-heading span {
-  min-height: 28px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
+.section-divider .section-meta {
   font-size: 13px;
+  color: var(--muted);
 }
 
-.metric-grid {
+.section-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ==================== CHART ZONE ==================== */
+
+.chart-zone {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 16px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-.metric-grid article,
-.chart-panel,
+.chart-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
 .data-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.045);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
-.metric-grid article {
-  min-height: 92px;
-  padding: 18px;
-}
-
-.metric-grid span {
-  display: block;
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.metric-grid strong {
-  font-size: 26px;
-}
-
-.chart-panel {
-  margin-top: 16px;
-  padding: 20px;
-}
-
-.main-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.main-grid .chart-panel {
-  margin-top: 0;
-}
-
-.backtest-section {
-  margin-top: 16px;
-  padding: 20px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.backtest-section .metric-grid {
-  margin-top: 0;
-}
-
-.backtest-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.chart-panel.embedded {
-  margin-top: 0;
-}
-
-.panel-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.panel-heading.compact {
-  align-items: flex-start;
-}
-
-.panel-heading p {
-  margin-bottom: 0;
-  color: var(--muted);
-  font-size: 14px;
-}
+/* ==================== TREND CHART ==================== */
 
 .trend-chart {
   width: 100%;
-  height: 330px;
+  height: 380px;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .volume-chart {
   width: 100%;
-  height: 96px;
-  margin-top: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  height: 100px;
+  margin-top: 10px;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
   color: var(--muted);
-  font-size: 12px;
 }
 
 .chart-legend span {
@@ -3407,57 +3577,47 @@ h2 {
 
 .chart-legend span::before {
   content: "";
-  width: 18px;
+  width: 16px;
   height: 3px;
   border-radius: 999px;
   background: currentColor;
 }
 
-.legend-price {
-  color: var(--ink);
-}
+.legend-price { color: var(--ink); }
+.legend-ma5 { color: var(--blue); }
+.legend-ma10 { color: var(--gold); }
+.legend-ma20 { color: var(--purple); }
 
-.legend-ma5 {
-  color: var(--blue);
-}
-
-.legend-ma10 {
-  color: var(--gold);
-}
-
-.legend-ma20 {
-  color: var(--purple);
-}
-
-.chart-bg {
-  fill: #fbfcff;
-}
+.chart-bg { fill: var(--surface-1); }
 
 .chart-label {
   fill: var(--muted);
-  font-size: 3.1px;
+  font-size: 12px;
   paint-order: stroke;
-  stroke: #fbfcff;
-  stroke-width: 0.9;
+  stroke: var(--surface-1);
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
-.chart-date {
-  text-anchor: middle;
+.chart-price {
+  text-anchor: end;
+  dominant-baseline: central;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
 }
+
+.chart-date { text-anchor: middle; }
 
 .axis {
   stroke: var(--line);
-  stroke-width: 0.6;
+  stroke-width: 1.2;
 }
 
-.axis.muted {
-  opacity: 0.55;
-}
+.axis.muted { opacity: 0.5; }
 
 .axis.grid {
-  opacity: 0.45;
-  stroke-dasharray: 1.5 1.5;
+  opacity: 0.4;
+  stroke-dasharray: 2 3;
 }
 
 .equity-line {
@@ -3469,126 +3629,147 @@ h2 {
 
 .candle-up line,
 .candle-up rect {
-  fill: color-mix(in srgb, var(--red) 86%, white);
+  fill: var(--red-fill);
   stroke: var(--red);
-  stroke-width: 0.85;
+  stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
 }
 
 .candle-down line,
 .candle-down rect {
-  fill: color-mix(in srgb, var(--green) 86%, white);
+  fill: var(--green-fill);
   stroke: var(--green);
-  stroke-width: 0.85;
+  stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
 }
 
 .ma-line {
   fill: none;
-  stroke-width: 1.45;
-  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+  stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 
-.ma5 {
-  stroke: var(--blue);
-}
-
-.ma10 {
-  stroke: var(--gold);
-}
-
-.ma20 {
-  stroke: var(--purple);
-}
+.ma5 { stroke: var(--blue); }
+.ma10 { stroke: var(--gold); }
+.ma20 { stroke: var(--purple); }
 
 .volume-up {
-  fill: color-mix(in srgb, var(--red) 72%, white);
+  fill: var(--volume-up-fill);
   stroke: var(--red);
-  stroke-width: 0.15;
+  stroke-width: 0.5;
   vector-effect: non-scaling-stroke;
 }
 
 .volume-down {
-  fill: color-mix(in srgb, var(--green) 72%, white);
+  fill: var(--volume-down-fill);
   stroke: var(--green);
-  stroke-width: 0.15;
+  stroke-width: 0.5;
   vector-effect: non-scaling-stroke;
 }
 
-.detail-grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.4fr);
-  gap: 16px;
-  margin-top: 16px;
+/* ==================== PANEL HEADING ==================== */
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
 }
 
-.detail-grid.wide {
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.8fr);
+.panel-heading.compact {
+  align-items: flex-start;
 }
 
-.data-panel {
-  padding: 20px;
+.panel-heading h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
-.signal-panel {
-  margin-top: 0;
+.panel-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
 }
+
+.panel-heading .pill {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ==================== SIGNAL LIST ==================== */
 
 .signal-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
-.signal-list div {
-  display: grid;
-  gap: 6px;
+.signal-list .signal-item {
   padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
-.signal-list .signal-up {
+.signal-list .signal-item.signal-up {
   border-color: color-mix(in srgb, var(--red) 28%, var(--line));
   background: var(--red-bg);
 }
 
-.signal-list .signal-down {
+.signal-list .signal-item.signal-down {
   border-color: color-mix(in srgb, var(--green) 28%, var(--line));
   background: var(--green-bg);
 }
 
-.signal-list .signal-neutral {
-  border-color: var(--line);
-  background: #fbfcff;
-}
-
-.signal-list span {
+.signal-list .signal-item .signal-label {
+  display: block;
+  margin-bottom: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.signal-list strong {
+.signal-list .signal-item .signal-value {
   font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
 }
+
+.signal-list .signal-item .signal-detail {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ==================== WARNING LIST ==================== */
 
 .warning-list {
   display: grid;
-  gap: 8px;
-  margin: 14px 0 0;
+  gap: 6px;
+  margin: 10px 0 0;
   padding: 0;
   list-style: none;
 }
 
 .warning-list li {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--gold) 38%, white);
-  border-radius: 8px;
+  border-radius: 6px;
   color: #805600;
   background: var(--amber-bg);
   font-size: 13px;
 }
+
+/* ==================== QUALITY PILL ==================== */
 
 .quality-pill {
   font-weight: 700;
@@ -3617,21 +3798,62 @@ h2 {
   background: #f8fafc;
 }
 
+/* ==================== BACKTEST ==================== */
+
+.backtest-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.backtest-section .metric-strip {
+  margin-bottom: 14px;
+}
+
+.backtest-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.chart-panel.embedded {
+  margin-top: 0;
+}
+
+/* ==================== CONTENT GRID ==================== */
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.4fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.content-grid.wide {
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.8fr);
+}
+
+/* ==================== SOURCE CHANNELS ==================== */
+
 .source-channel-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .source-channel {
-  display: grid;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  padding: 10px 12px;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .source-channel strong {
+  display: block;
+  margin-bottom: 2px;
   color: var(--ink);
   font-size: 15px;
 }
@@ -3642,68 +3864,77 @@ h2 {
 }
 
 .source-channel small {
+  display: block;
   overflow: hidden;
   color: var(--blue);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: 2px;
 }
 
 .source-channel em {
+  display: block;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
   font-style: normal;
 }
 
 .evidence-note {
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
+
+/* ==================== MINI METRICS ==================== */
 
 .mini-metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin: 14px 0 18px;
+  gap: 8px;
+  margin: 12px 0 16px;
 }
 
-.mini-metric-grid div {
-  min-height: 76px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+.mini-metric-grid .mini-metric {
+  padding: 10px 12px;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
-.mini-metric-grid span {
+.mini-metric-grid .mini-metric span {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
-.mini-metric-grid strong {
+.mini-metric-grid .mini-metric strong {
   font-size: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
 }
+
+/* ==================== FINANCIAL BARS ==================== */
 
 .financial-bars {
   display: grid;
   grid-template-columns: repeat(6, minmax(34px, 1fr));
-  gap: 10px;
+  gap: 8px;
   align-items: end;
   height: 180px;
-  margin: 8px 0 18px;
+  margin: 8px 0 16px;
   padding: 12px 8px 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .financial-bar-group {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   align-items: end;
   min-width: 0;
   height: 100%;
@@ -3724,38 +3955,33 @@ h2 {
   border-radius: 999px 999px 2px 2px;
 }
 
-.bar.revenue {
-  background: var(--blue);
-}
-
-.bar.profit {
-  background: var(--gold);
-}
+.bar.revenue { background: var(--blue); }
+.bar.profit { background: var(--gold); }
 
 .financial-bar-group small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* ==================== ANNOUNCEMENTS ==================== */
+
 .announcement-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .announcement-list li {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  padding: 10px 12px;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
 .announcement-list span,
@@ -3766,46 +3992,52 @@ h2 {
 }
 
 .announcement-list strong {
+  display: block;
+  margin: 4px 0;
+  font-size: 15px;
   line-height: 1.45;
 }
 
+/* ==================== CORRELATION ==================== */
+
 .correlation-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .correlation-row {
   display: grid;
-  grid-template-columns: minmax(140px, 0.9fr) minmax(120px, 1fr) 64px;
-  gap: 12px;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(100px, 1fr) 56px;
+  gap: 10px;
   align-items: center;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fbfcff;
+  padding: 10px;
+  border: 1px solid var(--line-light);
+  border-radius: 6px;
+  background: var(--surface-1);
 }
 
-.correlation-row strong,
-.correlation-row small,
-.correlation-row em {
+.correlation-row strong {
   display: block;
+  font-size: 14px;
 }
 
 .correlation-row small {
+  display: block;
   margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.correlation-row em {
+.correlation-row .corr-value {
   color: var(--ink);
-  font-style: normal;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 15px;
   text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .correlation-meter {
-  height: 10px;
+  height: 8px;
   overflow: hidden;
   border-radius: 999px;
   background: #eef2f7;
@@ -3817,43 +4049,47 @@ h2 {
   border-radius: inherit;
 }
 
-.corr-positive {
-  background: var(--red);
-}
+.corr-positive { background: var(--red); }
+.corr-negative { background: var(--green); }
 
-.corr-negative {
-  background: var(--green);
-}
+/* ==================== EMPTY STATE ==================== */
 
 .empty-state {
-  margin: 10px 0 0;
-  padding: 14px;
+  margin: 8px 0 0;
+  padding: 12px;
   border: 1px dashed var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--muted);
-  background: #fbfcff;
+  background: var(--surface-1);
+  font-size: 14px;
 }
+
+/* ==================== DL ==================== */
 
 dl {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 0;
 }
 
 dl div {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
-  gap: 12px;
+  gap: 10px;
 }
 
 dt {
   color: var(--muted);
+  font-size: 14px;
 }
 
 dd {
   margin: 0;
   word-break: break-word;
+  font-size: 14px;
 }
+
+/* ==================== TABLES ==================== */
 
 .table-wrap {
   overflow-x: auto;
@@ -3865,62 +4101,109 @@ table {
   font-size: 14px;
 }
 
-th,
 td {
-  padding: 10px 8px;
-  border-bottom: 1px solid var(--line);
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line-light);
   text-align: left;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 th {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: var(--muted);
   font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--panel);
 }
 
-.red {
-  color: var(--red);
+tbody tr:nth-child(even) {
+  background: #f8fafc;
 }
 
-.green {
-  color: var(--green);
+tbody tr:hover {
+  background: #f1f5f9;
 }
+
+/* ==================== SEMANTIC COLORS ==================== */
+
+.red { color: var(--red); }
+.green { color: var(--green); }
+
+/* ==================== RESPONSIVE ==================== */
 
 @media (max-width: 800px) {
   .dashboard-shell {
-    width: min(100%, calc(100vw - 20px));
-    overflow-x: hidden;
-    padding-top: 16px;
+    width: min(100vw - 24px, 720px);
+    padding-top: 12px;
   }
 
-  .main-grid,
-  .detail-grid,
-  .detail-grid.wide,
+  .price-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .price-header .quote-area .price {
+    font-size: 28px;
+  }
+
+  .price-header .quote-area .change {
+    font-size: 14px;
+  }
+
+  .metric-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .metric-strip.four-col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-zone,
   .backtest-grid {
     grid-template-columns: 1fr;
   }
 
-  .metric-grid,
-  .mini-metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .chart-zone > *,
+  .backtest-grid > * {
+    min-width: 0;
+  }
+
+  .content-grid,
+  .content-grid.wide {
+    grid-template-columns: 1fr;
+  }
+
+  .content-grid > *,
+  .content-grid.wide > * {
+    min-width: 0;
   }
 
   .trend-chart {
-    height: 240px;
+    height: 260px;
   }
 
   .panel-heading {
-    min-width: 0;
-    flex-wrap: wrap;
-  }
-
-  .table-wrap {
-    max-width: 100%;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 
 @media (max-width: 520px) {
-  .metric-grid {
+  .metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-strip.four-col {
     grid-template-columns: 1fr;
   }
 
@@ -3928,9 +4211,32 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .mini-metric-grid > * {
+    min-width: 0;
+  }
+
   .chart-panel,
   .data-panel {
-    padding: 16px;
+    padding: 12px;
+  }
+
+  .price-header .quote-area .price {
+    font-size: 24px;
+  }
+
+  .financial-bars {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .correlation-row {
+    grid-template-columns: minmax(0, 1fr) 56px;
+    overflow-x: auto;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 `
