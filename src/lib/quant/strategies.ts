@@ -107,6 +107,11 @@ export interface StrategyUniverseMember {
   symbol: string;
   code: string;
   name?: string | null;
+  industry?: string | null;
+  region?: string | null;
+  concepts: string[];
+  sectorHint?: string | null;
+  sectorTags: string[];
   exchange: string;
   assetType: string;
   currency: string;
@@ -120,6 +125,15 @@ export interface StrategyUniverseMember {
   firstTs?: string | null;
   lastTs?: string | null;
   dataProvider?: string | null;
+  latestClose?: number | null;
+  latestChangePct?: number | null;
+  strength20dPct?: number | null;
+  strength60dPct?: number | null;
+  ma20?: number | null;
+  ma60?: number | null;
+  trendStatus: 'bullish' | 'bearish' | 'sideways' | 'insufficient';
+  avgAmount20d?: number | null;
+  avgVolume20d?: number | null;
   dataStatus: 'ready' | 'missing' | 'stale';
 }
 
@@ -134,6 +148,25 @@ export interface StrategyUniverse {
   defaultAdjustment: string;
   provider: string;
   members: StrategyUniverseMember[];
+  memberCount: number;
+  stockCount: number;
+  etfCount: number;
+  indexCount: number;
+  fundCount: number;
+  readyCount: number;
+  barCount: number;
+  latestTs?: string | null;
+}
+
+export interface StrategyUniverseMembersPage {
+  universeId: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  keyword?: string | null;
+  members: StrategyUniverseMember[];
+  fetchedAt: string;
 }
 
 export interface StrategyDataCoverageItem {
@@ -348,88 +381,184 @@ const MARKET_API_BASE_URL =
   'http://127.0.0.1:8000';
 const SAMPLE_UNIVERSE_ID = 'a-share-sample-research-pool';
 
-const SAMPLE_UNIVERSE_MEMBERS: StrategyUniverseMember[] = [
-  {
-    symbol: '002156.SZ',
-    code: '002156',
-    name: '通富微电',
-    exchange: 'SZ',
+const SAMPLE_UNIVERSE_MEMBER_SEEDS = [
+  { symbol: '002156.SZ', code: '002156', name: '通富微电', exchange: 'SZ', secid: '0.002156' },
+  { symbol: '002555.SZ', code: '002555', name: '三七互娱', exchange: 'SZ', secid: '0.002555' },
+  { symbol: '002624.SZ', code: '002624', name: '完美世界', exchange: 'SZ', secid: '0.002624' },
+  { symbol: '601398.SH', code: '601398', name: '工商银行', exchange: 'SH', secid: '1.601398' },
+  { symbol: '600916.SH', code: '600916', name: '中国黄金', exchange: 'SH', secid: '1.600916' },
+  { symbol: '600519.SH', code: '600519', name: '贵州茅台', exchange: 'SH', secid: '1.600519' },
+  { symbol: '000858.SZ', code: '000858', name: '五粮液', exchange: 'SZ', secid: '0.000858' },
+  { symbol: '000333.SZ', code: '000333', name: '美的集团', exchange: 'SZ', secid: '0.000333' },
+  { symbol: '000651.SZ', code: '000651', name: '格力电器', exchange: 'SZ', secid: '0.000651' },
+  { symbol: '300750.SZ', code: '300750', name: '宁德时代', exchange: 'SZ', secid: '0.300750' },
+  { symbol: '002594.SZ', code: '002594', name: '比亚迪', exchange: 'SZ', secid: '0.002594' },
+  { symbol: '601318.SH', code: '601318', name: '中国平安', exchange: 'SH', secid: '1.601318' },
+  { symbol: '600036.SH', code: '600036', name: '招商银行', exchange: 'SH', secid: '1.600036' },
+  { symbol: '601166.SH', code: '601166', name: '兴业银行', exchange: 'SH', secid: '1.601166' },
+  { symbol: '601288.SH', code: '601288', name: '农业银行', exchange: 'SH', secid: '1.601288' },
+  { symbol: '600900.SH', code: '600900', name: '长江电力', exchange: 'SH', secid: '1.600900' },
+  { symbol: '601012.SH', code: '601012', name: '隆基绿能', exchange: 'SH', secid: '1.601012' },
+  { symbol: '600276.SH', code: '600276', name: '恒瑞医药', exchange: 'SH', secid: '1.600276' },
+  { symbol: '000725.SZ', code: '000725', name: '京东方A', exchange: 'SZ', secid: '0.000725' },
+  { symbol: '002415.SZ', code: '002415', name: '海康威视', exchange: 'SZ', secid: '0.002415' },
+  { symbol: '600050.SH', code: '600050', name: '中国联通', exchange: 'SH', secid: '1.600050' },
+  { symbol: '601857.SH', code: '601857', name: '中国石油', exchange: 'SH', secid: '1.601857' },
+  { symbol: '600028.SH', code: '600028', name: '中国石化', exchange: 'SH', secid: '1.600028' },
+  { symbol: '601668.SH', code: '601668', name: '中国建筑', exchange: 'SH', secid: '1.601668' },
+  { symbol: '601888.SH', code: '601888', name: '中国中免', exchange: 'SH', secid: '1.601888' },
+  { symbol: '600030.SH', code: '600030', name: '中信证券', exchange: 'SH', secid: '1.600030' },
+  { symbol: '300059.SZ', code: '300059', name: '东方财富', exchange: 'SZ', secid: '0.300059' },
+  { symbol: '603259.SH', code: '603259', name: '药明康德', exchange: 'SH', secid: '1.603259' },
+  { symbol: '688981.SH', code: '688981', name: '中芯国际', exchange: 'SH', secid: '1.688981' },
+  { symbol: '002230.SZ', code: '002230', name: '科大讯飞', exchange: 'SZ', secid: '0.002230' },
+  { symbol: '603986.SH', code: '603986', name: '兆易创新', exchange: 'SH', secid: '1.603986' },
+  { symbol: '603501.SH', code: '603501', name: '韦尔股份', exchange: 'SH', secid: '1.603501' },
+  { symbol: '002371.SZ', code: '002371', name: '北方华创', exchange: 'SZ', secid: '0.002371' },
+  { symbol: '688012.SH', code: '688012', name: '中微公司', exchange: 'SH', secid: '1.688012' },
+  { symbol: '600584.SH', code: '600584', name: '长电科技', exchange: 'SH', secid: '1.600584' },
+  { symbol: '688008.SH', code: '688008', name: '澜起科技', exchange: 'SH', secid: '1.688008' },
+  { symbol: '688126.SH', code: '688126', name: '沪硅产业', exchange: 'SH', secid: '1.688126' },
+  { symbol: '688099.SH', code: '688099', name: '晶晨股份', exchange: 'SH', secid: '1.688099' },
+  { symbol: '300223.SZ', code: '300223', name: '北京君正', exchange: 'SZ', secid: '0.300223' },
+  { symbol: '603290.SH', code: '603290', name: '斯达半导', exchange: 'SH', secid: '1.603290' },
+  { symbol: '300661.SZ', code: '300661', name: '圣邦股份', exchange: 'SZ', secid: '0.300661' },
+  { symbol: '300782.SZ', code: '300782', name: '卓胜微', exchange: 'SZ', secid: '0.300782' },
+  { symbol: '002049.SZ', code: '002049', name: '紫光国微', exchange: 'SZ', secid: '0.002049' },
+  { symbol: '600745.SH', code: '600745', name: '闻泰科技', exchange: 'SH', secid: '1.600745' },
+  { symbol: '605358.SH', code: '605358', name: '立昂微', exchange: 'SH', secid: '1.605358' },
+  { symbol: '688396.SH', code: '688396', name: '华润微', exchange: 'SH', secid: '1.688396' },
+  { symbol: '688041.SH', code: '688041', name: '海光信息', exchange: 'SH', secid: '1.688041' },
+  { symbol: '688256.SH', code: '688256', name: '寒武纪', exchange: 'SH', secid: '1.688256' },
+  { symbol: '688111.SH', code: '688111', name: '金山办公', exchange: 'SH', secid: '1.688111' },
+  { symbol: '688036.SH', code: '688036', name: '传音控股', exchange: 'SH', secid: '1.688036' },
+  { symbol: '688521.SH', code: '688521', name: '芯原股份', exchange: 'SH', secid: '1.688521' },
+  { symbol: '002475.SZ', code: '002475', name: '立讯精密', exchange: 'SZ', secid: '0.002475' },
+  { symbol: '601138.SH', code: '601138', name: '工业富联', exchange: 'SH', secid: '1.601138' },
+  { symbol: '300308.SZ', code: '300308', name: '中际旭创', exchange: 'SZ', secid: '0.300308' },
+  { symbol: '300502.SZ', code: '300502', name: '新易盛', exchange: 'SZ', secid: '0.300502' },
+  { symbol: '300394.SZ', code: '300394', name: '天孚通信', exchange: 'SZ', secid: '0.300394' },
+  { symbol: '000977.SZ', code: '000977', name: '浪潮信息', exchange: 'SZ', secid: '0.000977' },
+  { symbol: '603019.SH', code: '603019', name: '中科曙光', exchange: 'SH', secid: '1.603019' },
+  { symbol: '000938.SZ', code: '000938', name: '紫光股份', exchange: 'SZ', secid: '0.000938' },
+  { symbol: '002463.SZ', code: '002463', name: '沪电股份', exchange: 'SZ', secid: '0.002463' },
+  { symbol: '300033.SZ', code: '300033', name: '同花顺', exchange: 'SZ', secid: '0.300033' },
+  { symbol: '600570.SH', code: '600570', name: '恒生电子', exchange: 'SH', secid: '1.600570' },
+  { symbol: '600588.SH', code: '600588', name: '用友网络', exchange: 'SH', secid: '1.600588' },
+  { symbol: '002410.SZ', code: '002410', name: '广联达', exchange: 'SZ', secid: '0.002410' },
+  { symbol: '002236.SZ', code: '002236', name: '大华股份', exchange: 'SZ', secid: '0.002236' },
+  { symbol: '002241.SZ', code: '002241', name: '歌尔股份', exchange: 'SZ', secid: '0.002241' },
+  { symbol: '300124.SZ', code: '300124', name: '汇川技术', exchange: 'SZ', secid: '0.300124' },
+  { symbol: '688777.SH', code: '688777', name: '中控技术', exchange: 'SH', secid: '1.688777' },
+  { symbol: '300496.SZ', code: '300496', name: '中科创达', exchange: 'SZ', secid: '0.300496' },
+  { symbol: '002920.SZ', code: '002920', name: '德赛西威', exchange: 'SZ', secid: '0.002920' },
+  { symbol: '000063.SZ', code: '000063', name: '中兴通讯', exchange: 'SZ', secid: '0.000063' },
+  { symbol: '600941.SH', code: '600941', name: '中国移动', exchange: 'SH', secid: '1.600941' },
+  { symbol: '300604.SZ', code: '300604', name: '长川科技', exchange: 'SZ', secid: '0.300604' },
+  { symbol: '688037.SH', code: '688037', name: '芯源微', exchange: 'SH', secid: '1.688037' },
+  { symbol: '688072.SH', code: '688072', name: '拓荆科技', exchange: 'SH', secid: '1.688072' },
+  { symbol: '688082.SH', code: '688082', name: '盛美上海', exchange: 'SH', secid: '1.688082' },
+  { symbol: '688120.SH', code: '688120', name: '华海清科', exchange: 'SH', secid: '1.688120' },
+  { symbol: '688200.SH', code: '688200', name: '华峰测控', exchange: 'SH', secid: '1.688200' },
+  { symbol: '688019.SH', code: '688019', name: '安集科技', exchange: 'SH', secid: '1.688019' },
+  { symbol: '688234.SH', code: '688234', name: '天岳先进', exchange: 'SH', secid: '1.688234' },
+  { symbol: '300666.SZ', code: '300666', name: '江丰电子', exchange: 'SZ', secid: '0.300666' },
+  { symbol: '002409.SZ', code: '002409', name: '雅克科技', exchange: 'SZ', secid: '0.002409' },
+  { symbol: '688536.SH', code: '688536', name: '思瑞浦', exchange: 'SH', secid: '1.688536' },
+  { symbol: '688052.SH', code: '688052', name: '纳芯微', exchange: 'SH', secid: '1.688052' },
+  { symbol: '688798.SH', code: '688798', name: '艾为电子', exchange: 'SH', secid: '1.688798' },
+  { symbol: '688608.SH', code: '688608', name: '恒玄科技', exchange: 'SH', secid: '1.688608' },
+  { symbol: '688385.SH', code: '688385', name: '复旦微电', exchange: 'SH', secid: '1.688385' },
+  { symbol: '688107.SH', code: '688107', name: '安路科技', exchange: 'SH', secid: '1.688107' },
+  { symbol: '688153.SH', code: '688153', name: '唯捷创芯', exchange: 'SH', secid: '1.688153' },
+  { symbol: '688213.SH', code: '688213', name: '思特威', exchange: 'SH', secid: '1.688213' },
+  { symbol: '688220.SH', code: '688220', name: '翱捷科技', exchange: 'SH', secid: '1.688220' },
+  { symbol: '301269.SZ', code: '301269', name: '华大九天', exchange: 'SZ', secid: '0.301269' },
+  { symbol: '688262.SH', code: '688262', name: '国芯科技', exchange: 'SH', secid: '1.688262' },
+  { symbol: '688047.SH', code: '688047', name: '龙芯中科', exchange: 'SH', secid: '1.688047' },
+  { symbol: '688502.SH', code: '688502', name: '茂莱光学', exchange: 'SH', secid: '1.688502' },
+  { symbol: '688498.SH', code: '688498', name: '源杰科技', exchange: 'SH', secid: '1.688498' },
+  { symbol: '300567.SZ', code: '300567', name: '精测电子', exchange: 'SZ', secid: '0.300567' },
+  { symbol: '002916.SZ', code: '002916', name: '深南电路', exchange: 'SZ', secid: '0.002916' },
+  { symbol: '002938.SZ', code: '002938', name: '鹏鼎控股', exchange: 'SZ', secid: '0.002938' },
+  { symbol: '002384.SZ', code: '002384', name: '东山精密', exchange: 'SZ', secid: '0.002384' },
+  { symbol: '300476.SZ', code: '300476', name: '胜宏科技', exchange: 'SZ', secid: '0.300476' },
+  { symbol: '603228.SH', code: '603228', name: '景旺电子', exchange: 'SH', secid: '1.603228' },
+  { symbol: '603160.SH', code: '603160', name: '汇顶科技', exchange: 'SH', secid: '1.603160' },
+  { symbol: '002138.SZ', code: '002138', name: '顺络电子', exchange: 'SZ', secid: '0.002138' },
+  { symbol: '600183.SH', code: '600183', name: '生益科技', exchange: 'SH', secid: '1.600183' },
+  { symbol: '300408.SZ', code: '300408', name: '三环集团', exchange: 'SZ', secid: '0.300408' },
+  { symbol: '002402.SZ', code: '002402', name: '和而泰', exchange: 'SZ', secid: '0.002402' },
+  { symbol: '002139.SZ', code: '002139', name: '拓邦股份', exchange: 'SZ', secid: '0.002139' },
+  { symbol: '002050.SZ', code: '002050', name: '三花智控', exchange: 'SZ', secid: '0.002050' },
+  { symbol: '002747.SZ', code: '002747', name: '埃斯顿', exchange: 'SZ', secid: '0.002747' },
+  { symbol: '300024.SZ', code: '300024', name: '机器人', exchange: 'SZ', secid: '0.300024' },
+  { symbol: '688017.SH', code: '688017', name: '绿的谐波', exchange: 'SH', secid: '1.688017' },
+  { symbol: '301029.SZ', code: '301029', name: '怡合达', exchange: 'SZ', secid: '0.301029' },
+  { symbol: '688188.SH', code: '688188', name: '柏楚电子', exchange: 'SH', secid: '1.688188' },
+  { symbol: '300316.SZ', code: '300316', name: '晶盛机电', exchange: 'SZ', secid: '0.300316' },
+  { symbol: '002008.SZ', code: '002008', name: '大族激光', exchange: 'SZ', secid: '0.002008' },
+  { symbol: '300450.SZ', code: '300450', name: '先导智能', exchange: 'SZ', secid: '0.300450' },
+  { symbol: '688187.SH', code: '688187', name: '时代电气', exchange: 'SH', secid: '1.688187' },
+  { symbol: '688169.SH', code: '688169', name: '石头科技', exchange: 'SH', secid: '1.688169' },
+  { symbol: '000066.SZ', code: '000066', name: '中国长城', exchange: 'SZ', secid: '0.000066' },
+  { symbol: '002439.SZ', code: '002439', name: '启明星辰', exchange: 'SZ', secid: '0.002439' },
+  { symbol: '300454.SZ', code: '300454', name: '深信服', exchange: 'SZ', secid: '0.300454' },
+  { symbol: '300017.SZ', code: '300017', name: '网宿科技', exchange: 'SZ', secid: '0.300017' },
+  { symbol: '002405.SZ', code: '002405', name: '四维图新', exchange: 'SZ', secid: '0.002405' },
+  { symbol: '002212.SZ', code: '002212', name: '天融信', exchange: 'SZ', secid: '0.002212' },
+  { symbol: '688568.SH', code: '688568', name: '中科星图', exchange: 'SH', secid: '1.688568' },
+  { symbol: '688088.SH', code: '688088', name: '虹软科技', exchange: 'SH', secid: '1.688088' },
+  { symbol: '300229.SZ', code: '300229', name: '拓尔思', exchange: 'SZ', secid: '0.300229' },
+  { symbol: '300418.SZ', code: '300418', name: '昆仑万维', exchange: 'SZ', secid: '0.300418' },
+  { symbol: '300413.SZ', code: '300413', name: '芒果超媒', exchange: 'SZ', secid: '0.300413' },
+  { symbol: '603000.SH', code: '603000', name: '人民网', exchange: 'SH', secid: '1.603000' },
+  { symbol: '601360.SH', code: '601360', name: '三六零', exchange: 'SH', secid: '1.601360' },
+  { symbol: '002602.SZ', code: '002602', name: '世纪华通', exchange: 'SZ', secid: '0.002602' },
+  { symbol: '300315.SZ', code: '300315', name: '掌趣科技', exchange: 'SZ', secid: '0.300315' },
+  { symbol: '000001.SZ', code: '000001', name: '平安银行', exchange: 'SZ', secid: '0.000001' },
+  { symbol: '600000.SH', code: '600000', name: '浦发银行', exchange: 'SH', secid: '1.600000' },
+  { symbol: '601939.SH', code: '601939', name: '建设银行', exchange: 'SH', secid: '1.601939' },
+  { symbol: '601988.SH', code: '601988', name: '中国银行', exchange: 'SH', secid: '1.601988' },
+  { symbol: '601328.SH', code: '601328', name: '交通银行', exchange: 'SH', secid: '1.601328' },
+  { symbol: '601658.SH', code: '601658', name: '邮储银行', exchange: 'SH', secid: '1.601658' },
+  { symbol: '600999.SH', code: '600999', name: '招商证券', exchange: 'SH', secid: '1.600999' },
+  { symbol: '601211.SH', code: '601211', name: '国泰君安', exchange: 'SH', secid: '1.601211' },
+  { symbol: '601688.SH', code: '601688', name: '华泰证券', exchange: 'SH', secid: '1.601688' },
+  { symbol: '000776.SZ', code: '000776', name: '广发证券', exchange: 'SZ', secid: '0.000776' },
+  { symbol: '601601.SH', code: '601601', name: '中国太保', exchange: 'SH', secid: '1.601601' },
+  { symbol: '601336.SH', code: '601336', name: '新华保险', exchange: 'SH', secid: '1.601336' },
+  { symbol: '000568.SZ', code: '000568', name: '泸州老窖', exchange: 'SZ', secid: '0.000568' },
+  { symbol: '600809.SH', code: '600809', name: '山西汾酒', exchange: 'SH', secid: '1.600809' },
+  { symbol: '603369.SH', code: '603369', name: '今世缘', exchange: 'SH', secid: '1.603369' },
+  { symbol: '600887.SH', code: '600887', name: '伊利股份', exchange: 'SH', secid: '1.600887' },
+] as const;
+
+const SAMPLE_UNIVERSE_MEMBERS: StrategyUniverseMember[] = SAMPLE_UNIVERSE_MEMBER_SEEDS.map(
+  (member) => ({
+    ...member,
+    concepts: [],
+    sectorTags: inferSampleSectorTags(member.name),
     assetType: 'stock',
     currency: 'CNY',
     timezone: 'Asia/Shanghai',
-    secid: '0.002156',
     provider: 'eastmoney',
     securityStatus: 'active',
     role: 'member',
-    weight: 0.2,
+    weight: Number((1 / SAMPLE_UNIVERSE_MEMBER_SEEDS.length).toFixed(8)),
     rowCount: 0,
+    latestClose: null,
+    latestChangePct: null,
+    strength20dPct: null,
+    strength60dPct: null,
+    ma20: null,
+    ma60: null,
+    trendStatus: 'insufficient',
+    avgAmount20d: null,
+    avgVolume20d: null,
     dataStatus: 'missing',
-  },
-  {
-    symbol: '002555.SZ',
-    code: '002555',
-    name: '三七互娱',
-    exchange: 'SZ',
-    assetType: 'stock',
-    currency: 'CNY',
-    timezone: 'Asia/Shanghai',
-    secid: '0.002555',
-    provider: 'eastmoney',
-    securityStatus: 'active',
-    role: 'member',
-    weight: 0.2,
-    rowCount: 0,
-    dataStatus: 'missing',
-  },
-  {
-    symbol: '002624.SZ',
-    code: '002624',
-    name: '完美世界',
-    exchange: 'SZ',
-    assetType: 'stock',
-    currency: 'CNY',
-    timezone: 'Asia/Shanghai',
-    secid: '0.002624',
-    provider: 'eastmoney',
-    securityStatus: 'active',
-    role: 'member',
-    weight: 0.2,
-    rowCount: 0,
-    dataStatus: 'missing',
-  },
-  {
-    symbol: '601398.SH',
-    code: '601398',
-    name: '工商银行',
-    exchange: 'SH',
-    assetType: 'stock',
-    currency: 'CNY',
-    timezone: 'Asia/Shanghai',
-    secid: '1.601398',
-    provider: 'eastmoney',
-    securityStatus: 'active',
-    role: 'member',
-    weight: 0.2,
-    rowCount: 0,
-    dataStatus: 'missing',
-  },
-  {
-    symbol: '600916.SH',
-    code: '600916',
-    name: '中国黄金',
-    exchange: 'SH',
-    assetType: 'stock',
-    currency: 'CNY',
-    timezone: 'Asia/Shanghai',
-    secid: '1.600916',
-    provider: 'eastmoney',
-    securityStatus: 'active',
-    role: 'member',
-    weight: 0.2,
-    rowCount: 0,
-    dataStatus: 'missing',
-  },
-];
+  })
+);
 
 const FALLBACK_RESEARCH_STATE: StrategyResearchState = {
   primaryUniverseId: SAMPLE_UNIVERSE_ID,
@@ -437,15 +566,43 @@ const FALLBACK_RESEARCH_STATE: StrategyResearchState = {
   universes: [
     {
       id: SAMPLE_UNIVERSE_ID,
-      name: 'A 股示例研究池',
+      name: 'A 股股票池',
       description: '用于策略平台打通本地行情覆盖、数据质量检查和回测链路的默认股票池。',
       status: 'active',
       source: 'seed',
-      tags: ['A股', '东方财富', '策略回测'],
+      tags: ['A股', '股票', '东方财富', '策略回测'],
       defaultTimeframe: 'daily',
       defaultAdjustment: 'qfq',
       provider: 'eastmoney',
       members: SAMPLE_UNIVERSE_MEMBERS,
+      memberCount: SAMPLE_UNIVERSE_MEMBERS.length,
+      stockCount: SAMPLE_UNIVERSE_MEMBERS.length,
+      etfCount: 0,
+      indexCount: 0,
+      fundCount: 0,
+      readyCount: 0,
+      barCount: 0,
+      latestTs: null,
+    },
+    {
+      id: 'etf-index-pool',
+      name: 'ETF/指数池',
+      description: '用于指数代理、ETF 轮动和跨资产对比的独立池。',
+      status: 'active',
+      source: 'seed',
+      tags: ['ETF', '指数', '东方财富', '轮动'],
+      defaultTimeframe: 'daily',
+      defaultAdjustment: 'qfq',
+      provider: 'eastmoney',
+      members: [],
+      memberCount: 0,
+      stockCount: 0,
+      etfCount: 0,
+      indexCount: 0,
+      fundCount: 0,
+      readyCount: 0,
+      barCount: 0,
+      latestTs: null,
     },
   ],
   coverage: SAMPLE_UNIVERSE_MEMBERS.map(member => ({
@@ -465,14 +622,14 @@ const FALLBACK_RESEARCH_STATE: StrategyResearchState = {
     suggestedLimit: 1260,
     lookbackYears: 5,
     endpoints: [
-      'GET /api/v1/research/universes',
-      'GET /api/v1/research/data-coverage',
+      'GET /api/v1/research/universes/summary',
+      'GET /api/v1/research/universes/{id}/members',
       'POST /api/v1/ingestion/eastmoney/history',
     ],
     guardrails: [
       '默认保留近 5 年前复权日线，保证策略回测读取同一价格口径。',
       '每次同步按 symbol/timeframe/adjustment/ts 幂等 upsert。',
-      '同步完成后自动裁剪本股票池旧样本，避免本地行情越积越长。',
+      '历史样本不因后续补数被删除，回测窗口由查询条件决定。',
       '回测必须读取本地 TimescaleDB，避免外部行情变化影响复现。',
     ],
   },
@@ -1057,16 +1214,66 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(item => String(item)) : [];
 }
 
+function compactUniqueStrings(values: Array<string | null | undefined>): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  values.forEach((value) => {
+    const text = value?.trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    result.push(text);
+  });
+  return result;
+}
+
+function inferSampleSectorTags(name?: string | null): string[] {
+  const value = name ?? '';
+  if (/银行/.test(value)) return ['银行'];
+  if (/证券|国泰君安|华泰|广发/.test(value)) return ['证券'];
+  if (/保险|中国平安|太保/.test(value)) return ['保险'];
+  if (/茅台|五粮液|泸州老窖|汾酒|今世缘/.test(value)) return ['白酒'];
+  if (/通富|圣邦|紫光|华润微|中芯|韦尔|兆易|卓胜|汇顶/.test(value)) return ['半导体'];
+  if (/三七|完美世界|世纪华通|掌趣|昆仑万维/.test(value)) return ['游戏'];
+  if (/宁德|比亚迪|电池|先导智能/.test(value)) return ['新能源车'];
+  if (/美的|格力|家电|三花/.test(value)) return ['家电'];
+  if (/黄金/.test(value)) return ['黄金珠宝'];
+  if (/联通|中兴|通信|移远|广和通/.test(value)) return ['通信服务'];
+  if (/石油|石化|石化|荣盛石化|东方盛虹/.test(value)) return ['石油石化'];
+  if (/医药|恒瑞/.test(value)) return ['医药'];
+  if (/电力|长江电力/.test(value)) return ['电力'];
+  if (/光伏|隆基/.test(value)) return ['光伏'];
+  return [];
+}
+
 function dataStatus(value: unknown): StrategyUniverseMember['dataStatus'] {
   return value === 'ready' || value === 'stale' || value === 'missing' ? value : 'missing';
 }
 
+function trendStatus(value: unknown): StrategyUniverseMember['trendStatus'] {
+  return value === 'bullish' || value === 'bearish' || value === 'sideways' || value === 'insufficient'
+    ? value
+    : 'insufficient';
+}
+
 function mapResearchMember(value: unknown): StrategyUniverseMember {
   const record = asRecord(value);
+  const concepts = asStringArray(record.concepts);
+  const sectorTags = asStringArray(record.sector_tags);
+  const industry = typeof record.industry === 'string' ? record.industry : null;
+  const region = typeof record.region === 'string' ? record.region : null;
+  const sectorHint = typeof record.sector_hint === 'string' ? record.sector_hint : null;
+  const name = typeof record.name === 'string' ? record.name : null;
   return {
     symbol: asString(record.symbol),
     code: asString(record.code),
-    name: typeof record.name === 'string' ? record.name : null,
+    name,
+    industry,
+    region,
+    concepts,
+    sectorHint,
+    sectorTags: sectorTags.length
+      ? sectorTags
+      : compactUniqueStrings([industry, ...concepts.slice(0, 3), region, ...inferSampleSectorTags(name)]),
     exchange: asString(record.exchange, 'UNKNOWN'),
     assetType: asString(record.asset_type, 'stock'),
     currency: asString(record.currency, 'CNY'),
@@ -1080,6 +1287,15 @@ function mapResearchMember(value: unknown): StrategyUniverseMember {
     firstTs: typeof record.first_ts === 'string' ? record.first_ts : null,
     lastTs: typeof record.last_ts === 'string' ? record.last_ts : null,
     dataProvider: typeof record.data_provider === 'string' ? record.data_provider : null,
+    latestClose: asNumber(record.latest_close),
+    latestChangePct: asNumber(record.latest_change_pct),
+    strength20dPct: asNumber(record.strength_20d_pct),
+    strength60dPct: asNumber(record.strength_60d_pct),
+    ma20: asNumber(record.ma20),
+    ma60: asNumber(record.ma60),
+    trendStatus: trendStatus(record.trend_status),
+    avgAmount20d: asNumber(record.avg_amount_20d),
+    avgVolume20d: asNumber(record.avg_volume_20d),
     dataStatus: dataStatus(record.data_status),
   };
 }
@@ -1089,7 +1305,7 @@ function mapResearchUniverse(value: unknown): StrategyUniverse {
   const members = Array.isArray(record.members) ? record.members.map(mapResearchMember) : [];
   return {
     id: asString(record.id, SAMPLE_UNIVERSE_ID),
-    name: asString(record.name, 'A 股示例研究池'),
+    name: asString(record.name, 'A 股股票池'),
     description: typeof record.description === 'string' ? record.description : null,
     status: asString(record.status, 'active'),
     source: asString(record.source, 'seed'),
@@ -1098,6 +1314,36 @@ function mapResearchUniverse(value: unknown): StrategyUniverse {
     defaultAdjustment: asString(record.default_adjustment, 'qfq'),
     provider: asString(record.provider, 'eastmoney'),
     members,
+    memberCount: asNumber(record.member_count) ?? members.length,
+    stockCount: asNumber(record.stock_count) ?? 0,
+    etfCount: asNumber(record.etf_count) ?? 0,
+    indexCount: asNumber(record.index_count) ?? 0,
+    fundCount: asNumber(record.fund_count) ?? 0,
+    readyCount: asNumber(record.ready_count) ?? 0,
+    barCount: asNumber(record.bar_count) ?? 0,
+    latestTs: typeof record.latest_ts === 'string' ? record.latest_ts : null,
+  };
+}
+
+function mapResearchUniverseMembersPage(
+  value: unknown,
+  fallbackUniverseId: string,
+  fallbackPage: number,
+  fallbackPageSize: number
+): StrategyUniverseMembersPage {
+  const record = asRecord(value);
+  const members = Array.isArray(record.members) ? record.members.map(mapResearchMember) : [];
+  const total = asNumber(record.total) ?? members.length;
+  const pageSize = asNumber(record.page_size) ?? fallbackPageSize;
+  return {
+    universeId: asString(record.universe_id, fallbackUniverseId),
+    page: asNumber(record.page) ?? fallbackPage,
+    pageSize,
+    total,
+    totalPages: asNumber(record.total_pages) ?? Math.max(1, Math.ceil(total / pageSize)),
+    keyword: typeof record.keyword === 'string' ? record.keyword : null,
+    members,
+    fetchedAt: asString(record.fetched_at, new Date().toISOString()),
   };
 }
 
@@ -1207,29 +1453,71 @@ async function fetchMarketApiJson<T>(pathName: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function getStrategyUniverseMembersPage(params: {
+  universeId?: string;
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+} = {}): Promise<StrategyUniverseMembersPage> {
+  const universeId = params.universeId || SAMPLE_UNIVERSE_ID;
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.max(1, Math.min(params.pageSize ?? 10, 100));
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const keyword = params.keyword?.trim();
+  if (keyword) query.set('keyword', keyword);
+  const payload = await fetchMarketApiJson<unknown>(
+    `/api/v1/research/universes/${encodeURIComponent(universeId)}/members?${query.toString()}`
+  );
+  return mapResearchUniverseMembersPage(payload, universeId, page, pageSize);
+}
+
 async function getStrategyResearchState(): Promise<StrategyResearchState> {
   try {
     const universesPayload = asRecord(
-      await fetchMarketApiJson<unknown>('/api/v1/research/universes')
+      await fetchMarketApiJson<unknown>('/api/v1/research/universes/summary')
     );
     const universes = Array.isArray(universesPayload.universes)
       ? universesPayload.universes.map(mapResearchUniverse)
       : [];
-    const primaryUniverse = universes[0] ?? FALLBACK_RESEARCH_STATE.universes[0];
-    const coveragePayload = asRecord(
-      await fetchMarketApiJson<unknown>(
-        `/api/v1/research/data-coverage?universe_id=${encodeURIComponent(primaryUniverse.id)}`
-      )
-    );
-    const coverage = Array.isArray(coveragePayload.items)
-      ? coveragePayload.items.map(mapCoverageItem)
-      : [];
+    const primaryUniverse =
+      universes.find((universe) => universe.id === SAMPLE_UNIVERSE_ID) ??
+      universes.find((universe) => universe.stockCount > 0) ??
+      universes[0] ??
+      FALLBACK_RESEARCH_STATE.universes[0];
+    const initialMembersPage = await getStrategyUniverseMembersPage({
+      universeId: primaryUniverse.id,
+      page: 1,
+      pageSize: 10,
+    });
+    const hydratedUniverses = universes.map((universe) => (
+      universe.id === primaryUniverse.id
+        ? {
+            ...universe,
+            members: initialMembersPage.members,
+            memberCount: initialMembersPage.total || universe.memberCount,
+          }
+        : { ...universe, members: [] }
+    ));
+    const coverage = initialMembersPage.members.map((member): StrategyDataCoverageItem => ({
+      symbol: member.symbol,
+      name: member.name,
+      timeframe: primaryUniverse.defaultTimeframe,
+      adjustment: primaryUniverse.defaultAdjustment,
+      provider: member.dataProvider ?? primaryUniverse.provider,
+      firstTs: member.firstTs ?? null,
+      lastTs: member.lastTs ?? null,
+      rowCount: member.rowCount,
+      dataStatus: member.dataStatus,
+    }));
 
     return {
       ...FALLBACK_RESEARCH_STATE,
       primaryUniverseId: primaryUniverse.id,
       source: 'market-api',
-      universes: universes.length ? universes : FALLBACK_RESEARCH_STATE.universes,
+      universes: hydratedUniverses.length ? hydratedUniverses : FALLBACK_RESEARCH_STATE.universes,
       coverage: coverage.length ? coverage : FALLBACK_RESEARCH_STATE.coverage,
       ingestionPlan: {
         ...FALLBACK_RESEARCH_STATE.ingestionPlan,
@@ -1273,7 +1561,7 @@ function matchesTemplate(project: StrategyWorkspaceRef, template: StrategyTempla
 }
 
 export async function getStrategyDashboardData(): Promise<StrategyDashboardData> {
-  const projects = serializeProjects(await getAllProjects());
+  const projects = serializeProjects(await getAllProjects().catch(() => []));
   const [scanRuns, scanJobs, research] = await Promise.all([
     listScanRuns(),
     listScanJobs(),
@@ -1298,11 +1586,11 @@ export async function getStrategyDashboardData(): Promise<StrategyDashboardData>
     0
   );
   const trackedSymbols = research.universes.reduce(
-    (sum, universe) => sum + universe.members.length,
+    (sum, universe) => sum + universe.memberCount,
     0
   );
-  const syncedSymbols = research.coverage.filter(item => item.dataStatus === 'ready').length;
-  const syncedBars = research.coverage.reduce((sum, item) => sum + item.rowCount, 0);
+  const syncedSymbols = research.universes.reduce((sum, universe) => sum + universe.readyCount, 0);
+  const syncedBars = research.universes.reduce((sum, universe) => sum + universe.barCount, 0);
 
   return {
     generatedAt: new Date().toISOString(),

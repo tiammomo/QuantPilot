@@ -24,6 +24,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
@@ -37,6 +44,7 @@ import type {
   StrategyLocalKlineResponse,
   StrategyUniverse,
   StrategyUniverseMember,
+  StrategyUniverseMembersPage,
 } from "@/lib/quant/strategies";
 
 type Props = { initialData: StrategyDashboardData };
@@ -131,6 +139,32 @@ function signedToneClass(value?: number | null) {
   return number >= 0 ? "text-red-600" : "text-emerald-600";
 }
 
+function trendLabel(status: StrategyUniverseMember["trendStatus"]) {
+  if (status === "bullish") return "多头";
+  if (status === "bearish") return "空头";
+  if (status === "sideways") return "震荡";
+  return "不足";
+}
+
+function trendClass(status: StrategyUniverseMember["trendStatus"]) {
+  if (status === "bullish") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "bearish") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "sideways") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-500";
+}
+
+function liquidityLabel(member: StrategyUniverseMember) {
+  if (finiteNumber(member.avgAmount20d) !== null) return formatLargeValue(member.avgAmount20d, 1);
+  if (finiteNumber(member.avgVolume20d) !== null) return formatLargeValue(member.avgVolume20d, 1);
+  return "-";
+}
+
+function liquiditySubLabel(member: StrategyUniverseMember) {
+  if (finiteNumber(member.avgAmount20d) !== null) return "20日均额";
+  if (finiteNumber(member.avgVolume20d) !== null) return "20日均量";
+  return "暂无";
+}
+
 // ─── Sub-nav items ─────────────────────────────────────────────
 const SUB_NAV_ITEMS: SubNavItem[] = [
   { id: "universe", label: "股票池", icon: <SquareStack className="h-4 w-4" /> },
@@ -192,16 +226,48 @@ function StrategySelector({
   );
 }
 
-function dataStatusClass(status: string) {
-  if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "stale") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-slate-200 bg-slate-50 text-slate-600";
-}
+// ─── Strategy Card (Catalog) ────────────────────────────────────
+function StrategyCard({ strategy, onClick }: { strategy: StrategyCatalogItem; onClick: () => void }) {
+  const paramSummary = strategy.parameterSchema.slice(0, 3).map((p) => `${p.label}=${p.value}${p.unit ?? ""}`).join(", ");
+  const hasMoreParams = strategy.parameterSchema.length > 3;
+  const bestArchive = strategy.backtestArchives.find((a) => a.status === "available");
 
-function dataStatusLabel(status: string) {
-  if (status === "ready") return "已覆盖";
-  if (status === "stale") return "需更新";
-  return "未覆盖";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex flex-col rounded-lg border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:border-blue-200 hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-base font-bold text-slate-900 group-hover:text-blue-700 transition-colors">{strategy.name}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{strategy.family} · {strategy.timeframe}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", statusClass(strategy.status))}>{statusLabel(strategy.status)}</span>
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", riskClass(strategy.readiness.riskLevel))}>
+            {strategy.readiness.riskLevel === "low" ? "低风险" : strategy.readiness.riskLevel === "medium" ? "中风险" : "高风险"}
+          </span>
+        </div>
+      </div>
+      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{strategy.description}</p>
+      <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+        <SlidersHorizontal className="h-3 w-3 shrink-0" />
+        <span className="truncate">{paramSummary}</span>
+        {hasMoreParams && <span className="shrink-0 text-slate-400">+{strategy.parameterSchema.length - 3}</span>}
+      </div>
+      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          <span className="flex items-center gap-1"><Database className="h-3 w-3" />{strategy.dataDependencies.length} 数据源</span>
+          <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" />{strategy.linkedWorkspaces.length} 空间</span>
+          {bestArchive && (
+            <span className="flex items-center gap-1 text-emerald-600"><BarChart3 className="h-3 w-3" />{bestArchive.metrics.totalReturnPct != null ? `${bestArchive.metrics.totalReturnPct}%` : "已归档"}</span>
+          )}
+        </div>
+        <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-blue-500" />
+      </div>
+    </button>
+  );
 }
 
 const UNIVERSE_PAGE_SIZE = 10;
@@ -220,6 +286,24 @@ const MOVING_AVERAGE_CONFIGS = [
   { period: 60, label: "MA60", color: "#7c3aed", textClass: "text-violet-600" },
 ] as const;
 
+function buildUniverseMembersPage(
+  universe: StrategyUniverse | null,
+  page = 1,
+  keyword = ""
+): StrategyUniverseMembersPage {
+  const total = universe?.memberCount ?? universe?.members.length ?? 0;
+  return {
+    universeId: universe?.id ?? "",
+    page,
+    pageSize: UNIVERSE_PAGE_SIZE,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / UNIVERSE_PAGE_SIZE)),
+    keyword: keyword || null,
+    members: universe?.members ?? [],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 function UniverseView({
   data,
   isAdding,
@@ -229,61 +313,88 @@ function UniverseView({
   isAdding: boolean;
   onAdd: (universeId: string, query: string) => Promise<void>;
 }) {
+  const initialUniverse =
+    data.research.universes.find((universe) => universe.id === data.research.primaryUniverseId) ??
+    data.research.universes[0] ??
+    null;
   const [memberQuery, setMemberQuery] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
   const [page, setPage] = useState(1);
   const [selectedMemberSymbol, setSelectedMemberSymbol] = useState<string | null>(null);
+  const [selectedUniverseId, setSelectedUniverseId] = useState(
+    initialUniverse?.id ?? data.research.primaryUniverseId
+  );
+  const [membersPage, setMembersPage] = useState<StrategyUniverseMembersPage>(() =>
+    buildUniverseMembersPage(initialUniverse)
+  );
+  const [memberReloadToken, setMemberReloadToken] = useState(0);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [memberError, setMemberError] = useState<string | null>(null);
   const [openingMemberSymbol, setOpeningMemberSymbol] = useState<string | null>(null);
   const [closingMemberSymbol, setClosingMemberSymbol] = useState<string | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFrameRef = useRef<number | null>(null);
 
   const selectedUniverse =
+    data.research.universes.find((universe) => universe.id === selectedUniverseId) ??
     data.research.universes.find((universe) => universe.id === data.research.primaryUniverseId) ??
     data.research.universes[0] ??
     null;
-  const coverageBySymbol = useMemo(() => {
-    const map = new Map<string, StrategyUniverseMember>();
-    for (const member of selectedUniverse?.members ?? []) {
-      const coverage = data.research.coverage.find((item) => item.symbol === member.symbol);
-      map.set(member.symbol, {
-        ...member,
-        rowCount: coverage?.rowCount ?? member.rowCount,
-        firstTs: coverage?.firstTs ?? member.firstTs,
-        lastTs: coverage?.lastTs ?? member.lastTs,
-        dataProvider: coverage?.provider ?? member.dataProvider,
-        dataStatus: coverage?.dataStatus ?? member.dataStatus,
+
+  useEffect(() => {
+    if (data.research.universes.some((universe) => universe.id === selectedUniverseId)) return;
+    setSelectedUniverseId(data.research.primaryUniverseId);
+  }, [data.research.primaryUniverseId, data.research.universes, selectedUniverseId]);
+
+  useEffect(() => {
+    setMembersPage(buildUniverseMembersPage(selectedUniverse));
+  }, [data.generatedAt, selectedUniverse]);
+
+  useEffect(() => {
+    if (!selectedUniverse) return;
+    const controller = new AbortController();
+    const keyword = memberSearch.trim();
+    const requestedPage = page;
+    setIsLoadingMembers(true);
+    setMemberError(null);
+    void fetch(`${API_BASE}/api/quant/strategies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "universe-members",
+        universeId: selectedUniverse.id,
+        page: requestedPage,
+        pageSize: UNIVERSE_PAGE_SIZE,
+        keyword,
+      }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error ?? "读取股票池分页失败");
+        }
+        const nextPage = payload.data as StrategyUniverseMembersPage;
+        setMembersPage(nextPage);
+        if (nextPage.page !== requestedPage) setPage(nextPage.page);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setMemberError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoadingMembers(false);
       });
-    }
-    return map;
-  }, [data.research.coverage, selectedUniverse]);
-  const members = Array.from(coverageBySymbol.values());
-  const filteredMembers = useMemo(() => {
-    const keyword = memberSearch.trim().toLowerCase();
-    if (!keyword) return members;
-    return members.filter((member) =>
-      [
-        member.symbol,
-        member.code,
-        member.name,
-        member.exchange,
-        member.assetType,
-        member.secid,
-        member.provider,
-        member.dataProvider,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(keyword)
-    );
-  }, [memberSearch, members]);
-  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / UNIVERSE_PAGE_SIZE));
+    return () => controller.abort();
+  }, [memberReloadToken, memberSearch, page, selectedUniverse]);
+
+  const members = membersPage.universeId === selectedUniverse?.id ? membersPage.members : [];
+  const hasMemberSearch = Boolean(memberSearch.trim());
+  const selectedUniverseTotal = selectedUniverse?.memberCount ?? membersPage.total;
+  const memberTotal = membersPage.total;
+  const totalPages = Math.max(1, membersPage.totalPages);
   const currentPage = Math.min(page, totalPages);
-  const pagedMembers = filteredMembers.slice(
-    (currentPage - 1) * UNIVERSE_PAGE_SIZE,
-    currentPage * UNIVERSE_PAGE_SIZE
-  );
+  const pagedMembers = members;
 
   const addMember = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -292,6 +403,7 @@ function UniverseView({
     setMemberQuery("");
     setMemberSearch("");
     setPage(1);
+    setMemberReloadToken((value) => value + 1);
   };
 
   const clearCloseTimer = () => {
@@ -371,12 +483,44 @@ function UniverseView({
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-950">股票池</h2>
-                <Badge variant="outline" className="bg-white text-slate-500">{filteredMembers.length} / {members.length} 只</Badge>
+                <h2 className="text-lg font-semibold text-slate-950">{selectedUniverse.name}</h2>
+                <Badge variant="outline" className="bg-white text-slate-500">
+                  {hasMemberSearch ? `${memberTotal} / ${selectedUniverseTotal} 只` : `${selectedUniverseTotal} 只`}
+                </Badge>
+                {isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
               </div>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
                 一张可检索、可分页的股票列表；点击任意股票查看 K 线、覆盖统计和证券主数据。
               </p>
+              {data.research.universes.length > 1 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {data.research.universes.map((universe) => (
+                    <button
+                      key={universe.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedUniverseId(universe.id);
+                        setMemberSearch("");
+                        setPage(1);
+                        setSelectedMemberSymbol(null);
+                        setOpeningMemberSymbol(null);
+                        setClosingMemberSymbol(null);
+                        setMemberError(null);
+                        setMembersPage(buildUniverseMembersPage(universe));
+                      }}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                        selectedUniverse.id === universe.id
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      )}
+                    >
+                      {universe.name}
+                      <span className="ml-1.5 text-xs text-slate-400">{universe.memberCount}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <form onSubmit={addMember} className="flex min-w-[280px] flex-1 flex-wrap justify-end gap-2">
               <Input
@@ -401,29 +545,37 @@ function UniverseView({
                   setPage(1);
                   setSelectedMemberSymbol(null);
                 }}
-                placeholder="筛选名称、代码、交易所、数据源..."
+                placeholder="筛选名称、代码、板块、交易所..."
                 className="h-9 border-slate-200 bg-white pl-9"
               />
             </div>
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <span>第 {currentPage} / {totalPages} 页</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>
+              <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1 || isLoadingMembers}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages}>
+              <Button variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages || isLoadingMembers}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </div>
+          {memberError && (
+            <div className="border-b border-amber-100 bg-amber-50 px-5 py-2 text-sm text-amber-700">
+              {memberError}
+            </div>
+          )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+            <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  <th className="px-5 py-3 font-medium">标的</th>
-                  <th className="px-3 py-3 font-medium">代码</th>
-                  <th className="px-3 py-3 font-medium">数据覆盖</th>
-                  <th className="px-3 py-3 font-medium">最新数据</th>
-                  <th className="px-3 py-3 font-medium">数据状态</th>
+                  <th className="w-[9%] px-5 py-3 font-medium">股票名称</th>
+                  <th className="w-[10%] px-3 py-3 font-medium">代码</th>
+                  <th className="w-[34%] px-3 py-3 font-medium">所属板块</th>
+                  <th className="w-[8%] px-3 py-3 font-medium">行情</th>
+                  <th className="w-[10%] px-3 py-3 font-medium">强弱</th>
+                  <th className="w-[6%] px-3 py-3 font-medium">趋势</th>
+                  <th className="w-[9%] px-3 py-3 font-medium">流动性</th>
+                  <th className="w-[14%] px-3 py-3 font-medium">数据覆盖</th>
                 </tr>
               </thead>
               <tbody>
@@ -451,18 +603,62 @@ function UniverseView({
                           </div>
                         </td>
                         <td className="px-3 py-3">
+                          {member.sectorTags.length ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {member.sectorTags.map((tag) => (
+                                <Badge key={tag} variant="outline" className="border-blue-100 bg-blue-50 text-blue-700">
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="space-y-0.5">
+                            <p className="font-semibold tabular-nums text-slate-950">{formatNumberValue(member.latestClose)}</p>
+                            <p className={cn("text-xs font-medium tabular-nums", signedToneClass(member.latestChangePct))}>
+                              {formatSignedPercent(member.latestChangePct)}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="space-y-1 text-xs tabular-nums">
+                            <p>
+                              <span className="text-slate-400">20日 </span>
+                              <span className={cn("font-semibold", signedToneClass(member.strength20dPct))}>
+                                {formatSignedPercent(member.strength20dPct)}
+                              </span>
+                            </p>
+                            <p>
+                              <span className="text-slate-400">60日 </span>
+                              <span className={cn("font-semibold", signedToneClass(member.strength60dPct))}>
+                                {formatSignedPercent(member.strength60dPct)}
+                              </span>
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <Badge variant="outline" className={trendClass(member.trendStatus)}>
+                            {trendLabel(member.trendStatus)}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="space-y-0.5">
+                            <p className="font-semibold tabular-nums text-slate-950">{liquidityLabel(member)}</p>
+                            <p className="text-xs text-slate-400">{liquiditySubLabel(member)}</p>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
                           <p className="text-slate-700">
                             {formatDataDate(member.firstTs)} 至 {formatDataDate(member.lastTs)}
                           </p>
                         </td>
-                        <td className="px-3 py-3 text-slate-600">{formatDataDate(member.lastTs)}</td>
-                        <td className="px-3 py-3">
-                          <Badge variant="outline" className={dataStatusClass(member.dataStatus)}>{dataStatusLabel(member.dataStatus)}</Badge>
-                        </td>
                       </tr>
                       {shouldRenderDetail && (
                         <tr key={`${member.symbol}-detail`} className="border-t border-slate-100">
-                          <td colSpan={5} className="p-0">
+                          <td colSpan={8} className="p-0">
                             <div
                               className={cn(
                                 "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
@@ -487,6 +683,13 @@ function UniverseView({
                     </Fragment>
                   );
                 })}
+                {!pagedMembers.length && (
+                  <tr className="border-t border-slate-100">
+                    <td colSpan={8} className="px-5 py-12 text-center text-sm text-slate-500">
+                      {isLoadingMembers ? "正在读取股票池..." : "没有匹配的股票"}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -987,38 +1190,6 @@ function KlineMiniChart({
           }}
         />
       </div>
-      <div className="mt-3 overflow-x-auto rounded-md border border-slate-200">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="bg-slate-50 text-slate-500">
-            <tr>
-              <th className="px-3 py-2.5 font-medium">日期</th>
-              <th className="px-3 py-2.5 font-medium">开盘</th>
-              <th className="px-3 py-2.5 font-medium">最高</th>
-              <th className="px-3 py-2.5 font-medium">最低</th>
-              <th className="px-3 py-2.5 font-medium">收盘</th>
-              <th className="px-3 py-2.5 font-medium">成交量</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleBars.slice(-8).reverse().map((bar) => (
-              <tr
-                key={bar.ts}
-                className={cn(
-                  "border-t border-slate-100",
-                  bar.ts === selectedBarTs && "bg-blue-50/70"
-                )}
-              >
-                <td className="px-3 py-2.5 text-slate-600">{formatDataDate(bar.ts)}</td>
-                <td className="px-3 py-2.5 tabular-nums text-slate-900">{formatNumberValue(bar.open)}</td>
-                <td className="px-3 py-2.5 tabular-nums text-slate-900">{formatNumberValue(bar.high)}</td>
-                <td className="px-3 py-2.5 tabular-nums text-slate-900">{formatNumberValue(bar.low)}</td>
-                <td className="px-3 py-2.5 tabular-nums text-slate-900">{formatNumberValue(bar.close)}</td>
-                <td className="px-3 py-2.5 tabular-nums text-slate-600">{formatLargeValue(bar.volume, 1)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
@@ -1228,6 +1399,8 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [runningScanId, setRunningScanId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [sheetStrategy, setSheetStrategy] = useState<StrategyCatalogItem | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const filteredTemplates = useMemo(() => {
     const lower = keyword.trim().toLowerCase();
@@ -1237,6 +1410,10 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         .join(" ").toLowerCase().includes(lower);
     });
   }, [data.templates, keyword]);
+
+  const families = useMemo(() => Array.from(new Set(data.templates.map((t) => t.family))), [data.templates]);
+  const [familyFilter, setFamilyFilter] = useState<string | null>(null);
+  const displayTemplates = familyFilter ? filteredTemplates.filter((t) => t.family === familyFilter) : filteredTemplates;
 
   const selectedTemplate =
     data.templates.find((t) => t.id === selectedId) ?? filteredTemplates[0] ?? data.templates[0] ?? null;
@@ -1265,14 +1442,15 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   };
 
   const createStrategyWorkspace = async () => {
-    if (!selectedTemplate || isCreating) return;
+    const strategy = sheetStrategy || selectedTemplate;
+    if (!strategy || isCreating) return;
     setIsCreating(true);
     setToast(null);
     try {
       const pr = await fetch(`${API_BASE}/api/quant/strategies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId: selectedTemplate.id, symbol }),
+        body: JSON.stringify({ templateId: strategy.id, symbol }),
       });
       const pp = await pr.json();
       if (!pr.ok || !pp.success) throw new Error(pp.error ?? "生成策略提示失败");
@@ -1375,7 +1553,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
               <RefreshCcw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
               刷新
             </Button>
-            {selectedTemplate && (view === "catalog" || view === "scans") && (
+            {selectedTemplate && view === "scans" && (
               <Button size="sm" onClick={createStrategyWorkspace} disabled={isCreating} className="bg-blue-600 text-white hover:bg-blue-700">
                 {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                 生成工作空间
@@ -1385,139 +1563,193 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         }
       />
 
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 lg:px-6">
+      <main className="mx-auto w-full max-w-[1760px] space-y-5 px-4 py-6 lg:px-6">
         {toast && (
           <div className={cn("rounded-md border px-4 py-3 text-sm shadow-sm",
             toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"
           )}>{toast.message}</div>
         )}
-        {view !== "universe" && (
-          <StrategySelector
-            templates={filteredTemplates}
-            selectedId={selectedId}
-            keyword={keyword}
-            onKeywordChange={setKeyword}
-            onSelect={selectTemplate}
-          />
+        {/* ── Universe Tab ─────────────────────────────── */}
+        {view === "universe" && (
+          <UniverseView data={data} isAdding={isAddingMember} onAdd={addUniverseMember} />
         )}
 
-        {view === "universe" ? (
-          <UniverseView data={data} isAdding={isAddingMember} onAdd={addUniverseMember} />
-        ) : !selectedTemplate && !filteredTemplates.length ? (
-          <EmptyState title="暂无策略模板" description="请运行策略扫描生成模板数据" className="border-0" />
-        ) : selectedTemplate ? (
+        {/* ── Catalog Tab: Strategy Plan Library ────────── */}
+        {view === "catalog" && (
           <>
-            {/* Template overview header */}
-            <div className="rounded-lg border border-slate-200 bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-bold text-slate-950">{selectedTemplate.name}</h2>
-                    <Badge variant="outline" className={riskClass(selectedTemplate.readiness.riskLevel)}>
-                      {selectedTemplate.readiness.label}
-                    </Badge>
-                    <Badge variant="outline" className={statusClass(selectedTemplate.status)}>
-                      {statusLabel(selectedTemplate.status)}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{selectedTemplate.description}</p>
+            {/* Stats bar */}
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              {[
+                { label: "策略方案", value: data.summary.templates, sub: `${data.summary.readyTemplates} 可回测`, icon: <TrendingUp className="h-3.5 w-3.5" /> },
+                { label: "工作空间", value: data.summary.strategyWorkspaces, sub: `${data.summary.backtestWorkspaces} 回测`, icon: <GitBranch className="h-3.5 w-3.5" /> },
+                { label: "版本口径", value: data.summary.activeVersions, sub: `${data.templates.reduce((s, t) => s + t.versions.length, 0)} 记录`, icon: <BarChart3 className="h-3.5 w-3.5" /> },
+                { label: "回测归档", value: data.summary.archivedReports, sub: "报告与限制", icon: <Database className="h-3.5 w-3.5" /> },
+              ].map((item) => (
+                <div key={item.label} className="flex min-w-[130px] flex-1 items-center gap-3 rounded-md border border-slate-100 bg-slate-50/50 px-3 py-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-slate-500">{item.icon}</div>
+                  <div className="min-w-0"><p className="text-sm font-semibold tabular-nums text-slate-900">{item.value}</p><p className="truncate text-[11px] text-slate-500">{item.sub}</p></div>
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <div className="rounded-md bg-slate-50 px-3 py-2 text-center">
-                    <p className="text-xs text-slate-500">成熟度</p>
-                    <p className="text-lg font-bold tabular-nums text-slate-900">{selectedTemplate.readiness.score}</p>
-                  </div>
-                  <div className="rounded-md bg-slate-50 px-3 py-2 text-center">
-                    <p className="text-xs text-slate-500">工作空间</p>
-                    <p className="text-lg font-bold tabular-nums text-slate-900">{selectedTemplate.linkedWorkspaces.length}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                {selectedTemplate.readiness.summary}
-              </div>
+              ))}
             </div>
 
-            {/* ── Tab: Catalog ─────────────────────────── */}
-            {view === "catalog" && (
-              <div className="space-y-5">
-                <div className="grid gap-5 lg:grid-cols-2">
-                  {/* Parameters */}
-                  <section className="rounded-lg border border-slate-200 bg-white">
-                    <h3 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-                      <SlidersHorizontal className="h-4 w-4 text-blue-600" />参数口径
-                    </h3>
-                    <div className="divide-y divide-slate-100">
-                      {selectedTemplate.parameterSchema.map((p) => (
-                        <div key={p.key} className="flex items-start justify-between gap-4 px-4 py-2.5 text-sm">
-                          <span className="shrink-0 text-slate-500">{p.label}</span>
-                          <span className="min-w-0 break-words text-right font-medium text-slate-900">
-                            {p.value}{p.unit ?? ""}
-                            <span className="ml-2 text-xs font-normal text-slate-500">{p.description}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </section>
+            {/* Search + family filter */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索策略方案、参数、数据源..." className="h-9 border-slate-200 bg-white pl-9" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => setFamilyFilter(null)}
+                className={cn("rounded-md border px-2.5 py-1 text-xs font-medium transition-colors", !familyFilter ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")}>全部</button>
+              {families.map((fam) => (
+                <button key={fam} type="button" onClick={() => setFamilyFilter(fam)}
+                  className={cn("rounded-md border px-2.5 py-1 text-xs font-medium transition-colors", familyFilter === fam ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")}>{fam}</button>
+              ))}
+            </div>
 
-                  {/* Metrics */}
-                  <section className="rounded-lg border border-slate-200 bg-white">
-                    <h3 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-                      <BarChart3 className="h-4 w-4 text-blue-600" />评估指标
-                    </h3>
-                    <div className="flex flex-wrap gap-2 p-4">
-                      {selectedTemplate.evaluationMetrics.map((m) => (
-                        <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-700">{m}</span>
-                      ))}
-                    </div>
-                  </section>
-
-                  {/* Dependencies */}
-                  <section className="rounded-lg border border-slate-200 bg-white">
-                    <h3 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-                      <Database className="h-4 w-4 text-blue-600" />数据依赖
-                    </h3>
-                    <div className="space-y-2 p-4">
-                      {selectedTemplate.dataDependencies.map((ep) => (
-                        <code key={ep} className="block rounded-md bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">{ep}</code>
-                      ))}
-                    </div>
-                  </section>
-
-                  {/* Risk & Limitations */}
-                  <section className="rounded-lg border border-slate-200 bg-white">
-                    <h3 className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-                      <ShieldCheck className="h-4 w-4 text-blue-600" />风险与限制
-                    </h3>
-                    <div className="space-y-3 p-4 text-sm">
-                      {selectedTemplate.riskControls.map((item) => (
-                        <div key={item} className="flex gap-2 text-slate-700">
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                          <span>{item}</span>
-                        </div>
-                      ))}
-                      {selectedTemplate.limitations.map((item) => (
-                        <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-
-                {/* Symbol input + generate CTA */}
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-4">
-                  <Input
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
-                    placeholder="输入标的，例如 510300"
-                    className="max-w-xs bg-white"
-                  />
-                  <Button onClick={createStrategyWorkspace} disabled={isCreating} className="bg-blue-600 text-white hover:bg-blue-700">
-                    {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                    用此模板生成工作空间
-                  </Button>
-                </div>
+            {/* Card grid */}
+            {displayTemplates.length === 0 ? (
+              <EmptyState title={keyword || familyFilter ? "没有匹配的策略方案" : "暂无策略方案"} description={keyword ? "尝试其他关键词" : "请运行策略扫描生成模板数据"} className="border-0" />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {displayTemplates.map((t) => (
+                  <StrategyCard key={t.id} strategy={t} onClick={() => { setSheetStrategy(t); setSymbol(t.defaultSymbols[0] ?? ""); setSheetOpen(true); }} />
+                ))}
               </div>
             )}
+
+            {/* Detail Sheet */}
+            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+              <SheetContent side="right" className="flex w-[560px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[640px]">
+                {sheetStrategy && (
+                  <>
+                    <SheetHeader className="border-b px-5 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <SheetTitle className="text-lg">{sheetStrategy.name}</SheetTitle>
+                          <SheetDescription className="mt-1">{sheetStrategy.family} · {sheetStrategy.timeframe} · {sheetStrategy.readiness.summary}</SheetDescription>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", statusClass(sheetStrategy.status))}>{statusLabel(sheetStrategy.status)}</span>
+                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", riskClass(sheetStrategy.readiness.riskLevel))}>{sheetStrategy.readiness.score}分</span>
+                        </div>
+                      </div>
+                    </SheetHeader>
+                    <div className="flex-1 space-y-5 overflow-y-auto p-5">
+                      <p className="text-sm leading-6 text-slate-600">{sheetStrategy.description}</p>
+
+                      {/* Parameters */}
+                      <section>
+                        <h4 className="mb-2 text-sm font-semibold text-slate-900">参数口径</h4>
+                        <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+                          {sheetStrategy.parameterSchema.map((p) => (
+                            <div key={p.key} className="flex items-start justify-between gap-4 px-3 py-2.5 text-sm">
+                              <span className="shrink-0 text-slate-500">{p.label}</span>
+                              <span className="min-w-0 break-words text-right font-medium text-slate-900">{p.value}{p.unit ?? ""}<span className="ml-2 text-xs font-normal text-slate-500">{p.description}</span></span>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+
+                      {/* Metrics + Dependencies */}
+                      <div className="grid gap-5 sm:grid-cols-2">
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">评估指标</h4>
+                          <div className="flex flex-wrap gap-1.5">{sheetStrategy.evaluationMetrics.map((m) => <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{m}</span>)}</div>
+                        </section>
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">数据依赖</h4>
+                          <div className="space-y-1">{sheetStrategy.dataDependencies.map((ep) => <code key={ep} className="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{ep}</code>)}</div>
+                        </section>
+                      </div>
+
+                      {/* Risk & Limitations */}
+                      <section>
+                        <h4 className="mb-2 text-sm font-semibold text-slate-900">风险与限制</h4>
+                        <div className="space-y-2 rounded-md border border-slate-200 p-3 text-sm">
+                          {sheetStrategy.riskControls.map((item) => <div key={item} className="flex gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{item}</span></div>)}
+                          {sheetStrategy.limitations.map((item) => <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>)}
+                        </div>
+                      </section>
+
+                      {/* Backtest archives */}
+                      {sheetStrategy.backtestArchives.length > 0 && (
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">回测归档</h4>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {sheetStrategy.backtestArchives.map((a) => (
+                              <div key={a.id} className="rounded-md border border-slate-200 p-3">
+                                <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{a.title}</p><Badge variant="outline" className="text-[10px]">{a.status}</Badge></div>
+                                <p className="mt-1 text-xs text-slate-500">{a.symbol} · {a.period}</p>
+                                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                                  <div><span className="text-slate-500">收益</span><span className="ml-1 font-medium">{a.metrics.totalReturnPct ?? "-"}%</span></div>
+                                  <div><span className="text-slate-500">回撤</span><span className="ml-1 font-medium">{a.metrics.maxDrawdownPct ?? "-"}%</span></div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Linked workspaces */}
+                      {sheetStrategy.linkedWorkspaces.length > 0 && (
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">关联工作空间</h4>
+                          <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+                            {sheetStrategy.linkedWorkspaces.map((ws) => (
+                              <Link key={ws.id} href={`/${ws.id}/chat`} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-slate-50">
+                                <div><p className="font-medium text-slate-900">{ws.name}</p><p className="text-xs text-slate-500">{ws.capabilityId} · {formatDate(ws.updatedAt ?? ws.createdAt)}</p></div>
+                                <ArrowRight className="h-4 w-4 text-slate-300" />
+                              </Link>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Create workspace CTA */}
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                        <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的，例如 510300" className="max-w-[180px] bg-white" />
+                        <Button onClick={createStrategyWorkspace} disabled={isCreating} className="bg-blue-600 text-white hover:bg-blue-700">
+                          {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                          生成工作空间
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </SheetContent>
+            </Sheet>
+          </>
+        )}
+
+        {/* ── Scans & Compare: Single-template view ──────── */}
+        {(view === "scans" || view === "compare") && (
+          <>
+            <StrategySelector
+              templates={filteredTemplates}
+              selectedId={selectedId}
+              keyword={keyword}
+              onKeywordChange={setKeyword}
+              onSelect={selectTemplate}
+            />
+            {!selectedTemplate && !filteredTemplates.length ? (
+              <EmptyState title="暂无策略模板" description="请运行策略扫描生成模板数据" className="border-0" />
+            ) : selectedTemplate ? (
+              <>
+                {/* Template overview header */}
+                <div className="rounded-lg border border-slate-200 bg-white p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-lg font-bold text-slate-950">{selectedTemplate.name}</h2>
+                        <Badge variant="outline" className={riskClass(selectedTemplate.readiness.riskLevel)}>{selectedTemplate.readiness.label}</Badge>
+                        <Badge variant="outline" className={statusClass(selectedTemplate.status)}>{statusLabel(selectedTemplate.status)}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{selectedTemplate.description}</p>
+                    </div>
+                  </div>
+                </div>
 
             {/* ── Tab: Scans ──────────────────────────── */}
             {view === "scans" && (
@@ -1724,6 +1956,8 @@ export default function StrategyPlatformClient({ initialData }: Props) {
             )}
           </>
         ) : null}
+          </>
+        )}
       </main>
     </div>
   );

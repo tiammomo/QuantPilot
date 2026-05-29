@@ -7,6 +7,7 @@ import {
   getStrategyDashboardData,
   getStrategySymbolBars,
   getStrategySymbolDividends,
+  getStrategyUniverseMembersPage,
   runStrategyParameterScan,
 } from '@/lib/quant/strategies';
 
@@ -49,6 +50,16 @@ export async function POST(request: NextRequest) {
           syncHistory: body.syncHistory === true,
         }),
         201
+      );
+    }
+    if (body.action === 'universe-members') {
+      return createSuccessResponse(
+        await getStrategyUniverseMembersPage({
+          universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
+          page: typeof body.page === 'number' ? body.page : undefined,
+          pageSize: typeof body.pageSize === 'number' ? body.pageSize : undefined,
+          keyword: typeof body.keyword === 'string' ? body.keyword : undefined,
+        })
       );
     }
     if (body.action === 'symbol-bars') {
