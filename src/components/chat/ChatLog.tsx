@@ -2055,8 +2055,9 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     [onProjectStatusUpdate, onSessionStatusChange, startRequest, completeRequest]
   );
 
-  const handleRealtimeError = useCallback((error: Error) => {
-    console.error('🔌 [Realtime] Error:', error);
+  const handleRealtimeError = useCallback((error: Error | string) => {
+    const message = typeof error === 'string' ? error : error.message;
+    console.warn('🔌 [Realtime] Non-blocking error:', message);
   }, []);
 
   const handleRealtimeEnvelope = useCallback(
