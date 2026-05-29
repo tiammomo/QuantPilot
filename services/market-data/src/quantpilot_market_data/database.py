@@ -21,12 +21,37 @@ from quantpilot_market_data.models import (
     MarketDataCoverageItem,
     ResearchUniverse,
     ResearchUniverseMember,
+    ResearchUniverseSummary,
     SymbolResolveResult,
 )
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_UNIVERSE_ID = "a-share-sample-research-pool"
 ROOT_DIR = Path(__file__).resolve().parents[4]
+SECTOR_HINT_LABELS = {
+    "semiconductor": "半导体",
+    "gaming": "游戏",
+    "bank": "银行",
+    "gold-retail": "黄金珠宝",
+    "liquor": "白酒",
+    "home-appliance": "家电",
+    "battery": "电池",
+    "new-energy-auto": "新能源汽车",
+    "insurance": "保险",
+    "utility": "公用事业",
+    "solar": "光伏",
+    "pharma": "医药",
+    "display-panel": "面板",
+    "security-equipment": "安防设备",
+    "telecom": "通信服务",
+    "oil-gas": "石油石化",
+    "construction": "建筑工程",
+    "petrochemical": "石油化工",
+    "coal-chemical": "煤化工",
+    "chemical": "化工",
+    "soda-ash": "纯碱",
+    "fiberglass": "玻璃纤维",
+}
 
 
 class DatabaseError(RuntimeError):
@@ -152,12 +177,150 @@ def json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def first_text(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return text
+        elif value is not None:
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def split_sector_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        values = value
+    elif isinstance(value, str):
+        normalized = (
+            value.replace("，", ",")
+            .replace("、", ",")
+            .replace("；", ",")
+            .replace(";", ",")
+            .replace("|", ",")
+        )
+        values = normalized.split(",")
+    else:
+        values = []
+    return [text for item in values if (text := str(item).strip())]
+
+
+def unique_non_empty(values: list[str | None]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        text = value.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def security_sector_fields(metadata_value: Any) -> dict[str, Any]:
+    metadata = json_object(metadata_value)
+    raw = json_object(metadata.get("raw"))
+    sector_hint = first_text(metadata.get("sector_hint"), raw.get("sector_hint"))
+    sector_hint_label = SECTOR_HINT_LABELS.get(sector_hint or "", sector_hint)
+    industry = first_text(metadata.get("industry"), raw.get("industry"), raw.get("f100"))
+    region = first_text(metadata.get("region"), raw.get("region"), raw.get("f102"))
+    concepts = split_sector_values(
+        metadata.get("concepts")
+        or raw.get("concepts")
+        or raw.get("f103")
+    )
+    sector_tags = unique_non_empty([industry, *concepts[:3], region, sector_hint_label])
+    return {
+        "industry": industry,
+        "region": region,
+        "concepts": concepts,
+        "sector_hint": sector_hint,
+        "sector_tags": sector_tags,
+    }
+
+
 def coverage_status(row_count: int | None, last_ts: datetime | None) -> str:
     if not row_count:
         return "missing"
     if last_ts is None:
         return "missing"
     return "ready"
+
+
+def percent_change(current: Decimal | None, base: Decimal | None) -> Decimal | None:
+    if current is None or base is None or base == 0:
+        return None
+    return (current / base - Decimal("1")) * Decimal("100")
+
+
+def universe_trend_status(
+    *,
+    latest_close: Decimal | None,
+    ma20: Decimal | None,
+    ma60: Decimal | None,
+    sample_count: int,
+) -> str:
+    if sample_count < 60 or latest_close is None or ma20 is None or ma60 is None:
+        return "insufficient"
+    if latest_close >= ma20 >= ma60:
+        return "bullish"
+    if latest_close <= ma20 <= ma60:
+        return "bearish"
+    return "sideways"
+
+
+def research_member_from_row(row: dict[str, Any]) -> ResearchUniverseMember:
+    row_count = int(row["row_count"] or 0)
+    sector_fields = security_sector_fields(row["security_metadata"])
+    latest_close = decimal_or_none(row["latest_close"])
+    previous_close = decimal_or_none(row["previous_close"])
+    close_20d = decimal_or_none(row["close_20d"])
+    close_60d = decimal_or_none(row["close_60d"])
+    ma20 = decimal_or_none(row["ma20"])
+    ma60 = decimal_or_none(row["ma60"])
+    sample_count = int(row["sample_count"] or 0)
+    return ResearchUniverseMember(
+        symbol=str(row["symbol"]),
+        code=str(row["code"]),
+        name=row["security_name"],
+        industry=sector_fields["industry"],
+        region=sector_fields["region"],
+        concepts=sector_fields["concepts"],
+        sector_hint=sector_fields["sector_hint"],
+        sector_tags=sector_fields["sector_tags"],
+        exchange=row["exchange"],
+        asset_type=row["asset_type"],
+        currency=row["currency"],
+        timezone=row["timezone"],
+        secid=row["secid"],
+        provider=str(row["provider"] or "eastmoney"),
+        security_status=str(row["security_status"] or "active"),
+        role=str(row["role"] or "member"),
+        weight=decimal_or_none(row["weight"]),
+        row_count=row_count,
+        first_ts=row["first_ts"],
+        last_ts=row["last_ts"],
+        data_provider=row["data_provider"],
+        latest_close=latest_close,
+        latest_change_pct=percent_change(latest_close, previous_close),
+        strength_20d_pct=percent_change(latest_close, close_20d),
+        strength_60d_pct=percent_change(latest_close, close_60d),
+        ma20=ma20,
+        ma60=ma60,
+        trend_status=universe_trend_status(
+            latest_close=latest_close,
+            ma20=ma20,
+            ma60=ma60,
+            sample_count=sample_count,
+        ),
+        avg_amount_20d=decimal_or_none(row["avg_amount_20d"]),
+        avg_volume_20d=decimal_or_none(row["avg_volume_20d"]),
+        data_status=coverage_status(row_count, row["last_ts"]),
+    )
 
 
 async def get_universe_fetch_targets(universe_id: str) -> list[dict[str, str]]:
@@ -169,7 +332,12 @@ async def get_universe_fetch_targets(universe_id: str) -> list[dict[str, str]]:
                 JOIN quant.securities securities
                   ON securities.symbol = members.symbol
                 WHERE members.universe_id = %s
-                ORDER BY members.metadata->>'order', securities.symbol
+                ORDER BY
+                  CASE
+                    WHEN members.metadata->>'order' ~ '^[0-9]+$'
+                    THEN (members.metadata->>'order')::INT
+                  END NULLS LAST,
+                  securities.symbol
                 """,
             (universe_id,),
         )
@@ -206,13 +374,23 @@ async def list_research_universes() -> list[ResearchUniverse]:
                   securities.timezone,
                   securities.secid,
                   securities.provider,
+                  securities.metadata AS security_metadata,
                   securities.status AS security_status,
                   members.role,
                   members.weight,
                   sync_state.first_ts,
                   sync_state.last_ts,
                   sync_state.provider AS data_provider,
-                  COALESCE(sync_state.row_count, 0) AS row_count
+                  COALESCE(sync_state.row_count, 0) AS row_count,
+                  market_metrics.sample_count,
+                  market_metrics.latest_close,
+                  market_metrics.previous_close,
+                  market_metrics.close_20d,
+                  market_metrics.close_60d,
+                  market_metrics.ma20,
+                  market_metrics.ma60,
+                  market_metrics.avg_amount_20d,
+                  market_metrics.avg_volume_20d
                 FROM quant.security_universes universes
                 LEFT JOIN quant.security_universe_members members
                   ON members.universe_id = universes.id
@@ -235,7 +413,51 @@ async def list_research_universes() -> list[ResearchUniverse]:
                   ) DESC, sync_row.last_ts DESC NULLS LAST
                   LIMIT 1
                 ) sync_state ON TRUE
-                ORDER BY universes.created_at, members.metadata->>'order', securities.symbol
+                LEFT JOIN LATERAL (
+                  SELECT
+                    count(*)::INT AS sample_count,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[1] AS latest_close,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[2] AS previous_close,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[21] AS close_20d,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[61] AS close_60d,
+                    avg(recent.close) FILTER (WHERE recent.rn <= 20) AS ma20,
+                    avg(recent.close) FILTER (WHERE recent.rn <= 60) AS ma60,
+                    avg(recent.amount) FILTER (
+                      WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
+                    ) AS avg_amount_20d,
+                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d
+                  FROM (
+                    SELECT
+                      bars.ts,
+                      bars.close,
+                      bars.amount,
+                      bars.volume,
+                      row_number() OVER (ORDER BY bars.ts DESC) AS rn
+                    FROM quant.stock_bars bars
+                    WHERE bars.symbol = securities.symbol
+                      AND bars.timeframe = COALESCE(
+                        universes.metadata->>'default_timeframe',
+                        'daily'
+                      )
+                      AND bars.adjustment = COALESCE(
+                        universes.metadata->>'default_adjustment',
+                        'qfq'
+                      )
+                    ORDER BY bars.ts DESC
+                    LIMIT 61
+                  ) recent
+                ) market_metrics ON TRUE
+                ORDER BY
+                  CASE
+                    WHEN universes.metadata->>'display_order' ~ '^[0-9]+$'
+                    THEN (universes.metadata->>'display_order')::INT
+                  END NULLS LAST,
+                  universes.created_at,
+                  CASE
+                    WHEN members.metadata->>'order' ~ '^[0-9]+$'
+                    THEN (members.metadata->>'order')::INT
+                  END NULLS LAST,
+                  securities.symbol
                 """,
         )
         rows = await cursor.fetchall()
@@ -259,29 +481,298 @@ async def list_research_universes() -> list[ResearchUniverse]:
                 updated_at=row["updated_at"],
             )
         if row["symbol"]:
-            row_count = int(row["row_count"] or 0)
-            universes[universe_id].members.append(
-                ResearchUniverseMember(
-                    symbol=str(row["symbol"]),
-                    code=str(row["code"]),
-                    name=row["security_name"],
-                    exchange=row["exchange"],
-                    asset_type=row["asset_type"],
-                    currency=row["currency"],
-                    timezone=row["timezone"],
-                    secid=row["secid"],
-                    provider=str(row["provider"] or "eastmoney"),
-                    security_status=str(row["security_status"] or "active"),
-                    role=str(row["role"] or "member"),
-                    weight=decimal_or_none(row["weight"]),
-                    row_count=row_count,
-                    first_ts=row["first_ts"],
-                    last_ts=row["last_ts"],
-                    data_provider=row["data_provider"],
-                    data_status=coverage_status(row_count, row["last_ts"]),
-                )
-            )
+            universes[universe_id].members.append(research_member_from_row(row))
+
+    for universe in universes.values():
+        universe.member_count = len(universe.members)
+        universe.stock_count = sum(
+            1 for member in universe.members if member.asset_type == "stock"
+        )
+        universe.etf_count = sum(1 for member in universe.members if member.asset_type == "etf")
+        universe.index_count = sum(
+            1 for member in universe.members if member.asset_type == "index"
+        )
+        universe.fund_count = sum(
+            1 for member in universe.members if member.asset_type == "fund"
+        )
+        universe.ready_count = sum(
+            1 for member in universe.members if member.data_status == "ready"
+        )
+        universe.bar_count = sum(member.row_count for member in universe.members)
+        universe.latest_ts = max(
+            (member.last_ts for member in universe.members if member.last_ts),
+            default=None,
+        )
     return list(universes.values())
+
+
+async def list_research_universe_summaries() -> list[ResearchUniverseSummary]:
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+                SELECT
+                  universes.id,
+                  universes.name,
+                  universes.description,
+                  universes.status,
+                  universes.source,
+                  universes.tags,
+                  universes.metadata AS universe_metadata,
+                  universes.created_at,
+                  universes.updated_at,
+                  count(members.symbol)::INT AS member_count,
+                  count(*) FILTER (WHERE securities.asset_type = 'stock')::INT AS stock_count,
+                  count(*) FILTER (WHERE securities.asset_type = 'etf')::INT AS etf_count,
+                  count(*) FILTER (WHERE securities.asset_type = 'index')::INT AS index_count,
+                  count(*) FILTER (WHERE securities.asset_type = 'fund')::INT AS fund_count,
+                  count(*) FILTER (
+                    WHERE COALESCE(sync_state.row_count, 0) > 0
+                      AND sync_state.last_ts IS NOT NULL
+                  )::INT AS ready_count,
+                  COALESCE(sum(sync_state.row_count), 0)::BIGINT AS bar_count,
+                  max(sync_state.last_ts) AS latest_ts
+                FROM quant.security_universes universes
+                LEFT JOIN quant.security_universe_members members
+                  ON members.universe_id = universes.id
+                LEFT JOIN quant.securities securities
+                  ON securities.symbol = members.symbol
+                LEFT JOIN LATERAL (
+                  SELECT sync_row.*
+                  FROM quant.market_data_sync_state sync_row
+                  WHERE sync_row.symbol = securities.symbol
+                    AND sync_row.timeframe = COALESCE(
+                      universes.metadata->>'default_timeframe',
+                      'daily'
+                    )
+                    AND sync_row.adjustment = COALESCE(
+                      universes.metadata->>'default_adjustment',
+                      'qfq'
+                    )
+                  ORDER BY (
+                    sync_row.provider = COALESCE(universes.metadata->>'provider', 'eastmoney')
+                  ) DESC, sync_row.last_ts DESC NULLS LAST
+                  LIMIT 1
+                ) sync_state ON TRUE
+                GROUP BY
+                  universes.id,
+                  universes.name,
+                  universes.description,
+                  universes.status,
+                  universes.source,
+                  universes.tags,
+                  universes.metadata,
+                  universes.created_at,
+                  universes.updated_at
+                ORDER BY
+                  CASE
+                    WHEN universes.metadata->>'display_order' ~ '^[0-9]+$'
+                    THEN (universes.metadata->>'display_order')::INT
+                  END NULLS LAST,
+                  universes.created_at
+                """,
+        )
+        rows = await cursor.fetchall()
+
+    summaries: list[ResearchUniverseSummary] = []
+    for row in rows:
+        metadata = json_object(row["universe_metadata"])
+        summaries.append(
+            ResearchUniverseSummary(
+                id=str(row["id"]),
+                name=str(row["name"]),
+                description=row["description"],
+                status=str(row["status"]),
+                source=str(row["source"]),
+                tags=json_array(row["tags"]),
+                default_timeframe=metadata.get("default_timeframe") or "daily",
+                default_adjustment=metadata.get("default_adjustment") or "qfq",
+                provider=metadata.get("provider") or "eastmoney",
+                member_count=int(row["member_count"] or 0),
+                stock_count=int(row["stock_count"] or 0),
+                etf_count=int(row["etf_count"] or 0),
+                index_count=int(row["index_count"] or 0),
+                fund_count=int(row["fund_count"] or 0),
+                ready_count=int(row["ready_count"] or 0),
+                bar_count=int(row["bar_count"] or 0),
+                latest_ts=row["latest_ts"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+        )
+    return summaries
+
+
+async def list_research_universe_members_page(
+    *,
+    universe_id: str,
+    page: int = 1,
+    page_size: int = 10,
+    keyword: str | None = None,
+) -> tuple[list[ResearchUniverseMember], int, int, int]:
+    clean_keyword = (keyword or "").strip()
+    keyword_pattern = f"%{clean_keyword}%"
+    page_size = max(1, min(page_size, 100))
+
+    filter_params = (
+        universe_id,
+        clean_keyword,
+        keyword_pattern,
+        keyword_pattern,
+        keyword_pattern,
+        keyword_pattern,
+        keyword_pattern,
+        keyword_pattern,
+    )
+    filter_sql = """
+        members.universe_id = %s
+        AND (
+          %s = ''
+          OR securities.symbol ILIKE %s
+          OR securities.code ILIKE %s
+          OR securities.name ILIKE %s
+          OR securities.exchange ILIKE %s
+          OR securities.asset_type ILIKE %s
+          OR COALESCE(securities.metadata::TEXT, '') ILIKE %s
+        )
+    """
+
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            f"""
+                SELECT count(*)::INT AS total
+                FROM quant.security_universe_members members
+                JOIN quant.securities securities
+                  ON securities.symbol = members.symbol
+                WHERE {filter_sql}
+                """,
+            filter_params,
+        )
+        total_row = await cursor.fetchone()
+        total = int(total_row["total"] or 0) if total_row else 0
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        current_page = min(max(1, page), total_pages)
+        offset = (current_page - 1) * page_size
+
+        await cursor.execute(
+            f"""
+                WITH filtered_members AS (
+                  SELECT
+                    universes.metadata AS universe_metadata,
+                    securities.symbol,
+                    securities.code,
+                    securities.name AS security_name,
+                    securities.exchange,
+                    securities.asset_type,
+                    securities.currency,
+                    securities.timezone,
+                    securities.secid,
+                    securities.provider,
+                    securities.metadata AS security_metadata,
+                    securities.status AS security_status,
+                    members.role,
+                    members.weight,
+                    CASE
+                      WHEN members.metadata->>'order' ~ '^[0-9]+$'
+                      THEN (members.metadata->>'order')::INT
+                    END AS member_order
+                  FROM quant.security_universe_members members
+                  JOIN quant.security_universes universes
+                    ON universes.id = members.universe_id
+                  JOIN quant.securities securities
+                    ON securities.symbol = members.symbol
+                  WHERE {filter_sql}
+                  ORDER BY member_order NULLS LAST, securities.symbol
+                  LIMIT %s OFFSET %s
+                )
+                SELECT
+                  filtered_members.symbol,
+                  filtered_members.code,
+                  filtered_members.security_name,
+                  filtered_members.exchange,
+                  filtered_members.asset_type,
+                  filtered_members.currency,
+                  filtered_members.timezone,
+                  filtered_members.secid,
+                  filtered_members.provider,
+                  filtered_members.security_metadata,
+                  filtered_members.security_status,
+                  filtered_members.role,
+                  filtered_members.weight,
+                  sync_state.first_ts,
+                  sync_state.last_ts,
+                  sync_state.provider AS data_provider,
+                  COALESCE(sync_state.row_count, 0) AS row_count,
+                  market_metrics.sample_count,
+                  market_metrics.latest_close,
+                  market_metrics.previous_close,
+                  market_metrics.close_20d,
+                  market_metrics.close_60d,
+                  market_metrics.ma20,
+                  market_metrics.ma60,
+                  market_metrics.avg_amount_20d,
+                  market_metrics.avg_volume_20d
+                FROM filtered_members
+                LEFT JOIN LATERAL (
+                  SELECT sync_row.*
+                  FROM quant.market_data_sync_state sync_row
+                  WHERE sync_row.symbol = filtered_members.symbol
+                    AND sync_row.timeframe = COALESCE(
+                      filtered_members.universe_metadata->>'default_timeframe',
+                      'daily'
+                    )
+                    AND sync_row.adjustment = COALESCE(
+                      filtered_members.universe_metadata->>'default_adjustment',
+                      'qfq'
+                    )
+                  ORDER BY (
+                    sync_row.provider = COALESCE(
+                      filtered_members.universe_metadata->>'provider',
+                      'eastmoney'
+                    )
+                  ) DESC, sync_row.last_ts DESC NULLS LAST
+                  LIMIT 1
+                ) sync_state ON TRUE
+                LEFT JOIN LATERAL (
+                  SELECT
+                    count(*)::INT AS sample_count,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[1] AS latest_close,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[2] AS previous_close,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[21] AS close_20d,
+                    (array_agg(recent.close ORDER BY recent.ts DESC))[61] AS close_60d,
+                    avg(recent.close) FILTER (WHERE recent.rn <= 20) AS ma20,
+                    avg(recent.close) FILTER (WHERE recent.rn <= 60) AS ma60,
+                    avg(recent.amount) FILTER (
+                      WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
+                    ) AS avg_amount_20d,
+                    avg(recent.volume) FILTER (WHERE recent.rn <= 20) AS avg_volume_20d
+                  FROM (
+                    SELECT
+                      bars.ts,
+                      bars.close,
+                      bars.amount,
+                      bars.volume,
+                      row_number() OVER (ORDER BY bars.ts DESC) AS rn
+                    FROM quant.stock_bars bars
+                    WHERE bars.symbol = filtered_members.symbol
+                      AND bars.timeframe = COALESCE(
+                        filtered_members.universe_metadata->>'default_timeframe',
+                        'daily'
+                      )
+                      AND bars.adjustment = COALESCE(
+                        filtered_members.universe_metadata->>'default_adjustment',
+                        'qfq'
+                      )
+                    ORDER BY bars.ts DESC
+                    LIMIT 61
+                  ) recent
+                ) market_metrics ON TRUE
+                ORDER BY filtered_members.member_order NULLS LAST, filtered_members.symbol
+                """,
+            (*filter_params, page_size, offset),
+        )
+        rows = await cursor.fetchall()
+
+    return [research_member_from_row(row) for row in rows], total, current_page, total_pages
 
 
 async def add_security_to_universe(
@@ -295,6 +786,9 @@ async def add_security_to_universe(
     metadata = {
         "query": security.query,
         "raw": security.raw,
+        "industry": security.raw.get("industry") or security.raw.get("f100"),
+        "region": security.raw.get("region") or security.raw.get("f102"),
+        "concepts": security.raw.get("concepts") or security.raw.get("f103"),
         "added_source": "strategy-platform",
     }
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
@@ -368,14 +862,127 @@ async def add_security_to_universe(
             ),
         )
 
-    universes = await list_research_universes()
-    for universe in universes:
-        if universe.id != universe_id:
-            continue
-        for member in universe.members:
-            if member.symbol == symbol:
-                return member
+    members, _, _, _ = await list_research_universe_members_page(
+        universe_id=universe_id,
+        page=1,
+        page_size=10,
+        keyword=symbol,
+    )
+    for member in members:
+        if member.symbol == symbol:
+            return member
     raise DatabaseError(f"股票已写入但无法读取股票池成员：{symbol}")
+
+
+async def add_securities_to_universe(
+    *,
+    universe_id: str,
+    securities: list[SymbolResolveResult],
+    role: str = "member",
+    added_source: str = "a-share-batch-import",
+) -> list[ResearchUniverseMember]:
+    if not securities:
+        return []
+
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            SELECT id
+            FROM quant.security_universes
+            WHERE id = %s
+            """,
+            (universe_id,),
+        )
+        if await cursor.fetchone() is None:
+            raise DatabaseError(f"股票池不存在：{universe_id}")
+
+        await cursor.execute(
+            """
+            SELECT COALESCE(max((members.metadata->>'order')::INT), 0) + 1 AS next_order
+            FROM quant.security_universe_members members
+            WHERE members.universe_id = %s
+              AND members.metadata->>'order' ~ '^[0-9]+$'
+            """,
+            (universe_id,),
+        )
+        order_row = await cursor.fetchone()
+        next_order = int(order_row["next_order"] or 1) if order_row else 1
+
+        symbols: list[str] = []
+        for offset, security in enumerate(securities):
+            symbol = canonical_symbol(security.symbol, security.market)
+            symbols.append(symbol)
+            metadata = {
+                "query": security.query,
+                "raw": security.raw,
+                "industry": security.raw.get("industry") or security.raw.get("f100"),
+                "region": security.raw.get("region") or security.raw.get("f102"),
+                "concepts": security.raw.get("concepts") or security.raw.get("f103"),
+                "added_source": added_source,
+            }
+            await cursor.execute(
+                """
+                INSERT INTO quant.securities (
+                  symbol, code, name, exchange, asset_type, currency, timezone, secid,
+                  provider, metadata, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, 'CNY', 'Asia/Shanghai', %s, %s, %s, now(), now())
+                ON CONFLICT (symbol) DO UPDATE SET
+                  code = EXCLUDED.code,
+                  name = COALESCE(EXCLUDED.name, quant.securities.name),
+                  exchange = EXCLUDED.exchange,
+                  asset_type = EXCLUDED.asset_type,
+                  secid = EXCLUDED.secid,
+                  provider = EXCLUDED.provider,
+                  metadata = quant.securities.metadata || EXCLUDED.metadata,
+                  updated_at = now()
+                """,
+                (
+                    symbol,
+                    security.symbol,
+                    security.name,
+                    security.market,
+                    security.asset_type,
+                    security.secid,
+                    security.source,
+                    Jsonb(metadata),
+                ),
+            )
+            await cursor.execute(
+                """
+                INSERT INTO quant.security_universe_members (
+                  universe_id, symbol, role, weight, metadata, added_at
+                )
+                VALUES (%s, %s, %s, NULL, %s, now())
+                ON CONFLICT (universe_id, symbol) DO UPDATE SET
+                  role = EXCLUDED.role,
+                  metadata = CASE
+                    WHEN quant.security_universe_members.metadata ? 'order'
+                    THEN quant.security_universe_members.metadata || (EXCLUDED.metadata - 'order')
+                    ELSE quant.security_universe_members.metadata || EXCLUDED.metadata
+                  END
+                """,
+                (
+                    universe_id,
+                    symbol,
+                    role or "member",
+                    Jsonb(
+                        {
+                            "order": next_order + offset,
+                            "added_source": added_source,
+                        }
+                    ),
+                ),
+            )
+
+    universes = await list_research_universes()
+    member_by_symbol = {
+        member.symbol: member
+        for universe in universes
+        if universe.id == universe_id
+        for member in universe.members
+    }
+    return [member_by_symbol[symbol] for symbol in symbols if symbol in member_by_symbol]
 
 
 async def list_market_data_coverage(
@@ -432,7 +1039,12 @@ async def list_market_data_coverage(
                       LIMIT 1
                     ) coverage ON TRUE
                     WHERE members.universe_id = %s
-                    ORDER BY members.metadata->>'order', securities.symbol
+                    ORDER BY
+                      CASE
+                        WHEN members.metadata->>'order' ~ '^[0-9]+$'
+                        THEN (members.metadata->>'order')::INT
+                      END NULLS LAST,
+                      securities.symbol
                     """,
                 (universe_id,),
             )

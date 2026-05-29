@@ -5,19 +5,22 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from quantpilot_market_data.backtest import build_ma_crossover_backtest
 from quantpilot_market_data.cache import MarketDataCache, ttl_from_env
 from quantpilot_market_data.database import (
     DatabaseError,
+    add_securities_to_universe,
     add_security_to_universe,
     create_ingestion_job,
     finish_ingestion_job,
     get_local_kline,
     get_universe_fetch_targets,
     list_market_data_coverage,
+    list_research_universe_members_page,
+    list_research_universe_summaries,
     list_research_universes,
     normalize_fetch_symbol,
     upsert_kline_response,
@@ -27,12 +30,16 @@ from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.models import (
     Adjustment,
     AnnouncementResponse,
+    AShareUniverseBatchImportRequest,
+    AShareUniverseBatchImportResponse,
     BacktestResponse,
     BatchQuoteRequest,
     BatchQuoteResponse,
     DataProviderInfo,
     DataRegistryResponse,
     DividendEventsResponse,
+    ETFUniverseBatchImportRequest,
+    ETFUniverseBatchImportResponse,
     FinancialReportsResponse,
     FundamentalIndicatorsResponse,
     HistoryIngestionRequest,
@@ -45,7 +52,9 @@ from quantpilot_market_data.models import (
     RealtimeQuote,
     ResearchUniverseMemberCreateRequest,
     ResearchUniverseMemberCreateResponse,
+    ResearchUniverseMembersPageResponse,
     ResearchUniverseResponse,
+    ResearchUniverseSummaryResponse,
     SymbolResolveResponse,
     SymbolResolveResult,
     TechnicalIndicatorsResponse,
@@ -134,6 +143,8 @@ DATA_PROVIDERS = [
         description="读取本地 PostgreSQL/TimescaleDB 中的策略研究股票池、成员证券和行情覆盖状态。",
         endpoints=[
             "/api/v1/research/universes",
+            "/api/v1/research/a-share/import-batch",
+            "/api/v1/research/etf/import-batch",
             "/api/v1/research/data-coverage",
             "/api/v1/research/bars/{symbol}",
         ],
@@ -262,6 +273,7 @@ DATA_PROVIDERS = [
         ),
         endpoints=[
             "/api/v1/symbols/resolve",
+            "/api/v1/research/etf/import-batch",
             "/api/v1/quotes/realtime/{symbol}",
             "/api/v1/quotes/history/{symbol}",
             "/api/v1/indicators/technical/{symbol}",
@@ -462,6 +474,90 @@ def create_app() -> FastAPI:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+    @app.get(
+        "/api/v1/research/universes/summary",
+        response_model=ResearchUniverseSummaryResponse,
+    )
+    async def get_research_universe_summary() -> ResearchUniverseSummaryResponse:
+        try:
+            return ResearchUniverseSummaryResponse(
+                universes=await list_research_universe_summaries()
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/research/a-share/import-batch",
+        response_model=AShareUniverseBatchImportResponse,
+    )
+    async def import_a_share_universe_batch(
+        request: AShareUniverseBatchImportRequest,
+    ) -> AShareUniverseBatchImportResponse:
+        try:
+            total_available, securities = await client.list_a_share_symbols(
+                page=request.page,
+                page_size=request.page_size,
+            )
+            stock_securities = [
+                security for security in securities if security.asset_type == "stock"
+            ]
+            members = await add_securities_to_universe(
+                universe_id=request.universe_id,
+                securities=stock_securities,
+                role=request.role,
+            )
+            total_pages = (total_available + request.page_size - 1) // request.page_size
+            next_page = request.page + 1 if request.page < total_pages else None
+            return AShareUniverseBatchImportResponse(
+                universe_id=request.universe_id,
+                page=request.page,
+                page_size=request.page_size,
+                total_available=total_available,
+                total_pages=total_pages,
+                next_page=next_page,
+                imported_count=len(members),
+                members=members,
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except EastMoneyError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/research/etf/import-batch",
+        response_model=ETFUniverseBatchImportResponse,
+    )
+    async def import_etf_universe_batch(
+        request: ETFUniverseBatchImportRequest,
+    ) -> ETFUniverseBatchImportResponse:
+        try:
+            total_available, securities = await client.list_etf_symbols(
+                page=request.page,
+                page_size=request.page_size,
+            )
+            members = await add_securities_to_universe(
+                universe_id=request.universe_id,
+                securities=securities,
+                role=request.role,
+                added_source="etf-batch-import",
+            )
+            total_pages = (total_available + request.page_size - 1) // request.page_size
+            next_page = request.page + 1 if request.page < total_pages else None
+            return ETFUniverseBatchImportResponse(
+                universe_id=request.universe_id,
+                page=request.page,
+                page_size=request.page_size,
+                total_available=total_available,
+                total_pages=total_pages,
+                next_page=next_page,
+                imported_count=len(members),
+                members=members,
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        except EastMoneyError as error:
+            raise HTTPException(status_code=502, detail=str(error)) from error
+
     @app.get("/api/v1/research/data-coverage", response_model=MarketDataCoverageResponse)
     async def get_research_data_coverage(
         universe_id: str | None = "a-share-sample-research-pool",
@@ -470,6 +566,35 @@ def create_app() -> FastAPI:
             return MarketDataCoverageResponse(
                 universe_id=universe_id,
                 items=await list_market_data_coverage(universe_id),
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.get(
+        "/api/v1/research/universes/{universe_id}/members",
+        response_model=ResearchUniverseMembersPageResponse,
+    )
+    async def get_research_universe_members(
+        universe_id: str,
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=10, ge=1, le=100),
+        keyword: str | None = Query(default=None, max_length=80),
+    ) -> ResearchUniverseMembersPageResponse:
+        try:
+            members, total, current_page, total_pages = await list_research_universe_members_page(
+                universe_id=universe_id,
+                page=page,
+                page_size=page_size,
+                keyword=keyword,
+            )
+            return ResearchUniverseMembersPageResponse(
+                universe_id=universe_id,
+                page=current_page,
+                page_size=page_size,
+                total=total,
+                total_pages=total_pages,
+                keyword=keyword.strip() if keyword else None,
+                members=members,
             )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error

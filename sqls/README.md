@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `001-quant-timeseries.sql` | TimescaleDB / quant schema | 创建 TimescaleDB 扩展、`quant` schema、股票 K 线、因子、策略信号和组合快照 hypertable |
 | `002-quant-research-platform.sql` | 策略研究 / 入库 / 回测 | 补齐证券主数据、股票池、入库任务、同步水位、回测任务和示例 A 股研究池 |
+| `003-split-stock-etf-universes.sql` | 策略股票池治理 | 幂等拆分 A 股股票池与 ETF/指数池，只调整池成员，不删除历史 K 线 |
 
 主业务表由 Prisma 维护，不在这里手写：
 

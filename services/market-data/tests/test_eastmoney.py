@@ -15,8 +15,10 @@ from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.providers.eastmoney import (
     infer_asset_type,
     normalize_secid,
+    parse_a_share_list_payload,
     parse_announcements_payload,
     parse_dividend_events_payload,
+    parse_etf_list_payload,
     parse_financial_reports_payload,
     parse_kline_payload,
     parse_quote_payload,
@@ -33,11 +35,14 @@ from quantpilot_market_data.providers.eastmoney import (
         ("000001", "0.000001"),
         ("SZ000001", "0.000001"),
         ("300750", "0.300750"),
+        ("920992", "0.920992"),
         ("沪深300", "1.000300"),
         ("创业板指", "0.399006"),
         ("000300", "1.000300"),
         ("399006", "0.399006"),
         ("510300", "1.510300"),
+        ("560050", "1.560050"),
+        ("589990", "1.589990"),
         ("159919", "0.159919"),
         ("002156.SZ", "0.002156"),
         ("600519.SH", "1.600519"),
@@ -155,6 +160,73 @@ def test_parse_symbol_suggest_payload_marks_index_and_etf() -> None:
     assert [result.asset_type for result in results] == ["index", "etf"]
 
 
+def test_parse_a_share_list_payload_marks_sh_sz_bj_symbols() -> None:
+    total, results = parse_a_share_list_payload(
+        3,
+        {
+            "data": {
+                "total": 5530,
+                "diff": [
+                    {
+                        "f12": "600519",
+                        "f13": 1,
+                        "f14": "贵州茅台",
+                        "f100": "酿酒行业",
+                        "f102": "贵州板块",
+                        "f103": "白酒",
+                    },
+                    {
+                        "f12": "300750",
+                        "f13": 0,
+                        "f14": "宁德时代",
+                        "f100": "电池",
+                        "f102": "福建板块",
+                        "f103": "锂电池概念",
+                    },
+                    {
+                        "f12": "920992",
+                        "f13": 0,
+                        "f14": "中科美菱",
+                        "f100": "家电行业",
+                        "f102": "安徽板块",
+                        "f103": "北交所",
+                    },
+                ],
+            }
+        },
+    )
+
+    assert total == 5530
+    assert [item.symbol for item in results] == ["600519", "300750", "920992"]
+    assert [item.market for item in results] == ["SH", "SZ", "BJ"]
+    assert results[0].secid == "1.600519"
+    assert results[1].secid == "0.300750"
+    assert results[2].secid == "0.920992"
+    assert results[2].raw["list_page"] == 3
+
+
+def test_parse_etf_list_payload_marks_sh_sz_etfs() -> None:
+    total, results = parse_etf_list_payload(
+        1,
+        {
+            "data": {
+                "total": 2,
+                "diff": [
+                    {"f12": "510300", "f13": 1, "f14": "沪深300ETF"},
+                    {"f12": "159919", "f13": 0, "f14": "沪深300ETF"},
+                ],
+            }
+        },
+    )
+
+    assert total == 2
+    assert [item.symbol for item in results] == ["510300", "159919"]
+    assert [item.market for item in results] == ["SH", "SZ"]
+    assert [item.secid for item in results] == ["1.510300", "0.159919"]
+    assert all(item.asset_type == "etf" for item in results)
+    assert results[0].raw["list_asset_type"] == "etf"
+
+
 def test_parse_kline_payload() -> None:
     kline = parse_kline_payload(
         "1.600519",
@@ -256,6 +328,30 @@ def test_parse_tencent_kline_payload() -> None:
     assert kline.metadata["source"] == "tencent"
     assert kline.bars[1].metadata["source"] == "tencent"
     assert kline.bars[1].metadata["fields"]["volume"] == "2008252.000"
+
+
+def test_parse_tencent_kline_payload_supports_bj_prefix() -> None:
+    kline = parse_tencent_kline_payload(
+        "0.920992",
+        "daily",
+        "qfq",
+        {
+            "code": 0,
+            "data": {
+                "bj920992": {
+                    "qfqday": [
+                        ["2026-05-22", "11.000", "11.500", "11.800", "10.900", "1200.000"]
+                    ],
+                    "qt": {"bj920992": ["51", "中科美菱", "920992"]},
+                }
+            },
+        },
+    )
+
+    assert kline.symbol == "920992"
+    assert kline.name == "中科美菱"
+    assert kline.market == "BJ"
+    assert kline.bars[0].close == Decimal("11.500")
 
 
 def test_build_technical_indicators_from_kline() -> None:

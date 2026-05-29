@@ -25,6 +25,7 @@ from quantpilot_market_data.providers.base import ProviderCapability
 
 EASTMONEY_REALTIME_QUOTE_PATH = "/api/qt/ulist.np/get"
 EASTMONEY_KLINE_PATH = "/api/qt/stock/kline/get"
+EASTMONEY_A_SHARE_LIST_PATH = "/api/qt/clist/get"
 EASTMONEY_SEARCH_URL = "https://searchapi.eastmoney.com/api/suggest/get"
 EASTMONEY_ANNOUNCEMENT_URL = "https://np-anotice-stock.eastmoney.com/api/security/ann"
 EASTMONEY_DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
@@ -37,6 +38,40 @@ DEFAULT_EASTMONEY_KLINE_BASE_URLS = (
     "https://push2his.eastmoney.com",
 )
 DEFAULT_TENCENT_KLINE_LIMIT_CAP = 800
+EASTMONEY_A_SHARE_LIST_FS = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+EASTMONEY_A_SHARE_LIST_FIELDS = "f12,f13,f14,f100,f102,f103"
+EASTMONEY_ETF_LIST_FS = "b:MK0021,b:MK0022,b:MK0023,b:MK0024"
+EASTMONEY_ETF_LIST_FIELDS = EASTMONEY_A_SHARE_LIST_FIELDS
+SH_ETF_CODE_PREFIXES = (
+    "510",
+    "511",
+    "512",
+    "513",
+    "515",
+    "516",
+    "517",
+    "518",
+    "519",
+    "520",
+    "521",
+    "522",
+    "523",
+    "524",
+    "525",
+    "526",
+    "527",
+    "528",
+    "529",
+    "530",
+    "531",
+    "532",
+    "560",
+    "561",
+    "562",
+    "563",
+    "588",
+    "589",
+)
 
 KNOWN_SECURITY_ALIASES: dict[str, str] = {
     "沪深300": "1.000300",
@@ -183,6 +218,68 @@ class EastMoneyClient:
             response.raise_for_status()
             payload = response.json()
         return parse_symbol_suggest_payload(query, payload)
+
+    async def list_a_share_symbols(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> tuple[int, list[SymbolResolveResult]]:
+        params = {
+            "pn": str(page),
+            "pz": str(page_size),
+            "po": "1",
+            "np": "1",
+            "fltt": "2",
+            "invt": "2",
+            "fid": "f12",
+            "fs": EASTMONEY_A_SHARE_LIST_FS,
+            "fields": EASTMONEY_A_SHARE_LIST_FIELDS,
+        }
+        errors: list[str] = []
+        async with self._create_http_client() as client:
+            for base_url in self.config.base_urls:
+                try:
+                    response = await client.get(
+                        f"{base_url.rstrip('/')}{EASTMONEY_A_SHARE_LIST_PATH}",
+                        params=params,
+                    )
+                    response.raise_for_status()
+                    return parse_a_share_list_payload(page, response.json())
+                except (httpx.HTTPError, EastMoneyError) as error:
+                    errors.append(f"{base_url}: {error}")
+        raise EastMoneyError(f"东方财富 A 股列表请求失败：{'；'.join(errors)}")
+
+    async def list_etf_symbols(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> tuple[int, list[SymbolResolveResult]]:
+        params = {
+            "pn": str(page),
+            "pz": str(page_size),
+            "po": "1",
+            "np": "1",
+            "fltt": "2",
+            "invt": "2",
+            "fid": "f12",
+            "fs": EASTMONEY_ETF_LIST_FS,
+            "fields": EASTMONEY_ETF_LIST_FIELDS,
+        }
+        errors: list[str] = []
+        async with self._create_http_client() as client:
+            for base_url in self.config.base_urls:
+                try:
+                    response = await client.get(
+                        f"{base_url.rstrip('/')}{EASTMONEY_A_SHARE_LIST_PATH}",
+                        params=params,
+                    )
+                    response.raise_for_status()
+                    return parse_etf_list_payload(page, response.json())
+                except (httpx.HTTPError, EastMoneyError) as error:
+                    errors.append(f"{base_url}: {error}")
+        raise EastMoneyError(f"东方财富 ETF 列表请求失败：{'；'.join(errors)}")
 
     async def get_kline(
         self,
@@ -413,14 +510,16 @@ def normalize_secid(symbol_or_secid: str) -> str:
 
     if code in KNOWN_INDEX_CODES:
         return f"{'1' if code.startswith('000') else '0'}.{code}"
-    if code.startswith(("510", "511", "512", "513", "515", "516", "517", "518", "588")):
+    if code.startswith(SH_ETF_CODE_PREFIXES):
         return f"1.{code}"
     if code.startswith(("15", "16", "18")):
         return f"0.{code}"
 
+    if code.startswith(("4", "8", "920")):
+        return f"0.{code}"
     if code.startswith(("6", "9")):
         return f"1.{code}"
-    if code.startswith(("0", "2", "3", "4", "8")):
+    if code.startswith(("0", "2", "3")):
         return f"0.{code}"
 
     raise ValueError(f"无法推断东方财富市场编号：{symbol_or_secid}")
@@ -430,9 +529,11 @@ def market_from_payload(secid: str, data: dict[str, Any]) -> MarketCode:
     market_id = data.get("f13")
     code = str(data.get("f12") or secid.split(".", 1)[-1])
 
+    if code.startswith(("4", "8", "920")):
+        return "BJ"
     if market_id == 1 or code.startswith(("6", "9")):
         return "SH"
-    if code.startswith(("0", "2", "3")):
+    if market_id == 0 or code.startswith(("0", "2", "3")):
         return "SZ"
     if code.startswith(("4", "8")):
         return "BJ"
@@ -467,7 +568,7 @@ def infer_asset_type(
         or security_type == "8"
     ):
         return "etf" if "ETF" in normalized_name.upper() else "fund"
-    if symbol.startswith(("510", "511", "512", "513", "515", "516", "517", "518", "588")):
+    if symbol.startswith(SH_ETF_CODE_PREFIXES):
         return "etf"
     if market_id == "0" and symbol.startswith(("15", "16", "18")):
         return "etf"
@@ -476,12 +577,12 @@ def infer_asset_type(
 
 def market_from_secid(secid: str) -> MarketCode:
     market_id, code = secid.split(".", 1)
+    if code.startswith(("4", "8", "920")):
+        return "BJ"
     if market_id == "1" or code.startswith(("6", "9")):
         return "SH"
-    if code.startswith(("0", "2", "3")):
+    if market_id == "0" or code.startswith(("0", "2", "3")):
         return "SZ"
-    if code.startswith(("4", "8")):
-        return "BJ"
     return "UNKNOWN"
 
 
@@ -521,6 +622,90 @@ def parse_symbol_suggest_payload(query: str, payload: dict[str, Any]) -> list[Sy
             )
         )
     return results
+
+
+def parse_a_share_list_payload(
+    page: int,
+    payload: dict[str, Any],
+) -> tuple[int, list[SymbolResolveResult]]:
+    return parse_security_list_payload(
+        page=page,
+        payload=payload,
+        query_prefix="a-share-page",
+        asset_type="stock",
+    )
+
+
+def parse_etf_list_payload(
+    page: int,
+    payload: dict[str, Any],
+) -> tuple[int, list[SymbolResolveResult]]:
+    return parse_security_list_payload(
+        page=page,
+        payload=payload,
+        query_prefix="etf-page",
+        asset_type="etf",
+    )
+
+
+def parse_security_list_payload(
+    *,
+    page: int,
+    payload: dict[str, Any],
+    query_prefix: str,
+    asset_type: AssetType,
+) -> tuple[int, list[SymbolResolveResult]]:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise EastMoneyError(f"东方财富未返回证券列表：{payload}")
+
+    total = _to_int(data.get("total")) or 0
+    raw_rows = data.get("diff")
+    if isinstance(raw_rows, dict):
+        rows = [row for row in raw_rows.values() if isinstance(row, dict)]
+    elif isinstance(raw_rows, list):
+        rows = [row for row in raw_rows if isinstance(row, dict)]
+    else:
+        rows = []
+
+    results: list[SymbolResolveResult] = []
+    for row in rows:
+        code = str(row.get("f12") or "").strip()
+        if not code or not code.isdigit() or len(code) != 6:
+            continue
+
+        raw_market_id = "" if row.get("f13") is None else str(row.get("f13"))
+        if code.startswith(("4", "8", "920")):
+            market: MarketCode = "BJ"
+        elif raw_market_id == "1" or code.startswith(("6", "9")):
+            market = "SH"
+        elif raw_market_id == "0" or code.startswith(("0", "2", "3")):
+            market = "SZ"
+        else:
+            market = "UNKNOWN"
+
+        secid = f"{raw_market_id or ('1' if market == 'SH' else '0')}.{code}"
+        results.append(
+            SymbolResolveResult(
+                query=f"{query_prefix}-{page}",
+                symbol=code,
+                name=_empty_to_none(row.get("f14")),
+                asset_type=asset_type,
+                market=market,
+                secid=secid,
+                source="eastmoney",
+                raw={
+                    **row,
+                    "industry": row.get("f100"),
+                    "region": row.get("f102"),
+                    "concepts": row.get("f103"),
+                    "list_page": page,
+                    "list_asset_type": asset_type,
+                },
+            )
+        )
+
+    return total, results
 
 
 def parse_kline_payload(
@@ -617,7 +802,7 @@ def parse_tencent_kline_payload(
         raise EastMoneyError(f"腾讯 K 线接口返回异常：{payload.get('msg') or payload}")
 
     market_id, symbol = secid.split(".", 1)
-    key = ("sh" if market_id == "1" else "sz") + symbol
+    key = _tencent_market_prefix(market_id, symbol) + symbol
     data = payload.get("data")
     symbol_data = data.get(key) if isinstance(data, dict) else None
     if not isinstance(symbol_data, dict):
@@ -963,7 +1148,7 @@ def _build_tencent_kline_param(
     end: str = "20500101",
 ) -> str:
     market_id, symbol = secid.split(".", 1)
-    market_prefix = "sh" if market_id == "1" else "sz"
+    market_prefix = _tencent_market_prefix(market_id, symbol)
     period_value = {
         "daily": "day",
         "weekly": "week",
@@ -976,6 +1161,12 @@ def _build_tencent_kline_param(
     }[adjustment]
     end_date = _normalize_tencent_end(end)
     return f"{market_prefix}{symbol},{period_value},,{end_date},{limit},{adjustment_prefix}"
+
+
+def _tencent_market_prefix(market_id: str, symbol: str) -> str:
+    if symbol.startswith(("4", "8", "920")):
+        return "bj"
+    return "sh" if market_id == "1" else "sz"
 
 
 def _normalize_tencent_end(end: str) -> str:
