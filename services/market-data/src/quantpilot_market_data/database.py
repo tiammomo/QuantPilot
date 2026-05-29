@@ -1960,6 +1960,10 @@ async def upsert_realtime_quote_snapshot(
         "currency": quote.currency,
         "timezone": quote.timezone,
         "source": quote.source,
+        "market_cap": str(quote.market_cap) if quote.market_cap is not None else None,
+        "float_market_cap": (
+            str(quote.float_market_cap) if quote.float_market_cap is not None else None
+        ),
         "source_bar": {
             "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
             "fetched_at": quote.fetched_at.isoformat(),
@@ -1973,6 +1977,10 @@ async def upsert_realtime_quote_snapshot(
             ),
             "change_amount": str(change_amount) if change_amount is not None else None,
             "turnover": str(quote.turnover) if quote.turnover is not None else None,
+            "market_cap": str(quote.market_cap) if quote.market_cap is not None else None,
+            "float_market_cap": (
+                str(quote.float_market_cap) if quote.float_market_cap is not None else None
+            ),
         },
         "previous_close": str(quote.previous_close) if quote.previous_close is not None else None,
         "amplitude": str(amplitude) if amplitude is not None else None,
@@ -2012,7 +2020,44 @@ async def upsert_realtime_quote_snapshot(
                 quote.timezone,
                 quote.secid,
                 quote.source,
-                Jsonb({"source": quote.source, "fetched_at": quote.fetched_at.isoformat()}),
+                Jsonb(
+                    {
+                        "source": quote.source,
+                        "fetched_at": quote.fetched_at.isoformat(),
+                        "latest_quote": {
+                            "quote_time": (
+                                quote.quote_time.isoformat() if quote.quote_time else None
+                            ),
+                            "price": str(quote.price) if quote.price is not None else None,
+                            "previous_close": (
+                                str(quote.previous_close)
+                                if quote.previous_close is not None
+                                else None
+                            ),
+                            "change_percent": (
+                                str(quote.change_percent)
+                                if quote.change_percent is not None
+                                else None
+                            ),
+                            "change_amount": (
+                                str(change_amount) if change_amount is not None else None
+                            ),
+                            "turnover": (
+                                str(quote.turnover) if quote.turnover is not None else None
+                            ),
+                            "amount": str(quote.amount) if quote.amount is not None else None,
+                            "volume": quote.volume,
+                        },
+                        "market_cap": (
+                            str(quote.market_cap) if quote.market_cap is not None else None
+                        ),
+                        "float_market_cap": (
+                            str(quote.float_market_cap)
+                            if quote.float_market_cap is not None
+                            else None
+                        ),
+                    }
+                ),
             ),
         )
         await cursor.execute(

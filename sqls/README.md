@@ -11,6 +11,7 @@
 | `003-split-stock-etf-universes.sql` | 策略股票池治理 | 幂等拆分 A 股股票池与 ETF/指数池，只调整池成员，不删除历史 K 线 |
 | `004-enrich-stock-bars-fields.sql` | 行情字段增强 | 将振幅、涨跌幅、涨跌额和换手率提升为正式列，并从历史 metadata 回填有效值 |
 | `005-enrich-stock-bars-daily-context.sql` | 日频上下文增强 | 将前收盘、交易状态、ST、涨跌停标记提升为正式列，并补齐估值因子查询索引 |
+| `006-enrich-security-sector-metadata.sql` | 证券主数据增强 | 将行业、地区、概念和板块标签提升为证券 metadata 的稳定字段 |
 
 主业务表由 Prisma 维护，不在这里手写：
 
