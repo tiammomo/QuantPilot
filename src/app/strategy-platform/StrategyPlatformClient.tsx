@@ -278,45 +278,104 @@ function StrategySelector({
   );
 }
 
+// ─── Top accent & ring helpers ────────────────────────────────
+function topAccentClass(s: StrategyCatalogItem["status"]) {
+  if (s === "ready") return "from-emerald-400 to-emerald-300";
+  if (s === "research") return "from-blue-400 to-blue-300";
+  return "from-amber-400 to-amber-300";
+}
+function cardShadowClass(s: StrategyCatalogItem["status"]) {
+  if (s === "ready") return "hover:shadow-emerald-100/40";
+  if (s === "research") return "hover:shadow-blue-100/40";
+  return "hover:shadow-amber-100/40";
+}
+
 // ─── Strategy Card (Catalog) ────────────────────────────────────
 function StrategyCard({ strategy, onClick }: { strategy: StrategyCatalogItem; onClick: () => void }) {
-  const paramSummary = strategy.parameterSchema.slice(0, 3).map((p) => `${p.label}=${p.value}${p.unit ?? ""}`).join(", ");
-  const hasMoreParams = strategy.parameterSchema.length > 3;
   const bestArchive = strategy.backtestArchives.find((a) => a.status === "available");
+  const displayParams = strategy.parameterSchema.slice(0, 4);
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex flex-col rounded-lg border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:border-blue-200 hover:shadow-md"
+      className={cn(
+        "group flex flex-col rounded-xl border border-slate-200/80 bg-white text-left shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden",
+        cardShadowClass(strategy.status)
+      )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-base font-bold text-slate-900 group-hover:text-blue-700 transition-colors">{strategy.name}</p>
-          <p className="mt-0.5 text-xs text-slate-500">{strategy.family} · {strategy.timeframe}</p>
+      {/* Top accent bar */}
+      <div className={cn("h-1 w-full bg-gradient-to-r", topAccentClass(strategy.status))} />
+
+      <div className="flex flex-1 flex-col gap-3 p-5">
+        {/* Header */}
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-[15px] font-bold text-slate-900 group-hover:text-blue-700 transition-colors leading-snug">
+              {strategy.name}
+            </h3>
+            <div className="flex shrink-0 items-center gap-1">
+              <span className={cn("rounded-full border px-1.5 py-0 text-[10px] font-semibold leading-[18px]", statusClass(strategy.status))}>
+                {statusLabel(strategy.status)}
+              </span>
+            </div>
+          </div>
+          <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+            <span className="font-medium text-slate-600">{strategy.family}</span>
+            <span className="text-slate-300">·</span>
+            <span className="text-slate-400">{strategy.timeframe}</span>
+            <span className="text-slate-300">·</span>
+            <span className={cn("font-semibold", riskClass(strategy.readiness.riskLevel))}>
+              {strategy.readiness.score}分
+            </span>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", statusClass(strategy.status))}>{statusLabel(strategy.status)}</span>
-          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", riskClass(strategy.readiness.riskLevel))}>
-            {strategy.readiness.riskLevel === "low" ? "低风险" : strategy.readiness.riskLevel === "medium" ? "中风险" : "高风险"}
-          </span>
-        </div>
-      </div>
-      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">{strategy.description}</p>
-      <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
-        <SlidersHorizontal className="h-3 w-3 shrink-0" />
-        <span className="truncate">{paramSummary}</span>
-        {hasMoreParams && <span className="shrink-0 text-slate-400">+{strategy.parameterSchema.length - 3}</span>}
-      </div>
-      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span className="flex items-center gap-1"><Database className="h-3 w-3" />{strategy.dataDependencies.length} 数据源</span>
-          <span className="flex items-center gap-1"><GitBranch className="h-3 w-3" />{strategy.linkedWorkspaces.length} 空间</span>
-          {bestArchive && (
-            <span className="flex items-center gap-1 text-emerald-600"><BarChart3 className="h-3 w-3" />{bestArchive.metrics.totalReturnPct != null ? `${bestArchive.metrics.totalReturnPct}%` : "已归档"}</span>
+
+        {/* Description */}
+        <p className="text-[13px] leading-6 text-slate-500 line-clamp-2">{strategy.description}</p>
+
+        {/* Parameters */}
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-0.5 shrink-0 text-[10px] font-medium uppercase tracking-wider text-slate-400">参数</span>
+          {displayParams.map((p) => (
+            <span key={p.key} className="inline-flex items-center rounded-md border border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/50 px-1.5 py-0.5 text-[11px] text-slate-600 shadow-sm">
+              <span className="text-slate-400">{p.label}</span>
+              <span className="mx-0.5 text-slate-300">=</span>
+              <span className="font-semibold text-slate-700">{p.value}{p.unit ?? ""}</span>
+            </span>
+          ))}
+          {strategy.parameterSchema.length > 4 && (
+            <span className="text-[11px] text-slate-400">+{strategy.parameterSchema.length - 4}</span>
           )}
         </div>
-        <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-blue-500" />
+
+        {/* Divider */}
+        <div className="border-t border-slate-100" />
+
+        {/* Footer */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1 text-[11px] text-slate-400">
+              <Database className="h-3 w-3" />
+              <span className="tabular-nums font-medium text-slate-600">{strategy.dataDependencies.length}</span>
+            </span>
+            <span className="flex items-center gap-1 text-[11px] text-slate-400">
+              <GitBranch className="h-3 w-3" />
+              <span className="tabular-nums font-medium text-slate-600">{strategy.linkedWorkspaces.length}</span>
+            </span>
+            {bestArchive?.metrics.totalReturnPct != null ? (
+              <span className={cn("flex items-center gap-1 text-[11px] font-semibold", parseFloat(String(bestArchive.metrics.totalReturnPct)) >= 0 ? "text-red-500" : "text-emerald-500")}>
+                <BarChart3 className="h-3 w-3" />
+                {bestArchive.metrics.totalReturnPct}%
+              </span>
+            ) : bestArchive ? (
+              <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                <BarChart3 className="h-3 w-3" />已归档
+              </span>
+            ) : null}
+          </div>
+          <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-1 group-hover:text-blue-500" />
+        </div>
       </div>
     </button>
   );
@@ -1588,6 +1647,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [sheetStrategy, setSheetStrategy] = useState<StrategyCatalogItem | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetTab, setSheetTab] = useState<"overview" | "params" | "backtest">("overview");
 
   const filteredTemplates = useMemo(() => {
     const lower = keyword.trim().toLowerCase();
@@ -1765,34 +1825,69 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         {view === "catalog" && (
           <>
             {/* Stats bar */}
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { label: "策略方案", value: data.summary.templates, sub: `${data.summary.readyTemplates} 可回测`, icon: <TrendingUp className="h-3.5 w-3.5" /> },
-                { label: "工作空间", value: data.summary.strategyWorkspaces, sub: `${data.summary.backtestWorkspaces} 回测`, icon: <GitBranch className="h-3.5 w-3.5" /> },
-                { label: "版本口径", value: data.summary.activeVersions, sub: `${data.templates.reduce((s, t) => s + t.versions.length, 0)} 记录`, icon: <BarChart3 className="h-3.5 w-3.5" /> },
-                { label: "回测归档", value: data.summary.archivedReports, sub: "报告与限制", icon: <Database className="h-3.5 w-3.5" /> },
+                { label: "策略方案", value: data.summary.templates, sub: `${data.summary.readyTemplates} 可回测`, glow: "shadow-blue-100/50", dot: "bg-blue-500" },
+                { label: "工作空间", value: data.summary.strategyWorkspaces, sub: `${data.summary.backtestWorkspaces} 回测`, glow: "shadow-violet-100/50", dot: "bg-violet-500" },
+                { label: "版本口径", value: data.summary.activeVersions, sub: `${data.templates.reduce((s, t) => s + t.versions.length, 0)} 记录`, glow: "shadow-amber-100/50", dot: "bg-amber-500" },
+                { label: "回测归档", value: data.summary.archivedReports, sub: "报告与限制", glow: "shadow-emerald-100/50", dot: "bg-emerald-500" },
               ].map((item) => (
-                <div key={item.label} className="flex min-w-[130px] flex-1 items-center gap-3 rounded-md border border-slate-100 bg-slate-50/50 px-3 py-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-slate-500">{item.icon}</div>
-                  <div className="min-w-0"><p className="text-sm font-semibold tabular-nums text-slate-900">{item.value}</p><p className="truncate text-[11px] text-slate-500">{item.sub}</p></div>
+                <div key={item.label} className={cn("relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm", item.glow)}>
+                  {/* Decorative circle */}
+                  <div className={cn("absolute -top-4 -right-4 h-16 w-16 rounded-full opacity-[0.06]", item.dot)} />
+                  <p className="relative text-[28px] font-extrabold tabular-nums leading-none tracking-tight text-slate-900">
+                    {item.value}
+                  </p>
+                  <p className="relative mt-1.5 text-xs font-semibold text-slate-700">{item.label}</p>
+                  <p className="relative text-[11px] leading-relaxed text-slate-400">{item.sub}</p>
                 </div>
               ))}
             </div>
 
-            {/* Search + family filter */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索策略方案、参数、数据源..." className="h-9 border-slate-200 bg-white pl-9" />
+            {/* Search + family filter (merged) */}
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative min-w-[260px] flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索策略方案、参数、数据源..." className="h-9 rounded-lg border-slate-200/80 bg-white pl-9 shadow-sm" />
+                </div>
+                <div className="flex items-center gap-0.5 rounded-lg border border-slate-200/80 bg-slate-50 p-0.5 shadow-sm">
+                  <button type="button" onClick={() => setFamilyFilter(null)}
+                    className={cn(
+                      "relative rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                      !familyFilter
+                        ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/50"
+                        : "text-slate-500 hover:text-slate-700"
+                    )}>
+                    全部<span className="ml-1 text-slate-400 tabular-nums">{data.templates.length}</span>
+                  </button>
+                  {families.map((fam) => {
+                    const count = data.templates.filter((t) => t.family === fam).length;
+                    return (
+                      <button key={fam} type="button" onClick={() => setFamilyFilter(fam)}
+                        className={cn(
+                          "relative rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                          familyFilter === fam
+                            ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/50"
+                            : "text-slate-500 hover:text-slate-700"
+                        )}>
+                        {fam}<span className="ml-1 text-slate-400 tabular-nums">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <button type="button" onClick={() => setFamilyFilter(null)}
-                className={cn("rounded-md border px-2.5 py-1 text-xs font-medium transition-colors", !familyFilter ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")}>全部</button>
-              {families.map((fam) => (
-                <button key={fam} type="button" onClick={() => setFamilyFilter(fam)}
-                  className={cn("rounded-md border px-2.5 py-1 text-xs font-medium transition-colors", familyFilter === fam ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")}>{fam}</button>
-              ))}
+
+              {/* Filter active indicator */}
+              {familyFilter && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <div className="h-1 w-1 rounded-full bg-blue-400" />
+                  已筛选 <span className="font-semibold text-slate-700">{familyFilter}</span>
+                  <button type="button" onClick={() => setFamilyFilter(null)} className="ml-1 text-slate-400 hover:text-slate-600 underline underline-offset-2">清除</button>
+                  <span className="text-slate-300">·</span>
+                  <span className="tabular-nums">{displayTemplates.length} 个策略方案</span>
+                </div>
+              )}
             </div>
 
             {/* Card grid */}
@@ -1801,13 +1896,13 @@ export default function StrategyPlatformClient({ initialData }: Props) {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {displayTemplates.map((t) => (
-                  <StrategyCard key={t.id} strategy={t} onClick={() => { setSheetStrategy(t); setSymbol(t.defaultSymbols[0] ?? ""); setSheetOpen(true); }} />
+                  <StrategyCard key={t.id} strategy={t} onClick={() => { setSheetStrategy(t); setSymbol(t.defaultSymbols[0] ?? ""); setSheetTab("overview"); setSheetOpen(true); }} />
                 ))}
               </div>
             )}
 
             {/* Detail Sheet */}
-            <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+            <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) setSheetTab("overview"); }}>
               <SheetContent side="right" className="flex w-[560px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[640px]">
                 {sheetStrategy && (
                   <>
@@ -1823,81 +1918,143 @@ export default function StrategyPlatformClient({ initialData }: Props) {
                         </div>
                       </div>
                     </SheetHeader>
-                    <div className="flex-1 space-y-5 overflow-y-auto p-5">
-                      <p className="text-sm leading-6 text-slate-600">{sheetStrategy.description}</p>
 
-                      {/* Parameters */}
-                      <section>
-                        <h4 className="mb-2 text-sm font-semibold text-slate-900">参数口径</h4>
-                        <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                          {sheetStrategy.parameterSchema.map((p) => (
-                            <div key={p.key} className="flex items-start justify-between gap-4 px-3 py-2.5 text-sm">
-                              <span className="shrink-0 text-slate-500">{p.label}</span>
-                              <span className="min-w-0 break-words text-right font-medium text-slate-900">{p.value}{p.unit ?? ""}<span className="ml-2 text-xs font-normal text-slate-500">{p.description}</span></span>
+                    {/* Tab bar */}
+                    <div className="flex shrink-0 border-b border-slate-100 bg-slate-50/50 px-4">
+                      {([
+                        { id: "overview" as "overview" | "params" | "backtest", label: "概览", badge: undefined as number | undefined, disabled: false },
+                        { id: "params" as "overview" | "params" | "backtest", label: "参数", badge: undefined as number | undefined, disabled: false },
+                        { id: "backtest" as "overview" | "params" | "backtest", label: "回测", badge: sheetStrategy.backtestArchives.length || 0, disabled: !sheetStrategy.backtestArchives.length },
+                      ]).map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          disabled={tab.disabled}
+                          onClick={() => setSheetTab(tab.id)}
+                          className={cn(
+                            "relative -mb-[1px] border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                            sheetTab === tab.id
+                              ? "border-blue-500 text-blue-700"
+                              : "border-transparent text-slate-500 hover:text-slate-700",
+                            tab.disabled && "cursor-default opacity-40"
+                          )}
+                        >
+                          {tab.label}
+                          {tab.badge !== undefined && tab.badge > 0 && (
+                            <span className="ml-1.5 rounded-full bg-slate-200 px-1.5 py-0 text-[11px] font-medium text-slate-600 tabular-nums">{tab.badge}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-5">
+                      {/* ── Overview tab ───────────────── */}
+                      {sheetTab === "overview" && (
+                        <div className="space-y-5">
+                          <p className="text-sm leading-6 text-slate-600">{sheetStrategy.description}</p>
+
+                          <div className="grid gap-5 sm:grid-cols-2">
+                            <section>
+                              <h4 className="mb-2 text-sm font-semibold text-slate-900">评估指标</h4>
+                              <div className="flex flex-wrap gap-1.5">{sheetStrategy.evaluationMetrics.map((m) => <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{m}</span>)}</div>
+                            </section>
+                            <section>
+                              <h4 className="mb-2 text-sm font-semibold text-slate-900">数据依赖</h4>
+                              <div className="space-y-1">{sheetStrategy.dataDependencies.map((ep) => <code key={ep} className="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{ep}</code>)}</div>
+                            </section>
+                          </div>
+
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">风险与限制</h4>
+                            <div className="space-y-2 rounded-md border border-slate-200 p-3 text-sm">
+                              {sheetStrategy.riskControls.map((item) => <div key={item} className="flex gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{item}</span></div>)}
+                              {sheetStrategy.limitations.map((item) => <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>)}
                             </div>
-                          ))}
+                          </section>
+
+                          {sheetStrategy.linkedWorkspaces.length > 0 && (
+                            <section>
+                              <h4 className="mb-2 text-sm font-semibold text-slate-900">关联工作空间</h4>
+                              <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+                                {sheetStrategy.linkedWorkspaces.map((ws) => (
+                                  <Link key={ws.id} href={`/${ws.id}/chat`} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-slate-50">
+                                    <div className="min-w-0"><p className="font-medium text-slate-900">{ws.name}</p><p className="text-xs text-slate-500">{ws.capabilityId} · {formatDate(ws.updatedAt ?? ws.createdAt)}</p></div>
+                                    <ArrowRight className="h-4 w-4 text-slate-300" />
+                                  </Link>
+                                ))}
+                              </div>
+                            </section>
+                          )}
                         </div>
-                      </section>
+                      )}
 
-                      {/* Metrics + Dependencies */}
-                      <div className="grid gap-5 sm:grid-cols-2">
-                        <section>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-900">评估指标</h4>
-                          <div className="flex flex-wrap gap-1.5">{sheetStrategy.evaluationMetrics.map((m) => <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{m}</span>)}</div>
-                        </section>
-                        <section>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-900">数据依赖</h4>
-                          <div className="space-y-1">{sheetStrategy.dataDependencies.map((ep) => <code key={ep} className="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{ep}</code>)}</div>
-                        </section>
-                      </div>
+                      {/* ── Parameters tab ────────────── */}
+                      {sheetTab === "params" && (
+                        <div className="space-y-5">
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">参数配置</h4>
+                            <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+                              {sheetStrategy.parameterSchema.map((p) => (
+                                <div key={p.key} className="flex items-start justify-between gap-4 px-3 py-2.5 text-sm">
+                                  <span className="shrink-0 font-medium text-slate-700">{p.label}</span>
+                                  <span className="min-w-0 break-words text-right text-slate-900">
+                                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold">{p.value}{p.unit ?? ""}</span>
+                                    <span className="ml-2 text-xs text-slate-400">{p.description}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
 
-                      {/* Risk & Limitations */}
-                      <section>
-                        <h4 className="mb-2 text-sm font-semibold text-slate-900">风险与限制</h4>
-                        <div className="space-y-2 rounded-md border border-slate-200 p-3 text-sm">
-                          {sheetStrategy.riskControls.map((item) => <div key={item} className="flex gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{item}</span></div>)}
-                          {sheetStrategy.limitations.map((item) => <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>)}
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">默认标的</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {sheetStrategy.defaultSymbols.map((sym) => (
+                                <span key={sym} className="rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-700">{sym}</span>
+                              ))}
+                            </div>
+                          </section>
                         </div>
-                      </section>
+                      )}
 
-                      {/* Backtest archives */}
-                      {sheetStrategy.backtestArchives.length > 0 && (
-                        <section>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-900">回测归档</h4>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {sheetStrategy.backtestArchives.map((a) => (
-                              <div key={a.id} className="rounded-md border border-slate-200 p-3">
-                                <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{a.title}</p><Badge variant="outline" className="text-[10px]">{a.status}</Badge></div>
+                      {/* ── Backtest tab ──────────────── */}
+                      {sheetTab === "backtest" && (
+                        <div className="space-y-4">
+                          {sheetStrategy.backtestArchives.length > 0 ? (
+                            sheetStrategy.backtestArchives.map((a) => (
+                              <div key={a.id} className="rounded-md border border-slate-200 p-4">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-semibold text-slate-900">{a.title}</p>
+                                  <Badge variant="outline" className="text-[10px]">{a.status}</Badge>
+                                </div>
                                 <p className="mt-1 text-xs text-slate-500">{a.symbol} · {a.period}</p>
-                                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                                  <div><span className="text-slate-500">收益</span><span className="ml-1 font-medium">{a.metrics.totalReturnPct ?? "-"}%</span></div>
-                                  <div><span className="text-slate-500">回撤</span><span className="ml-1 font-medium">{a.metrics.maxDrawdownPct ?? "-"}%</span></div>
+                                <div className="mt-3 grid grid-cols-2 gap-3">
+                                  <div className="rounded-md bg-slate-50 px-3 py-2">
+                                    <p className="text-[11px] text-slate-400">累计收益</p>
+                                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", parseFloat(String(a.metrics.totalReturnPct ?? 0)) >= 0 ? "text-red-600" : "text-emerald-600")}>{a.metrics.totalReturnPct ?? "-"}%</p>
+                                  </div>
+                                  <div className="rounded-md bg-slate-50 px-3 py-2">
+                                    <p className="text-[11px] text-slate-400">最大回撤</p>
+                                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">{a.metrics.maxDrawdownPct ?? "-"}%</p>
+                                  </div>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        </section>
+                            ))
+                          ) : (
+                            <div className="py-12 text-center text-sm text-slate-400">
+                              <BarChart3 className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+                              暂无回测归档
+                            </div>
+                          )}
+                        </div>
                       )}
+                    </div>
 
-                      {/* Linked workspaces */}
-                      {sheetStrategy.linkedWorkspaces.length > 0 && (
-                        <section>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-900">关联工作空间</h4>
-                          <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                            {sheetStrategy.linkedWorkspaces.map((ws) => (
-                              <Link key={ws.id} href={`/${ws.id}/chat`} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-slate-50">
-                                <div><p className="font-medium text-slate-900">{ws.name}</p><p className="text-xs text-slate-500">{ws.capabilityId} · {formatDate(ws.updatedAt ?? ws.createdAt)}</p></div>
-                                <ArrowRight className="h-4 w-4 text-slate-300" />
-                              </Link>
-                            ))}
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Create workspace CTA */}
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
-                        <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的，例如 510300" className="max-w-[180px] bg-white" />
-                        <Button onClick={createStrategyWorkspace} disabled={isCreating} className="bg-blue-600 text-white hover:bg-blue-700">
+                    {/* Sticky CTA */}
+                    <div className="shrink-0 border-t border-blue-100 bg-blue-50/70 px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的，例如 510300" className="h-9 max-w-[180px] bg-white" />
+                        <Button onClick={createStrategyWorkspace} disabled={isCreating} className="flex-1 bg-blue-600 text-white hover:bg-blue-700">
                           {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                           生成工作空间
                         </Button>
