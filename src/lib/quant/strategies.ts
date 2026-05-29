@@ -9,6 +9,19 @@ import path from 'path';
 
 type StrategyStatus = 'ready' | 'planned' | 'research';
 type StrategyRiskLevel = 'low' | 'medium' | 'high';
+export type StrategyTemplateKind = 'stock_selection' | 'trade_price';
+
+export interface StrategyRule {
+  label: string;
+  description: string;
+  dataStatus?: 'ready' | 'needs_data' | 'manual';
+}
+
+export interface StrategyDataReadiness {
+  ready: string[];
+  missing: string[];
+  notes: string[];
+}
 
 export interface StrategyParameter {
   key: string;
@@ -236,6 +249,32 @@ export interface StrategyDividendEventsResponse {
   fetchedAt: string;
 }
 
+export interface StrategySectorCapitalFlowItem {
+  sector: string;
+  memberCount: number;
+  coveredCount: number;
+  risingCount: number;
+  limitUpCount: number;
+  risingRatio?: number | null;
+  latestAmount?: number | null;
+  avgAmount20d?: number | null;
+  amountRatio20d?: number | null;
+  avgTurnover20d?: number | null;
+  strength20dPct?: number | null;
+  proxyNetAmount?: number | null;
+  signal: 'warming' | 'cooling' | 'neutral' | 'insufficient';
+  topSymbols: string[];
+  dataBasis: string;
+}
+
+export interface StrategySectorCapitalFlowResponse {
+  universeId: string;
+  items: StrategySectorCapitalFlowItem[];
+  source: string;
+  proxyNote: string;
+  fetchedAt: string;
+}
+
 export interface StrategyLocalKlineSummary {
   rowCount: number;
   firstTs?: string | null;
@@ -360,6 +399,7 @@ export interface StrategyUniverseMemberAddResult {
 export interface StrategyTemplate {
   id: string;
   name: string;
+  kind?: StrategyTemplateKind;
   family: string;
   status: StrategyStatus;
   capabilityId: QuantCapabilityId;
@@ -376,6 +416,11 @@ export interface StrategyTemplate {
   riskControls: string[];
   evaluationMetrics: string[];
   limitations: string[];
+  selectionRules?: StrategyRule[];
+  rankingRules?: string[];
+  entryRules?: StrategyRule[];
+  exitRules?: StrategyRule[];
+  dataReadiness?: StrategyDataReadiness;
   promptSeed: string;
 }
 
@@ -716,8 +761,473 @@ const STRATEGY_COMMON_LIMITATIONS = [
   '当前策略为日线级单标的回测，组合轮动、资金容量和撮合细节后续单独建模。',
   '交易按收盘价切换仓位，暂未建模盘中触发、涨跌停无法成交和税费差异。',
 ];
+const STRATEGY_SELECTION_RISK_CONTROLS = [
+  '选股结果必须输出命中日期、触发条件、排序分数和被剔除原因。',
+  '默认剔除 ST、退市风险、ETF/指数、科创板、北证，避免涨跌幅规则混杂。',
+  '任何包含 DDE/大单净量的策略必须标明数据源、更新时间和缺失覆盖率。',
+  '不得把单日命中当作买入建议，必须叠加入场价格、止损和仓位约束。',
+];
+const STRATEGY_PRICE_RISK_CONTROLS = [
+  '先定义最大亏损和失效条件，再反推买入价格区间。',
+  '买入区间必须同时给出止损、第一止盈、趋势卖出和失败退出。',
+  '不追涨停成交，不在流动性不足或一字板无法成交时生成买入建议。',
+  '价格策略默认只服务已经通过选股策略的候选标的。',
+];
+const STRATEGY_SELECTION_LIMITATIONS = [
+  '当前可直接复用日线 OHLCV、成交额、换手、涨跌停、ST 与板块标签；DDE 大单金额/大单净量仍需落库后才能全自动筛选。',
+  '日线策略无法还原盘中排板、撤单和集合竞价细节，真实交易需接入分钟线或盘口数据。',
+];
+const STRATEGY_PRICE_LIMITATIONS = [
+  '当前买卖价格策略以日线和技术指标为主，暂未模拟盘口深度、滑点、排队成交和隔夜公告风险。',
+  '策略输出是交易计划口径，不应替代人工确认基本面、消息面和当日市场环境。',
+];
+const STRATEGY_OHLCV_DATA_READY = [
+  '日线 open/high/low/close/volume/amount',
+  '涨跌幅、涨跌额、换手率',
+  '涨停/跌停推导字段',
+  'ST、交易所、板块/概念标签',
+  'MA5/10/20/30/60、ATR、区间高低点可计算',
+];
+const STRATEGY_DDE_DATA_MISSING = [
+  'DDE 大单金额',
+  'DDE 大单净量',
+  '近 3/5 日 DDE 聚合',
+  '当日实时 DDE 更新时间',
+];
 
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
+  {
+    id: 'dde-limit-up-money-selection',
+    name: 'DDE 涨停资金接力选股',
+    kind: 'stock_selection',
+    family: '选股策略',
+    status: 'research',
+    capabilityId: 'strategy_research',
+    description: '按“近期涨停 + DDE 大单持续流入 + 均线多头 + 今日强开上涨”筛选接力候选股，核心输出是候选列表、排序原因和禁止买入原因。',
+    defaultSymbols: ['002156', '002555', 'a-share-stock-universe'],
+    timeframe: '日线 · 当日扫描',
+    backtestStrategyId: 'volume_price_breakout',
+    backtestLimit: 1260,
+    dataDependencies: [
+      ...STRATEGY_BACKTEST_DEPENDENCIES,
+      'quant.stock_bars.limit_up / is_st / open / close / previous_close',
+      'quant.security_universe_members.exchange / concepts',
+      '待接入 quant.dde_money_flow_daily',
+    ],
+    parameterSchema: [
+      { key: 'limit_up_lookback_days', label: '涨停观察', value: 4, unit: '日', description: '近 4 日至少出现 1 次涨停。' },
+      { key: 'dde_3d_amount_min', label: '近 3 日 DDE', value: '>0', description: '近 3 日 DDE 大单金额合计为正。' },
+      { key: 'dde_5d_amount_min', label: '近 5 日 DDE', value: '>0', description: '近 5 日 DDE 大单金额合计为正。' },
+      { key: 'ma_stack', label: '均线排列', value: 'MA5>MA10>MA20>MA30>MA60', description: '多头排列，并且收盘价在 MA5 之上。' },
+      { key: 'sort_by', label: '排序', value: '大单净量降序', description: '优先看当日大单净量，其次看 3 日 DDE 强度。' },
+    ],
+    parameterScans: [{
+      id: 'dde-selection-threshold-grid',
+      name: 'DDE 阈值与涨停窗口扫描',
+      status: 'blocked',
+      objective: 'DDE 字段落库后，比较近 3/5 日 DDE 阈值、涨停窗口和均线排列对后续 1/3/5 日收益的影响。',
+      grid: [
+        { key: 'limit_up_lookback_days', values: [3, 4, 5], unit: '日' },
+        { key: 'dde_3d_amount_min', values: [0, 1000, 3000], unit: '万' },
+        { key: 'holding_days', values: [1, 3, 5], unit: '日' },
+      ],
+      metrics: ['命中数', '次日收益', '3日收益', '5日收益', '最大回撤', '胜率'],
+      guardrails: ['DDE 数据缺失时不允许自动回测', '剔除当日涨停无法买入样本', '按大单净量降序输出候选'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v0.1',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['沉淀 DDE 涨停接力选股口径', '标注当前缺失的 DDE 数据依赖'],
+      parameterSnapshot: { limit_up_lookback_days: 4, dde_3d_amount_min: 0, dde_5d_amount_min: 0 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_SELECTION_RISK_CONTROLS,
+    evaluationMetrics: ['命中数', '次日收益', '3日收益', '5日收益', '胜率', '最大回撤', '换手与成交额覆盖'],
+    limitations: STRATEGY_SELECTION_LIMITATIONS,
+    selectionRules: [
+      { label: '近 4 日涨停 >= 1', description: '候选股最近 4 个交易日至少有一次涨停。', dataStatus: 'ready' },
+      { label: '剔除科创/北证/ST', description: '排除 688/8/4 开头、北交所和 ST 风险标的。', dataStatus: 'ready' },
+      { label: '近 3 日 DDE 大单金额 > 0', description: '近 3 日主力大单资金合计为正。', dataStatus: 'needs_data' },
+      { label: '均线多头排列', description: 'MA5、MA10、MA20、MA30、MA60 从上到下排列。', dataStatus: 'ready' },
+      { label: '收盘价在 MA5 之上', description: '避免弱势反抽，要求价格仍站上短线趋势。', dataStatus: 'ready' },
+      { label: '今日 DDE 大单金额 > 0', description: '当日仍有大单净流入，避免资金转弱。', dataStatus: 'needs_data' },
+      { label: '今日开盘价 > 昨日收盘价', description: '强开确认情绪延续。', dataStatus: 'ready' },
+      { label: '今日上涨且前一日未下跌', description: '过滤连续转弱和阴线破坏。', dataStatus: 'ready' },
+      { label: '当日没有涨停', description: '避免筛出无法合理买入的一字或涨停封板。', dataStatus: 'ready' },
+    ],
+    rankingRules: ['大单净量降序', '近 3 日 DDE 大单金额降序', '涨停距今天数越近优先', '成交额和换手率必须满足最低流动性'],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: STRATEGY_DDE_DATA_MISSING,
+      notes: ['这是最贴近当前需求的核心选股策略；DDE 落库前只能展示口径和部分日线过滤。'],
+    },
+    promptSeed: '基于全 A 股票池执行 DDE 涨停资金接力选股：近4日涨停至少1次、非科创北证ST、均线多头、股价在MA5之上、今日强开上涨、近3/5日DDE为正，并按大单净量降序输出候选。',
+  },
+  {
+    id: 'limit-up-pullback-continuation-selection',
+    name: '涨停回踩延续选股',
+    kind: 'stock_selection',
+    family: '选股策略',
+    status: 'ready',
+    capabilityId: 'backtest_review',
+    description: '筛选近 10 日涨停后缩量回踩、未跌破趋势线、重新站上 MA5 的二次启动候选，适合在没有 DDE 时先用日线数据做可回测选股。',
+    defaultSymbols: ['002156', '002555', 'a-share-stock-universe'],
+    timeframe: '日线 · 近 5 年',
+    backtestStrategyId: 'ma_pullback_reclaim',
+    backtestLimit: 1260,
+    dataDependencies: STRATEGY_BACKTEST_DEPENDENCIES,
+    parameterSchema: [
+      { key: 'limit_up_lookback_days', label: '涨停观察', value: 10, unit: '日', description: '近 10 日内至少一次涨停。' },
+      { key: 'pullback_window', label: '回踩均线', value: 10, unit: '日', description: '回踩不有效跌破 MA10。' },
+      { key: 'reclaim_line', label: '重新站上', value: 'MA5', description: '今日重新站上 MA5。' },
+      { key: 'volume_ratio_max', label: '回踩量能', value: 0.85, description: '回踩阶段量能低于前期均量。' },
+    ],
+    parameterScans: [{
+      id: 'limit-up-pullback-grid',
+      name: '涨停回踩窗口扫描',
+      status: 'available',
+      objective: '比较涨停观察窗口、回踩均线和止损阈值对二次启动收益的影响。',
+      grid: [
+        { key: 'pullback_window', values: [10, 20, 30], unit: '日' },
+        { key: 'trend_window', values: [50, 60, 90], unit: '日' },
+        { key: 'stop_loss_pct', values: [6, 8, 10], unit: '%' },
+      ],
+      metrics: ['胜率', '最大回撤', '交易次数', '平均收益'],
+      guardrails: ['必须剔除当日涨停无法成交样本', '观察回踩破位后的亏损', '只允许在股票池成员上运行'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v1.0',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['将涨停回踩选股映射到可运行的 MA 回踩再启动回测'],
+      parameterSnapshot: { limit_up_lookback_days: 10, pullback_window: 10, stop_loss_pct: 8 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_SELECTION_RISK_CONTROLS,
+    evaluationMetrics: ['命中数', '次日收益', '5日收益', '胜率', '最大回撤', '交易次数'],
+    limitations: ['暂不含 DDE 资金确认，可作为 DDE 策略落库前的日线替代口径。', ...STRATEGY_COMMON_LIMITATIONS],
+    selectionRules: [
+      { label: '近 10 日涨停过', description: '近 10 个交易日至少出现一次涨停。', dataStatus: 'ready' },
+      { label: '缩量回踩不破 MA10', description: '回踩阶段不有效跌破 MA10，量能低于前期均量。', dataStatus: 'ready' },
+      { label: '今日重新站上 MA5', description: '短线重新转强，作为候选触发日。', dataStatus: 'ready' },
+      { label: '非 ST/科创/北证', description: '规避涨跌幅制度和风险标的混杂。', dataStatus: 'ready' },
+    ],
+    rankingRules: ['今日涨幅降序', '距离最近涨停日越近优先', '成交额越高优先', '回踩幅度适中优先'],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: ['分时承接强弱', '盘口封单/炸板次数'],
+      notes: ['可直接用现有日线库回测，但盘中承接质量仍需后续接入分钟线。'],
+    },
+    promptSeed: '筛选近 10 日涨停、缩量回踩不破 MA10、今日重新站上 MA5、非 ST/科创/北证的股票，并对候选执行 5 日持有与止损回测。',
+  },
+  {
+    id: 'ma-stack-breakout-selection',
+    name: '均线多头突破选股',
+    kind: 'stock_selection',
+    family: '选股策略',
+    status: 'ready',
+    capabilityId: 'backtest_review',
+    description: '用 MA5/10/20/30/60 多头排列、价格突破近 20 日高点、成交额放大筛选强趋势候选。',
+    defaultSymbols: ['002156', '300750', 'a-share-stock-universe'],
+    timeframe: '日线 · 近 5 年',
+    backtestStrategyId: 'volume_price_breakout',
+    backtestLimit: 1260,
+    dataDependencies: STRATEGY_BACKTEST_DEPENDENCIES,
+    parameterSchema: [
+      { key: 'ma_stack', label: '均线排列', value: 'MA5>MA10>MA20>MA30>MA60', description: '多头排列确认趋势。' },
+      { key: 'breakout_window', label: '突破窗口', value: 20, unit: '日', description: '收盘价突破近 20 日高点。' },
+      { key: 'volume_ratio', label: '放量倍数', value: 1.4, description: '成交量相对均量放大。' },
+    ],
+    parameterScans: [{
+      id: 'ma-stack-breakout-grid',
+      name: '多头突破扫描',
+      status: 'available',
+      objective: '比较突破窗口和放量阈值对强趋势选股的影响。',
+      grid: [
+        { key: 'breakout_window', values: [15, 20, 30], unit: '日' },
+        { key: 'volume_ratio', values: [1.2, 1.4, 1.8] },
+        { key: 'exit_window', values: [8, 10, 15], unit: '日' },
+      ],
+      metrics: ['总收益', '最大回撤', '夏普', '信号数量'],
+      guardrails: ['成交量缺失样本必须降级', '过滤流动性不足', '检查追高回撤'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v1.0',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['新增均线多头突破选股口径'],
+      parameterSnapshot: { breakout_window: 20, volume_ratio: 1.4, exit_window: 10 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_SELECTION_RISK_CONTROLS,
+    evaluationMetrics: ['命中数', '突破后收益', '最大回撤', '夏普', '成交额覆盖'],
+    limitations: STRATEGY_COMMON_LIMITATIONS,
+    selectionRules: [
+      { label: 'MA 多头排列', description: 'MA5 > MA10 > MA20 > MA30 > MA60。', dataStatus: 'ready' },
+      { label: '突破 20 日高点', description: '今日收盘价突破近 20 日高点。', dataStatus: 'ready' },
+      { label: '放量确认', description: '今日成交量高于均量阈值。', dataStatus: 'ready' },
+      { label: '非涨停可买', description: '当日未涨停，避免无法成交。', dataStatus: 'ready' },
+    ],
+    rankingRules: ['20 日强弱降序', '成交额放大倍数降序', '收盘价相对 MA5 偏离不过高优先'],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: ['行业相对强弱排名'],
+      notes: ['当前可用日线直接回测，后续可叠加行业强弱。'],
+    },
+    promptSeed: '从股票池筛选 MA5/10/20/30/60 多头、突破 20 日高点、放量、当日未涨停的强趋势股票，并按 20 日强弱排序。',
+  },
+  {
+    id: 'atr-cost-entry-price-plan',
+    name: 'ATR 成本控制买入策略',
+    kind: 'trade_price',
+    family: '买卖价格策略',
+    status: 'ready',
+    capabilityId: 'backtest_review',
+    description: '对已经入选的股票，使用 ATR、MA5、前收盘和风险预算给出可接受买入区间、止损价和第一止盈价。',
+    defaultSymbols: ['002156', '002555', '600916'],
+    timeframe: '日线 · 近 5 年',
+    backtestStrategyId: 'atr_trailing_breakout',
+    backtestLimit: 1260,
+    dataDependencies: STRATEGY_BACKTEST_DEPENDENCIES,
+    parameterSchema: [
+      { key: 'risk_per_trade_pct', label: '单笔风险', value: 1, unit: '%', description: '单笔最大亏损占账户比例。' },
+      { key: 'atr_window', label: 'ATR 窗口', value: 14, unit: '日', description: '估算正常波动。' },
+      { key: 'entry_atr_discount', label: '买入回撤', value: 0.35, description: '尽量在开盘后回落到 0.35 ATR 内买。' },
+      { key: 'stop_atr_multiplier', label: '止损距离', value: 1.2, description: '跌破买入价 1.2 ATR 或 MA10 失效。' },
+    ],
+    parameterScans: [{
+      id: 'atr-entry-plan-grid',
+      name: 'ATR 买入/止损扫描',
+      status: 'available',
+      objective: '比较 ATR 止损距离和突破窗口对收益回撤比的影响。',
+      grid: [
+        { key: 'breakout_window', values: [20, 40, 60], unit: '日' },
+        { key: 'atr_window', values: [10, 14, 20], unit: '日' },
+        { key: 'atr_multiplier', values: [2, 2.5, 3] },
+      ],
+      metrics: ['收益回撤比', '最大回撤', '止损频率', '夏普'],
+      guardrails: ['止损价必须先于目标价生成', '高开过多时放弃追买', '费用和滑点纳入比较'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v1.0',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['新增入场成本控制与 ATR 风险口径'],
+      parameterSnapshot: { risk_per_trade_pct: 1, atr_window: 14, stop_atr_multiplier: 1.2 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_PRICE_RISK_CONTROLS,
+    evaluationMetrics: ['建议买入区间', '止损价', '第一止盈价', '收益回撤比', '最大回撤'],
+    limitations: STRATEGY_PRICE_LIMITATIONS,
+    entryRules: [
+      { label: '不追高开过多', description: '若开盘涨幅超过计划上限，等待回落或放弃。', dataStatus: 'ready' },
+      { label: '买入区间贴近 MA5/前收', description: '买入价优先控制在 MA5 与前收附近，避免成本失控。', dataStatus: 'ready' },
+      { label: 'ATR 给出容错', description: '用 14 日 ATR 估算合理回撤和止损距离。', dataStatus: 'ready' },
+    ],
+    exitRules: [
+      { label: '跌破 MA10 或 1.2 ATR 止损', description: '趋势失败时先控制亏损。', dataStatus: 'ready' },
+      { label: '上涨 2R 先减仓', description: '达到两倍风险收益比时锁定部分利润。', dataStatus: 'manual' },
+      { label: '沿 MA5/MA10 趋势持有', description: '强趋势不急于卖出，用趋势线跟踪。', dataStatus: 'ready' },
+    ],
+    dataReadiness: {
+      ready: [...STRATEGY_OHLCV_DATA_READY, 'ATR 可由 high/low/close 计算'],
+      missing: ['分钟线成交分布', '盘口滑点'],
+      notes: ['可直接为股票池候选给出日线级买入/止损/止盈计划。'],
+    },
+    promptSeed: '对已经通过选股的股票生成 ATR 成本控制买入计划：给出合理买入区间、止损价、第一止盈价、放弃追高条件和仓位风险。',
+  },
+  {
+    id: 'limit-up-next-day-price-plan',
+    name: '涨停次日入场价格策略',
+    kind: 'trade_price',
+    family: '买卖价格策略',
+    status: 'research',
+    capabilityId: 'strategy_research',
+    description: '针对近期涨停候选，按次日开盘强弱、是否高开过度、是否回踩承接，生成买入区间和放弃条件。',
+    defaultSymbols: ['002156', '002555', '002624'],
+    timeframe: '日线 + 盘中待接入',
+    backtestStrategyId: 'gap_reversal',
+    backtestLimit: 1260,
+    dataDependencies: [
+      ...STRATEGY_BACKTEST_DEPENDENCIES,
+      '待接入集合竞价成交额',
+      '待接入分钟线/盘口承接',
+    ],
+    parameterSchema: [
+      { key: 'open_gap_min_pct', label: '最低强开', value: 0.5, unit: '%', description: '开盘需高于昨日收盘。' },
+      { key: 'open_gap_max_pct', label: '追高上限', value: 5, unit: '%', description: '高开过多不追。' },
+      { key: 'pullback_buy_zone', label: '回踩买区', value: '前收~MA5', description: '等待回踩承接再买。' },
+      { key: 'failure_exit', label: '失败退出', value: '跌破前收', description: '强势预期失败时退出。' },
+    ],
+    parameterScans: [{
+      id: 'limit-up-next-day-grid',
+      name: '涨停次日开盘区间扫描',
+      status: 'blocked',
+      objective: '分钟线和集合竞价数据接入后，比较不同高开区间、回踩买点和止损条件的收益回撤。',
+      grid: [
+        { key: 'open_gap_max_pct', values: [3, 5, 7], unit: '%' },
+        { key: 'stop_loss_pct', values: [3, 5, 7], unit: '%' },
+        { key: 'max_holding_days', values: [1, 3, 5], unit: '日' },
+      ],
+      metrics: ['次日收益', '3日收益', '胜率', '最大回撤', '无法成交占比'],
+      guardrails: ['一字板不生成买点', '高开过多自动放弃', '跌破前收必须退出'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v0.1',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['沉淀涨停次日买入价格计划', '标注分钟线和竞价数据缺口'],
+      parameterSnapshot: { open_gap_min_pct: 0.5, open_gap_max_pct: 5, stop_loss_pct: 5 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_PRICE_RISK_CONTROLS,
+    evaluationMetrics: ['建议买入区间', '放弃追高条件', '止损价', '次日/3日收益', '无法成交占比'],
+    limitations: STRATEGY_PRICE_LIMITATIONS,
+    entryRules: [
+      { label: '开盘价 > 昨收', description: '强开是最基础入场前提。', dataStatus: 'ready' },
+      { label: '高开不超过 5%', description: '超过追高上限优先放弃，避免成本失控。', dataStatus: 'ready' },
+      { label: '回踩前收或 MA5 承接', description: '需要分钟线确认回踩不破。', dataStatus: 'needs_data' },
+    ],
+    exitRules: [
+      { label: '跌破前收退出', description: '强势预期失败。', dataStatus: 'ready' },
+      { label: '冲高不封板分批止盈', description: '需要盘中价格和成交量确认。', dataStatus: 'needs_data' },
+      { label: '尾盘走弱不隔夜', description: '短线接力失败避免隔夜风险。', dataStatus: 'manual' },
+    ],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: ['集合竞价成交额', '分钟线回踩承接', '封单/炸板次数'],
+      notes: ['可先用日线开盘价做粗筛；真实买点需要分钟线。'],
+    },
+    promptSeed: '针对近 4 日涨停候选生成次日买入计划：开盘高于昨收但不高开过多，等待回踩前收或 MA5 承接，跌破前收退出。',
+  },
+  {
+    id: 'ma-stack-swing-sell-plan',
+    name: '均线趋势卖出策略',
+    kind: 'trade_price',
+    family: '买卖价格策略',
+    status: 'ready',
+    capabilityId: 'backtest_review',
+    description: '对已经持有或准备买入的趋势股，按 MA5/MA10、ATR 和分批止盈给出卖出计划。',
+    defaultSymbols: ['002156', '300750', '600519'],
+    timeframe: '日线 · 近 5 年',
+    backtestStrategyId: 'ma_crossover',
+    backtestLimit: 1260,
+    dataDependencies: STRATEGY_BACKTEST_DEPENDENCIES,
+    parameterSchema: [
+      { key: 'fast_window', label: '短线趋势', value: 5, unit: '日', description: '强趋势持有线。' },
+      { key: 'slow_window', label: '防守趋势', value: 10, unit: '日', description: '跌破后降低仓位。' },
+      { key: 'take_profit_r', label: '首个止盈', value: 2, unit: 'R', description: '达到 2 倍风险收益比先减仓。' },
+      { key: 'hard_stop_pct', label: '硬止损', value: 7, unit: '%', description: '单笔最大容忍亏损。' },
+    ],
+    parameterScans: [{
+      id: 'ma-sell-plan-grid',
+      name: '趋势卖出窗口扫描',
+      status: 'available',
+      objective: '比较 MA5/MA10/MA20 卖出线对利润保护和过早离场的影响。',
+      grid: [
+        { key: 'fast_window', values: [5, 10, 20], unit: '日' },
+        { key: 'slow_window', values: [20, 30, 60], unit: '日' },
+        { key: 'fee_bps', values: [3, 5, 10], unit: 'bps' },
+      ],
+      metrics: ['总收益', '最大回撤', '胜率', '交易次数'],
+      guardrails: ['fast_window 必须小于 slow_window', '卖出规则必须先于回测固定', '不允许事后挑最高点卖出'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v1.0',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['新增趋势股卖出计划口径'],
+      parameterSnapshot: { fast_window: 5, slow_window: 20, take_profit_r: 2 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_PRICE_RISK_CONTROLS,
+    evaluationMetrics: ['止损价', '减仓价', '趋势卖出价', '最大回撤', '利润回吐'],
+    limitations: STRATEGY_PRICE_LIMITATIONS,
+    entryRules: [
+      { label: '只服务已入选候选', description: '不单独产生选股信号。', dataStatus: 'manual' },
+      { label: '买入价不高于计划上限', description: '成本超限则不启用该卖出计划。', dataStatus: 'ready' },
+    ],
+    exitRules: [
+      { label: '跌破 MA10 降仓', description: '短线趋势变弱时降低风险。', dataStatus: 'ready' },
+      { label: '跌破 MA20 清仓', description: '中期趋势破坏时退出。', dataStatus: 'ready' },
+      { label: '达到 2R 先减仓', description: '先锁定部分利润，再跟踪趋势。', dataStatus: 'manual' },
+      { label: '硬止损 7%', description: '防止单笔亏损扩散。', dataStatus: 'ready' },
+    ],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: ['盘中止盈触发价格', '真实滑点'],
+      notes: ['可用当前日线数据评估卖出规则的收益回撤表现。'],
+    },
+    promptSeed: '为候选股票生成均线趋势卖出策略：买入成本、MA10 降仓、MA20 清仓、2R 分批止盈和硬止损价。',
+  },
+  {
+    id: 'dde-flow-failure-exit-plan',
+    name: 'DDE 资金转弱退出策略',
+    kind: 'trade_price',
+    family: '买卖价格策略',
+    status: 'research',
+    capabilityId: 'strategy_research',
+    description: '对 DDE 选股后的持仓，若大单资金连续转负、价格跌破 MA5 或放量阴线，给出降仓/清仓计划。',
+    defaultSymbols: ['002156', '002555', '002624'],
+    timeframe: '日线 · 当日扫描',
+    backtestStrategyId: 'momentum_trend',
+    backtestLimit: 1260,
+    dataDependencies: [
+      ...STRATEGY_BACKTEST_DEPENDENCIES,
+      '待接入 quant.dde_money_flow_daily',
+    ],
+    parameterSchema: [
+      { key: 'dde_negative_days', label: 'DDE 转负', value: 2, unit: '日', description: '连续 2 日大单金额为负触发降仓。' },
+      { key: 'price_break_line', label: '价格破位', value: 'MA5', description: '跌破 MA5 视为短线失效。' },
+      { key: 'heavy_down_volume_ratio', label: '放量阴线', value: 1.5, description: '成交量放大且收阴时优先退出。' },
+    ],
+    parameterScans: [{
+      id: 'dde-exit-grid',
+      name: 'DDE 转弱退出扫描',
+      status: 'blocked',
+      objective: 'DDE 落库后比较连续转负天数、MA 破位和放量阴线对回撤控制的影响。',
+      grid: [
+        { key: 'dde_negative_days', values: [1, 2, 3], unit: '日' },
+        { key: 'price_break_line', values: ['MA5', 'MA10', 'MA20'] },
+        { key: 'heavy_down_volume_ratio', values: [1.2, 1.5, 2] },
+      ],
+      metrics: ['回撤降低', '利润回吐', '退出后收益', '误杀率'],
+      guardrails: ['DDE 缺失时不允许自动退出回测', '不得用事后高点定义卖点', '必须展示误杀样本'],
+      sampleSize: 27,
+    }],
+    versions: [{
+      version: 'v0.1',
+      status: 'active',
+      updatedAt: '2026-05-29T00:00:00.000Z',
+      changes: ['沉淀 DDE 转弱退出规则', '等待 DDE 日频表落库'],
+      parameterSnapshot: { dde_negative_days: 2, price_break_line: 'MA5', heavy_down_volume_ratio: 1.5 },
+    }],
+    backtestArchives: [],
+    riskControls: STRATEGY_PRICE_RISK_CONTROLS,
+    evaluationMetrics: ['资金转弱次数', '退出后收益', '回撤降低', '误杀率', '最大回撤'],
+    limitations: STRATEGY_PRICE_LIMITATIONS,
+    entryRules: [
+      { label: '只用于 DDE 选股持仓', description: '不单独产生买入信号。', dataStatus: 'needs_data' },
+    ],
+    exitRules: [
+      { label: 'DDE 连续 2 日转负降仓', description: '资金持续流出时降低风险。', dataStatus: 'needs_data' },
+      { label: '跌破 MA5 清仓或降仓', description: '价格趋势破坏。', dataStatus: 'ready' },
+      { label: '放量阴线优先退出', description: '量价共振转弱。', dataStatus: 'ready' },
+    ],
+    dataReadiness: {
+      ready: STRATEGY_OHLCV_DATA_READY,
+      missing: STRATEGY_DDE_DATA_MISSING,
+      notes: ['这是 DDE 选股策略的配套退出模块，DDE 数据接入后价值最高。'],
+    },
+    promptSeed: '为 DDE 选股后的持仓生成退出策略：DDE 连续转负、跌破 MA5、放量阴线时降仓或清仓，并输出误杀风险。',
+  },
   {
     id: 'ma-crossover-single-asset',
     name: '均线交叉趋势',
@@ -1205,12 +1715,23 @@ const STRATEGY_TEMPLATES: StrategyTemplate[] = [
 ];
 
 function readinessFor(template: StrategyTemplate): StrategyCatalogItem['readiness'] {
+  if (template.dataReadiness?.missing.length) {
+    return {
+      label: template.status === 'research' ? '需补数据' : '可执行',
+      score: template.status === 'research' ? 64 : 82,
+      riskLevel: template.status === 'research' ? 'high' : 'medium',
+      summary:
+        template.status === 'research'
+          ? `策略口径明确，但仍缺 ${template.dataReadiness.missing.slice(0, 2).join('、')} 等数据。`
+          : '可基于现有日线数据执行，部分盘中细节需人工确认。',
+    };
+  }
   if (template.status === 'ready') {
     return {
-      label: '可回测',
+      label: template.kind === 'stock_selection' ? '可选股' : template.kind === 'trade_price' ? '可定价' : '可回测',
       score: 92,
       riskLevel: 'medium',
-      summary: '已接入本地回测端点，可生成可复现参数、净值、回撤和交易明细。',
+      summary: '已接入本地日线数据和回测端点，可生成可复现参数、净值、回撤和交易明细。',
     };
   }
   if (template.status === 'research') {
@@ -1496,6 +2017,10 @@ function findTemplate(templateId: string) {
   return STRATEGY_TEMPLATES.find(template => template.id === templateId) ?? null;
 }
 
+function listCatalogTemplates() {
+  return STRATEGY_TEMPLATES.filter(template => template.kind);
+}
+
 function findScan(template: StrategyTemplate, scanId: string) {
   return template.parameterScans.find(scan => scan.id === scanId) ?? null;
 }
@@ -1765,6 +2290,7 @@ function mapCoverageItem(value: unknown): StrategyDataCoverageItem {
 
 function mapLocalKlineBar(value: unknown): StrategyLocalKlineBar {
   const record = asRecord(value);
+  const metadata = asRecord(record.metadata);
   return {
     ts: asString(record.ts),
     open: asNumber(record.open) ?? 0,
@@ -1783,7 +2309,7 @@ function mapLocalKlineBar(value: unknown): StrategyLocalKlineBar {
     limitUp: asBoolean(record.limit_up),
     limitDown: asBoolean(record.limit_down),
     provider: asString(record.provider, 'unknown'),
-    metadata: asRecord(record.metadata),
+    metadata: Object.keys(metadata).length ? metadata : undefined,
   };
 }
 
@@ -1812,6 +2338,41 @@ function mapDividendEventsResponse(value: unknown): StrategyDividendEventsRespon
     symbol: asString(record.symbol),
     events: Array.isArray(record.events) ? record.events.map(mapDividendEvent) : [],
     source: asString(record.source, 'eastmoney'),
+    fetchedAt: asString(record.fetched_at, new Date().toISOString()),
+  };
+}
+
+function mapSectorCapitalFlowItem(value: unknown): StrategySectorCapitalFlowItem {
+  const record = asRecord(value);
+  const signal = asString(record.signal, 'insufficient');
+  return {
+    sector: asString(record.sector),
+    memberCount: asNumber(record.member_count) ?? 0,
+    coveredCount: asNumber(record.covered_count) ?? 0,
+    risingCount: asNumber(record.rising_count) ?? 0,
+    limitUpCount: asNumber(record.limit_up_count) ?? 0,
+    risingRatio: asNumber(record.rising_ratio),
+    latestAmount: asNumber(record.latest_amount),
+    avgAmount20d: asNumber(record.avg_amount_20d),
+    amountRatio20d: asNumber(record.amount_ratio_20d),
+    avgTurnover20d: asNumber(record.avg_turnover_20d),
+    strength20dPct: asNumber(record.strength_20d_pct),
+    proxyNetAmount: asNumber(record.proxy_net_amount),
+    signal: signal === 'warming' || signal === 'cooling' || signal === 'neutral' || signal === 'insufficient'
+      ? signal
+      : 'insufficient',
+    topSymbols: Array.isArray(record.top_symbols) ? record.top_symbols.map(String).filter(Boolean) : [],
+    dataBasis: asString(record.data_basis, 'stock_bars_proxy'),
+  };
+}
+
+function mapSectorCapitalFlowResponse(value: unknown): StrategySectorCapitalFlowResponse {
+  const record = asRecord(value);
+  return {
+    universeId: asString(record.universe_id),
+    items: Array.isArray(record.items) ? record.items.map(mapSectorCapitalFlowItem) : [],
+    source: asString(record.source, 'timescaledb'),
+    proxyNote: asString(record.proxy_note),
     fetchedAt: asString(record.fetched_at, new Date().toISOString()),
   };
 }
@@ -1929,6 +2490,20 @@ export async function getStrategyIngestionJobs(params: {
   return mapIngestionJobsResponse(payload);
 }
 
+export async function getStrategySectorCapitalFlow(params: {
+  universeId?: string;
+  limit?: number;
+} = {}): Promise<StrategySectorCapitalFlowResponse> {
+  const query = new URLSearchParams({
+    universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
+    limit: String(Math.max(1, Math.min(params.limit ?? 40, 120))),
+  });
+  const payload = await fetchMarketApiJson<unknown>(
+    `/api/v1/research/sector-capital-flow?${query.toString()}`
+  );
+  return mapSectorCapitalFlowResponse(payload);
+}
+
 async function getStrategyResearchState(): Promise<StrategyResearchState> {
   try {
     const universesPayload = asRecord(
@@ -2026,7 +2601,7 @@ export async function getStrategyDashboardData(): Promise<StrategyDashboardData>
     .filter(project => isStrategyCapability(project.quantCapabilityId))
     .map(toWorkspaceRef);
 
-  const templates = STRATEGY_TEMPLATES.map((template): StrategyCatalogItem => ({
+  const templates = listCatalogTemplates().map((template): StrategyCatalogItem => ({
     ...template,
     readiness: readinessFor(template),
     linkedWorkspaces: strategyWorkspaces.filter(project => matchesTemplate(project, template)),
@@ -2197,11 +2772,13 @@ export async function getStrategySymbolBars(params: {
   adjustment?: string;
   provider?: string | null;
   limit?: number;
+  includeMetadata?: boolean;
 }): Promise<StrategyLocalKlineResponse> {
   const query = new URLSearchParams({
     timeframe: params.timeframe || 'daily',
     adjustment: params.adjustment || 'qfq',
     limit: String(params.limit ?? 240),
+    include_metadata: params.includeMetadata ? 'true' : 'false',
   });
   if (params.provider) query.set('provider', params.provider);
   const response = await fetch(

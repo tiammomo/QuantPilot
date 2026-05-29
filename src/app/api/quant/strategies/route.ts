@@ -6,6 +6,7 @@ import {
   enqueueStrategyParameterScan,
   getStrategyDashboardData,
   getStrategyIngestionJobs,
+  getStrategySectorCapitalFlow,
   getStrategySymbolBars,
   getStrategySymbolDividends,
   getStrategyUniverseMembersPage,
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
           adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
           provider: typeof body.provider === 'string' ? body.provider : undefined,
           limit: typeof body.limit === 'number' ? body.limit : undefined,
+          includeMetadata: body.includeMetadata === true,
         })
       );
     }
@@ -86,6 +88,14 @@ export async function POST(request: NextRequest) {
     if (body.action === 'ingestion-jobs') {
       return createSuccessResponse(
         await getStrategyIngestionJobs({
+          universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
+          limit: typeof body.limit === 'number' ? body.limit : undefined,
+        })
+      );
+    }
+    if (body.action === 'sector-capital-flow') {
+      return createSuccessResponse(
+        await getStrategySectorCapitalFlow({
           universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
           limit: typeof body.limit === 'number' ? body.limit : undefined,
         })

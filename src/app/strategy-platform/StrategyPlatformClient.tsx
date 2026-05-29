@@ -5,32 +5,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BarChart3,
+  BookOpen,
   CheckCircle2,
-  Database,
   GitBranch,
   Loader2,
   Play,
   RefreshCcw,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   SquareStack,
   TrendingUp,
   ArrowRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ListPlus,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import * as Dialog from "@radix-ui/react-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
@@ -44,6 +39,7 @@ import type {
   StrategyIngestionJob,
   StrategyLocalKlineBar,
   StrategyLocalKlineResponse,
+  StrategySectorCapitalFlowItem,
   StrategyUniverse,
   StrategyUniverseMember,
   StrategyUniverseMembersPage,
@@ -53,14 +49,20 @@ type Props = { initialData: StrategyDashboardData };
 type StrategyView =
   | "universe"
   | "catalog"
+  | "sectorFlow"
+  | "knowledge"
   | "scans"
   | "compare";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+const INGESTION_BATCH_SIZE = 25;
+const INGESTION_LOG_LIMIT = 20;
+const AUTO_FILL_WAIT_MS = 5000;
+const AUTO_FILL_BATCH_DELAY_MS = 700;
 
 // ─── Status helpers ────────────────────────────────────────────
 function statusLabel(s: StrategyCatalogItem["status"]) {
-  return s === "ready" ? "可回测" : s === "research" ? "研究中" : "规划中";
+  return s === "ready" ? "可执行" : s === "research" ? "需补数据" : "规划中";
 }
 function statusClass(s: StrategyCatalogItem["status"]) {
   if (s === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -82,6 +84,37 @@ function riskClass(level: StrategyCatalogItem["readiness"]["riskLevel"]) {
   if (level === "medium") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-red-200 bg-red-50 text-red-700";
 }
+function strategyKindLabel(kind?: StrategyCatalogItem["kind"]) {
+  if (kind === "stock_selection") return "选股";
+  if (kind === "trade_price") return "买卖价格";
+  return "策略";
+}
+function strategyKindClass(kind?: StrategyCatalogItem["kind"]) {
+  if (kind === "stock_selection") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (kind === "trade_price") return "border-violet-200 bg-violet-50 text-violet-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+function ruleStatusClass(status?: "ready" | "needs_data" | "manual") {
+  if (status === "needs_data") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "manual") return "border-slate-200 bg-slate-50 text-slate-600";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+function ruleStatusLabel(status?: "ready" | "needs_data" | "manual") {
+  if (status === "needs_data") return "缺数据";
+  if (status === "manual") return "人工确认";
+  return "已具备";
+}
+function previewRules(strategy: StrategyCatalogItem) {
+  const rules = strategy.kind === "trade_price"
+    ? [...(strategy.entryRules ?? []), ...(strategy.exitRules ?? [])]
+    : strategy.selectionRules ?? [];
+  return rules.slice(0, 3);
+}
+function dataStatusText(strategy: StrategyCatalogItem) {
+  const missing = strategy.dataReadiness?.missing.length ?? 0;
+  if (missing > 0) return `缺 ${missing} 项`;
+  return "数据可用";
+}
 function formatMetric(value?: number | null, suffix = "") {
   if (value === null || value === undefined) return "-";
   return `${Number(value).toFixed(2)}${suffix}`;
@@ -99,6 +132,24 @@ function formatDataDate(value?: string | null) {
   }).formatToParts(date);
   const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${partMap.year}-${partMap.month}-${partMap.day}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}:${partMap.second}`;
 }
 
 function finiteNumber(value?: number | null) {
@@ -217,12 +268,100 @@ function jobStatusClass(status: string) {
   return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
+function findLatestUniverseBatchJob(jobs: StrategyIngestionJob[]) {
+  return jobs.find((job) => (job.universeTotalSymbols ?? 0) > 1) ?? null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type IngestionSymbolLog = {
+  symbol: string;
+  name?: string | null;
+  status?: string | null;
+  barsReceived?: number | null;
+  rowsUpserted?: number | null;
+  firstDate?: string | null;
+  lastDate?: string | null;
+  error?: string | null;
+};
+
+function numberFromUnknown(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" && value ? value : null;
+}
+
+function getIngestionSymbolLogs(job: StrategyIngestionJob): IngestionSymbolLog[] {
+  const rawResults = job.metadata.symbol_results;
+  const rawSymbols = Array.isArray(rawResults) && rawResults.length ? rawResults : job.metadata.symbols;
+  if (!Array.isArray(rawSymbols)) return [];
+
+  return rawSymbols
+    .map((item): IngestionSymbolLog | null => {
+      if (typeof item === "string") return { symbol: item };
+      if (!isRecord(item)) return null;
+      const symbol = stringFromUnknown(item.symbol) ?? stringFromUnknown(item.query);
+      if (!symbol) return null;
+      return {
+        symbol,
+        name: stringFromUnknown(item.name),
+        status: stringFromUnknown(item.status),
+        barsReceived: numberFromUnknown(item.bars_received),
+        rowsUpserted: numberFromUnknown(item.rows_upserted),
+        firstDate: stringFromUnknown(item.first_date),
+        lastDate: stringFromUnknown(item.last_date),
+        error: stringFromUnknown(item.error),
+      };
+    })
+    .filter((item): item is IngestionSymbolLog => Boolean(item));
+}
+
+function ingestionBatchRangeLabel(job: StrategyIngestionJob) {
+  const offset = job.batchOffset;
+  if (offset === null || offset === undefined) return "单次任务";
+  const size = job.batchSize ?? job.totalSymbols;
+  const total = job.universeTotalSymbols;
+  const start = offset + 1;
+  const end = offset + Math.max(size, job.totalSymbols, 0);
+  if (total !== null && total !== undefined) return `${start}-${Math.min(end, total)} / ${total}`;
+  return `${start}-${end}`;
+}
+
+function ingestionSymbolPreview(job: StrategyIngestionJob) {
+  const symbols = getIngestionSymbolLogs(job);
+  if (!symbols.length) return "-";
+  const preview = symbols.slice(0, 6).map((item) =>
+    item.name ? `${item.symbol} ${item.name}` : item.symbol
+  );
+  return `${preview.join("、")}${symbols.length > preview.length ? ` 等 ${symbols.length} 个` : ""}`;
+}
+
+function ingestionErrorPreview(job: StrategyIngestionJob) {
+  if (job.error) return job.error;
+  const failed = getIngestionSymbolLogs(job).filter((item) => item.error);
+  if (!failed.length) return null;
+  return failed
+    .slice(0, 3)
+    .map((item) => `${item.symbol}: ${item.error}`)
+    .join("；");
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 // ─── Sub-nav items ─────────────────────────────────────────────
 const SUB_NAV_ITEMS: SubNavItem[] = [
   { id: "universe", label: "股票池", icon: <SquareStack className="h-4 w-4" /> },
   { id: "catalog", label: "策略目录", icon: <TrendingUp className="h-4 w-4" /> },
-  { id: "scans", label: "参数扫描", icon: <SlidersHorizontal className="h-4 w-4" /> },
-  { id: "compare", label: "结果对比", icon: <SquareStack className="h-4 w-4" /> },
+  { id: "sectorFlow", label: "板块资金", icon: <BarChart3 className="h-4 w-4" /> },
+  { id: "knowledge", label: "金融知识", icon: <BookOpen className="h-4 w-4" /> },
 ];
 
 // ─── Strategy Selector Bar ─────────────────────────────────────
@@ -278,106 +417,76 @@ function StrategySelector({
   );
 }
 
-// ─── Top accent & ring helpers ────────────────────────────────
-function topAccentClass(s: StrategyCatalogItem["status"]) {
-  if (s === "ready") return "from-emerald-400 to-emerald-300";
-  if (s === "research") return "from-blue-400 to-blue-300";
-  return "from-amber-400 to-amber-300";
-}
-function cardShadowClass(s: StrategyCatalogItem["status"]) {
-  if (s === "ready") return "hover:shadow-emerald-100/40";
-  if (s === "research") return "hover:shadow-blue-100/40";
-  return "hover:shadow-amber-100/40";
-}
-
-// ─── Strategy Card (Catalog) ────────────────────────────────────
-function StrategyCard({ strategy, onClick }: { strategy: StrategyCatalogItem; onClick: () => void }) {
-  const bestArchive = strategy.backtestArchives.find((a) => a.status === "available");
-  const displayParams = strategy.parameterSchema.slice(0, 4);
+// ─── Strategy Row (Table List) ──────────────────────────────────
+function StrategyRow({ strategy, onClick }: { strategy: StrategyCatalogItem; onClick: () => void }) {
+  const paramPreview = strategy.parameterSchema
+    .slice(0, 3)
+    .map((p) => `${p.label}=${p.value}${p.unit ?? ""}`)
+    .join("  ");
+  const rules = previewRules(strategy);
+  const missingCount = strategy.dataReadiness?.missing.length ?? 0;
 
   return (
-    <button
-      type="button"
+    <tr
       onClick={onClick}
-      className={cn(
-        "group flex flex-col rounded-xl border border-slate-200/80 bg-white text-left shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden",
-        cardShadowClass(strategy.status)
-      )}
+      className="group cursor-pointer bg-white shadow-sm transition-colors hover:bg-blue-50/40"
     >
-      {/* Top accent bar */}
-      <div className={cn("h-1 w-full bg-gradient-to-r", topAccentClass(strategy.status))} />
-
-      <div className="flex flex-1 flex-col gap-3 p-5">
-        {/* Header */}
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="text-[15px] font-bold text-slate-900 group-hover:text-blue-700 transition-colors leading-snug">
-              {strategy.name}
-            </h3>
-            <div className="flex shrink-0 items-center gap-1">
-              <span className={cn("rounded-full border px-1.5 py-0 text-[10px] font-semibold leading-[18px]", statusClass(strategy.status))}>
-                {statusLabel(strategy.status)}
-              </span>
-            </div>
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-            <span className="font-medium text-slate-600">{strategy.family}</span>
-            <span className="text-slate-300">·</span>
-            <span className="text-slate-400">{strategy.timeframe}</span>
-            <span className="text-slate-300">·</span>
-            <span className={cn("font-semibold", riskClass(strategy.readiness.riskLevel))}>
-              {strategy.readiness.score}分
-            </span>
-          </div>
+      <td className="w-1 rounded-l-lg border-y border-l border-slate-100 py-3.5 pl-4 pr-0">
+        <div
+          className={cn(
+            "h-9 w-1 rounded-full",
+            strategy.status === "ready"
+              ? "bg-emerald-400"
+              : strategy.status === "research"
+                ? "bg-blue-400"
+                : "bg-amber-400"
+          )}
+        />
+      </td>
+      <td className="border-y border-slate-100 px-4 py-3.5 min-w-[240px]">
+        <div className="flex items-center gap-2">
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", strategyKindClass(strategy.kind))}>
+            {strategyKindLabel(strategy.kind)}
+          </span>
+          <p className="text-sm font-semibold text-slate-900 transition-colors group-hover:text-blue-700">
+            {strategy.name}
+          </p>
         </div>
-
-        {/* Description */}
-        <p className="text-[13px] leading-6 text-slate-500 line-clamp-2">{strategy.description}</p>
-
-        {/* Parameters */}
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="mr-0.5 shrink-0 text-[10px] font-medium uppercase tracking-wider text-slate-400">参数</span>
-          {displayParams.map((p) => (
-            <span key={p.key} className="inline-flex items-center rounded-md border border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/50 px-1.5 py-0.5 text-[11px] text-slate-600 shadow-sm">
-              <span className="text-slate-400">{p.label}</span>
-              <span className="mx-0.5 text-slate-300">=</span>
-              <span className="font-semibold text-slate-700">{p.value}{p.unit ?? ""}</span>
+        <p className="mt-1 text-[11px] text-slate-400">{strategy.family} · {strategy.timeframe}</p>
+      </td>
+      <td className="min-w-[360px] border-y border-slate-100 px-3 py-3.5">
+        <div className="flex flex-wrap gap-1.5">
+          {rules.map((rule) => (
+            <span key={rule.label} className={cn("rounded-md border px-2 py-1 text-[11px] font-medium", ruleStatusClass(rule.dataStatus))}>
+              {rule.label}
             </span>
           ))}
-          {strategy.parameterSchema.length > 4 && (
-            <span className="text-[11px] text-slate-400">+{strategy.parameterSchema.length - 4}</span>
+        </div>
+        <p className="mt-1 line-clamp-1 text-xs text-slate-500">{strategy.description}</p>
+      </td>
+      <td className="border-y border-slate-100 px-3 py-3.5">
+        <span
+          className={cn(
+            "inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium",
+            missingCount > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
           )}
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-slate-100" />
-
-        {/* Footer */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1 text-[11px] text-slate-400">
-              <Database className="h-3 w-3" />
-              <span className="tabular-nums font-medium text-slate-600">{strategy.dataDependencies.length}</span>
-            </span>
-            <span className="flex items-center gap-1 text-[11px] text-slate-400">
-              <GitBranch className="h-3 w-3" />
-              <span className="tabular-nums font-medium text-slate-600">{strategy.linkedWorkspaces.length}</span>
-            </span>
-            {bestArchive?.metrics.totalReturnPct != null ? (
-              <span className={cn("flex items-center gap-1 text-[11px] font-semibold", parseFloat(String(bestArchive.metrics.totalReturnPct)) >= 0 ? "text-red-500" : "text-emerald-500")}>
-                <BarChart3 className="h-3 w-3" />
-                {bestArchive.metrics.totalReturnPct}%
-              </span>
-            ) : bestArchive ? (
-              <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                <BarChart3 className="h-3 w-3" />已归档
-              </span>
-            ) : null}
-          </div>
-          <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover:translate-x-1 group-hover:text-blue-500" />
-        </div>
-      </div>
-    </button>
+        >
+          {dataStatusText(strategy)}
+        </span>
+        <p className="mt-1 text-[11px] text-slate-400">{strategy.readiness.label}</p>
+      </td>
+      <td className="hidden border-y border-slate-100 px-3 py-3.5 lg:table-cell">
+        <span className="block max-w-[280px] truncate font-mono text-xs text-slate-500">
+          {paramPreview || "-"}
+        </span>
+        {strategy.rankingRules?.length ? (
+          <span className="mt-1 block truncate text-[11px] text-slate-400">{strategy.rankingRules[0]}</span>
+        ) : null}
+      </td>
+      <td className="rounded-r-lg border-y border-r border-slate-100 px-4 py-3.5">
+        <ChevronDown className="h-4 w-4 -rotate-90 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-blue-400" />
+      </td>
+    </tr>
   );
 }
 
@@ -444,11 +553,21 @@ function UniverseView({
   const [ingestionJobs, setIngestionJobs] = useState<StrategyIngestionJob[]>([]);
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [isRunningBatch, setIsRunningBatch] = useState(false);
+  const [isAutoFilling, setIsAutoFilling] = useState(false);
+  const [autoFillMessage, setAutoFillMessage] = useState<string | null>(null);
+  const [isIngestionLogOpen, setIsIngestionLogOpen] = useState(false);
   const [batchOffset, setBatchOffset] = useState(0);
   const [openingMemberSymbol, setOpeningMemberSymbol] = useState<string | null>(null);
   const [closingMemberSymbol, setClosingMemberSymbol] = useState<string | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openFrameRef = useRef<number | null>(null);
+  const stopAutoFillRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      stopAutoFillRef.current = true;
+    };
+  }, []);
 
   const selectedUniverse =
     data.research.universes.find((universe) => universe.id === selectedUniverseId) ??
@@ -467,8 +586,8 @@ function UniverseView({
     setMembersPage(buildUniverseMembersPage(selectedUniverse));
   }, [data.generatedAt, selectedUniverse]);
 
-  const loadIngestionJobs = useCallback(async () => {
-    if (!selectedUniverse) return;
+  const loadIngestionJobs = useCallback(async (): Promise<StrategyIngestionJob[]> => {
+    if (!selectedUniverse) return [];
     setIsLoadingJobs(true);
     try {
       const response = await fetch(`${API_BASE}/api/quant/strategies`, {
@@ -477,7 +596,7 @@ function UniverseView({
         body: JSON.stringify({
           action: "ingestion-jobs",
           universeId: selectedUniverse.id,
-          limit: 8,
+          limit: INGESTION_LOG_LIMIT,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -486,12 +605,14 @@ function UniverseView({
       }
       const jobs = (payload.data?.jobs ?? []) as StrategyIngestionJob[];
       setIngestionJobs(jobs);
-      const latestJob = jobs.find((job) => (job.universeTotalSymbols ?? 0) > 1);
+      const latestJob = findLatestUniverseBatchJob(jobs);
       if (latestJob?.nextOffset !== undefined && latestJob.nextOffset !== null) {
         setBatchOffset(latestJob.nextOffset);
       }
+      return jobs;
     } catch {
       setIngestionJobs([]);
+      return [];
     } finally {
       setIsLoadingJobs(false);
     }
@@ -546,9 +667,9 @@ function UniverseView({
   const totalPages = Math.max(1, membersPage.totalPages);
   const currentPage = Math.min(page, totalPages);
   const pagedMembers = members;
-  const latestUniverseBatchJob = ingestionJobs.find(
-    (job) => (job.universeTotalSymbols ?? 0) > 1
-  );
+  const latestUniverseBatchJob = findLatestUniverseBatchJob(ingestionJobs);
+  const hasRunningBatchJob = latestUniverseBatchJob?.status === "running";
+  const recentRowsUpserted = ingestionJobs.reduce((sum, job) => sum + job.rowsUpserted, 0);
 
   const addMember = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -560,37 +681,120 @@ function UniverseView({
     setMemberReloadToken((value) => value + 1);
   };
 
+  const runIngestionBatchAt = useCallback(async (offset: number) => {
+    if (!selectedUniverse) throw new Error("未选择补数池");
+    const response = await fetch(`${API_BASE}/api/quant/strategies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "run-ingestion-batch",
+        universeId: selectedUniverse.id,
+        offset,
+        batchSize: INGESTION_BATCH_SIZE,
+        limit: 1260,
+        lookbackYears: 5,
+        period: selectedUniverse.defaultTimeframe || "daily",
+        adjustment: selectedUniverse.defaultAdjustment || "qfq",
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error ?? "运行补数批次失败");
+    }
+    const result = payload.data as StrategyHistoryIngestionResult;
+    setBatchOffset(result.next_offset ?? 0);
+    await loadIngestionJobs();
+    setMemberReloadToken((value) => value + 1);
+    return result;
+  }, [loadIngestionJobs, selectedUniverse]);
+
+  const waitForRunningBatch = useCallback(async (fallbackOffset: number) => {
+    let nextOffset = fallbackOffset;
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      if (stopAutoFillRef.current) return nextOffset;
+      const jobs = await loadIngestionJobs();
+      const latestJob = findLatestUniverseBatchJob(jobs);
+      if (latestJob?.nextOffset !== undefined && latestJob.nextOffset !== null) {
+        nextOffset = latestJob.nextOffset;
+        setBatchOffset(nextOffset);
+      }
+      if (latestJob?.status !== "running") return nextOffset;
+      setAutoFillMessage(`已有批次运行中，等待完成后继续 · 下批 ${nextOffset}`);
+      await delay(AUTO_FILL_WAIT_MS);
+    }
+    throw new Error("已有补数任务长时间处于运行中，请稍后刷新进度后再继续。");
+  }, [loadIngestionJobs]);
+
   const runIngestionBatch = async () => {
-    if (!selectedUniverse || isRunningBatch) return;
+    if (!selectedUniverse || isRunningBatch || isAutoFilling) return;
+    if (hasRunningBatchJob) {
+      setMemberError("已有补数批次正在运行，完成后再补下一批，或使用一键补齐自动等待。");
+      return;
+    }
     setIsRunningBatch(true);
     setMemberError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/quant/strategies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "run-ingestion-batch",
-          universeId: selectedUniverse.id,
-          offset: batchOffset,
-          batchSize: 25,
-          limit: 1260,
-          lookbackYears: 5,
-          period: selectedUniverse.defaultTimeframe || "daily",
-          adjustment: selectedUniverse.defaultAdjustment || "qfq",
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error ?? "运行补数批次失败");
-      }
-      const result = payload.data as StrategyHistoryIngestionResult;
-      setBatchOffset(result.next_offset ?? 0);
-      await loadIngestionJobs();
-      setMemberReloadToken((value) => value + 1);
+      await runIngestionBatchAt(batchOffset);
     } catch (error) {
       setMemberError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsRunningBatch(false);
+    }
+  };
+
+  const stopAutoFill = () => {
+    stopAutoFillRef.current = true;
+    setAutoFillMessage("正在停止，当前批次结束后会停下");
+  };
+
+  const runIngestionAutoFill = async () => {
+    if (!selectedUniverse || isAutoFilling || isRunningBatch) return;
+    stopAutoFillRef.current = false;
+    setIsAutoFilling(true);
+    setMemberError(null);
+    setAutoFillMessage("准备自动补齐剩余批次...");
+    let currentOffset = batchOffset;
+    let completedBatches = 0;
+    const maxBatches = Math.max(
+      1,
+      Math.ceil((selectedUniverse.memberCount || membersPage.total || 0) / INGESTION_BATCH_SIZE) + 5
+    );
+    try {
+      while (!stopAutoFillRef.current && completedBatches < maxBatches) {
+        currentOffset = await waitForRunningBatch(currentOffset);
+        if (stopAutoFillRef.current) break;
+
+        setAutoFillMessage(`正在补第 ${completedBatches + 1} 批 · offset ${currentOffset}`);
+        const result = await runIngestionBatchAt(currentOffset);
+        completedBatches += 1;
+
+        const nextOffset = result.next_offset ?? 0;
+        const totalSymbols = result.universe_total_symbols ?? selectedUniverse.memberCount ?? 0;
+        setAutoFillMessage(
+          `已完成 ${completedBatches} 批 · 本批 ${result.completed_symbols}/${result.total_symbols} 标的 · 下批 ${nextOffset}/${totalSymbols}`
+        );
+        if (nextOffset === 0) {
+          setAutoFillMessage(`补齐完成 · 本次自动执行 ${completedBatches} 批`);
+          break;
+        }
+        if (nextOffset === currentOffset) {
+          throw new Error(`补数 offset 未推进：${nextOffset}`);
+        }
+        currentOffset = nextOffset;
+        await delay(AUTO_FILL_BATCH_DELAY_MS);
+      }
+      if (stopAutoFillRef.current) {
+        setAutoFillMessage(`已停止 · 下批 ${currentOffset}`);
+      } else if (completedBatches >= maxBatches) {
+        throw new Error("自动补齐达到最大批次数，请刷新进度后继续。");
+      }
+      await loadIngestionJobs();
+    } catch (error) {
+      setMemberError(error instanceof Error ? error.message : String(error));
+      setAutoFillMessage(null);
+    } finally {
+      stopAutoFillRef.current = false;
+      setIsAutoFilling(false);
     }
   };
 
@@ -724,40 +928,178 @@ function UniverseView({
             </form>
           </div>
           <div className="border-b border-slate-100 px-5 py-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50/60 px-4 py-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold text-slate-900">低频补数进度</p>
-                  {isLoadingJobs && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
-                  {latestUniverseBatchJob && (
-                    <Badge variant="outline" className={jobStatusClass(latestUniverseBatchJob.status)}>
-                      {jobStatusLabel(latestUniverseBatchJob.status)}
-                    </Badge>
+            <div className="rounded-md border border-slate-200 bg-slate-50/60">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">低频补数进度</p>
+                    {isLoadingJobs && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                    {latestUniverseBatchJob && (
+                      <Badge variant="outline" className={jobStatusClass(latestUniverseBatchJob.status)}>
+                        {jobStatusLabel(latestUniverseBatchJob.status)}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {selectedIsEtfUniverse
+                      ? "Baostock 分批补充 ETF/指数成交额和换手率；估值字段仅 A 股股票有效，历史 K 线不会因为补数窗口而删除。"
+                      : "Baostock 分批补充成交额、换手率、停牌/ST、涨跌停和估值字段；历史 K 线不会因为补数窗口而删除。"}
+                  </p>
+                  {(autoFillMessage || (hasRunningBatchJob && !isAutoFilling)) && (
+                    <p className="mt-1 text-xs leading-5 text-blue-600">
+                      {autoFillMessage ?? "已有批次运行中，一键补齐会等待当前批次完成后继续。"}
+                    </p>
                   )}
                 </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  {selectedIsEtfUniverse
-                    ? "Baostock 分批补充 ETF/指数成交额和换手率；估值字段仅 A 股股票有效，历史 K 线不会因为补数窗口而删除。"
-                    : "Baostock 分批补充成交额、换手率、停牌/ST、涨跌停和估值字段；历史 K 线不会因为补数窗口而删除。"}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {latestUniverseBatchJob ? (
+                    <span className="text-xs text-slate-500">
+                      {latestUniverseBatchJob.completedSymbols}/{latestUniverseBatchJob.totalSymbols} 标的 · {latestUniverseBatchJob.rowsUpserted.toLocaleString("zh-CN")} 行 · 下批 {batchOffset}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">尚未运行全池批次 · 下批 {batchOffset}</span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsIngestionLogOpen((value) => {
+                        if (!value) void loadIngestionJobs();
+                        return !value;
+                      });
+                    }}
+                  >
+                    <ChevronRight className={cn("h-4 w-4 transition-transform", isIngestionLogOpen && "rotate-90")} />
+                    {isIngestionLogOpen ? "收起日志" : "查看日志"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void loadIngestionJobs()}
+                    disabled={isLoadingJobs || isRunningBatch || isAutoFilling}
+                  >
+                    <RefreshCcw className={cn("h-4 w-4", isLoadingJobs && "animate-spin")} />
+                    刷新进度
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={runIngestionBatch}
+                    disabled={isRunningBatch || isAutoFilling || hasRunningBatchJob}
+                  >
+                    {isRunningBatch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    补下一批
+                  </Button>
+                  {isAutoFilling ? (
+                    <Button size="sm" onClick={stopAutoFill} className="bg-slate-900 text-white hover:bg-slate-800">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      停止补齐
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={runIngestionAutoFill}
+                      disabled={isRunningBatch}
+                      className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      <Play className="h-4 w-4" />
+                      一键补齐
+                    </Button>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {latestUniverseBatchJob ? (
-                  <span className="text-xs text-slate-500">
-                    {latestUniverseBatchJob.completedSymbols}/{latestUniverseBatchJob.totalSymbols} 标的 · {latestUniverseBatchJob.rowsUpserted.toLocaleString("zh-CN")} 行 · 下批 {batchOffset}
-                  </span>
-                ) : (
-                  <span className="text-xs text-slate-500">尚未运行全池批次 · 下批 {batchOffset}</span>
-                )}
-                <Button variant="outline" size="sm" onClick={loadIngestionJobs} disabled={isLoadingJobs || isRunningBatch}>
-                  <RefreshCcw className={cn("h-4 w-4", isLoadingJobs && "animate-spin")} />
-                  刷新进度
-                </Button>
-                <Button size="sm" onClick={runIngestionBatch} disabled={isRunningBatch} className="bg-blue-600 text-white hover:bg-blue-700">
-                  {isRunningBatch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                  补下一批
-                </Button>
-              </div>
+              {isIngestionLogOpen && (
+                <div className="border-t border-slate-200 bg-white px-4 py-3">
+                  <div className="mb-3 grid gap-3 text-xs text-slate-500 md:grid-cols-4">
+                    <div>
+                      <span>下批 offset</span>
+                      <p className="mt-1 font-mono text-sm font-semibold text-slate-900">{batchOffset}</p>
+                    </div>
+                    <div>
+                      <span>最近批次</span>
+                      <p className="mt-1 font-mono text-sm font-semibold text-slate-900">{ingestionJobs.length}</p>
+                    </div>
+                    <div>
+                      <span>近 {INGESTION_LOG_LIMIT} 批入库</span>
+                      <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
+                        {recentRowsUpserted.toLocaleString("zh-CN")} 行
+                      </p>
+                    </div>
+                    <div>
+                      <span>最后更新</span>
+                      <p className="mt-1 font-mono text-sm font-semibold text-slate-900">
+                        {formatDateTime(latestUniverseBatchJob?.updatedAt)}
+                      </p>
+                    </div>
+                  </div>
+                  {ingestionJobs.length ? (
+                    <div className="overflow-x-auto rounded-md border border-slate-200">
+                      <table className="w-full min-w-[980px] text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">状态</th>
+                            <th className="px-3 py-2 font-medium">批次</th>
+                            <th className="px-3 py-2 font-medium">标的</th>
+                            <th className="px-3 py-2 font-medium">入库</th>
+                            <th className="px-3 py-2 font-medium">时间</th>
+                            <th className="px-3 py-2 font-medium">样本 / 错误</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {ingestionJobs.map((job) => {
+                            const errorPreview = ingestionErrorPreview(job);
+                            return (
+                              <tr key={job.id} className="align-top">
+                                <td className="px-3 py-3">
+                                  <Badge variant="outline" className={jobStatusClass(job.status)}>
+                                    {jobStatusLabel(job.status)}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="font-mono font-semibold text-slate-900">{ingestionBatchRangeLabel(job)}</p>
+                                  <p className="mt-1 font-mono text-slate-400">
+                                    {job.batchOffset ?? "-"} → {job.nextOffset ?? "-"}
+                                  </p>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="font-mono font-semibold text-slate-900">
+                                    {job.completedSymbols}/{job.totalSymbols}
+                                  </p>
+                                  <p className={cn("mt-1", job.failedSymbols ? "text-red-600" : "text-slate-400")}>
+                                    {job.failedSymbols ? `${job.failedSymbols} 失败` : "无失败"}
+                                  </p>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="font-mono font-semibold text-slate-900">
+                                    {job.rowsUpserted.toLocaleString("zh-CN")} 行
+                                  </p>
+                                  <p className="mt-1 text-slate-400">
+                                    收到 {job.rowsReceived.toLocaleString("zh-CN")}
+                                  </p>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="font-mono text-slate-700">{formatDateTime(job.startedAt ?? job.createdAt)}</p>
+                                  <p className="mt-1 font-mono text-slate-400">{formatDateTime(job.completedAt ?? job.updatedAt)}</p>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="line-clamp-2 text-slate-600">{ingestionSymbolPreview(job)}</p>
+                                  {errorPreview && (
+                                    <p className="mt-1 line-clamp-2 text-red-600">{errorPreview}</p>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                      暂无补数日志
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
@@ -837,8 +1179,8 @@ function UniverseView({
                         <td className="px-3 py-3">
                           {displaySectorTags.length ? (
                             <div className="flex flex-wrap gap-1.5">
-                              {displaySectorTags.map((tag) => (
-                                <Badge key={tag} variant="outline" className="border-blue-100 bg-blue-50 text-blue-700">
+                              {displaySectorTags.map((tag, tagIndex) => (
+                                <Badge key={`${tag}-${tagIndex}`} variant="outline" className="border-blue-100 bg-blue-50 text-blue-700">
                                   {tag}
                                 </Badge>
                               ))}
@@ -954,6 +1296,40 @@ function klineFetchLimit(timeframe: KlineTimeframe) {
   return 120;
 }
 
+const KLINE_DETAIL_CACHE_TTL_MS = 60 * 1000;
+const KLINE_DETAIL_CACHE_MAX = 96;
+const klineDetailCache = new Map<string, { data: StrategyLocalKlineResponse; expiresAt: number }>();
+const klineDetailPromises = new Map<string, Promise<StrategyLocalKlineResponse>>();
+const dividendEventsCache = new Map<string, { data: StrategyDividendEvent[]; expiresAt: number }>();
+const dividendEventsPromises = new Map<string, Promise<StrategyDividendEvent[]>>();
+
+function setBoundedCacheValue<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string, data: T) {
+  cache.set(key, { data, expiresAt: Date.now() + KLINE_DETAIL_CACHE_TTL_MS });
+  while (cache.size > KLINE_DETAIL_CACHE_MAX) {
+    const oldestKey = cache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
+
+function getFreshCacheValue<T>(cache: Map<string, { data: T; expiresAt: number }>, key: string) {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt < Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return cached.data;
+}
+
+function klineDetailCacheKey(symbol: string, timeframe: KlineTimeframe, adjustment: string) {
+  return `${symbol}::${timeframe}::${adjustment}`;
+}
+
+function dividendEventsCacheKey(symbol: string) {
+  return `${symbol}::dividends`;
+}
+
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -996,6 +1372,210 @@ function dateKeyToTime(dateKey?: string | null) {
   if (!match) return null;
   const [, year, month, day] = match;
   return Date.UTC(Number(year), Number(month) - 1, Number(day));
+}
+
+function dateKeyToWeekKey(dateKey: string) {
+  const time = dateKeyToTime(dateKey);
+  if (time === null) return dateKey;
+  const date = new Date(time);
+  const day = date.getUTCDay();
+  const mondayOffset = (day + 6) % 7;
+  const monday = new Date(time - mondayOffset * 24 * 60 * 60 * 1000);
+  return monday.toISOString().slice(0, 10);
+}
+
+function klineAggregationKey(bar: StrategyLocalKlineBar, timeframe: KlineTimeframe) {
+  const dateKey = normalizedTradeDate(bar.ts);
+  if (!dateKey) return bar.ts;
+  if (timeframe === "monthly") return dateKey.slice(0, 7);
+  if (timeframe === "weekly") return dateKeyToWeekKey(dateKey);
+  return dateKey;
+}
+
+function aggregateKlineBars(bars: StrategyLocalKlineBar[], timeframe: KlineTimeframe) {
+  if (timeframe === "daily") return bars;
+  const grouped = new Map<string, StrategyLocalKlineBar[]>();
+  for (const bar of bars) {
+    const key = klineAggregationKey(bar, timeframe);
+    const group = grouped.get(key) ?? [];
+    group.push(bar);
+    grouped.set(key, group);
+  }
+
+  return Array.from(grouped.values()).map((group) => {
+    const sorted = group.slice().sort((left, right) => {
+      const leftTime = new Date(left.ts).getTime();
+      const rightTime = new Date(right.ts).getTime();
+      return leftTime - rightTime;
+    });
+    const first = sorted[0];
+    const last = sorted.at(-1) ?? first;
+    const high = Math.max(...sorted.map((bar) => bar.high));
+    const low = Math.min(...sorted.map((bar) => bar.low));
+    const volume = sorted.reduce((sum, bar) => sum + bar.volume, 0);
+    const amountValues = sorted.map((bar) => finiteNumber(bar.amount)).filter((value): value is number => value !== null);
+    const amount = amountValues.length ? amountValues.reduce((sum, value) => sum + value, 0) : null;
+    const previousClose = finiteNumber(first.previousClose);
+    const changeAmount = previousClose !== null ? last.close - previousClose : null;
+    const changePercent = previousClose !== null && previousClose !== 0 ? (changeAmount! / previousClose) * 100 : null;
+    const amplitude = previousClose !== null && previousClose !== 0 ? ((high - low) / previousClose) * 100 : null;
+    return {
+      ...last,
+      ts: last.ts,
+      open: first.open,
+      high,
+      low,
+      close: last.close,
+      previousClose,
+      volume,
+      amount,
+      amplitude,
+      changeAmount,
+      changePercent,
+      turnover: null,
+      limitUp: null,
+      limitDown: null,
+      metadata: {},
+    };
+  });
+}
+
+function buildKlineSummary(bars: StrategyLocalKlineBar[], rowCount = bars.length): StrategyLocalKlineResponse["summary"] {
+  const latest = bars.at(-1);
+  const previous = bars.at(-2);
+  const previousClose = finiteNumber(previous?.close) ?? finiteNumber(latest?.previousClose);
+  const totalAmountValues = bars.map((bar) => finiteNumber(bar.amount)).filter((value): value is number => value !== null);
+  return {
+    rowCount,
+    firstTs: bars[0]?.ts ?? null,
+    lastTs: latest?.ts ?? null,
+    latestClose: latest?.close ?? null,
+    previousClose,
+    returnPct:
+      latest && previousClose !== null && previousClose !== 0
+        ? ((latest.close - previousClose) / previousClose) * 100
+        : null,
+    high: bars.length ? Math.max(...bars.map((bar) => bar.high)) : null,
+    low: bars.length ? Math.min(...bars.map((bar) => bar.low)) : null,
+    totalVolume: bars.reduce((sum, bar) => sum + bar.volume, 0),
+    totalAmount: totalAmountValues.length ? totalAmountValues.reduce((sum, value) => sum + value, 0) : null,
+  };
+}
+
+function deriveKlineResponse(
+  dailyDetail: StrategyLocalKlineResponse,
+  timeframe: KlineTimeframe,
+  limit: number
+): StrategyLocalKlineResponse {
+  if (timeframe === "daily") {
+    const bars = dailyDetail.bars.slice(-limit).map((bar) => ({ ...bar, metadata: {} }));
+    const windowSummary = buildKlineSummary(bars);
+    return {
+      ...dailyDetail,
+      timeframe,
+      bars,
+      summary: {
+        ...dailyDetail.summary,
+        high: windowSummary.high,
+        low: windowSummary.low,
+        totalVolume: windowSummary.totalVolume,
+        totalAmount: windowSummary.totalAmount,
+      },
+    };
+  }
+  const allBars = aggregateKlineBars(dailyDetail.bars, timeframe);
+  const bars = allBars.slice(-limit);
+  return {
+    ...dailyDetail,
+    timeframe,
+    bars,
+    summary: buildKlineSummary(bars, allBars.length),
+  };
+}
+
+function readCachedKlineDetail(symbol: string, timeframe: KlineTimeframe, adjustment: string) {
+  return getFreshCacheValue(klineDetailCache, klineDetailCacheKey(symbol, timeframe, adjustment));
+}
+
+async function fetchDailyKlineDetail(symbol: string, adjustment: string): Promise<StrategyLocalKlineResponse> {
+  const response = await fetch(`${API_BASE}/api/quant/strategies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "symbol-bars",
+      symbol,
+      timeframe: "daily",
+      adjustment,
+      limit: klineFetchLimit("daily"),
+      includeMetadata: false,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.success) throw new Error(payload.error ?? "读取 K 线失败");
+  return deriveKlineResponse(payload.data as StrategyLocalKlineResponse, "daily", klineFetchLimit("daily"));
+}
+
+async function loadCachedKlineDetail(
+  symbol: string,
+  timeframe: KlineTimeframe,
+  adjustment: string
+): Promise<StrategyLocalKlineResponse> {
+  const key = klineDetailCacheKey(symbol, timeframe, adjustment);
+  const cached = getFreshCacheValue(klineDetailCache, key);
+  if (cached) return cached;
+  const inFlight = klineDetailPromises.get(key);
+  if (inFlight) return inFlight;
+
+  const promise: Promise<StrategyLocalKlineResponse> = (async (): Promise<StrategyLocalKlineResponse> => {
+    const data: StrategyLocalKlineResponse = timeframe === "daily"
+      ? await fetchDailyKlineDetail(symbol, adjustment)
+      : deriveKlineResponse(
+          await loadCachedKlineDetail(symbol, "daily", adjustment),
+          timeframe,
+          klineFetchLimit(timeframe)
+        );
+    setBoundedCacheValue(klineDetailCache, key, data);
+    return data;
+  })();
+
+  klineDetailPromises.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    klineDetailPromises.delete(key);
+  }
+}
+
+async function loadCachedDividendEvents(symbol: string) {
+  const key = dividendEventsCacheKey(symbol);
+  const cached = getFreshCacheValue(dividendEventsCache, key);
+  if (cached) return cached;
+  const inFlight = dividendEventsPromises.get(key);
+  if (inFlight) return inFlight;
+
+  const promise = (async () => {
+    const response = await fetch(`${API_BASE}/api/quant/strategies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "symbol-dividends",
+        symbol,
+        limit: 40,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.success) throw new Error(payload.error ?? "读取分红事件失败");
+    const events = (payload.data?.events ?? []) as StrategyDividendEvent[];
+    setBoundedCacheValue(dividendEventsCache, key, events);
+    return events;
+  })();
+
+  dividendEventsPromises.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    dividendEventsPromises.delete(key);
+  }
 }
 
 function resolveDividendMarkerIndex(
@@ -1458,51 +2038,43 @@ function StockKlineDetail({
   const [dividendEvents, setDividendEvents] = useState<StrategyDividendEvent[]>([]);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const detailRequestIdRef = useRef(0);
 
   const loadDetail = useCallback(async (timeframe: KlineTimeframe) => {
+    const requestId = detailRequestIdRef.current + 1;
+    detailRequestIdRef.current = requestId;
     setDetailTimeframe(timeframe);
-    setDetail(null);
     setSelectedBarTs(null);
     setDetailError(null);
+
+    const cached = readCachedKlineDetail(member.symbol, timeframe, adjustment);
+    if (cached) {
+      setDetail(cached);
+      setSelectedBarTs(cached.bars.at(-1)?.ts ?? null);
+      setIsLoadingDetail(false);
+      return;
+    }
+
+    setDetail(null);
     setIsLoadingDetail(true);
     try {
-      const response = await fetch(`${API_BASE}/api/quant/strategies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "symbol-bars",
-          symbol: member.symbol,
-          timeframe,
-          adjustment,
-          limit: klineFetchLimit(timeframe),
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error ?? "读取 K 线失败");
-      const nextDetail = payload.data as StrategyLocalKlineResponse;
+      const nextDetail = await loadCachedKlineDetail(member.symbol, timeframe, adjustment);
+      if (detailRequestIdRef.current !== requestId) return;
       setDetail(nextDetail);
       setSelectedBarTs(nextDetail.bars.at(-1)?.ts ?? null);
     } catch (error) {
+      if (detailRequestIdRef.current !== requestId) return;
       setDetailError(error instanceof Error ? error.message : String(error));
     } finally {
-      setIsLoadingDetail(false);
+      if (detailRequestIdRef.current === requestId) {
+        setIsLoadingDetail(false);
+      }
     }
   }, [adjustment, member.symbol]);
 
   const loadDividendEvents = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/quant/strategies`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "symbol-dividends",
-          symbol: member.symbol,
-          limit: 40,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error ?? "读取分红事件失败");
-      setDividendEvents((payload.data?.events ?? []) as StrategyDividendEvent[]);
+      setDividendEvents(await loadCachedDividendEvents(member.symbol));
     } catch {
       setDividendEvents([]);
     }
@@ -1632,6 +2204,437 @@ function StockKlineDetail({
   );
 }
 
+function sectorSignalLabel(signal: StrategySectorCapitalFlowItem["signal"]) {
+  if (signal === "warming") return "资金升温";
+  if (signal === "cooling") return "资金转冷";
+  if (signal === "neutral") return "观察";
+  return "样本不足";
+}
+
+function sectorSignalClass(signal: StrategySectorCapitalFlowItem["signal"]) {
+  if (signal === "warming") return "border-red-200 bg-red-50 text-red-700";
+  if (signal === "cooling") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (signal === "neutral") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-slate-200 bg-slate-50 text-slate-500";
+}
+
+function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
+  const primaryUniverse =
+    data.research.universes.find((universe) => universe.id === data.research.primaryUniverseId) ??
+    data.research.universes.find((universe) => universe.stockCount > 0) ??
+    data.research.universes[0] ??
+    null;
+  const [selectedUniverseId, setSelectedUniverseId] = useState(primaryUniverse?.id ?? data.research.primaryUniverseId);
+  const [items, setItems] = useState<StrategySectorCapitalFlowItem[]>([]);
+  const [proxyNote, setProxyNote] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectedUniverse =
+    data.research.universes.find((universe) => universe.id === selectedUniverseId) ??
+    primaryUniverse;
+
+  const loadSectorFlow = useCallback(async () => {
+    if (!selectedUniverse) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/quant/strategies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sector-capital-flow",
+          universeId: selectedUniverse.id,
+          limit: 50,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error ?? "读取板块资金失败");
+      }
+      setItems((payload.data?.items ?? []) as StrategySectorCapitalFlowItem[]);
+      setProxyNote(String(payload.data?.proxyNote ?? ""));
+    } catch (loadError) {
+      setItems([]);
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedUniverse]);
+
+  useEffect(() => {
+    void loadSectorFlow();
+  }, [loadSectorFlow]);
+
+  const leadingItems = items.slice(0, 6);
+  const warmingCount = items.filter((item) => item.signal === "warming").length;
+  const totalProxyAmount = items.reduce((sum, item) => sum + (finiteNumber(item.proxyNetAmount) ?? 0), 0);
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-950">板块资金与主力动向</h2>
+              <Badge variant="outline" className="bg-white text-slate-500">
+                {items.length ? `${items.length} 个板块标签` : "等待数据"}
+              </Badge>
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+            </div>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+              用本地 TimescaleDB 中的板块标签、成交额、换手、上涨占比和 20 日强弱，先构建板块资金热度代理；真实 DDE/主力净流入字段接入后再替换为资金流口径。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {data.research.universes.filter((universe) => universe.stockCount > 0).map((universe) => (
+              <button
+                key={universe.id}
+                type="button"
+                onClick={() => setSelectedUniverseId(universe.id)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                  selectedUniverse?.id === universe.id
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                )}
+              >
+                {universe.name}
+              </button>
+            ))}
+            <Button variant="outline" size="sm" onClick={() => void loadSectorFlow()} disabled={isLoading}>
+              <RefreshCcw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+              刷新
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-sm text-amber-700">
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-3 border-b border-slate-100 px-5 py-4 md:grid-cols-4">
+          <div className="rounded-md bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-500">升温板块</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{warmingCount}</p>
+          </div>
+          <div className="rounded-md bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-500">方向成交额代理</p>
+            <p className={cn("mt-1 text-xl font-bold tabular-nums", signedToneClass(totalProxyAmount))}>
+              {formatLargeValue(totalProxyAmount, 1)}
+            </p>
+          </div>
+          <div className="rounded-md bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-500">覆盖股票池</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{selectedUniverse?.memberCount ?? "-"}</p>
+          </div>
+          <div className="rounded-md bg-slate-50 px-4 py-3">
+            <p className="text-xs text-slate-500">真实主力字段</p>
+            <p className="mt-1 text-xl font-bold text-amber-600">待接入</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="overflow-x-auto rounded-md border border-slate-200">
+            <table className="w-full min-w-[1120px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">板块</th>
+                  <th className="px-3 py-3 font-medium">信号</th>
+                  <th className="px-3 py-3 font-medium">方向成交额代理</th>
+                  <th className="px-3 py-3 font-medium">最新成交额</th>
+                  <th className="px-3 py-3 font-medium">量能比</th>
+                  <th className="px-3 py-3 font-medium">上涨占比</th>
+                  <th className="px-3 py-3 font-medium">20日强弱</th>
+                  <th className="px-3 py-3 font-medium">换手</th>
+                  <th className="px-3 py-3 font-medium">样本</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item) => (
+                  <tr key={item.sector} className="align-top hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-slate-950">{item.sector}</p>
+                      <p className="mt-1 text-xs text-slate-400">{item.coveredCount}/{item.memberCount} 已覆盖 · 涨停 {item.limitUpCount}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <Badge variant="outline" className={sectorSignalClass(item.signal)}>
+                        {sectorSignalLabel(item.signal)}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className={cn("font-semibold tabular-nums", signedToneClass(item.proxyNetAmount))}>
+                        {formatLargeValue(item.proxyNetAmount, 1)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">上涨为正、下跌为负</p>
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums text-slate-900">
+                      {formatLargeValue(item.latestAmount, 1)}
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums text-slate-900">
+                      {finiteNumber(item.amountRatio20d) === null ? "-" : `${formatNumberValue(item.amountRatio20d, 2)}x`}
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="font-semibold tabular-nums text-slate-900">{formatPercentValue(item.risingRatio)}</p>
+                      <p className="mt-1 text-xs text-slate-400">{item.risingCount} 只上涨</p>
+                    </td>
+                    <td className={cn("px-3 py-3 font-semibold tabular-nums", signedToneClass(item.strength20dPct))}>
+                      {formatSignedPercent(item.strength20dPct)}
+                    </td>
+                    <td className="px-3 py-3 font-semibold tabular-nums text-slate-900">
+                      {formatPercentValue(item.avgTurnover20d)}
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="line-clamp-2 max-w-[220px] text-xs leading-5 text-slate-500">
+                        {item.topSymbols.join("、") || "-"}
+                      </p>
+                    </td>
+                  </tr>
+                ))}
+                {!items.length && (
+                  <tr>
+                    <td colSpan={9} className="px-5 py-12 text-center text-sm text-slate-500">
+                      {isLoading ? "正在读取板块资金代理..." : "暂无板块资金数据"}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <aside className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-sm font-semibold text-slate-950">如何探查主力资金</p>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
+                <p><span className="font-semibold text-slate-900">先看板块：</span>板块内多数股票上涨、成交额放大且 20 日强弱转正，说明资金不是孤立拉一只票。</p>
+                <p><span className="font-semibold text-slate-900">再看龙头：</span>涨停数、成交额排名和强弱排名同步靠前，才更像主动资金聚集。</p>
+                <p><span className="font-semibold text-slate-900">最后看连续性：</span>DDE/主力净流入至少观察 3 日，单日大额流入可能是对倒或出货。</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">当前口径说明</p>
+              <p className="mt-2 text-sm leading-6 text-amber-800">
+                {proxyNote || "当前为成交额、换手、上涨占比和20日强弱聚合出的资金热度代理，不是 DDE/主力净流入真实字段。"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-sm font-semibold text-slate-950">后续真实字段</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {["主力净流入", "超大单净额", "大单净额", "DDE 大单金额", "DDE 大单净量", "3/5日资金连续性"].map((item) => (
+                  <Badge key={item} variant="outline" className="border-blue-100 bg-blue-50 text-blue-700">
+                    {item}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        {leadingItems.length > 0 && (
+          <div className="border-t border-slate-100 px-5 py-4">
+            <p className="text-sm font-semibold text-slate-900">当前最值得关注的板块</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {leadingItems.map((item) => (
+                <div key={item.sector} className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-950">{item.sector}</p>
+                    <Badge variant="outline" className={sectorSignalClass(item.signal)}>
+                      {sectorSignalLabel(item.signal)}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-400">方向额</span>
+                      <p className={cn("font-semibold tabular-nums", signedToneClass(item.proxyNetAmount))}>
+                        {formatLargeValue(item.proxyNetAmount, 1)}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">强弱</span>
+                      <p className={cn("font-semibold tabular-nums", signedToneClass(item.strength20dPct))}>
+                        {formatSignedPercent(item.strength20dPct)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+const FINANCIAL_KNOWLEDGE_ITEMS = [
+  {
+    category: "资金流",
+    title: "DDE 大单金额",
+    formula: "大单买入金额 - 大单卖出金额",
+    meaning: "衡量大资金在某只股票上的净流入方向。不同数据源对“大单”的阈值会不同，落库时必须保留 provider 和 raw_payload。",
+    decision: "连续为正通常代表资金承接更强，适合和涨停、均线多头、放量一起使用；单日转负可作为接力策略的降权或退出信号。",
+    caveats: ["不要只看单日", "必须看成交额覆盖", "需要区分日终数据和盘中快照"],
+  },
+  {
+    category: "资金流",
+    title: "大单净量",
+    formula: "大单买入量 - 大单卖出量；部分源会再除以流通盘",
+    meaning: "更偏成交数量口径，适合做同日股票间排序。若用百分比口径，大小盘之间更可比。",
+    decision: "用于候选股排序时，比简单涨幅更能体现资金主动性；但需要和价格是否过热一起约束，避免追高。",
+    caveats: ["不同源口径不可直接混排", "小盘股容易被极端成交放大", "缺失时不能回填为 0"],
+  },
+  {
+    category: "趋势",
+    title: "移动均线 MA",
+    formula: "MA(N) = 最近 N 个交易日收盘价之和 / N",
+    meaning: "MA5/10 反映短线成本，MA20/30 反映月度趋势，MA60 更接近中期趋势。",
+    decision: "股价在 MA5 上方且 MA5 > MA10 > MA20 > MA30 > MA60，通常说明短中期成本逐级抬升，是趋势选股的重要过滤。",
+    caveats: ["均线滞后", "震荡市容易反复假信号", "除权复权口径必须统一"],
+  },
+  {
+    category: "事件",
+    title: "涨停/跌停",
+    formula: "涨停价约等于前收盘价 * (1 + 涨跌幅限制)",
+    meaning: "主板、创业板、科创板、北交所、ST 的涨跌幅规则不同，所以策略里要明确剔除或分层处理。",
+    decision: "近 4 日涨停至少 1 次说明短线情绪被激活；当日已经涨停则可能无法合理买入，应从候选中剔除或标记不可成交。",
+    caveats: ["涨停不等于可以买到", "一字板需要盘口数据", "不同板块涨跌幅制度不同"],
+  },
+  {
+    category: "波动",
+    title: "ATR 真实波幅",
+    formula: "TR = max(高-低, |高-昨收|, |低-昨收|)，ATR = TR 的 N 日均值",
+    meaning: "ATR 衡量一只股票近期正常波动范围，比简单涨跌幅更适合做止损和买入区间。",
+    decision: "买入价、止损价、追高上限可以用 ATR 反推，例如止损距离 1.2 ATR，止盈至少 2R。",
+    caveats: ["突发事件会抬高 ATR", "低价股 ATR 百分比更重要", "不能替代流动性检查"],
+  },
+  {
+    category: "流动性",
+    title: "换手率",
+    formula: "换手率 = 成交量 / 流通股本 * 100%",
+    meaning: "反映筹码交换程度。高换手说明交易活跃，也可能说明分歧很大。",
+    decision: "接力策略需要最低换手确认活跃度；但极端高换手叠加放量阴线，往往是短线转弱信号。",
+    caveats: ["流通股本口径要稳定", "新股和小盘股需单独阈值", "高换手不必然上涨"],
+  },
+  {
+    category: "流动性",
+    title: "成交额",
+    formula: "成交额 = 成交价格 * 成交量 的日内累计",
+    meaning: "比成交量更适合跨价格区间比较流动性，策略筛选时应设置最低成交额门槛。",
+    decision: "成交额不足的股票，即使命中 DDE 或均线条件，也可能无法承载实际交易规模。",
+    caveats: ["放量也可能是出货", "需要和涨跌幅方向一起看", "低成交额样本回测容易虚高"],
+  },
+  {
+    category: "开盘强弱",
+    title: "高开与回踩承接",
+    formula: "开盘涨幅 = (今日开盘价 - 昨日收盘价) / 昨日收盘价 * 100%",
+    meaning: "高开代表情绪延续，回踩前收或 MA5 不破代表承接较强。",
+    decision: "涨停次日策略里，开盘价大于昨收是强势条件；高开过多则成本失控，需要等待回踩或放弃。",
+    caveats: ["日线只能粗略判断", "真实承接要分钟线", "集合竞价金额很关键"],
+  },
+  {
+    category: "风控",
+    title: "R 倍数与收益风险比",
+    formula: "R = 买入价 - 止损价；收益风险比 = (目标价 - 买入价) / R",
+    meaning: "把买入、止损、止盈统一成可比较的风险单位，避免只看涨幅不看亏损。",
+    decision: "建议买入前先算止损，至少看到 2R 空间再考虑入场；达到 2R 可先减仓，再用均线跟踪。",
+    caveats: ["止损不能事后移动放宽", "目标价不应凭感觉设置", "滑点会降低真实收益风险比"],
+  },
+] as const;
+
+function FinancialKnowledgeView() {
+  const categories = Array.from(new Set(FINANCIAL_KNOWLEDGE_ITEMS.map((item) => item.category)));
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <BookOpen className="h-4 w-4 text-blue-600" />
+            指标公式
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            统一沉淀 MA、DDE、ATR、换手率、涨停和收益风险比的计算口径。
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <BarChart3 className="h-4 w-4 text-emerald-600" />
+            决策影响
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            每个指标都对应选股、买入成本、卖出风控或流动性过滤，不做孤立解释。
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <ShieldCheck className="h-4 w-4 text-amber-600" />
+            使用边界
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            明确常见误用和数据口径差异，避免把单个信号误解成交易结论。
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-semibold text-slate-900">知识分类</p>
+          <div className="mt-3 space-y-2">
+            {categories.map((category) => {
+              const count = FINANCIAL_KNOWLEDGE_ITEMS.filter((item) => item.category === category).length;
+              return (
+                <div key={category} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-700">{category}</span>
+                  <span className="tabular-nums text-slate-400">{count}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            DDE 和大单净量必须保留数据源口径；不同供应商阈值不同，不能直接混用。
+          </div>
+        </aside>
+
+        <div className="space-y-3">
+          {FINANCIAL_KNOWLEDGE_ITEMS.map((item) => (
+            <article key={item.title} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-slate-50 text-slate-500">{item.category}</Badge>
+                    <h3 className="text-base font-bold text-slate-950">{item.title}</h3>
+                  </div>
+                  <code className="mt-2 block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800">
+                    {item.formula}
+                  </code>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
+                <div className="rounded-md bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-500">含义</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700">{item.meaning}</p>
+                </div>
+                <div className="rounded-md bg-blue-50 p-3">
+                  <p className="text-xs font-semibold text-blue-600">对决策的影响</p>
+                  <p className="mt-1 text-sm leading-6 text-blue-900">{item.decision}</p>
+                </div>
+                <div className="rounded-md bg-amber-50 p-3">
+                  <p className="text-xs font-semibold text-amber-700">注意事项</p>
+                  <div className="mt-1 space-y-1 text-sm leading-6 text-amber-900">
+                    {item.caveats.map((caveat) => <p key={caveat}>{caveat}</p>)}
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────
 export default function StrategyPlatformClient({ initialData }: Props) {
   const router = useRouter();
@@ -1645,15 +2648,28 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [runningScanId, setRunningScanId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [sheetStrategy, setSheetStrategy] = useState<StrategyCatalogItem | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetTab, setSheetTab] = useState<"overview" | "params" | "backtest">("overview");
+  const [dialogStrategy, setDialogStrategy] = useState<StrategyCatalogItem | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const filteredTemplates = useMemo(() => {
     const lower = keyword.trim().toLowerCase();
     return data.templates.filter((t) => {
       if (!lower) return true;
-      return [t.id, t.name, t.family, t.description, t.capabilityId, ...t.defaultSymbols, ...t.dataDependencies, ...t.riskControls]
+      return [
+        t.id,
+        t.name,
+        t.family,
+        strategyKindLabel(t.kind),
+        t.description,
+        t.capabilityId,
+        ...t.defaultSymbols,
+        ...t.dataDependencies,
+        ...t.riskControls,
+        ...(t.selectionRules ?? []).flatMap((rule) => [rule.label, rule.description]),
+        ...(t.entryRules ?? []).flatMap((rule) => [rule.label, rule.description]),
+        ...(t.exitRules ?? []).flatMap((rule) => [rule.label, rule.description]),
+        ...(t.rankingRules ?? []),
+      ]
         .join(" ").toLowerCase().includes(lower);
     });
   }, [data.templates, keyword]);
@@ -1689,7 +2705,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   };
 
   const createStrategyWorkspace = async () => {
-    const strategy = sheetStrategy || selectedTemplate;
+    const strategy = dialogStrategy || selectedTemplate;
     if (!strategy || isCreating) return;
     setIsCreating(true);
     setToast(null);
@@ -1787,7 +2803,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
       <PageHeader
         title="策略平台"
         badge={<Badge variant="outline" className="bg-white text-slate-500">{data.summary.templates} 个策略模板</Badge>}
-        subtitle={`股票池、策略目录和回测扫描 · 生成于 ${formatDate(data.generatedAt)}`}
+        subtitle={`股票池、策略目录、板块资金和金融知识 · 生成于 ${formatDate(data.generatedAt)}`}
       />
 
       <SubNav
@@ -1800,12 +2816,6 @@ export default function StrategyPlatformClient({ initialData }: Props) {
               <RefreshCcw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
               刷新
             </Button>
-            {selectedTemplate && view === "scans" && (
-              <Button size="sm" onClick={createStrategyWorkspace} disabled={isCreating} className="bg-blue-600 text-white hover:bg-blue-700">
-                {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                生成工作空间
-              </Button>
-            )}
           </div>
         }
       />
@@ -1824,32 +2834,12 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         {/* ── Catalog Tab: Strategy Plan Library ────────── */}
         {view === "catalog" && (
           <>
-            {/* Stats bar */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: "策略方案", value: data.summary.templates, sub: `${data.summary.readyTemplates} 可回测`, glow: "shadow-blue-100/50", dot: "bg-blue-500" },
-                { label: "工作空间", value: data.summary.strategyWorkspaces, sub: `${data.summary.backtestWorkspaces} 回测`, glow: "shadow-violet-100/50", dot: "bg-violet-500" },
-                { label: "版本口径", value: data.summary.activeVersions, sub: `${data.templates.reduce((s, t) => s + t.versions.length, 0)} 记录`, glow: "shadow-amber-100/50", dot: "bg-amber-500" },
-                { label: "回测归档", value: data.summary.archivedReports, sub: "报告与限制", glow: "shadow-emerald-100/50", dot: "bg-emerald-500" },
-              ].map((item) => (
-                <div key={item.label} className={cn("relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm", item.glow)}>
-                  {/* Decorative circle */}
-                  <div className={cn("absolute -top-4 -right-4 h-16 w-16 rounded-full opacity-[0.06]", item.dot)} />
-                  <p className="relative text-[28px] font-extrabold tabular-nums leading-none tracking-tight text-slate-900">
-                    {item.value}
-                  </p>
-                  <p className="relative mt-1.5 text-xs font-semibold text-slate-700">{item.label}</p>
-                  <p className="relative text-[11px] leading-relaxed text-slate-400">{item.sub}</p>
-                </div>
-              ))}
-            </div>
-
             {/* Search + family filter (merged) */}
             <div className="space-y-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="relative min-w-[260px] flex-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索策略方案、参数、数据源..." className="h-9 rounded-lg border-slate-200/80 bg-white pl-9 shadow-sm" />
+                  <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索选股条件、买入卖出、DDE、均线..." className="h-9 rounded-lg border-slate-200/80 bg-white pl-9 shadow-sm" />
                 </div>
                 <div className="flex items-center gap-0.5 rounded-lg border border-slate-200/80 bg-slate-50 p-0.5 shadow-sm">
                   <button type="button" onClick={() => setFamilyFilter(null)}
@@ -1890,181 +2880,291 @@ export default function StrategyPlatformClient({ initialData }: Props) {
               )}
             </div>
 
-            {/* Card grid */}
+            {/* Strategy table */}
             {displayTemplates.length === 0 ? (
               <EmptyState title={keyword || familyFilter ? "没有匹配的策略方案" : "暂无策略方案"} description={keyword ? "尝试其他关键词" : "请运行策略扫描生成模板数据"} className="border-0" />
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {displayTemplates.map((t) => (
-                  <StrategyCard key={t.id} strategy={t} onClick={() => { setSheetStrategy(t); setSymbol(t.defaultSymbols[0] ?? ""); setSheetTab("overview"); setSheetOpen(true); }} />
-                ))}
+              <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-sm">
+                <table className="w-full min-w-[1120px] border-separate border-spacing-y-1.5 text-left">
+                  <thead className="text-[11px] uppercase tracking-wide text-slate-400">
+                    <tr>
+                      <th className="w-1 rounded-l-lg bg-slate-50 py-2.5 pl-4 pr-0 font-medium" />
+                      <th className="bg-slate-50 px-4 py-2.5 font-medium">策略方案</th>
+                      <th className="bg-slate-50 px-3 py-2.5 font-medium">核心逻辑</th>
+                      <th className="bg-slate-50 px-3 py-2.5 font-medium">数据状态</th>
+                      <th className="hidden bg-slate-50 px-3 py-2.5 font-medium lg:table-cell">参数口径</th>
+                      <th className="rounded-r-lg bg-slate-50 px-4 py-2.5 font-medium" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayTemplates.map((t) => (
+                      <StrategyRow
+                        key={t.id}
+                        strategy={t}
+                        onClick={() => {
+                          setDialogStrategy(t);
+                          setSymbol(t.defaultSymbols[0] ?? "");
+                          setDialogOpen(true);
+                        }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 
-            {/* Detail Sheet */}
-            <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) setSheetTab("overview"); }}>
-              <SheetContent side="right" className="flex w-[560px] max-w-[94vw] flex-col gap-0 p-0 sm:max-w-[640px]">
-                {sheetStrategy && (
-                  <>
-                    <SheetHeader className="border-b px-5 py-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <SheetTitle className="text-lg">{sheetStrategy.name}</SheetTitle>
-                          <SheetDescription className="mt-1">{sheetStrategy.family} · {sheetStrategy.timeframe} · {sheetStrategy.readiness.summary}</SheetDescription>
+            {/* Strategy Detail Dialog */}
+            <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog.Portal>
+                <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+                <Dialog.Content className="fixed left-[50%] top-[50%] z-50 max-h-[85vh] w-[96vw] max-w-[680px] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95">
+                  {dialogStrategy && (
+                    <div className="flex max-h-[85vh] flex-col">
+                      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+                        <div>
+                          <Dialog.Title className="text-lg font-bold text-slate-900">{dialogStrategy.name}</Dialog.Title>
+                          <Dialog.Description className="mt-1 text-sm text-slate-500">
+                            {dialogStrategy.family} · {dialogStrategy.timeframe} · {dialogStrategy.readiness.summary}
+                          </Dialog.Description>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", statusClass(sheetStrategy.status))}>{statusLabel(sheetStrategy.status)}</span>
-                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", riskClass(sheetStrategy.readiness.riskLevel))}>{sheetStrategy.readiness.score}分</span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", statusClass(dialogStrategy.status))}>{statusLabel(dialogStrategy.status)}</span>
+                          <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", riskClass(dialogStrategy.readiness.riskLevel))}>{dialogStrategy.readiness.score}分</span>
+                          <Dialog.Close className="ml-2 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600">
+                            <X className="h-5 w-5" />
+                          </Dialog.Close>
                         </div>
                       </div>
-                    </SheetHeader>
 
-                    {/* Tab bar */}
-                    <div className="flex shrink-0 border-b border-slate-100 bg-slate-50/50 px-4">
-                      {([
-                        { id: "overview" as "overview" | "params" | "backtest", label: "概览", badge: undefined as number | undefined, disabled: false },
-                        { id: "params" as "overview" | "params" | "backtest", label: "参数", badge: undefined as number | undefined, disabled: false },
-                        { id: "backtest" as "overview" | "params" | "backtest", label: "回测", badge: sheetStrategy.backtestArchives.length || 0, disabled: !sheetStrategy.backtestArchives.length },
-                      ]).map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          disabled={tab.disabled}
-                          onClick={() => setSheetTab(tab.id)}
-                          className={cn(
-                            "relative -mb-[1px] border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
-                            sheetTab === tab.id
-                              ? "border-blue-500 text-blue-700"
-                              : "border-transparent text-slate-500 hover:text-slate-700",
-                            tab.disabled && "cursor-default opacity-40"
-                          )}
-                        >
-                          {tab.label}
-                          {tab.badge !== undefined && tab.badge > 0 && (
-                            <span className="ml-1.5 rounded-full bg-slate-200 px-1.5 py-0 text-[11px] font-medium text-slate-600 tabular-nums">{tab.badge}</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                      <div className="flex-1 space-y-6 overflow-y-auto p-6">
+                        <p className="text-sm leading-6 text-slate-600">{dialogStrategy.description}</p>
 
-                    <div className="flex-1 overflow-y-auto p-5">
-                      {/* ── Overview tab ───────────────── */}
-                      {sheetTab === "overview" && (
-                        <div className="space-y-5">
-                          <p className="text-sm leading-6 text-slate-600">{sheetStrategy.description}</p>
-
-                          <div className="grid gap-5 sm:grid-cols-2">
-                            <section>
-                              <h4 className="mb-2 text-sm font-semibold text-slate-900">评估指标</h4>
-                              <div className="flex flex-wrap gap-1.5">{sheetStrategy.evaluationMetrics.map((m) => <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{m}</span>)}</div>
-                            </section>
-                            <section>
-                              <h4 className="mb-2 text-sm font-semibold text-slate-900">数据依赖</h4>
-                              <div className="space-y-1">{sheetStrategy.dataDependencies.map((ep) => <code key={ep} className="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{ep}</code>)}</div>
-                            </section>
-                          </div>
-
+                        {dialogStrategy.selectionRules?.length ? (
                           <section>
-                            <h4 className="mb-2 text-sm font-semibold text-slate-900">风险与限制</h4>
-                            <div className="space-y-2 rounded-md border border-slate-200 p-3 text-sm">
-                              {sheetStrategy.riskControls.map((item) => <div key={item} className="flex gap-2 text-slate-700"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{item}</span></div>)}
-                              {sheetStrategy.limitations.map((item) => <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>)}
-                            </div>
-                          </section>
-
-                          {sheetStrategy.linkedWorkspaces.length > 0 && (
-                            <section>
-                              <h4 className="mb-2 text-sm font-semibold text-slate-900">关联工作空间</h4>
-                              <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                                {sheetStrategy.linkedWorkspaces.map((ws) => (
-                                  <Link key={ws.id} href={`/${ws.id}/chat`} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm hover:bg-slate-50">
-                                    <div className="min-w-0"><p className="font-medium text-slate-900">{ws.name}</p><p className="text-xs text-slate-500">{ws.capabilityId} · {formatDate(ws.updatedAt ?? ws.createdAt)}</p></div>
-                                    <ArrowRight className="h-4 w-4 text-slate-300" />
-                                  </Link>
-                                ))}
-                              </div>
-                            </section>
-                          )}
-                        </div>
-                      )}
-
-                      {/* ── Parameters tab ────────────── */}
-                      {sheetTab === "params" && (
-                        <div className="space-y-5">
-                          <section>
-                            <h4 className="mb-2 text-sm font-semibold text-slate-900">参数配置</h4>
-                            <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-                              {sheetStrategy.parameterSchema.map((p) => (
-                                <div key={p.key} className="flex items-start justify-between gap-4 px-3 py-2.5 text-sm">
-                                  <span className="shrink-0 font-medium text-slate-700">{p.label}</span>
-                                  <span className="min-w-0 break-words text-right text-slate-900">
-                                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold">{p.value}{p.unit ?? ""}</span>
-                                    <span className="ml-2 text-xs text-slate-400">{p.description}</span>
-                                  </span>
+                            <h4 className="mb-3 text-sm font-semibold text-slate-900">选股条件</h4>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {dialogStrategy.selectionRules.map((rule) => (
+                                <div key={rule.label} className="rounded-lg border border-slate-200 bg-white p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">{rule.label}</p>
+                                    <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium", ruleStatusClass(rule.dataStatus))}>
+                                      {ruleStatusLabel(rule.dataStatus)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-xs leading-5 text-slate-500">{rule.description}</p>
                                 </div>
                               ))}
                             </div>
                           </section>
+                        ) : null}
 
+                        {dialogStrategy.entryRules?.length || dialogStrategy.exitRules?.length ? (
                           <section>
-                            <h4 className="mb-2 text-sm font-semibold text-slate-900">默认标的</h4>
+                            <h4 className="mb-3 text-sm font-semibold text-slate-900">买入与卖出价格计划</h4>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {dialogStrategy.entryRules?.length ? (
+                                <div className="rounded-lg border border-slate-200">
+                                  <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-900">买入/成本控制</div>
+                                  <div className="divide-y divide-slate-100">
+                                    {dialogStrategy.entryRules.map((rule) => (
+                                      <div key={rule.label} className="px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <p className="text-sm font-medium text-slate-800">{rule.label}</p>
+                                          <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium", ruleStatusClass(rule.dataStatus))}>
+                                            {ruleStatusLabel(rule.dataStatus)}
+                                          </span>
+                                        </div>
+                                        <p className="mt-1 text-xs leading-5 text-slate-500">{rule.description}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                              {dialogStrategy.exitRules?.length ? (
+                                <div className="rounded-lg border border-slate-200">
+                                  <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-900">卖出/风控退出</div>
+                                  <div className="divide-y divide-slate-100">
+                                    {dialogStrategy.exitRules.map((rule) => (
+                                      <div key={rule.label} className="px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <p className="text-sm font-medium text-slate-800">{rule.label}</p>
+                                          <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium", ruleStatusClass(rule.dataStatus))}>
+                                            {ruleStatusLabel(rule.dataStatus)}
+                                          </span>
+                                        </div>
+                                        <p className="mt-1 text-xs leading-5 text-slate-500">{rule.description}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </section>
+                        ) : null}
+
+                        {dialogStrategy.rankingRules?.length ? (
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">排序与输出</h4>
                             <div className="flex flex-wrap gap-2">
-                              {sheetStrategy.defaultSymbols.map((sym) => (
-                                <span key={sym} className="rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs text-slate-700">{sym}</span>
+                              {dialogStrategy.rankingRules.map((rule) => (
+                                <span key={rule} className="rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700">
+                                  {rule}
+                                </span>
+                              ))}
+                            </div>
+                          </section>
+                        ) : null}
+
+                        {dialogStrategy.dataReadiness ? (
+                          <section>
+                            <h4 className="mb-3 text-sm font-semibold text-slate-900">数据可用性</h4>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
+                                <p className="mb-2 text-xs font-semibold text-emerald-700">已具备</p>
+                                <div className="space-y-1 text-xs leading-5 text-emerald-800">
+                                  {dialogStrategy.dataReadiness.ready.map((item) => <p key={item}>{item}</p>)}
+                                </div>
+                              </div>
+                              <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-4">
+                                <p className="mb-2 text-xs font-semibold text-amber-700">待补齐</p>
+                                <div className="space-y-1 text-xs leading-5 text-amber-800">
+                                  {dialogStrategy.dataReadiness.missing.length
+                                    ? dialogStrategy.dataReadiness.missing.map((item) => <p key={item}>{item}</p>)
+                                    : <p>暂无关键缺口</p>}
+                                </div>
+                              </div>
+                            </div>
+                            {dialogStrategy.dataReadiness.notes.length ? (
+                              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
+                                {dialogStrategy.dataReadiness.notes.map((item) => <p key={item}>{item}</p>)}
+                              </div>
+                            ) : null}
+                          </section>
+                        ) : null}
+
+                        <section>
+                          <h4 className="mb-3 text-sm font-semibold text-slate-900">参数配置</h4>
+                          <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                            {dialogStrategy.parameterSchema.map((p) => (
+                              <div key={p.key} className="flex items-start justify-between gap-4 px-4 py-3 text-sm">
+                                <span className="shrink-0 font-medium text-slate-700">{p.label}</span>
+                                <div className="text-right">
+                                  <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-900">{p.value}{p.unit ?? ""}</span>
+                                  <p className="mt-0.5 text-xs text-slate-400">{p.description}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">默认标的</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {dialogStrategy.defaultSymbols.map((sym) => (
+                              <span key={sym} className="rounded-md bg-slate-100 px-2.5 py-1.5 font-mono text-xs font-medium text-slate-700">{sym}</span>
+                            ))}
+                          </div>
+                        </section>
+
+                        <div className="grid gap-6 sm:grid-cols-2">
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">评估指标</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {dialogStrategy.evaluationMetrics.map((m) => (
+                                <span key={m} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">{m}</span>
+                              ))}
+                            </div>
+                          </section>
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">数据依赖</h4>
+                            <div className="space-y-1">
+                              {dialogStrategy.dataDependencies.map((ep) => (
+                                <code key={ep} className="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">{ep}</code>
                               ))}
                             </div>
                           </section>
                         </div>
-                      )}
 
-                      {/* ── Backtest tab ──────────────── */}
-                      {sheetTab === "backtest" && (
-                        <div className="space-y-4">
-                          {sheetStrategy.backtestArchives.length > 0 ? (
-                            sheetStrategy.backtestArchives.map((a) => (
-                              <div key={a.id} className="rounded-md border border-slate-200 p-4">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-sm font-semibold text-slate-900">{a.title}</p>
-                                  <Badge variant="outline" className="text-[10px]">{a.status}</Badge>
-                                </div>
-                                <p className="mt-1 text-xs text-slate-500">{a.symbol} · {a.period}</p>
-                                <div className="mt-3 grid grid-cols-2 gap-3">
-                                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                                    <p className="text-[11px] text-slate-400">累计收益</p>
-                                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", parseFloat(String(a.metrics.totalReturnPct ?? 0)) >= 0 ? "text-red-600" : "text-emerald-600")}>{a.metrics.totalReturnPct ?? "-"}%</p>
-                                  </div>
-                                  <div className="rounded-md bg-slate-50 px-3 py-2">
-                                    <p className="text-[11px] text-slate-400">最大回撤</p>
-                                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">{a.metrics.maxDrawdownPct ?? "-"}%</p>
-                                  </div>
-                                </div>
+                        <section>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-900">护栏与限制</h4>
+                          <div className="space-y-2 rounded-lg border border-slate-200 p-4 text-sm">
+                            {dialogStrategy.riskControls.map((item) => (
+                              <div key={item} className="flex gap-2 text-slate-700">
+                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                                <span>{item}</span>
                               </div>
-                            ))
-                          ) : (
-                            <div className="py-12 text-center text-sm text-slate-400">
-                              <BarChart3 className="mx-auto mb-2 h-8 w-8 text-slate-300" />
-                              暂无回测归档
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                            ))}
+                            {dialogStrategy.limitations.map((item) => (
+                              <div key={item} className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-amber-800">{item}</div>
+                            ))}
+                          </div>
+                        </section>
 
-                    {/* Sticky CTA */}
-                    <div className="shrink-0 border-t border-blue-100 bg-blue-50/70 px-5 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的，例如 510300" className="h-9 max-w-[180px] bg-white" />
-                        <Button onClick={createStrategyWorkspace} disabled={isCreating} className="flex-1 bg-blue-600 text-white hover:bg-blue-700">
-                          {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                          生成工作空间
-                        </Button>
+                        {dialogStrategy.backtestArchives.length > 0 && (
+                          <section>
+                            <h4 className="mb-3 text-sm font-semibold text-slate-900">回测归档</h4>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {dialogStrategy.backtestArchives.map((a) => (
+                                <div key={a.id} className="rounded-lg border border-slate-200 p-4">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">{a.title}</p>
+                                    <Badge variant="outline" className="text-[10px]">{a.status}</Badge>
+                                  </div>
+                                  <p className="mt-1 text-xs text-slate-500">{a.symbol} · {a.period}</p>
+                                  <div className="mt-3 grid grid-cols-2 gap-3">
+                                    <div className="rounded-md bg-slate-50 px-3 py-2">
+                                      <p className="text-[11px] text-slate-400">累计收益</p>
+                                      <p className={cn("mt-0.5 text-lg font-bold tabular-nums", parseFloat(String(a.metrics.totalReturnPct ?? 0)) >= 0 ? "text-red-600" : "text-emerald-600")}>{a.metrics.totalReturnPct ?? "-"}%</p>
+                                    </div>
+                                    <div className="rounded-md bg-slate-50 px-3 py-2">
+                                      <p className="text-[11px] text-slate-400">最大回撤</p>
+                                      <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">{a.metrics.maxDrawdownPct ?? "-"}%</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+                        )}
+
+                        {dialogStrategy.linkedWorkspaces.length > 0 && (
+                          <section>
+                            <h4 className="mb-2 text-sm font-semibold text-slate-900">关联工作空间</h4>
+                            <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                              {dialogStrategy.linkedWorkspaces.map((ws) => (
+                                <Link key={ws.id} href={`/${ws.id}/chat`} className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors hover:bg-slate-50">
+                                  <div className="min-w-0"><p className="font-medium text-slate-900">{ws.name}</p><p className="text-xs text-slate-500">{ws.capabilityId} · {formatDate(ws.updatedAt ?? ws.createdAt)}</p></div>
+                                  <ArrowRight className="h-4 w-4 text-slate-300" />
+                                </Link>
+                              ))}
+                            </div>
+                          </section>
+                        )}
+                      </div>
+
+                      <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的代码，例如 510300" className="h-10 max-w-[180px] bg-white" />
+                          <Button onClick={createStrategyWorkspace} disabled={isCreating} className="flex-1 bg-blue-600 text-white hover:bg-blue-700">
+                            {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                            基于此策略生成工作空间
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </>
-                )}
-              </SheetContent>
-            </Sheet>
+                  )}
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
           </>
+        )}
+
+        {view === "sectorFlow" && (
+          <SectorCapitalFlowView data={data} />
+        )}
+
+        {view === "knowledge" && (
+          <FinancialKnowledgeView />
         )}
 
         {/* ── Scans & Compare: Single-template view ──────── */}

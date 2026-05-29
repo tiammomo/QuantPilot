@@ -24,6 +24,7 @@ from quantpilot_market_data.models import (
     ResearchUniverse,
     ResearchUniverseMember,
     ResearchUniverseSummary,
+    SectorCapitalFlowItem,
     SymbolResolveResult,
 )
 
@@ -937,6 +938,240 @@ async def list_research_universe_members_page(
     return [research_member_from_row(row) for row in rows], total, current_page, total_pages
 
 
+def sector_signal(
+    *,
+    covered_count: int,
+    rising_ratio: Decimal | None,
+    strength_20d_pct: Decimal | None,
+    amount_ratio_20d: Decimal | None,
+    proxy_net_amount: Decimal | None,
+) -> str:
+    if covered_count < 3:
+        return "insufficient"
+    if (
+        proxy_net_amount is not None
+        and proxy_net_amount > 0
+        and rising_ratio is not None
+        and rising_ratio >= Decimal("55")
+        and (strength_20d_pct or Decimal("0")) > 0
+        and (amount_ratio_20d or Decimal("1")) >= Decimal("1")
+    ):
+        return "warming"
+    if (
+        proxy_net_amount is not None
+        and proxy_net_amount < 0
+        and rising_ratio is not None
+        and rising_ratio <= Decimal("45")
+        and (strength_20d_pct or Decimal("0")) < 0
+    ):
+        return "cooling"
+    return "neutral"
+
+
+async def list_sector_capital_flow(
+    *,
+    universe_id: str = DEFAULT_UNIVERSE_ID,
+    limit: int = 40,
+) -> list[SectorCapitalFlowItem]:
+    normalized_limit = max(1, min(limit, 120))
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            WITH universe_config AS (
+              SELECT
+                id,
+                COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+              FROM quant.security_universes
+              WHERE id = %s
+            ),
+            universe_members AS (
+              SELECT
+                securities.symbol,
+                securities.name,
+                securities.metadata AS security_metadata,
+                universe_config.timeframe,
+                universe_config.adjustment
+              FROM quant.security_universe_members members
+              JOIN universe_config
+                ON universe_config.id = members.universe_id
+              JOIN quant.securities securities
+                ON securities.symbol = members.symbol
+              WHERE members.universe_id = %s
+                AND securities.asset_type = 'stock'
+            )
+            SELECT
+              universe_members.symbol,
+              universe_members.name,
+              universe_members.security_metadata,
+              metrics.sample_count,
+              metrics.latest_close,
+              metrics.close_20d,
+              metrics.latest_change_percent,
+              metrics.latest_amount,
+              metrics.latest_turnover,
+              metrics.latest_limit_up,
+              metrics.avg_amount_20d,
+              metrics.avg_turnover_20d
+            FROM universe_members
+            LEFT JOIN LATERAL (
+              SELECT
+                count(*)::INT AS sample_count,
+                (array_agg(recent.close ORDER BY recent.ts DESC))[1] AS latest_close,
+                (array_agg(recent.close ORDER BY recent.ts DESC))[21] AS close_20d,
+                (array_agg(recent.change_percent ORDER BY recent.ts DESC))[1]
+                  AS latest_change_percent,
+                (array_agg(recent.amount ORDER BY recent.ts DESC))[1] AS latest_amount,
+                (array_agg(recent.turnover ORDER BY recent.ts DESC))[1] AS latest_turnover,
+                (array_agg(recent.limit_up ORDER BY recent.ts DESC))[1] AS latest_limit_up,
+                avg(recent.amount) FILTER (
+                  WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
+                ) AS avg_amount_20d,
+                avg(recent.turnover) FILTER (
+                  WHERE recent.rn <= 20 AND recent.turnover IS NOT NULL
+                ) AS avg_turnover_20d
+              FROM (
+                SELECT
+                  bars.ts,
+                  bars.close,
+                  bars.amount,
+                  bars.turnover,
+                  bars.change_percent,
+                  bars.limit_up,
+                  row_number() OVER (ORDER BY bars.ts DESC) AS rn
+                FROM quant.stock_bars bars
+                WHERE bars.symbol = universe_members.symbol
+                  AND bars.timeframe = universe_members.timeframe
+                  AND bars.adjustment = universe_members.adjustment
+                ORDER BY bars.ts DESC
+                LIMIT 21
+              ) recent
+            ) metrics ON TRUE
+            """,
+            (universe_id, universe_id),
+        )
+        rows = await cursor.fetchall()
+
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sector_fields = security_sector_fields(row["security_metadata"])
+        sector_tags = sector_fields["sector_tags"] or [sector_fields["industry"] or "未分组"]
+        latest_amount = decimal_or_none(row["latest_amount"])
+        avg_amount_20d = decimal_or_none(row["avg_amount_20d"])
+        latest_change_percent = decimal_or_none(row["latest_change_percent"])
+        strength_20d = percent_change(
+            decimal_or_none(row["latest_close"]),
+            decimal_or_none(row["close_20d"]),
+        )
+        avg_turnover_20d = decimal_or_none(row["avg_turnover_20d"])
+        limit_up = bool_or_none(row["latest_limit_up"]) is True
+
+        for sector in sector_tags:
+            group = groups.setdefault(
+                str(sector),
+                {
+                    "member_count": 0,
+                    "covered_count": 0,
+                    "rising_count": 0,
+                    "limit_up_count": 0,
+                    "latest_amount": Decimal("0"),
+                    "avg_amount_20d": Decimal("0"),
+                    "avg_turnover_sum": Decimal("0"),
+                    "avg_turnover_count": 0,
+                    "strength_sum": Decimal("0"),
+                    "strength_count": 0,
+                    "proxy_net_amount": Decimal("0"),
+                    "top_symbols": [],
+                },
+            )
+            group["member_count"] += 1
+            if row["sample_count"]:
+                group["covered_count"] += 1
+            if latest_change_percent is not None and latest_change_percent > 0:
+                group["rising_count"] += 1
+            if limit_up:
+                group["limit_up_count"] += 1
+            if latest_amount is not None:
+                group["latest_amount"] += latest_amount
+                if latest_change_percent is not None:
+                    if latest_change_percent > 0:
+                        group["proxy_net_amount"] += latest_amount
+                    elif latest_change_percent < 0:
+                        group["proxy_net_amount"] -= latest_amount
+            if avg_amount_20d is not None:
+                group["avg_amount_20d"] += avg_amount_20d
+            if avg_turnover_20d is not None:
+                group["avg_turnover_sum"] += avg_turnover_20d
+                group["avg_turnover_count"] += 1
+            if strength_20d is not None:
+                group["strength_sum"] += strength_20d
+                group["strength_count"] += 1
+            top_symbols = group["top_symbols"]
+            if len(top_symbols) < 8:
+                symbol_label = f"{row['name'] or row['symbol']} {row['symbol']}"
+                if symbol_label not in top_symbols:
+                    top_symbols.append(symbol_label)
+
+    items: list[SectorCapitalFlowItem] = []
+    for sector, group in groups.items():
+        covered_count = int(group["covered_count"])
+        rising_ratio = (
+            Decimal(group["rising_count"]) / Decimal(covered_count) * Decimal("100")
+            if covered_count
+            else None
+        )
+        amount_ratio_20d = (
+            group["latest_amount"] / group["avg_amount_20d"]
+            if group["avg_amount_20d"]
+            else None
+        )
+        avg_turnover = (
+            group["avg_turnover_sum"] / Decimal(group["avg_turnover_count"])
+            if group["avg_turnover_count"]
+            else None
+        )
+        strength_20d_pct = (
+            group["strength_sum"] / Decimal(group["strength_count"])
+            if group["strength_count"]
+            else None
+        )
+        proxy_net_amount = group["proxy_net_amount"] if group["latest_amount"] else None
+        items.append(
+            SectorCapitalFlowItem(
+                sector=sector,
+                member_count=int(group["member_count"]),
+                covered_count=covered_count,
+                rising_count=int(group["rising_count"]),
+                limit_up_count=int(group["limit_up_count"]),
+                rising_ratio=rising_ratio,
+                latest_amount=group["latest_amount"] if group["latest_amount"] else None,
+                avg_amount_20d=group["avg_amount_20d"] if group["avg_amount_20d"] else None,
+                amount_ratio_20d=amount_ratio_20d,
+                avg_turnover_20d=avg_turnover,
+                strength_20d_pct=strength_20d_pct,
+                proxy_net_amount=proxy_net_amount,
+                signal=sector_signal(
+                    covered_count=covered_count,
+                    rising_ratio=rising_ratio,
+                    strength_20d_pct=strength_20d_pct,
+                    amount_ratio_20d=amount_ratio_20d,
+                    proxy_net_amount=proxy_net_amount,
+                ),
+                top_symbols=list(group["top_symbols"]),
+            )
+        )
+
+    return sorted(
+        items,
+        key=lambda item: (
+            item.proxy_net_amount or Decimal("-999999999999999999"),
+            item.latest_amount or Decimal("0"),
+            item.member_count,
+        ),
+        reverse=True,
+    )[:normalized_limit]
+
+
 async def add_security_to_universe(
     *,
     universe_id: str,
@@ -1343,6 +1578,7 @@ async def get_local_kline(
     adjustment: str = "qfq",
     provider: str | None = None,
     limit: int = 240,
+    include_metadata: bool = False,
 ) -> LocalKlineResponse:
     normalized_limit = max(1, min(limit, 2000))
     query_timeframe = "daily" if timeframe in {"weekly", "monthly"} else timeframe
@@ -1491,7 +1727,7 @@ async def get_local_kline(
                     else bool_or_none(metadata.get("limit_down"))
                 ),
                 provider=str(row["data_provider"]),
-                metadata=metadata,
+                metadata=metadata if include_metadata else {},
             )
         )
     enriched_source_bars = enrich_local_change_fields(source_bars)

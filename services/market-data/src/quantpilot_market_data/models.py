@@ -490,6 +490,47 @@ class MarketDataCoverageResponse(BaseModel):
         return self
 
 
+class SectorCapitalFlowItem(BaseModel):
+    sector: str
+    member_count: int = 0
+    covered_count: int = 0
+    rising_count: int = 0
+    limit_up_count: int = 0
+    rising_ratio: Decimal | None = None
+    latest_amount: Decimal | None = None
+    avg_amount_20d: Decimal | None = None
+    amount_ratio_20d: Decimal | None = None
+    avg_turnover_20d: Decimal | None = None
+    strength_20d_pct: Decimal | None = None
+    proxy_net_amount: Decimal | None = None
+    signal: Literal["warming", "cooling", "neutral", "insufficient"] = "insufficient"
+    top_symbols: list[str] = Field(default_factory=list)
+    data_basis: str = "stock_bars_proxy"
+
+
+class SectorCapitalFlowResponse(BaseModel):
+    universe_id: str
+    items: list[SectorCapitalFlowItem]
+    source: str = "timescaledb"
+    proxy_note: str = (
+        "当前为成交额、换手、上涨占比和20日强弱聚合出的资金热度代理，"
+        "不是 DDE/主力净流入真实字段。"
+    )
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    data_quality: DataQuality = Field(default_factory=DataQuality)
+
+    @model_validator(mode="after")
+    def fill_contract_fields(self) -> Self:
+        if not self.items:
+            self.data_quality = _merge_data_quality(
+                self.data_quality,
+                missing_fields=["items"],
+                warnings=["未查询到可用于板块资金代理的本地行情数据。"],
+                status="warning",
+            )
+        return self
+
+
 class LocalKlineBar(BaseModel):
     ts: datetime
     open: Decimal

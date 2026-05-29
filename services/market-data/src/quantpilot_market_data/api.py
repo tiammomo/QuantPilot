@@ -23,6 +23,7 @@ from quantpilot_market_data.database import (
     list_research_universe_members_page,
     list_research_universe_summaries,
     list_research_universes,
+    list_sector_capital_flow,
     normalize_fetch_symbol,
     upsert_kline_response,
     upsert_realtime_quote_snapshot,
@@ -60,6 +61,7 @@ from quantpilot_market_data.models import (
     ResearchUniverseMembersPageResponse,
     ResearchUniverseResponse,
     ResearchUniverseSummaryResponse,
+    SectorCapitalFlowResponse,
     SymbolResolveResponse,
     SymbolResolveResult,
     TechnicalIndicatorsResponse,
@@ -658,6 +660,22 @@ def create_app() -> FastAPI:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
+    @app.get(
+        "/api/v1/research/sector-capital-flow",
+        response_model=SectorCapitalFlowResponse,
+    )
+    async def get_research_sector_capital_flow(
+        universe_id: str = "a-share-sample-research-pool",
+        limit: int = Query(default=40, ge=1, le=120),
+    ) -> SectorCapitalFlowResponse:
+        try:
+            return SectorCapitalFlowResponse(
+                universe_id=universe_id,
+                items=await list_sector_capital_flow(universe_id=universe_id, limit=limit),
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
     @app.get("/api/v1/ingestion/jobs", response_model=IngestionJobsResponse)
     async def get_market_data_ingestion_jobs(
         universe_id: str | None = None,
@@ -706,6 +724,7 @@ def create_app() -> FastAPI:
         adjustment: Adjustment = "qfq",
         provider: str | None = None,
         limit: int = 240,
+        include_metadata: bool = False,
     ) -> LocalKlineResponse:
         try:
             return await get_local_kline(
@@ -714,6 +733,7 @@ def create_app() -> FastAPI:
                 adjustment=adjustment,
                 provider=provider.strip() if provider and provider.strip() else None,
                 limit=limit,
+                include_metadata=include_metadata,
             )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
