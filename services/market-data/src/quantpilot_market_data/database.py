@@ -987,12 +987,116 @@ def sector_signal(
     return "neutral"
 
 
+def _sector_cache_get(key: tuple[str, int, str]) -> dict[str, Any] | None:
+    cached = _SECTOR_CAPITAL_FLOW_CACHE.get(key)
+    if not cached:
+        return None
+    cached_at, value = cached
+    if datetime.now(UTC) - cached_at > timedelta(seconds=SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS):
+        _SECTOR_CAPITAL_FLOW_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def _sector_cache_set(key: tuple[str, int, str], value: dict[str, Any]) -> None:
+    _SECTOR_CAPITAL_FLOW_CACHE[key] = (datetime.now(UTC), value)
+    if len(_SECTOR_CAPITAL_FLOW_CACHE) > 32:
+        oldest_key = min(_SECTOR_CAPITAL_FLOW_CACHE.items(), key=lambda item: item[1][0])[0]
+        _SECTOR_CAPITAL_FLOW_CACHE.pop(oldest_key, None)
+
+
+def _sector_market_analysis(summary: SectorCapitalFlowMarketSummary) -> list[str]:
+    analysis: list[str] = []
+    if summary.proxy_net_amount is not None:
+        direction = "偏流入" if summary.proxy_net_amount > 0 else "偏流出" if summary.proxy_net_amount < 0 else "均衡"
+        analysis.append(f"全市场方向成交额代理{direction}，当前值 {summary.proxy_net_amount:.0f}。")
+    if summary.rising_ratio is not None:
+        analysis.append(f"覆盖样本上涨占比约 {summary.rising_ratio:.1f}%，可用于判断资金扩散还是局部抱团。")
+    if summary.warming_count or summary.cooling_count:
+        analysis.append(f"升温板块 {summary.warming_count} 个，转冷板块 {summary.cooling_count} 个。")
+    if summary.strongest_sectors:
+        analysis.append(f"强势方向集中在：{'、'.join(summary.strongest_sectors[:5])}。")
+    return analysis
+
+
+def _sector_detail_analysis(item: SectorCapitalFlowItem) -> list[str]:
+    analysis: list[str] = []
+    if item.proxy_net_amount is not None:
+        direction = "净流入代理为正" if item.proxy_net_amount > 0 else "净流入代理为负" if item.proxy_net_amount < 0 else "方向暂均衡"
+        analysis.append(f"{item.sector} {direction}，结合成交额和上涨占比观察资金连续性。")
+    if item.rising_ratio is not None:
+        analysis.append(f"板块内上涨占比 {item.rising_ratio:.1f}%，覆盖 {item.covered_count}/{item.member_count} 只。")
+    if item.amount_ratio_20d is not None:
+        analysis.append(f"最新成交额约为 20 日均额的 {item.amount_ratio_20d:.2f} 倍。")
+    if item.strength_20d_pct is not None:
+        analysis.append(f"20 日强弱 {item.strength_20d_pct:.2f}%，用于判断趋势是否与资金热度共振。")
+    return analysis
+
+
+def _build_sector_market_summary(items: list[SectorCapitalFlowItem]) -> SectorCapitalFlowMarketSummary:
+    total_latest_amount = sum((item.latest_amount or Decimal("0")) for item in items)
+    total_proxy_net_amount = sum((item.proxy_net_amount or Decimal("0")) for item in items)
+    total_covered = sum(item.covered_count for item in items)
+    total_rising = sum(item.rising_count for item in items)
+    weighted_amount_base = sum((item.avg_amount_20d or Decimal("0")) for item in items)
+    turnover_values = [item.avg_turnover_20d for item in items if item.avg_turnover_20d is not None]
+    signal_counts = {
+        "warming": sum(1 for item in items if item.signal == "warming"),
+        "cooling": sum(1 for item in items if item.signal == "cooling"),
+        "neutral": sum(1 for item in items if item.signal == "neutral"),
+        "insufficient": sum(1 for item in items if item.signal == "insufficient"),
+    }
+    strongest = sorted(
+        [item for item in items if item.strength_20d_pct is not None],
+        key=lambda item: item.strength_20d_pct or Decimal("-999"),
+        reverse=True,
+    )[:5]
+    weakest = sorted(
+        [item for item in items if item.strength_20d_pct is not None],
+        key=lambda item: item.strength_20d_pct or Decimal("999"),
+    )[:5]
+    summary = SectorCapitalFlowMarketSummary(
+        sector_count=len(items),
+        warming_count=signal_counts["warming"],
+        cooling_count=signal_counts["cooling"],
+        neutral_count=signal_counts["neutral"],
+        insufficient_count=signal_counts["insufficient"],
+        covered_symbol_count=total_covered,
+        total_latest_amount=total_latest_amount if total_latest_amount else None,
+        proxy_net_amount=total_proxy_net_amount if total_latest_amount else None,
+        rising_ratio=(
+            Decimal(total_rising) / Decimal(total_covered) * Decimal("100")
+            if total_covered
+            else None
+        ),
+        amount_ratio_20d=(
+            total_latest_amount / weighted_amount_base
+            if weighted_amount_base
+            else None
+        ),
+        avg_turnover_20d=(
+            sum(turnover_values) / Decimal(len(turnover_values))
+            if turnover_values
+            else None
+        ),
+        strongest_sectors=[item.sector for item in strongest],
+        weakest_sectors=[item.sector for item in weakest],
+    )
+    summary.analysis = _sector_market_analysis(summary)
+    return summary
+
+
 async def list_sector_capital_flow(
     *,
     universe_id: str = DEFAULT_UNIVERSE_ID,
     limit: int = 40,
-) -> list[SectorCapitalFlowItem]:
+) -> dict[str, Any]:
     normalized_limit = max(1, min(limit, 120))
+    cache_key = (universe_id, normalized_limit, "summary-v2")
+    cached = _sector_cache_get(cache_key)
+    if cached is not None:
+        return {**cached, "cache_status": "hit", "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS}
+
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(
             """
@@ -1030,6 +1134,7 @@ async def list_sector_capital_flow(
               metrics.latest_amount,
               metrics.latest_turnover,
               metrics.latest_limit_up,
+              metrics.latest_limit_down,
               metrics.avg_amount_20d,
               metrics.avg_turnover_20d
             FROM universe_members
@@ -1043,6 +1148,7 @@ async def list_sector_capital_flow(
                 (array_agg(recent.amount ORDER BY recent.ts DESC))[1] AS latest_amount,
                 (array_agg(recent.turnover ORDER BY recent.ts DESC))[1] AS latest_turnover,
                 (array_agg(recent.limit_up ORDER BY recent.ts DESC))[1] AS latest_limit_up,
+                (array_agg(recent.limit_down ORDER BY recent.ts DESC))[1] AS latest_limit_down,
                 avg(recent.amount) FILTER (
                   WHERE recent.rn <= 20 AND recent.amount IS NOT NULL
                 ) AS avg_amount_20d,
@@ -1057,6 +1163,7 @@ async def list_sector_capital_flow(
                   bars.turnover,
                   bars.change_percent,
                   bars.limit_up,
+                  bars.limit_down,
                   row_number() OVER (ORDER BY bars.ts DESC) AS rn
                 FROM quant.stock_bars bars
                 WHERE bars.symbol = universe_members.symbol
@@ -1092,7 +1199,9 @@ async def list_sector_capital_flow(
                     "member_count": 0,
                     "covered_count": 0,
                     "rising_count": 0,
+                    "falling_count": 0,
                     "limit_up_count": 0,
+                    "limit_down_count": 0,
                     "latest_amount": Decimal("0"),
                     "avg_amount_20d": Decimal("0"),
                     "avg_turnover_sum": Decimal("0"),
@@ -1108,8 +1217,12 @@ async def list_sector_capital_flow(
                 group["covered_count"] += 1
             if latest_change_percent is not None and latest_change_percent > 0:
                 group["rising_count"] += 1
+            if latest_change_percent is not None and latest_change_percent < 0:
+                group["falling_count"] += 1
             if limit_up:
                 group["limit_up_count"] += 1
+            if bool_or_none(row["latest_limit_down"]) is True:
+                group["limit_down_count"] += 1
             if latest_amount is not None:
                 group["latest_amount"] += latest_amount
                 if latest_change_percent is not None:
@@ -1161,13 +1274,21 @@ async def list_sector_capital_flow(
                 member_count=int(group["member_count"]),
                 covered_count=covered_count,
                 rising_count=int(group["rising_count"]),
+                falling_count=int(group["falling_count"]),
                 limit_up_count=int(group["limit_up_count"]),
+                limit_down_count=int(group["limit_down_count"]),
                 rising_ratio=rising_ratio,
                 latest_amount=group["latest_amount"] if group["latest_amount"] else None,
                 avg_amount_20d=group["avg_amount_20d"] if group["avg_amount_20d"] else None,
                 amount_ratio_20d=amount_ratio_20d,
                 avg_turnover_20d=avg_turnover,
                 strength_20d_pct=strength_20d_pct,
+                contribution_ratio=None,
+                net_amount_ratio=(
+                    proxy_net_amount / group["latest_amount"] * Decimal("100")
+                    if proxy_net_amount is not None and group["latest_amount"]
+                    else None
+                ),
                 proxy_net_amount=proxy_net_amount,
                 signal=sector_signal(
                     covered_count=covered_count,
@@ -1180,7 +1301,7 @@ async def list_sector_capital_flow(
             )
         )
 
-    return sorted(
+    ranked_items = sorted(
         items,
         key=lambda item: (
             item.proxy_net_amount or Decimal("-999999999999999999"),
@@ -1189,6 +1310,14 @@ async def list_sector_capital_flow(
         ),
         reverse=True,
     )[:normalized_limit]
+    result = {
+        "items": ranked_items,
+        "market_summary": _build_sector_market_summary(items),
+        "cache_status": "bypass",
+        "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+    }
+    _sector_cache_set(cache_key, result)
+    return result
 
 
 async def add_security_to_universe(

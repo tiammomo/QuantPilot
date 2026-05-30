@@ -867,9 +867,13 @@ def create_app() -> FastAPI:
         limit: int = Query(default=40, ge=1, le=120),
     ) -> SectorCapitalFlowResponse:
         try:
+            flow = await list_sector_capital_flow(universe_id=universe_id, limit=limit)
             return SectorCapitalFlowResponse(
                 universe_id=universe_id,
-                items=await list_sector_capital_flow(universe_id=universe_id, limit=limit),
+                items=flow["items"],
+                market_summary=flow.get("market_summary"),
+                cache_status=flow.get("cache_status", "bypass"),
+                cache_ttl_seconds=flow.get("cache_ttl_seconds"),
             )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
