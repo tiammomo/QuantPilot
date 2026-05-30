@@ -12,6 +12,7 @@ import {
   getStrategySymbolDividends,
   getStrategyUniverseMembersPage,
   ingestStrategyUniverseHistoryBatch,
+  runStrategyDataQualityScan,
   runStrategyParameterScan,
   startStrategyUniverseHistoryAutoFill,
 } from '@/lib/quant/strategies';
@@ -116,6 +117,21 @@ export async function POST(request: NextRequest) {
           sector: typeof body.sector === 'string' ? body.sector : undefined,
           detailDays: typeof body.detailDays === 'number' ? body.detailDays : undefined,
         })
+      );
+    }
+    if (body.action === 'data-quality-scan') {
+      return createSuccessResponse(
+        await runStrategyDataQualityScan({
+          universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
+          symbols: Array.isArray(body.symbols)
+            ? body.symbols.map((item: unknown) => String(item)).filter(Boolean)
+            : undefined,
+          timeframe: typeof body.timeframe === 'string' ? body.timeframe : undefined,
+          adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
+          lookbackYears: typeof body.lookbackYears === 'number' ? body.lookbackYears : undefined,
+          persist: body.persist !== false,
+        }),
+        201
       );
     }
     if (body.action === 'run-ingestion-batch') {

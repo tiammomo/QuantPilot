@@ -1,4 +1,5 @@
 import { getAllProjects } from '@/lib/services/project';
+import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { getQuantCapability, type QuantCapabilityId } from '@/lib/quant/capabilities';
 import { serializeProjects } from '@/lib/serializers/project';
 import { Prisma } from '@prisma/client';
@@ -461,6 +462,78 @@ export interface StrategyIngestionJobsResponse {
   fetchedAt: string;
 }
 
+export interface StrategyFoundationComponent {
+  id: string;
+  name: string;
+  status: 'ready' | 'partial' | 'missing';
+  count: number;
+  detail?: string | null;
+}
+
+export interface StrategyFactorDefinition {
+  factorKey: string;
+  name: string;
+  category: string;
+  frequency: string;
+  valueType: string;
+  unit?: string | null;
+  description: string;
+  formula?: string | null;
+  dependencies: string[];
+  status: string;
+  provider: string;
+  metadata: Record<string, unknown>;
+  updatedAt?: string | null;
+}
+
+export interface StrategyTradingCalendarDay {
+  market: string;
+  tradeDate: string;
+  isOpen: boolean;
+  session: string;
+  source: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface StrategyDataQualityIssue {
+  symbol?: string | null;
+  name?: string | null;
+  severity: 'ok' | 'warning' | 'error';
+  issueType: string;
+  message: string;
+  metrics: Record<string, unknown>;
+}
+
+export interface StrategyDataQualityScan {
+  id: string;
+  universeId?: string | null;
+  symbol?: string | null;
+  scope: string;
+  timeframe: string;
+  adjustment: string;
+  status: string;
+  severity: 'ok' | 'warning' | 'error';
+  checkedSymbols: number;
+  passedSymbols: number;
+  warningSymbols: number;
+  failedSymbols: number;
+  checkedRows: number;
+  issueCount: number;
+  issues: StrategyDataQualityIssue[];
+  metrics: Record<string, unknown>;
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface StrategyFoundationState {
+  source: 'market-api' | 'fallback';
+  components: StrategyFoundationComponent[];
+  factors: StrategyFactorDefinition[];
+  calendarDays: StrategyTradingCalendarDay[];
+  latestQualityScan?: StrategyDataQualityScan | null;
+  error?: string | null;
+}
+
 export interface StrategyUniverseMemberAddResult {
   universe_id: string;
   member: StrategyUniverseMember;
@@ -546,6 +619,7 @@ export interface StrategyDashboardData {
   scanRuns: StrategyScanRun[];
   scanJobs: StrategyScanJob[];
   research: StrategyResearchState;
+  foundation: StrategyFoundationState;
 }
 
 const ROOT = process.cwd();
@@ -557,6 +631,20 @@ const MARKET_API_BASE_URL =
   process.env.QUANTPILOT_MARKET_API_BASE_URL ||
   'http://127.0.0.1:8000';
 const SAMPLE_UNIVERSE_ID = 'a-share-sample-research-pool';
+
+function getMarketApiConfig() {
+  return getRuntimeDegradationConfig().components.marketApi;
+}
+
+function getDatabaseConfig() {
+  return getRuntimeDegradationConfig().components.database;
+}
+
+function assertMarketApiEnabled() {
+  if (!getMarketApiConfig().enabled) {
+    throw new Error('market API 已按降级配置停用');
+  }
+}
 
 const SAMPLE_UNIVERSE_MEMBER_SEEDS = [
   { symbol: '002156.SZ', code: '002156', name: '通富微电', exchange: 'SZ', secid: '0.002156' },
@@ -823,6 +911,44 @@ const FALLBACK_RESEARCH_STATE: StrategyResearchState = {
       '回测必须读取本地 TimescaleDB，避免外部行情变化影响复现。',
     ],
   },
+};
+
+const FALLBACK_FOUNDATION_STATE: StrategyFoundationState = {
+  source: 'fallback',
+  components: [
+    {
+      id: 'trading-calendar',
+      name: '交易日历',
+      status: 'partial',
+      count: 0,
+      detail: '未读取到后端日历，页面会回退到本地 K 线日期推断。',
+    },
+    {
+      id: 'factor-registry',
+      name: '因子定义仓库',
+      status: 'partial',
+      count: 0,
+      detail: '因子口径表未读取，策略仍可使用内置说明。',
+    },
+    {
+      id: 'data-quality',
+      name: '数据质量扫描',
+      status: 'partial',
+      count: 0,
+      detail: '质量扫描 API 暂不可用。',
+    },
+    {
+      id: 'platform-jobs',
+      name: '平台任务底座',
+      status: 'partial',
+      count: 0,
+      detail: '任务表未读取。',
+    },
+  ],
+  factors: [],
+  calendarDays: [],
+  latestQualityScan: null,
+  error: null,
 };
 
 const STRATEGY_BACKTEST_DEPENDENCIES = [
@@ -1935,6 +2061,7 @@ function mapDbScanJob(record: {
 }
 
 async function listScanRunsFromDatabase(): Promise<StrategyScanRun[]> {
+  if (!getDatabaseConfig().enabled) return [];
   const records = await prisma.strategyScanRun.findMany({
     orderBy: { completedAt: 'desc' },
   });
@@ -1942,6 +2069,7 @@ async function listScanRunsFromDatabase(): Promise<StrategyScanRun[]> {
 }
 
 async function listScanJobsFromDatabase(): Promise<StrategyScanJob[]> {
+  if (!getDatabaseConfig().enabled) return [];
   const records = await prisma.strategyScanJob.findMany({
     orderBy: { createdAt: 'desc' },
   });
@@ -1949,74 +2077,86 @@ async function listScanJobsFromDatabase(): Promise<StrategyScanJob[]> {
 }
 
 async function writeScanRunToDatabase(run: StrategyScanRun) {
+  const database = getDatabaseConfig();
+  if (!database.enabled) return;
   const startedAt = toDate(run.startedAt) ?? new Date();
   const completedAt = toDate(run.completedAt) ?? new Date();
   const results = run.results as unknown as Prisma.InputJsonValue;
-  await prisma.strategyScanRun.upsert({
-    where: { id: run.id },
-    update: {
-      templateId: run.templateId,
-      scanId: run.scanId,
-      symbol: run.symbol,
-      status: run.status,
-      startedAt,
-      completedAt,
-      total: run.total,
-      succeeded: run.succeeded,
-      failed: run.failed,
-      bestResultId: run.bestResultId ?? null,
-      objective: run.objective,
-      source: run.source,
-      results,
-    },
-    create: {
-      id: run.id,
-      templateId: run.templateId,
-      scanId: run.scanId,
-      symbol: run.symbol,
-      status: run.status,
-      startedAt,
-      completedAt,
-      total: run.total,
-      succeeded: run.succeeded,
-      failed: run.failed,
-      bestResultId: run.bestResultId ?? null,
-      objective: run.objective,
-      source: run.source,
-      results,
-    },
-  });
+  try {
+    await prisma.strategyScanRun.upsert({
+      where: { id: run.id },
+      update: {
+        templateId: run.templateId,
+        scanId: run.scanId,
+        symbol: run.symbol,
+        status: run.status,
+        startedAt,
+        completedAt,
+        total: run.total,
+        succeeded: run.succeeded,
+        failed: run.failed,
+        bestResultId: run.bestResultId ?? null,
+        objective: run.objective,
+        source: run.source,
+        results,
+      },
+      create: {
+        id: run.id,
+        templateId: run.templateId,
+        scanId: run.scanId,
+        symbol: run.symbol,
+        status: run.status,
+        startedAt,
+        completedAt,
+        total: run.total,
+        succeeded: run.succeeded,
+        failed: run.failed,
+        bestResultId: run.bestResultId ?? null,
+        objective: run.objective,
+        source: run.source,
+        results,
+      },
+    });
+  } catch (error) {
+    if (database.required) throw error;
+  }
 }
 
 async function writeScanJobToDatabase(job: StrategyScanJob) {
-  await prisma.strategyScanJob.upsert({
-    where: { id: job.id },
-    update: {
-      templateId: job.templateId,
-      scanId: job.scanId,
-      symbol: job.symbol,
-      status: job.status,
-      startedAt: toDate(job.startedAt),
-      completedAt: toDate(job.completedAt),
-      runId: job.runId ?? null,
-      error: job.error ?? null,
-      createdAt: toDate(job.createdAt) ?? new Date(),
-      updatedAt: toDate(job.updatedAt) ?? new Date(),
-    },
-    create: {
-      id: job.id,
-      templateId: job.templateId,
-      scanId: job.scanId,
-      symbol: job.symbol,
-      status: job.status,
-      startedAt: toDate(job.startedAt),
-      completedAt: toDate(job.completedAt),
-      runId: job.runId ?? null,
-      error: job.error ?? null,
-      createdAt: toDate(job.createdAt) ?? new Date(),
-      updatedAt: toDate(job.updatedAt) ?? new Date(),
-    },
-  });
+  const database = getDatabaseConfig();
+  if (!database.enabled) return;
+  try {
+    await prisma.strategyScanJob.upsert({
+      where: { id: job.id },
+      update: {
+        templateId: job.templateId,
+        scanId: job.scanId,
+        symbol: job.symbol,
+        status: job.status,
+        startedAt: toDate(job.startedAt),
+        completedAt: toDate(job.completedAt),
+        runId: job.runId ?? null,
+        error: job.error ?? null,
+        createdAt: toDate(job.createdAt) ?? new Date(),
+        updatedAt: toDate(job.updatedAt) ?? new Date(),
+      },
+      create: {
+        id: job.id,
+        templateId: job.templateId,
+        scanId: job.scanId,
+        symbol: job.symbol,
+        status: job.status,
+        startedAt: toDate(job.startedAt),
+        completedAt: toDate(job.completedAt),
+        runId: job.runId ?? null,
+        error: job.error ?? null,
+        createdAt: toDate(job.createdAt) ?? new Date(),
+        updatedAt: toDate(job.updatedAt) ?? new Date(),
+      },
+    });
+  } catch (error) {
+    if (database.required) throw error;
+  }
 }
 
 async function listScanRuns(): Promise<StrategyScanRun[]> {
@@ -2128,6 +2268,7 @@ async function fetchBacktest(params: {
   strategyId: string;
   limit?: number;
 }): Promise<Record<string, unknown>> {
+  assertMarketApiEnabled();
   const query = new URLSearchParams({
     fee_bps: String(params.parameters.fee_bps ?? 5),
     period: 'daily',
@@ -2594,6 +2735,92 @@ function mapIngestionJobsResponse(value: unknown): StrategyIngestionJobsResponse
   };
 }
 
+function foundationStatus(value: unknown): StrategyFoundationComponent['status'] {
+  return value === 'ready' || value === 'partial' || value === 'missing' ? value : 'partial';
+}
+
+function mapFoundationComponent(value: unknown): StrategyFoundationComponent {
+  const record = asRecord(value);
+  return {
+    id: asString(record.id),
+    name: asString(record.name),
+    status: foundationStatus(record.status),
+    count: asNumber(record.count) ?? 0,
+    detail: typeof record.detail === 'string' ? record.detail : null,
+  };
+}
+
+function mapFactorDefinition(value: unknown): StrategyFactorDefinition {
+  const record = asRecord(value);
+  return {
+    factorKey: asString(record.factor_key),
+    name: asString(record.name),
+    category: asString(record.category, 'unknown'),
+    frequency: asString(record.frequency, 'daily'),
+    valueType: asString(record.value_type, 'number'),
+    unit: typeof record.unit === 'string' ? record.unit : null,
+    description: asString(record.description),
+    formula: typeof record.formula === 'string' ? record.formula : null,
+    dependencies: asStringArray(record.dependencies),
+    status: asString(record.status, 'active'),
+    provider: asString(record.provider, 'quantpilot'),
+    metadata: asRecord(record.metadata),
+    updatedAt: typeof record.updated_at === 'string' ? record.updated_at : null,
+  };
+}
+
+function mapTradingCalendarDay(value: unknown): StrategyTradingCalendarDay {
+  const record = asRecord(value);
+  return {
+    market: asString(record.market, 'CN-A'),
+    tradeDate: asString(record.trade_date),
+    isOpen: record.is_open !== false,
+    session: asString(record.session, 'regular'),
+    source: asString(record.source, 'local'),
+    metadata: asRecord(record.metadata),
+  };
+}
+
+function dataQualityIssueSeverity(value: unknown): StrategyDataQualityIssue['severity'] {
+  return value === 'ok' || value === 'warning' || value === 'error' ? value : 'warning';
+}
+
+function mapDataQualityIssue(value: unknown): StrategyDataQualityIssue {
+  const record = asRecord(value);
+  return {
+    symbol: typeof record.symbol === 'string' ? record.symbol : null,
+    name: typeof record.name === 'string' ? record.name : null,
+    severity: dataQualityIssueSeverity(record.severity),
+    issueType: asString(record.issue_type, 'unknown'),
+    message: asString(record.message),
+    metrics: asRecord(record.metrics),
+  };
+}
+
+function mapDataQualityScan(value: unknown): StrategyDataQualityScan {
+  const record = asRecord(value);
+  return {
+    id: asString(record.id),
+    universeId: typeof record.universe_id === 'string' ? record.universe_id : null,
+    symbol: typeof record.symbol === 'string' ? record.symbol : null,
+    scope: asString(record.scope, 'universe'),
+    timeframe: asString(record.timeframe, 'daily'),
+    adjustment: asString(record.adjustment, 'qfq'),
+    status: asString(record.status, 'completed'),
+    severity: dataQualityIssueSeverity(record.severity),
+    checkedSymbols: asNumber(record.checked_symbols) ?? 0,
+    passedSymbols: asNumber(record.passed_symbols) ?? 0,
+    warningSymbols: asNumber(record.warning_symbols) ?? 0,
+    failedSymbols: asNumber(record.failed_symbols) ?? 0,
+    checkedRows: asNumber(record.checked_rows) ?? 0,
+    issueCount: asNumber(record.issue_count) ?? 0,
+    issues: Array.isArray(record.issues) ? record.issues.map(mapDataQualityIssue) : [],
+    metrics: asRecord(record.metrics),
+    startedAt: asString(record.started_at, new Date().toISOString()),
+    completedAt: asString(record.completed_at, new Date().toISOString()),
+  };
+}
+
 function mapIngestionJobControlResult(value: unknown): StrategyIngestionJobControlResult {
   const record = asRecord(value);
   const action = asString(record.action);
@@ -2607,6 +2834,7 @@ function mapIngestionJobControlResult(value: unknown): StrategyIngestionJobContr
 }
 
 async function fetchMarketApiJson<T>(pathName: string): Promise<T> {
+  assertMarketApiEnabled();
   const response = await fetch(`${MARKET_API_BASE_URL}${pathName}`, { cache: 'no-store' });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
@@ -2654,6 +2882,7 @@ export async function controlStrategyIngestionJob(params: {
   action: 'pause' | 'resume' | 'stop';
   reason?: string;
 }): Promise<StrategyIngestionJobControlResult> {
+  assertMarketApiEnabled();
   const jobId = params.jobId.trim();
   if (!jobId) throw new Error('缺少补数任务 ID');
   const response = await fetch(
@@ -2670,6 +2899,35 @@ export async function controlStrategyIngestionJob(params: {
     throw new Error(`market API ${response.status}: ${text.slice(0, 200)}`);
   }
   return mapIngestionJobControlResult(await response.json());
+}
+
+export async function runStrategyDataQualityScan(params: {
+  universeId?: string;
+  symbols?: string[];
+  timeframe?: string;
+  adjustment?: string;
+  lookbackYears?: number;
+  persist?: boolean;
+} = {}): Promise<StrategyDataQualityScan> {
+  assertMarketApiEnabled();
+  const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/foundation/data-quality/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
+      symbols: params.symbols?.length ? params.symbols : undefined,
+      timeframe: params.timeframe || 'daily',
+      adjustment: params.adjustment || 'qfq',
+      lookback_years: params.lookbackYears ?? FALLBACK_RESEARCH_STATE.ingestionPlan.lookbackYears,
+      persist: params.persist !== false,
+    }),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`market API ${response.status}: ${text.slice(0, 200)}`);
+  }
+  return mapDataQualityScan(await response.json());
 }
 
 export async function getStrategySectorCapitalFlow(params: {
@@ -2757,6 +3015,38 @@ async function getStrategyResearchState(): Promise<StrategyResearchState> {
   }
 }
 
+async function getStrategyFoundationState(): Promise<StrategyFoundationState> {
+  try {
+    const [statusPayload, factorsPayload, calendarPayload] = await Promise.all([
+      fetchMarketApiJson<unknown>('/api/v1/foundation/status'),
+      fetchMarketApiJson<unknown>('/api/v1/foundation/factors'),
+      fetchMarketApiJson<unknown>('/api/v1/foundation/trading-calendar?market=CN-A&limit=30'),
+    ]);
+    const statusRecord = asRecord(statusPayload);
+    const factorsRecord = asRecord(factorsPayload);
+    const calendarRecord = asRecord(calendarPayload);
+    return {
+      source: 'market-api',
+      components: Array.isArray(statusRecord.components)
+        ? statusRecord.components.map(mapFoundationComponent)
+        : FALLBACK_FOUNDATION_STATE.components,
+      factors: Array.isArray(factorsRecord.factors)
+        ? factorsRecord.factors.map(mapFactorDefinition)
+        : [],
+      calendarDays: Array.isArray(calendarRecord.days)
+        ? calendarRecord.days.map(mapTradingCalendarDay)
+        : [],
+      latestQualityScan: null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ...FALLBACK_FOUNDATION_STATE,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 function isStrategyCapability(capabilityId?: string | null): capabilityId is QuantCapabilityId {
   return capabilityId === 'strategy_research' || capabilityId === 'backtest_review' || capabilityId === 'portfolio_risk';
 }
@@ -2782,10 +3072,11 @@ function matchesTemplate(project: StrategyWorkspaceRef, template: StrategyTempla
 
 export async function getStrategyDashboardData(): Promise<StrategyDashboardData> {
   const projects = serializeProjects(await getAllProjects().catch(() => []));
-  const [scanRuns, scanJobs, research] = await Promise.all([
+  const [scanRuns, scanJobs, research, foundation] = await Promise.all([
     listScanRuns(),
     listScanJobs(),
     getStrategyResearchState(),
+    getStrategyFoundationState(),
   ]);
   const strategyWorkspaces = projects
     .filter(project => isStrategyCapability(project.quantCapabilityId))
@@ -2834,6 +3125,7 @@ export async function getStrategyDashboardData(): Promise<StrategyDashboardData>
     scanRuns,
     scanJobs,
     research,
+    foundation,
   };
 }
 
@@ -2856,6 +3148,7 @@ export async function ingestStrategyUniverseHistory(params: {
   period?: string;
   adjustment?: string;
 } = {}): Promise<StrategyHistoryIngestionResult> {
+  assertMarketApiEnabled();
   const body = {
     universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
     symbols: params.symbols?.length ? params.symbols : undefined,
@@ -2888,6 +3181,7 @@ export async function ingestStrategyUniverseHistoryBatch(params: {
   period?: string;
   adjustment?: string;
 } = {}): Promise<StrategyHistoryIngestionResult> {
+  assertMarketApiEnabled();
   const body = {
     universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
     offset: Math.max(0, params.offset ?? 0),
@@ -2925,6 +3219,7 @@ export async function startStrategyUniverseHistoryAutoFill(params: {
   adjustment?: string;
   maxBatches?: number;
 } = {}): Promise<StrategyAutoFillIngestionStartResult> {
+  assertMarketApiEnabled();
   const body = {
     universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
     offset: Math.max(0, params.offset ?? 0),
@@ -2957,6 +3252,7 @@ export async function addStrategyUniverseMember(params: {
   query: string;
   syncHistory?: boolean;
 }): Promise<StrategyUniverseMemberAddResult> {
+  assertMarketApiEnabled();
   const universeId = params.universeId || SAMPLE_UNIVERSE_ID;
   const response = await fetch(
     `${MARKET_API_BASE_URL}/api/v1/research/universes/${encodeURIComponent(universeId)}/members`,
@@ -3007,6 +3303,7 @@ export async function getStrategySymbolBars(params: {
   limit?: number;
   includeMetadata?: boolean;
 }): Promise<StrategyLocalKlineResponse> {
+  assertMarketApiEnabled();
   const query = new URLSearchParams({
     timeframe: params.timeframe || 'daily',
     adjustment: params.adjustment || 'qfq',
@@ -3029,6 +3326,7 @@ export async function getStrategySymbolDividends(params: {
   symbol: string;
   limit?: number;
 }): Promise<StrategyDividendEventsResponse> {
+  assertMarketApiEnabled();
   const query = new URLSearchParams({
     limit: String(params.limit ?? 20),
   });

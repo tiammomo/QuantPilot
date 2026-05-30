@@ -22,13 +22,17 @@ from quantpilot_market_data.database import (
     get_ingestion_job_control,
     get_local_kline,
     get_universe_fetch_targets,
+    list_factor_definitions,
+    list_foundation_components,
     list_ingestion_jobs,
     list_market_data_coverage,
     list_research_universe_members_page,
     list_research_universe_summaries,
     list_research_universes,
     list_sector_capital_flow,
+    list_trading_calendar_days,
     normalize_fetch_symbol,
+    run_data_quality_scan,
     update_ingestion_job_progress,
     upsert_kline_response,
     upsert_realtime_quote_snapshot,
@@ -46,10 +50,14 @@ from quantpilot_market_data.models import (
     AutoFillIngestionStartResponse,
     DataProviderInfo,
     DataRegistryResponse,
+    DataQualityScanRequest,
+    DataQualityScanResponse,
     DividendEventsResponse,
     ETFUniverseBatchImportRequest,
     ETFUniverseBatchImportResponse,
+    FactorDefinitionResponse,
     FinancialReportsResponse,
+    FoundationStatusResponse,
     FundamentalIndicatorsResponse,
     HistoryAutoFillIngestionRequest,
     HistoryBatchIngestionRequest,
@@ -74,6 +82,7 @@ from quantpilot_market_data.models import (
     SymbolResolveResponse,
     SymbolResolveResult,
     TechnicalIndicatorsResponse,
+    TradingCalendarResponse,
 )
 from quantpilot_market_data.provider_candidates import (
     CANDIDATE_PROVIDERS,
@@ -773,6 +782,59 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/registry", response_model=DataRegistryResponse)
     async def get_data_registry() -> DataRegistryResponse:
         return DataRegistryResponse(providers=DATA_PROVIDERS)
+
+    @app.get("/api/v1/foundation/status", response_model=FoundationStatusResponse)
+    async def get_foundation_status() -> FoundationStatusResponse:
+        try:
+            return FoundationStatusResponse(components=await list_foundation_components())
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.get("/api/v1/foundation/factors", response_model=FactorDefinitionResponse)
+    async def get_factor_definitions(
+        category: str | None = None,
+        status: str | None = None,
+    ) -> FactorDefinitionResponse:
+        try:
+            return FactorDefinitionResponse(
+                factors=await list_factor_definitions(category=category, status=status)
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.get("/api/v1/foundation/trading-calendar", response_model=TradingCalendarResponse)
+    async def get_trading_calendar(
+        market: str = "CN-A",
+        start: str | None = None,
+        end: str | None = None,
+        limit: int = Query(default=260, ge=1, le=5000),
+    ) -> TradingCalendarResponse:
+        try:
+            days = await list_trading_calendar_days(
+                market=market,
+                start=start,
+                end=end,
+                limit=limit,
+            )
+            return TradingCalendarResponse(
+                market=market,
+                start=date.fromisoformat(start) if start else None,
+                end=date.fromisoformat(end) if end else None,
+                days=days,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=f"日期格式错误：{error}") from error
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post("/api/v1/foundation/data-quality/scan", response_model=DataQualityScanResponse)
+    async def scan_data_quality(
+        request: DataQualityScanRequest,
+    ) -> DataQualityScanResponse:
+        try:
+            return await run_data_quality_scan(request)
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
     @app.get("/api/v1/research/universes", response_model=ResearchUniverseResponse)
     async def get_research_universes() -> ResearchUniverseResponse:
