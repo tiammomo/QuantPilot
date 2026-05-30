@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Self
 
@@ -609,6 +609,7 @@ class HistoryIngestionRequest(BaseModel):
     adjustment: Adjustment = Field(default="qfq", description="复权方式")
     limit: int = Field(default=1260, ge=1, le=20000, description="每只证券最多拉取条数")
     lookback_years: int = Field(default=5, ge=1, le=30, description="本地保留的最近年份数")
+    start: str | None = Field(default=None, description="自定义补数开始日期，支持 YYYY-MM-DD 或 YYYYMMDD。")
     end: str = Field(default="20500101", description="东方财富 end 参数，默认远期代表取最新")
     allow_fallback: bool = Field(
         default=False,
@@ -631,6 +632,21 @@ class HistoryIngestionRequest(BaseModel):
 class HistoryBatchIngestionRequest(HistoryIngestionRequest):
     batch_size: int = Field(default=25, ge=1, le=200, description="单批最多处理标的数。")
     offset: int = Field(default=0, ge=0, description="从股票池成员列表的第几个标的开始。")
+
+
+class HistoryAutoFillIngestionRequest(HistoryBatchIngestionRequest):
+    max_batches: int | None = Field(
+        default=None,
+        ge=1,
+        le=2000,
+        description="最多自动推进多少个批次；为空时按股票池成员数自动计算。",
+    )
+    batch_delay_seconds: float = Field(
+        default=0.7,
+        ge=0,
+        le=60,
+        description="批次之间的等待时间，避免连续打满数据源。",
+    )
 
 
 class RealtimeSnapshotIngestionRequest(BaseModel):
@@ -694,6 +710,19 @@ class DividendEventsResponse(BaseModel):
         return self
 
 
+class IngestionPreflightCoverage(BaseModel):
+    symbol: str
+    first_ts: datetime | None = None
+    last_ts: datetime | None = None
+    row_count: int = 0
+    rows_since_cutoff: int = 0
+    complete_rows_since_cutoff: int = 0
+    pe_ttm_count: int = 0
+    pb_mrq_count: int = 0
+    ps_ttm_count: int = 0
+    pcf_ncf_ttm_count: int = 0
+
+
 class HistoryIngestionSymbolResult(BaseModel):
     symbol: str
     name: str | None = None
@@ -705,6 +734,24 @@ class HistoryIngestionSymbolResult(BaseModel):
     first_date: str | None = None
     last_date: str | None = None
     error: str | None = None
+    skip_reason: str | None = None
+    coverage_row_count: int | None = None
+    coverage_first_date: date | None = None
+    coverage_last_date: date | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+
+
+class IngestionJobControlRequest(BaseModel):
+    action: Literal["pause", "resume", "stop"]
+    reason: str | None = Field(default=None, max_length=400)
+
+
+class IngestionJobControlResponse(BaseModel):
+    job_id: str
+    action: Literal["pause", "resume", "stop"]
+    status: str
+    control: str
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class HistoryIngestionResponse(BaseModel):
@@ -763,6 +810,20 @@ class IngestionJobSummary(BaseModel):
 class IngestionJobsResponse(BaseModel):
     jobs: list[IngestionJobSummary]
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class AutoFillIngestionStartResponse(BaseModel):
+    job_id: str
+    status: str = "running"
+    provider: str = "baostock"
+    universe_id: str | None = None
+    period: KlinePeriod = "daily"
+    adjustment: Adjustment = "qfq"
+    batch_size: int
+    next_offset: int
+    universe_total_symbols: int
+    started_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TechnicalIndicatorPoint(BaseModel):

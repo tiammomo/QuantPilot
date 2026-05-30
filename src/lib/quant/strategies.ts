@@ -350,7 +350,24 @@ export interface StrategyHistoryIngestionResult {
     first_date?: string | null;
     last_date?: string | null;
     error?: string | null;
+    skip_reason?: string | null;
+    coverage_row_count?: number | null;
+    coverage_first_date?: string | null;
+    coverage_last_date?: string | null;
+    missing_fields?: string[];
   }>;
+}
+
+export interface StrategyAutoFillIngestionStartResult {
+  job_id: string;
+  status: string;
+  provider?: string;
+  universe_id?: string | null;
+  batch_size: number;
+  next_offset: number;
+  universe_total_symbols: number;
+  started_at: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface StrategyIngestionJob {
@@ -374,6 +391,14 @@ export interface StrategyIngestionJob {
   startedAt?: string | null;
   completedAt?: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface StrategyIngestionJobControlResult {
+  jobId: string;
+  action: 'pause' | 'resume' | 'stop';
+  status: string;
+  control: string;
   updatedAt: string;
 }
 
@@ -2447,6 +2472,18 @@ function mapIngestionJobsResponse(value: unknown): StrategyIngestionJobsResponse
   };
 }
 
+function mapIngestionJobControlResult(value: unknown): StrategyIngestionJobControlResult {
+  const record = asRecord(value);
+  const action = asString(record.action);
+  return {
+    jobId: asString(record.job_id),
+    action: action === 'pause' || action === 'resume' || action === 'stop' ? action : 'pause',
+    status: asString(record.status, 'unknown'),
+    control: asString(record.control, 'unknown'),
+    updatedAt: asString(record.updated_at, new Date().toISOString()),
+  };
+}
+
 async function fetchMarketApiJson<T>(pathName: string): Promise<T> {
   const response = await fetch(`${MARKET_API_BASE_URL}${pathName}`, { cache: 'no-store' });
   if (!response.ok) {
@@ -2488,6 +2525,29 @@ export async function getStrategyIngestionJobs(params: {
   if (universeId) query.set('universe_id', universeId);
   const payload = await fetchMarketApiJson<unknown>(`/api/v1/ingestion/jobs?${query.toString()}`);
   return mapIngestionJobsResponse(payload);
+}
+
+export async function controlStrategyIngestionJob(params: {
+  jobId: string;
+  action: 'pause' | 'resume' | 'stop';
+  reason?: string;
+}): Promise<StrategyIngestionJobControlResult> {
+  const jobId = params.jobId.trim();
+  if (!jobId) throw new Error('缺少补数任务 ID');
+  const response = await fetch(
+    `${MARKET_API_BASE_URL}/api/v1/ingestion/jobs/${encodeURIComponent(jobId)}/control`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: params.action, reason: params.reason }),
+      cache: 'no-store',
+    }
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`market API ${response.status}: ${text.slice(0, 200)}`);
+  }
+  return mapIngestionJobControlResult(await response.json());
 }
 
 export async function getStrategySectorCapitalFlow(params: {
@@ -2693,6 +2753,8 @@ export async function ingestStrategyUniverseHistoryBatch(params: {
   batchSize?: number;
   limit?: number;
   lookbackYears?: number;
+  start?: string;
+  end?: string;
   period?: string;
   adjustment?: string;
 } = {}): Promise<StrategyHistoryIngestionResult> {
@@ -2704,6 +2766,8 @@ export async function ingestStrategyUniverseHistoryBatch(params: {
     adjustment: params.adjustment || 'qfq',
     limit: params.limit ?? FALLBACK_RESEARCH_STATE.ingestionPlan.suggestedLimit,
     lookback_years: params.lookbackYears ?? FALLBACK_RESEARCH_STATE.ingestionPlan.lookbackYears,
+    start: params.start || undefined,
+    end: params.end || undefined,
     request_delay_seconds: 1.2,
   };
   const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/ingestion/baostock/history/batch`, {
@@ -2717,6 +2781,45 @@ export async function ingestStrategyUniverseHistoryBatch(params: {
     throw new Error(`market API ${response.status}: ${text.slice(0, 200)}`);
   }
   return response.json() as Promise<StrategyHistoryIngestionResult>;
+}
+
+export async function startStrategyUniverseHistoryAutoFill(params: {
+  universeId?: string;
+  offset?: number;
+  batchSize?: number;
+  limit?: number;
+  lookbackYears?: number;
+  start?: string;
+  end?: string;
+  period?: string;
+  adjustment?: string;
+  maxBatches?: number;
+} = {}): Promise<StrategyAutoFillIngestionStartResult> {
+  const body = {
+    universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
+    offset: Math.max(0, params.offset ?? 0),
+    batch_size: Math.max(1, Math.min(params.batchSize ?? 25, 200)),
+    period: params.period || 'daily',
+    adjustment: params.adjustment || 'qfq',
+    limit: params.limit ?? FALLBACK_RESEARCH_STATE.ingestionPlan.suggestedLimit,
+    lookback_years: params.lookbackYears ?? FALLBACK_RESEARCH_STATE.ingestionPlan.lookbackYears,
+    start: params.start || undefined,
+    end: params.end || undefined,
+    request_delay_seconds: 1.2,
+    batch_delay_seconds: 0.7,
+    max_batches: params.maxBatches,
+  };
+  const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/ingestion/baostock/history/autofill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`market API ${response.status}: ${text.slice(0, 200)}`);
+  }
+  return response.json() as Promise<StrategyAutoFillIngestionStartResult>;
 }
 
 export async function addStrategyUniverseMember(params: {

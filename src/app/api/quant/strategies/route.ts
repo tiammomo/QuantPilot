@@ -3,6 +3,7 @@ import { createErrorResponse, createSuccessResponse, handleApiError } from '@/li
 import {
   addStrategyUniverseMember,
   buildStrategyPrompt,
+  controlStrategyIngestionJob,
   enqueueStrategyParameterScan,
   getStrategyDashboardData,
   getStrategyIngestionJobs,
@@ -12,6 +13,7 @@ import {
   getStrategyUniverseMembersPage,
   ingestStrategyUniverseHistoryBatch,
   runStrategyParameterScan,
+  startStrategyUniverseHistoryAutoFill,
 } from '@/lib/quant/strategies';
 
 export async function GET() {
@@ -93,6 +95,19 @@ export async function POST(request: NextRequest) {
         })
       );
     }
+    if (body.action === 'control-ingestion-job') {
+      const action = String(body.control ?? body.controlAction ?? '');
+      if (!['pause', 'resume', 'stop'].includes(action)) {
+        return createErrorResponse('Unsupported ingestion control action', undefined, 400);
+      }
+      return createSuccessResponse(
+        await controlStrategyIngestionJob({
+          jobId: String(body.jobId ?? ''),
+          action: action as 'pause' | 'resume' | 'stop',
+          reason: typeof body.reason === 'string' ? body.reason : undefined,
+        })
+      );
+    }
     if (body.action === 'sector-capital-flow') {
       return createSuccessResponse(
         await getStrategySectorCapitalFlow({
@@ -109,8 +124,27 @@ export async function POST(request: NextRequest) {
           batchSize: typeof body.batchSize === 'number' ? body.batchSize : undefined,
           limit: typeof body.limit === 'number' ? body.limit : undefined,
           lookbackYears: typeof body.lookbackYears === 'number' ? body.lookbackYears : undefined,
+          start: typeof body.start === 'string' ? body.start : undefined,
+          end: typeof body.end === 'string' ? body.end : undefined,
           period: typeof body.period === 'string' ? body.period : undefined,
           adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
+        }),
+        201
+      );
+    }
+    if (body.action === 'start-ingestion-autofill') {
+      return createSuccessResponse(
+        await startStrategyUniverseHistoryAutoFill({
+          universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
+          offset: typeof body.offset === 'number' ? body.offset : undefined,
+          batchSize: typeof body.batchSize === 'number' ? body.batchSize : undefined,
+          limit: typeof body.limit === 'number' ? body.limit : undefined,
+          lookbackYears: typeof body.lookbackYears === 'number' ? body.lookbackYears : undefined,
+          start: typeof body.start === 'string' ? body.start : undefined,
+          end: typeof body.end === 'string' ? body.end : undefined,
+          period: typeof body.period === 'string' ? body.period : undefined,
+          adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
+          maxBatches: typeof body.maxBatches === 'number' ? body.maxBatches : undefined,
         }),
         201
       );
