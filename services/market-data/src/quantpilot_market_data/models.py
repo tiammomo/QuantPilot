@@ -495,27 +495,81 @@ class SectorCapitalFlowItem(BaseModel):
     member_count: int = 0
     covered_count: int = 0
     rising_count: int = 0
+    falling_count: int = 0
     limit_up_count: int = 0
+    limit_down_count: int = 0
     rising_ratio: Decimal | None = None
     latest_amount: Decimal | None = None
     avg_amount_20d: Decimal | None = None
     amount_ratio_20d: Decimal | None = None
     avg_turnover_20d: Decimal | None = None
     strength_20d_pct: Decimal | None = None
+    strength_5d_pct: Decimal | None = None
+    contribution_ratio: Decimal | None = None
+    net_amount_ratio: Decimal | None = None
     proxy_net_amount: Decimal | None = None
     signal: Literal["warming", "cooling", "neutral", "insufficient"] = "insufficient"
     top_symbols: list[str] = Field(default_factory=list)
     data_basis: str = "stock_bars_proxy"
 
 
+class SectorCapitalFlowMarketSummary(BaseModel):
+    sector_count: int = 0
+    warming_count: int = 0
+    cooling_count: int = 0
+    neutral_count: int = 0
+    insufficient_count: int = 0
+    covered_symbol_count: int = 0
+    total_latest_amount: Decimal | None = None
+    proxy_net_amount: Decimal | None = None
+    rising_ratio: Decimal | None = None
+    amount_ratio_20d: Decimal | None = None
+    avg_turnover_20d: Decimal | None = None
+    strongest_sectors: list[str] = Field(default_factory=list)
+    weakest_sectors: list[str] = Field(default_factory=list)
+    analysis: list[str] = Field(default_factory=list)
+
+
+class SectorCapitalFlowTrendPoint(BaseModel):
+    trade_date: date
+    latest_amount: Decimal | None = None
+    proxy_net_amount: Decimal | None = None
+    rising_ratio: Decimal | None = None
+    amount_ratio_20d: Decimal | None = None
+    limit_up_count: int = 0
+
+
+class SectorCapitalFlowMember(BaseModel):
+    symbol: str
+    name: str | None = None
+    latest_amount: Decimal | None = None
+    proxy_net_amount: Decimal | None = None
+    latest_change_percent: Decimal | None = None
+    strength_20d_pct: Decimal | None = None
+    turnover: Decimal | None = None
+    limit_up: bool | None = None
+
+
+class SectorCapitalFlowDetail(BaseModel):
+    sector: str
+    item: SectorCapitalFlowItem
+    trend: list[SectorCapitalFlowTrendPoint] = Field(default_factory=list)
+    top_members: list[SectorCapitalFlowMember] = Field(default_factory=list)
+    analysis: list[str] = Field(default_factory=list)
+
+
 class SectorCapitalFlowResponse(BaseModel):
     universe_id: str
     items: list[SectorCapitalFlowItem]
+    market_summary: SectorCapitalFlowMarketSummary | None = None
+    detail: SectorCapitalFlowDetail | None = None
     source: str = "timescaledb"
     proxy_note: str = (
         "当前为成交额、换手、上涨占比和20日强弱聚合出的资金热度代理，"
         "不是 DDE/主力净流入真实字段。"
     )
+    cache_status: CacheStatus = "bypass"
+    cache_ttl_seconds: int | None = None
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     data_quality: DataQuality = Field(default_factory=DataQuality)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -25,12 +25,18 @@ from quantpilot_market_data.models import (
     ResearchUniverse,
     ResearchUniverseMember,
     ResearchUniverseSummary,
+    SectorCapitalFlowDetail,
     SectorCapitalFlowItem,
+    SectorCapitalFlowMarketSummary,
+    SectorCapitalFlowMember,
+    SectorCapitalFlowTrendPoint,
     SymbolResolveResult,
 )
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_UNIVERSE_ID = "a-share-sample-research-pool"
+SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS = 300
+_SECTOR_CAPITAL_FLOW_CACHE: dict[tuple[str, int, str], tuple[datetime, dict[str, Any]]] = {}
 ROOT_DIR = Path(__file__).resolve().parents[4]
 SECTOR_HINT_LABELS = {
     "semiconductor": "半导体",
