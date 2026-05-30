@@ -12,7 +12,7 @@ flowchart LR
   M --> DB
   R --> P[data/projects/project-*]
   M --> P
-  P --> V[生成项目预览 :3100+]
+  P --> V[生成项目预览 :4100+]
   P --> H[运维平台 /ops-platform]
   W --> T[策略平台 /strategy-platform]
   W --> C[数据平台 /data-platform]

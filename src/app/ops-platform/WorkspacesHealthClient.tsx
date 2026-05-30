@@ -10,6 +10,7 @@ import {
   Clock3,
   Cpu,
   Database,
+  ExternalLink,
   FileText,
   Gauge,
   GitBranch,
@@ -430,11 +431,11 @@ function LogsView({
   const approximateTimestampCount = filteredEntries.filter((entry) => entry.timestampSource === "source-modified").length;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">日志源</h3>
-          <p className="mt-1 text-xs text-slate-500">直接读取本地运行日志尾部，刷新页面即可更新。</p>
+          <p className="mt-1 text-xs text-slate-500">集中读取 Loki，并保留本地日志文件兜底。</p>
         </div>
         <div className="divide-y divide-slate-100">
           {data.logSources.map((source) => (
@@ -450,7 +451,9 @@ function LogsView({
               </div>
               <p className="mt-1 truncate font-mono text-xs text-slate-500">{source.path}</p>
               <p className="mt-1 text-xs text-slate-400">
-                {source.exists ? `${formatBytes(source.sizeBytes)} · ${formatDate(source.modifiedAt)}` : source.error ?? "未生成"}
+                {source.exists
+                  ? `${source.type === "loki" ? "集中日志" : formatBytes(source.sizeBytes)} · ${formatDate(source.modifiedAt)}`
+                  : source.error ?? "未生成"}
               </p>
             </button>
           ))}
@@ -466,8 +469,16 @@ function LogsView({
           {activeLog && (
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span>{activeLog.lineCount} 行</span>
-              <span>{formatBytes(activeLog.sizeBytes)}</span>
+              <span>{activeLog.type === "loki" ? activeLog.query ?? "LogQL" : formatBytes(activeLog.sizeBytes)}</span>
               <OpsStatusBadge status={activeLog.exists ? "ok" : "warning"} />
+              {activeLog.externalUrl && (
+                <Button variant="outline" size="sm" asChild className="h-7 gap-1 px-2 text-xs">
+                  <a href={activeLog.externalUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Grafana
+                  </a>
+                </Button>
+              )}
             </div>
           )}
         </div>

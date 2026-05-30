@@ -5560,7 +5560,7 @@ function resolvePort(preferredPort) {
     process.env.PORT,
     process.env.WEB_PORT,
     process.env.PREVIEW_PORT_START,
-    3100,
+    4100,
   ];
 
   for (const candidate of candidates) {
@@ -5578,7 +5578,7 @@ function resolvePort(preferredPort) {
     }
   }
 
-  return 3100;
+  return 4100;
 }
 
 (async () => {

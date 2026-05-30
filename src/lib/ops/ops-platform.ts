@@ -6,6 +6,12 @@ import { getCapabilityCenterData } from '@/lib/quant/capability-center';
 import { getStrategyDashboardData } from '@/lib/quant/strategies';
 import { getWorkspaceHealthDashboard, type WorkspaceHealthDashboard } from '@/lib/quant/workspace-health';
 import { getInfrastructureHealth, type InfrastructureHealth } from '@/lib/ops/infrastructure-health';
+import {
+  componentUnavailableStatus,
+  componentUnavailableSummary,
+  componentModeSummary,
+  getRuntimeDegradationConfig,
+} from '@/lib/config/degradation';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,12 +30,15 @@ export interface OpsLogSource {
   id: string;
   label: string;
   path: string;
+  type: 'file' | 'loki';
   exists: boolean;
   sizeBytes: number;
   modifiedAt: string | null;
   lineCount: number;
   lines: string[];
   entries: OpsLogEntry[];
+  query?: string;
+  externalUrl?: string;
   error?: string;
 }
 
@@ -37,7 +46,7 @@ export interface OpsLogEntry {
   id: string;
   lineNumber: number;
   timestamp: string | null;
-  timestampSource: 'line' | 'source-modified' | null;
+  timestampSource: 'line' | 'source-modified' | 'loki' | null;
   level: string | null;
   message: string;
   raw: string;
@@ -85,6 +94,9 @@ const MARKET_API_BASE_URL =
   process.env.QUANTPILOT_MARKET_API_URL ||
   process.env.QUANTPILOT_MARKET_API_BASE_URL ||
   'http://127.0.0.1:8000';
+const LOKI_BASE_URL = process.env.LOKI_URL || 'http://127.0.0.1:3100';
+const LOKI_QUERY = (process.env.LOKI_QUERY || '{app="quantpilot"}').replace(/\\"/g, '"');
+const GRAFANA_BASE_URL = process.env.GRAFANA_URL || `http://127.0.0.1:${process.env.GRAFANA_PORT || '3001'}`;
 
 function relativePath(filePath: string): string {
   return path.relative(ROOT, filePath) || '.';
@@ -154,6 +166,15 @@ async function probeUrl(url: string, timeout = 2500): Promise<{ ok: boolean; sta
   }
 }
 
+function disabledProbe(label: string): { ok: boolean; status: number | null; ms: number; error: string | null } {
+  return {
+    ok: false,
+    status: null,
+    ms: 0,
+    error: `${label} 已按降级配置停用`,
+  };
+}
+
 async function findLatestLogFile(dirPath: string): Promise<string | null> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -179,6 +200,7 @@ async function tailLogSource(id: string, label: string, filePath: string | null,
       id,
       label,
       path: '<未发现日志文件>',
+      type: 'file',
       exists: false,
       sizeBytes: 0,
       modifiedAt: null,
@@ -204,6 +226,7 @@ async function tailLogSource(id: string, label: string, filePath: string | null,
         id,
         label,
         path: relativePath(filePath),
+        type: 'file',
         exists: true,
         sizeBytes: stat.size,
         modifiedAt: stat.mtime.toISOString(),
@@ -219,6 +242,7 @@ async function tailLogSource(id: string, label: string, filePath: string | null,
       id,
       label,
       path: relativePath(emptyPath),
+      type: 'file',
       exists: false,
       sizeBytes: 0,
       modifiedAt: null,
@@ -276,6 +300,123 @@ function parseLogEntry(raw: string, lineNumber: number, fallbackTimestamp: strin
   };
 }
 
+interface LokiQueryRangeResponse {
+  status: string;
+  data?: {
+    result?: Array<{
+      stream?: Record<string, string>;
+      values?: Array<[string, string]>;
+    }>;
+  };
+  error?: string;
+  message?: string;
+}
+
+function timestampNsToIso(value: string): string | null {
+  try {
+    const ms = Number(BigInt(value) / 1_000_000n);
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function buildLokiLogSource(params: Partial<OpsLogSource> = {}): OpsLogSource {
+  return {
+    id: 'loki',
+    label: 'Loki 集中日志',
+    path: `${LOKI_BASE_URL} · ${LOKI_QUERY}`,
+    type: 'loki',
+    exists: false,
+    sizeBytes: 0,
+    modifiedAt: null,
+    lineCount: 0,
+    lines: [],
+    entries: [],
+    query: LOKI_QUERY,
+    externalUrl: `${GRAFANA_BASE_URL.replace(/\/$/, '')}/explore`,
+    ...params,
+  };
+}
+
+async function queryLokiLogSource(maxLines = 220): Promise<OpsLogSource> {
+  const degradation = getRuntimeDegradationConfig();
+  if (!degradation.components.observability.enabled) {
+    return buildLokiLogSource({
+      path: `配置停用 · ${LOKI_QUERY}`,
+      error: 'Loki 已按降级配置停用，本地文件日志仍可作为兜底。',
+    });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1800);
+  try {
+    const now = Date.now();
+    const nowNs = BigInt(now) * 1_000_000n;
+    const startNs = BigInt(now - 24 * 60 * 60 * 1000) * 1_000_000n;
+    const url = new URL('/loki/api/v1/query_range', LOKI_BASE_URL);
+    url.searchParams.set('query', LOKI_QUERY);
+    url.searchParams.set('start', startNs.toString());
+    url.searchParams.set('end', nowNs.toString());
+    url.searchParams.set('limit', String(maxLines));
+    url.searchParams.set('direction', 'BACKWARD');
+
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    const payload = (await response.json().catch(() => null)) as LokiQueryRangeResponse | null;
+    if (!response.ok || !payload || payload.status !== 'success') {
+      return buildLokiLogSource({
+        error: payload?.error ?? payload?.message ?? `HTTP ${response.status}`,
+      });
+    }
+
+    const entries = (payload.data?.result ?? [])
+      .flatMap((stream) =>
+        (stream.values ?? []).map(([timestampNs, line]) => {
+          const timestamp = timestampNsToIso(timestampNs);
+          const parsed = parseLogEntry(line, 0, timestamp);
+          const labelText = stream.stream
+            ? Object.entries(stream.stream)
+                .filter(([key]) => ['container', 'compose_service', 'job', 'source'].includes(key))
+                .map(([key, value]) => `${key}=${value}`)
+                .join(' ')
+            : '';
+          return {
+            ...parsed,
+            id: `loki-${timestampNs}-${Buffer.from(line).subarray(0, 8).toString('hex')}`,
+            timestamp: parsed.timestamp ?? timestamp,
+            timestampSource: parsed.timestampSource === 'line' ? 'line' : 'loki',
+            raw: labelText ? `[${labelText}] ${line}` : line,
+          } satisfies OpsLogEntry;
+        })
+      )
+      .sort((a, b) => {
+        const left = a.timestamp ? Date.parse(a.timestamp) : 0;
+        const right = b.timestamp ? Date.parse(b.timestamp) : 0;
+        return left - right;
+      })
+      .map((entry, index) => ({
+        ...entry,
+        lineNumber: index + 1,
+      }));
+
+    return buildLokiLogSource({
+      exists: true,
+      sizeBytes: entries.reduce((sum, entry) => sum + Buffer.byteLength(entry.raw, 'utf8'), 0),
+      modifiedAt: entries.at(-1)?.timestamp ?? null,
+      lineCount: entries.length,
+      lines: entries.map((entry) => entry.raw),
+      entries,
+    });
+  } catch (error) {
+    return buildLokiLogSource({
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function collectLogSources(): Promise<OpsLogSource[]> {
   const latestEvalLog = await findLatestLogFile(path.join(ROOT, 'tmp', 'quantpilot-eval-queue', 'logs'));
   const sources: Array<{ id: string; label: string; filePath: string | null }> = [
@@ -284,7 +425,11 @@ async function collectLogSources(): Promise<OpsLogSource[]> {
     { id: 'market-api', label: '量化数据后端', filePath: path.join(ROOT, 'tmp', 'runtime', 'market-api.log') },
     { id: 'eval-queue', label: '评测队列最新运行', filePath: latestEvalLog },
   ];
-  return Promise.all(sources.map((source) => tailLogSource(source.id, source.label, source.filePath)));
+  const [fileSources, lokiSource] = await Promise.all([
+    Promise.all(sources.map((source) => tailLogSource(source.id, source.label, source.filePath))),
+    queryLokiLogSource(),
+  ]);
+  return [lokiSource, ...fileSources];
 }
 
 function checkStatusFromCount(failed: number, warning: number): OpsCheckStatus {
@@ -519,6 +664,10 @@ function buildStrategyHealthProfile(strategy: Awaited<ReturnType<typeof getStrat
 export async function getOpsPlatformDashboard(params: {
   workspaceHealth?: WorkspaceHealthDashboard | Promise<WorkspaceHealthDashboard>;
 } = {}): Promise<OpsPlatformDashboard> {
+  const degradation = getRuntimeDegradationConfig();
+  const marketApi = degradation.components.marketApi;
+  const observability = degradation.components.observability;
+  const database = degradation.components.database;
   const [
     infrastructure,
     capabilityCenter,
@@ -538,8 +687,8 @@ export async function getOpsPlatformDashboard(params: {
     commandOutput('npm', ['--version']),
     commandOutput('claude', ['--version']),
     commandOutput(process.env.CODEX_EXECUTABLE || 'codex', ['--version']),
-    probeUrl(`${MARKET_API_BASE_URL}/health`),
-    probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`),
+    marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
+    marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
     collectLogSources(),
   ]);
 
@@ -557,6 +706,16 @@ export async function getOpsPlatformDashboard(params: {
     requiredFiles[2] ? null : 'sqls',
     requiredFiles[3] ? null : 'services/market-data',
   ].filter((item): item is string => Boolean(item));
+  const lokiSource = logSources.find((source) => source.id === 'loki');
+  const databaseHealthy = infrastructure.data.connected && infrastructure.data.timescale.enabled;
+  const databaseStatus: OpsCheckStatus = databaseHealthy ? 'ok' : componentUnavailableStatus(database);
+  const marketApiHealthy = marketHealth.ok && marketRegistry.ok;
+  const marketApiStatus: OpsCheckStatus = marketApiHealthy
+    ? 'ok'
+    : marketHealth.ok
+      ? 'warning'
+      : componentUnavailableStatus(marketApi);
+  const lokiStatus: OpsCheckStatus = lokiSource?.exists ? 'ok' : componentUnavailableStatus(observability);
 
   const nodeVersion = process.versions.node;
   const systemChecks: OpsCheck[] = [
@@ -584,32 +743,55 @@ export async function getOpsPlatformDashboard(params: {
       actions: claudeVersion || codexVersion ? [] : ['安装并登录 Claude Code 或 Codex CLI。'],
     },
     {
+      id: 'degradation-mode',
+      label: '降级配置',
+      status: 'ok',
+      summary: `${degradation.mode} · DB ${componentModeSummary(database)} · Market API ${componentModeSummary(marketApi)} · Observability ${componentModeSummary(observability)}`,
+      detail: 'auto 适合本地开发；strict 适合 CI/生产；offline 会跳过外部组件探测并使用文件/内置注册表兜底。',
+    },
+    {
       id: 'database',
       label: 'PostgreSQL / TimescaleDB',
-      status: infrastructure.data.connected && infrastructure.data.timescale.enabled ? 'ok' : 'failed',
+      status: databaseStatus,
       summary: infrastructure.data.connected
         ? `已连接 ${infrastructure.data.provider}，TimescaleDB ${infrastructure.data.timescale.version ?? '未启用'}`
-        : '数据库不可连接',
+        : componentUnavailableSummary(database, '数据库'),
       detail: infrastructure.error ?? `${infrastructure.data.quantSchema.tables.length} 张 quant 表可用。`,
-      actions: infrastructure.data.connected ? [] : ['运行 npm run db:up 和 npm run prisma:push。'],
+      actions: database.enabled && !infrastructure.data.connected ? ['运行 npm run db:up 和 npm run prisma:push。'] : [],
     },
     {
       id: 'docker-timescaledb',
       label: 'Docker timescaledb 服务',
-      status: infrastructure.data.docker.running ? 'ok' : infrastructure.data.docker.available ? 'warning' : 'failed',
+      status: infrastructure.data.docker.running
+        ? 'ok'
+        : database.enabled
+          ? infrastructure.data.docker.available ? 'warning' : componentUnavailableStatus(database)
+          : 'unknown',
       summary: infrastructure.data.docker.service?.status ?? 'compose 服务未运行',
       detail: infrastructure.data.docker.error,
-      actions: infrastructure.data.docker.running ? [] : ['运行 npm run db:up。'],
+      actions: database.enabled && !infrastructure.data.docker.running ? ['运行 npm run db:up。'] : [],
+    },
+    {
+      id: 'loki',
+      label: 'Loki 集中日志',
+      status: lokiStatus,
+      summary: lokiSource?.exists
+        ? `${lokiSource.lineCount} 行集中日志 · ${LOKI_BASE_URL}`
+        : componentUnavailableSummary(observability, 'Loki'),
+      detail: lokiSource?.exists
+        ? `查询 ${lokiSource.query ?? LOKI_QUERY}`
+        : lokiSource?.error ?? '运行 npm run obs:up 后可采集 Docker 和本地运行日志。',
+      actions: observability.enabled && !lokiSource?.exists ? ['运行 npm run obs:up 启动 Loki、Grafana 和 Alloy。'] : [],
     },
     {
       id: 'market-api',
       label: '量化数据后端',
-      status: marketHealth.ok && marketRegistry.ok ? 'ok' : marketHealth.ok ? 'warning' : 'failed',
+      status: marketApiStatus,
       summary: `${MARKET_API_BASE_URL} · health=${marketHealth.status ?? '-'} · registry=${marketRegistry.status ?? '-'}`,
       detail: marketHealth.ok && marketRegistry.ok
         ? `响应 ${Math.max(marketHealth.ms, marketRegistry.ms)}ms`
         : marketHealth.error ?? marketRegistry.error ?? undefined,
-      actions: marketHealth.ok ? [] : ['进入 services/market-data 后运行 uv run quantpilot-market-api。'],
+      actions: marketApi.enabled && !marketHealth.ok ? ['进入 services/market-data 后运行 uv run quantpilot-market-api。'] : [],
     },
     {
       id: 'workspace-storage',
@@ -655,10 +837,10 @@ export async function getOpsPlatformDashboard(params: {
     {
       id: 'quant-schema',
       label: '量化数据表',
-      status: infrastructure.data.quantSchema.tables.length >= 4 ? 'ok' : 'warning',
+      status: infrastructure.data.quantSchema.tables.length >= 4 ? 'ok' : componentUnavailableStatus(database),
       summary: `${infrastructure.data.quantSchema.tables.length} 张 quant 表`,
       detail: infrastructure.data.quantSchema.tables.map((table) => `quant.${table}`).join('、') || '尚未初始化 quant schema。',
-      actions: infrastructure.data.quantSchema.tables.length >= 4 ? [] : ['执行 sqls/README.md 中的初始化 SQL。'],
+      actions: database.enabled && infrastructure.data.quantSchema.tables.length < 4 ? ['执行 sqls/README.md 中的初始化 SQL。'] : [],
     },
     {
       id: 'logs',

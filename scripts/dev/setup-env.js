@@ -22,8 +22,8 @@ const defaultDatabaseUrl =
 
 const MAX_PORT = 65_535;
 // Preview servers (per-project) dynamic pool
-const FALLBACK_PORT_START = 3_100;
-const FALLBACK_PORT_END = 3_999;
+const FALLBACK_PORT_START = 4_100;
+const FALLBACK_PORT_END = 4_999;
 const DEFAULT_RANGE_SPAN = FALLBACK_PORT_END - FALLBACK_PORT_START;
 // QuantPilot 主应用默认端口，扫描范围避开生成项目预览端口池
 const DEFAULT_WEB_PORT = 3_000;
@@ -234,6 +234,30 @@ async function ensureEnvironment(options = {}) {
   }
   if (!hasEnvKey(envContents, 'ENCRYPTION_KEY')) {
     envDefaults.ENCRYPTION_KEY = `"${crypto.randomBytes(32).toString('hex')}"`;
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_DEGRADATION_MODE')) {
+    envDefaults.QUANTPILOT_DEGRADATION_MODE = '"auto"';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_DATABASE_ENABLED')) {
+    envDefaults.QUANTPILOT_DATABASE_ENABLED = '1';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_DATABASE_REQUIRED')) {
+    envDefaults.QUANTPILOT_DATABASE_REQUIRED = '1';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_MARKET_API_ENABLED')) {
+    envDefaults.QUANTPILOT_MARKET_API_ENABLED = '1';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_MARKET_API_REQUIRED')) {
+    envDefaults.QUANTPILOT_MARKET_API_REQUIRED = '0';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_OBSERVABILITY_ENABLED')) {
+    envDefaults.QUANTPILOT_OBSERVABILITY_ENABLED = '1';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_OBSERVABILITY_REQUIRED')) {
+    envDefaults.QUANTPILOT_OBSERVABILITY_REQUIRED = '0';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_REQUIRED')) {
+    envDefaults.QUANTPILOT_REDIS_REQUIRED = '0';
   }
 
   const portStartCandidates = [

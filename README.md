@@ -62,6 +62,8 @@ npm run dev
 | 数据库启动 | `npm run db:up && npm run db:init` |
 | 数据库检查 | `npm run db:doctor` |
 | Redis CLI | `npm run redis:cli` |
+| 可观测性启动 | `npm run obs:up` |
+| 可观测性日志 | `npm run obs:logs` |
 | Skills 检查 | `npm run check:skills` |
 | 验证修复链路检查 | `npm run check:validation-repair` |
 | 首页视觉 smoke | `npm run check:homepage` |
@@ -90,3 +92,11 @@ npm run dev
 以下内容默认不进入 Git：`.env`、`.env.local`、`.next/`、`node_modules/`、`data/`、`tmp/`、`public/uploads/`、`public/generated/`、`services/market-data/.venv/`、`services/**/.ruff_cache/`。
 
 首次使用需要的 PostgreSQL / TimescaleDB SQL 放在 `sqls/`。生成工作空间源码和大产物放在 `data/projects/`，平台数据库只保存索引、状态和摘要。
+
+## 本地可观测性
+
+`npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 默认宿主机端口是 `3100`，生成项目预览端口池从 `4100` 开始；Grafana 默认入口是 `http://localhost:3001`，默认账号密码来自 `.env`；运维平台的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
+
+## 降级模式
+
+`.env` 中的 `QUANTPILOT_DEGRADATION_MODE` 控制组件缺失时的行为：`auto` 适合本地开发，可选组件缺失时自动降级；`strict` 适合 CI/生产，必需组件缺失会失败；`offline` 会跳过可选外部组件探测，优先使用文件日志、内置数据源注册表和本地兜底数据。可通过 `QUANTPILOT_MARKET_API_ENABLED`、`QUANTPILOT_OBSERVABILITY_ENABLED`、`QUANTPILOT_REDIS_CACHE_ENABLED` 等开关精确控制。

@@ -10,6 +10,8 @@ const ROOT = process.cwd();
 const FULL_CHECKS = process.argv.includes('--full');
 
 const checks = [];
+const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled']);
+const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled']);
 
 function addCheck(name, status, summary, details = []) {
   checks.push({ name, status, summary, details: details.filter(Boolean) });
@@ -62,6 +64,46 @@ function readEnvValue(key) {
   return '';
 }
 
+function envFlag(key, fallback) {
+  const value = readEnvValue(key).trim().toLowerCase();
+  if (!value) return fallback;
+  if (FALSE_VALUES.has(value)) return false;
+  if (TRUE_VALUES.has(value)) return true;
+  return fallback;
+}
+
+function degradationConfig() {
+  const modeValue = readEnvValue('QUANTPILOT_DEGRADATION_MODE').trim().toLowerCase();
+  const mode = modeValue === 'strict' || modeValue === 'offline' ? modeValue : 'auto';
+  const offline = mode === 'offline';
+  const strict = mode === 'strict';
+  return {
+    mode,
+    database: {
+      enabled: envFlag('QUANTPILOT_DATABASE_ENABLED', true),
+      required: offline ? false : envFlag('QUANTPILOT_DATABASE_REQUIRED', true),
+    },
+    marketApi: {
+      enabled: offline ? false : envFlag('QUANTPILOT_MARKET_API_ENABLED', true),
+      required: !offline && envFlag('QUANTPILOT_MARKET_API_REQUIRED', strict),
+    },
+    observability: {
+      enabled: offline ? false : envFlag('QUANTPILOT_OBSERVABILITY_ENABLED', true),
+      required: !offline && envFlag('QUANTPILOT_OBSERVABILITY_REQUIRED', strict),
+    },
+  };
+}
+
+function unavailableStatus(component) {
+  if (!component.enabled) return 'warn';
+  return component.required ? 'fail' : 'warn';
+}
+
+function componentMode(component) {
+  if (!component.enabled) return 'disabled';
+  return component.required ? 'required' : 'optional';
+}
+
 function hasCodexApiKey() {
   if (readEnvValue('CODEX_OPENAI_API_KEY') || readEnvValue('OPENAI_API_KEY')) return true;
   const auth = readJson(path.join(process.env.HOME || '', '.codex', 'auth.json'));
@@ -69,9 +111,15 @@ function hasCodexApiKey() {
 }
 
 async function checkDatabase() {
+  const degradation = degradationConfig();
+  if (!degradation.database.enabled) {
+    addCheck('数据库', 'warn', '已按降级配置停用。', ['数据库关闭时，依赖历史行情和项目索引的页面会展示有限兜底数据。']);
+    return;
+  }
+
   const databaseUrl = readEnvValue('DATABASE_URL');
   if (!databaseUrl) {
-    addCheck('数据库', 'fail', 'DATABASE_URL 未配置。');
+    addCheck('数据库', unavailableStatus(degradation.database), 'DATABASE_URL 未配置。');
     return;
   }
 
@@ -83,7 +131,7 @@ async function checkDatabase() {
   const prisma = new PrismaClient();
   try {
     if (provider !== 'PostgreSQL') {
-      addCheck('数据库', 'fail', `${provider} DATABASE_URL。`, ['运行 npm run ensure:env 重新生成 PostgreSQL 配置。']);
+      addCheck('数据库', unavailableStatus(degradation.database), `${provider} DATABASE_URL。`, ['运行 npm run ensure:env 重新生成 PostgreSQL 配置。']);
       return;
     }
     await prisma.project.findFirst({ select: { id: true } });
@@ -104,7 +152,7 @@ async function checkDatabase() {
   } catch (error) {
     addCheck(
       '数据库',
-      'fail',
+      unavailableStatus(degradation.database),
       `${provider} 连接或 schema 检查失败。`,
       [
         error instanceof Error ? error.message : String(error),
@@ -194,9 +242,16 @@ function checkCommand(name, command, args, options = {}) {
 
 async function main() {
   console.log(`\nQuantPilot Doctor ${FULL_CHECKS ? '(full)' : '(quick)'}\n`);
+  const degradation = degradationConfig();
 
   const packageJson = readJson(path.join(ROOT, 'package.json'));
   addCheck('项目配置', packageJson?.name === 'quantpilot' ? 'ok' : 'fail', packageJson ? `${packageJson.name}@${packageJson.version}` : '无法读取 package.json。');
+  addCheck(
+    '降级配置',
+    'ok',
+    `${degradation.mode} · DB ${componentMode(degradation.database)} · Market API ${componentMode(degradation.marketApi)} · Observability ${componentMode(degradation.observability)}`,
+    ['auto 适合本地开发；strict 适合 CI/生产；offline 会跳过可选外部组件。']
+  );
 
   const nodeVersion = commandOutput('node', ['--version']);
   const npmVersion = commandOutput('npm', ['--version']);
@@ -243,13 +298,30 @@ async function main() {
     frontend.ok ? [] : ['运行 npm run dev 可启动主前端。']
   );
 
-  const backend = await requestJson('http://127.0.0.1:8000/health');
-  addCheck(
-    '量化数据后端 :8000',
-    backend.ok ? 'ok' : 'warn',
-    backend.ok ? `HTTP ${backend.statusCode}` : '未连接。',
-    backend.ok ? [] : ['进入 services/market-data 后运行 uv run quantpilot-market-api。']
-  );
+  if (degradation.marketApi.enabled) {
+    const backend = await requestJson('http://127.0.0.1:8000/health');
+    addCheck(
+      '量化数据后端 :8000',
+      backend.ok ? 'ok' : unavailableStatus(degradation.marketApi),
+      backend.ok ? `HTTP ${backend.statusCode}` : '未连接，已使用数据源注册表/本地数据兜底。',
+      backend.ok ? [] : ['进入 services/market-data 后运行 uv run quantpilot-market-api。']
+    );
+  } else {
+    addCheck('量化数据后端 :8000', 'warn', '已按降级配置停用。', ['策略和数据平台会优先展示本地/内置兜底数据。']);
+  }
+
+  if (degradation.observability.enabled) {
+    const lokiUrl = readEnvValue('LOKI_URL') || 'http://127.0.0.1:3100';
+    const loki = await requestHead(`${lokiUrl.replace(/\/$/, '')}/ready`, 2500);
+    addCheck(
+      'Loki 可观测性',
+      loki.ok ? 'ok' : unavailableStatus(degradation.observability),
+      loki.ok ? `HTTP ${loki.statusCode}` : '未连接，运维平台将使用本地日志文件兜底。',
+      loki.ok ? [] : ['运行 npm run obs:up。']
+    );
+  } else {
+    addCheck('Loki 可观测性', 'warn', '已按降级配置停用。', ['运维平台仍会读取本地日志文件。']);
+  }
 
   const projectsDir = readEnvValue('PROJECTS_DIR') || './data/projects';
   const projectRoot = path.resolve(ROOT, projectsDir);

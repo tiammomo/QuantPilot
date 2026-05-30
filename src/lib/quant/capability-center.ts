@@ -3,6 +3,7 @@ import {
   QUANT_CAPABILITY_GROUPS,
   serializeQuantCapabilities,
 } from '@/lib/quant/capabilities';
+import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
 
 type JsonRecord = Record<string, unknown>;
@@ -78,11 +79,19 @@ export interface CapabilityCenterData {
     checkedAt: string;
     error: string | null;
   };
+  degradation: {
+    mode: string;
+    marketApiEnabled: boolean;
+    marketApiRequired: boolean;
+  };
   capabilities: CapabilityCenterItem[];
   dataProviders: CapabilityCenterDataProvider[];
 }
 
-const MARKET_API_BASE_URL = process.env.QUANTPILOT_MARKET_API_BASE_URL || 'http://127.0.0.1:8000';
+const MARKET_API_BASE_URL =
+  process.env.QUANTPILOT_MARKET_API_URL ||
+  process.env.QUANTPILOT_MARKET_API_BASE_URL ||
+  'http://127.0.0.1:8000';
 
 const FALLBACK_DATA_PROVIDERS: CapabilityCenterDataProvider[] = [
   {
@@ -283,6 +292,16 @@ async function fetchMarketRegistry(): Promise<{
   error: string | null;
   providers: CapabilityCenterDataProvider[];
 }> {
+  const degradation = getRuntimeDegradationConfig();
+  if (!degradation.components.marketApi.enabled) {
+    return {
+      reachable: false,
+      status: 'disabled-fallback',
+      error: 'market API 已按降级配置停用，展示内置数据源注册表。',
+      providers: FALLBACK_DATA_PROVIDERS,
+    };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2_500);
   try {
@@ -355,6 +374,7 @@ function buildReadiness(params: {
 }
 
 export async function getCapabilityCenterData(): Promise<CapabilityCenterData> {
+  const degradation = getRuntimeDegradationConfig();
   const [skillsData, market] = await Promise.all([
     getSkillsDashboardData(),
     fetchMarketRegistry(),
@@ -443,6 +463,11 @@ export async function getCapabilityCenterData(): Promise<CapabilityCenterData> {
       status: market.status,
       checkedAt: new Date().toISOString(),
       error: market.error,
+    },
+    degradation: {
+      mode: degradation.mode,
+      marketApiEnabled: degradation.components.marketApi.enabled,
+      marketApiRequired: degradation.components.marketApi.required,
     },
     capabilities,
     dataProviders: market.providers,
