@@ -761,6 +761,7 @@ dependencies = [
     { name = "httpx", extra = ["http2"] },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
+    { name = "redis" },
     { name = "requests" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -791,6 +792,7 @@ requires-dist = [
     { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
     { name = "pydantic", specifier = ">=2.12.0" },
+    { name = "redis", specifier = ">=8.0.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "tushare", marker = "extra == 'tushare'", specifier = ">=1.4.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.48.0" },
@@ -802,6 +804,15 @@ dev = [
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.14.0" },
+]
+
+[[package]]
+name = "redis"
+version = "8.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/ae/ed461cca5780b5fc8b9fe8ca0ed98d89508645fb9d880c24cc42c087678f/redis-8.0.0.tar.gz", hash = "sha256:a00c5355432051ac14e593b8b197fc76c887ee12d55a0984f69328a1115fdc49", size = 5101591, upload-time = "2026-05-28T12:45:13.5Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/e3/b519734372d305bd547534a9f32e4ce9f98552af753dce72cf3483a0ff0b/redis-8.0.0-py3-none-any.whl", hash = "sha256:c938c18338585009f0bc310f4c7e4e4b4d37639356c4ac072cedf3af570c8dc7", size = 499870, upload-time = "2026-05-28T12:45:11.697Z" },
 ]
 
 [[package]]

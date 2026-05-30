@@ -22,5 +22,28 @@ services:
       retries: 10
       start_period: 20s
 
+  redis:
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    container_name: quantpilot-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1000"
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - quantpilot_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
 volumes:
   quantpilot_timescaledb_data:
+  quantpilot_redis_data:

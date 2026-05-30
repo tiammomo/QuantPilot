@@ -477,13 +477,20 @@ def _required_fields_for_target(
 def _missing_preflight_fields(
     coverage,
     *,
-    required_rows: int,
     require_fields: list[str],
 ) -> list[str]:
     missing: list[str] = []
     if coverage is None or coverage.rows_since_cutoff <= 0:
         return ["kline"]
-    if coverage.complete_rows_since_cutoff < required_rows:
+    expected_rows = max(1, getattr(coverage, "expected_rows_since_cutoff", 0) or 0)
+    if (
+        coverage.benchmark_last_ts is not None
+        and (coverage.last_ts is None or coverage.last_ts < coverage.benchmark_last_ts)
+    ):
+        missing.append("latest_trade_date")
+    if coverage.rows_since_cutoff < expected_rows:
+        missing.append("kline")
+    if coverage.complete_rows_since_cutoff < expected_rows:
         missing.extend(
             field
             for field in require_fields
@@ -504,9 +511,9 @@ def _missing_preflight_fields(
         "pcf_ncf_ttm": getattr(coverage, "pcf_ncf_ttm_count", 0),
     }
     for key, count in factor_count_by_key.items():
-        if key in require_fields and count < required_rows:
+        if key in require_fields and count < expected_rows:
             missing.append(key)
-    return missing
+    return list(dict.fromkeys(missing))
 
 
 def _skipped_existing_result(
@@ -531,6 +538,18 @@ def _skipped_existing_result(
         last_date=_local_date_text(coverage.last_ts if coverage else None),
         missing_fields=missing_fields,
     )
+
+
+def _local_coverage_ready(
+    coverage,
+    *,
+    require_fields: list[str],
+) -> tuple[bool, list[str]]:
+    missing_fields = _missing_preflight_fields(
+        coverage,
+        require_fields=require_fields,
+    )
+    return bool(coverage and coverage.rows_since_cutoff > 0 and not missing_fields), missing_fields
 
 
 def _ingestion_result_counts(
@@ -865,13 +884,21 @@ def create_app() -> FastAPI:
     async def get_research_sector_capital_flow(
         universe_id: str = "a-share-sample-research-pool",
         limit: int = Query(default=40, ge=1, le=120),
+        sector: str | None = None,
+        detail_days: int = Query(default=20, ge=5, le=60),
     ) -> SectorCapitalFlowResponse:
         try:
-            flow = await list_sector_capital_flow(universe_id=universe_id, limit=limit)
+            flow = await list_sector_capital_flow(
+                universe_id=universe_id,
+                limit=limit,
+                sector=sector,
+                detail_days=detail_days,
+            )
             return SectorCapitalFlowResponse(
                 universe_id=universe_id,
                 items=flow["items"],
                 market_summary=flow.get("market_summary"),
+                detail=flow.get("detail"),
                 cache_status=flow.get("cache_status", "bypass"),
                 cache_ttl_seconds=flow.get("cache_ttl_seconds"),
             )
@@ -1278,13 +1305,11 @@ def create_app() -> FastAPI:
             for target_index, target in enumerate(targets):
                 required_fields = _required_fields_for_target(request, target)
                 coverage = coverage_by_symbol.get(target["symbol"])
-                required_rows = max(1, min(request.limit, coverage.rows_since_cutoff if coverage else 0))
-                missing_fields = _missing_preflight_fields(
+                is_local_ready, missing_fields = _local_coverage_ready(
                     coverage,
-                    required_rows=required_rows,
                     require_fields=required_fields,
                 )
-                if coverage and coverage.rows_since_cutoff > 0 and not missing_fields:
+                if is_local_ready:
                     symbol_results.append(
                         _skipped_existing_result(
                             target=target,
@@ -1432,13 +1457,11 @@ def create_app() -> FastAPI:
             for target_index, target in enumerate(targets):
                 required_fields = _required_fields_for_target(request, target)
                 coverage = coverage_by_symbol.get(target["symbol"])
-                required_rows = max(1, min(request.limit, coverage.rows_since_cutoff if coverage else 0))
-                missing_fields = _missing_preflight_fields(
+                is_local_ready, missing_fields = _local_coverage_ready(
                     coverage,
-                    required_rows=required_rows,
                     require_fields=required_fields,
                 )
-                if coverage and coverage.rows_since_cutoff > 0 and not missing_fields:
+                if is_local_ready:
                     symbol_results.append(
                         _skipped_existing_result(
                             target=target,
@@ -1640,6 +1663,77 @@ def create_app() -> FastAPI:
                 )
 
                 symbol_results: list[HistoryIngestionSymbolResult] = []
+                local_ready_results: list[HistoryIngestionSymbolResult] = []
+                for target in targets:
+                    required_fields = _required_fields_for_target(request, target)
+                    coverage = coverage_by_symbol.get(target["symbol"])
+                    is_local_ready, missing_fields = _local_coverage_ready(
+                        coverage,
+                        require_fields=required_fields,
+                    )
+                    if not is_local_ready:
+                        break
+                    local_ready_results.append(
+                        _skipped_existing_result(
+                            target=target,
+                            coverage=coverage,
+                            missing_fields=missing_fields,
+                        )
+                    )
+                if len(local_ready_results) == len(targets):
+                    symbol_results = local_ready_results
+                    child_response = HistoryIngestionResponse(
+                        job_id=child_job_id,
+                        provider="baostock",
+                        status="completed",
+                        universe_id=request.universe_id,
+                        period=request.period,
+                        adjustment=request.adjustment,
+                        lookback_years=request.lookback_years,
+                        total_symbols=len(targets),
+                        completed_symbols=len(symbol_results),
+                        failed_symbols=0,
+                        rows_received=0,
+                        rows_upserted=0,
+                        symbols=symbol_results,
+                        batch_offset=effective_offset,
+                        batch_size=request.batch_size,
+                        next_offset=next_offset,
+                        universe_total_symbols=len(all_targets),
+                        started_at=datetime.now(UTC),
+                        completed_at=datetime.now(UTC),
+                    )
+                    await finish_ingestion_job(child_response)
+                    completed_batches += 1
+                    completed_total += child_response.completed_symbols
+                    final_next_offset = next_offset
+                    await update_ingestion_job_progress(
+                        job_id=parent_job_id,
+                        status="running",
+                        completed_symbols=completed_total,
+                        failed_symbols=failed_total,
+                        rows_received=rows_received_total,
+                        rows_upserted=rows_upserted_total,
+                        metadata={
+                            "completed_batches": completed_batches,
+                            "total_batches": total_batches,
+                            "latest_child_job_id": child_job_id,
+                            "active_child_job_id": None,
+                            "child_job_ids": child_job_ids[-100:],
+                            "batch_offset": effective_offset,
+                            "next_offset": next_offset,
+                            "universe_total_symbols": len(all_targets),
+                            "latest_batch_status": child_response.status,
+                            "current_batch_completed_symbols": len(targets),
+                            "preflight_skipped_symbols": len(symbol_results),
+                            "last_heartbeat_at": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                    if next_offset == 0:
+                        stop_reason = "completed"
+                        break
+                    current_offset = next_offset
+                    continue
                 for target_index, target in enumerate(targets):
                     absolute_index = effective_offset + target_index
                     completed_so_far, failed_so_far, received_so_far, upserted_so_far = (
@@ -1689,16 +1783,11 @@ def create_app() -> FastAPI:
 
                     coverage = coverage_by_symbol.get(target["symbol"])
                     required_fields = _required_fields_for_target(request, target)
-                    required_rows = max(
-                        1,
-                        min(request.limit, coverage.rows_since_cutoff if coverage else 0),
-                    )
-                    missing_fields = _missing_preflight_fields(
+                    is_local_ready, missing_fields = _local_coverage_ready(
                         coverage,
-                        required_rows=required_rows,
                         require_fields=required_fields,
                     )
-                    if coverage and coverage.rows_since_cutoff > 0 and not missing_fields:
+                    if is_local_ready:
                         symbol_results.append(
                             _skipped_existing_result(
                                 target=target,
@@ -1776,27 +1865,29 @@ def create_app() -> FastAPI:
                             "completed_batches": completed_batches,
                             "total_batches": total_batches,
                             "active_child_job_id": child_job_id,
-                        "latest_child_job_id": child_job_id,
-                        "batch_offset": effective_offset,
-                        "batch_size": request.batch_size,
-                        "next_offset": final_next_offset
-                        if stop_reason == "stopped"
-                        else effective_offset,
-                        "universe_total_symbols": len(all_targets),
-                        "current_batch_symbol_total": len(targets),
-                        "current_batch_completed_symbols": (
-                            target_index if stop_reason == "stopped" else target_index + 1
-                        ),
-                        "current_symbol": target["symbol"],
-                        "current_symbol_index": absolute_index,
-                        "last_completed_symbol": (
-                            None if stop_reason == "stopped" else target["symbol"]
-                        ),
-                        "preflight_skipped_symbols": skipped_existing,
-                        "stop_reason": stop_reason if stop_reason == "stopped" else None,
-                        "last_heartbeat_at": datetime.now(UTC).isoformat(),
-                    },
-                )
+                            "latest_child_job_id": child_job_id,
+                            "batch_offset": effective_offset,
+                            "batch_size": request.batch_size,
+                            "next_offset": (
+                                final_next_offset
+                                if stop_reason == "stopped"
+                                else effective_offset
+                            ),
+                            "universe_total_symbols": len(all_targets),
+                            "current_batch_symbol_total": len(targets),
+                            "current_batch_completed_symbols": (
+                                target_index if stop_reason == "stopped" else target_index + 1
+                            ),
+                            "current_symbol": target["symbol"],
+                            "current_symbol_index": absolute_index,
+                            "last_completed_symbol": (
+                                None if stop_reason == "stopped" else target["symbol"]
+                            ),
+                            "preflight_skipped_symbols": skipped_existing,
+                            "stop_reason": stop_reason if stop_reason == "stopped" else None,
+                            "last_heartbeat_at": datetime.now(UTC).isoformat(),
+                        },
+                    )
                 if stop_reason == "stopped":
                     if symbol_results:
                         partial_completed, partial_failed, _, _ = _ingestion_result_counts(

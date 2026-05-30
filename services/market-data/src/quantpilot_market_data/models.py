@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, model_validator
 MarketCode = Literal["SH", "SZ", "BJ", "UNKNOWN"]
 AssetType = Literal["stock", "index", "etf", "fund", "mixed", "unknown"]
 DataQualityStatus = Literal["ok", "warning", "error"]
-CacheStatus = Literal["hit", "miss", "disabled", "bypass"]
+CacheStatus = Literal["hit", "miss", "disabled", "bypass", "redis-hit"]
 
 
 class DataQuality(BaseModel):
@@ -768,8 +768,10 @@ class IngestionPreflightCoverage(BaseModel):
     symbol: str
     first_ts: datetime | None = None
     last_ts: datetime | None = None
+    benchmark_last_ts: datetime | None = None
     row_count: int = 0
     rows_since_cutoff: int = 0
+    expected_rows_since_cutoff: int = 0
     complete_rows_since_cutoff: int = 0
     pe_ttm_count: int = 0
     pb_mrq_count: int = 0

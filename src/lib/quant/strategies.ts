@@ -254,24 +254,78 @@ export interface StrategySectorCapitalFlowItem {
   memberCount: number;
   coveredCount: number;
   risingCount: number;
+  fallingCount: number;
   limitUpCount: number;
+  limitDownCount: number;
   risingRatio?: number | null;
   latestAmount?: number | null;
   avgAmount20d?: number | null;
   amountRatio20d?: number | null;
   avgTurnover20d?: number | null;
   strength20dPct?: number | null;
+  strength5dPct?: number | null;
+  contributionRatio?: number | null;
+  netAmountRatio?: number | null;
   proxyNetAmount?: number | null;
   signal: 'warming' | 'cooling' | 'neutral' | 'insufficient';
   topSymbols: string[];
   dataBasis: string;
 }
 
+export interface StrategySectorCapitalFlowMarketSummary {
+  sectorCount: number;
+  warmingCount: number;
+  coolingCount: number;
+  neutralCount: number;
+  insufficientCount: number;
+  coveredSymbolCount: number;
+  totalLatestAmount?: number | null;
+  proxyNetAmount?: number | null;
+  risingRatio?: number | null;
+  amountRatio20d?: number | null;
+  avgTurnover20d?: number | null;
+  strongestSectors: string[];
+  weakestSectors: string[];
+  analysis: string[];
+}
+
+export interface StrategySectorCapitalFlowTrendPoint {
+  tradeDate: string;
+  latestAmount?: number | null;
+  proxyNetAmount?: number | null;
+  risingRatio?: number | null;
+  amountRatio20d?: number | null;
+  limitUpCount: number;
+}
+
+export interface StrategySectorCapitalFlowMember {
+  symbol: string;
+  name?: string | null;
+  latestAmount?: number | null;
+  proxyNetAmount?: number | null;
+  latestChangePercent?: number | null;
+  strength20dPct?: number | null;
+  turnover?: number | null;
+  limitUp?: boolean | null;
+}
+
+export interface StrategySectorCapitalFlowDetail {
+  sector: string;
+  item: StrategySectorCapitalFlowItem;
+  trend: StrategySectorCapitalFlowTrendPoint[];
+  topMembers: StrategySectorCapitalFlowMember[];
+  analysis: string[];
+}
+
 export interface StrategySectorCapitalFlowResponse {
   universeId: string;
   items: StrategySectorCapitalFlowItem[];
+  marketSummary?: StrategySectorCapitalFlowMarketSummary | null;
+  detail?: StrategySectorCapitalFlowDetail | null;
   source: string;
   proxyNote: string;
+  cacheStatus: string;
+  cacheTtlSeconds?: number | null;
   fetchedAt: string;
 }
 
@@ -2375,13 +2429,18 @@ function mapSectorCapitalFlowItem(value: unknown): StrategySectorCapitalFlowItem
     memberCount: asNumber(record.member_count) ?? 0,
     coveredCount: asNumber(record.covered_count) ?? 0,
     risingCount: asNumber(record.rising_count) ?? 0,
+    fallingCount: asNumber(record.falling_count) ?? 0,
     limitUpCount: asNumber(record.limit_up_count) ?? 0,
+    limitDownCount: asNumber(record.limit_down_count) ?? 0,
     risingRatio: asNumber(record.rising_ratio),
     latestAmount: asNumber(record.latest_amount),
     avgAmount20d: asNumber(record.avg_amount_20d),
     amountRatio20d: asNumber(record.amount_ratio_20d),
     avgTurnover20d: asNumber(record.avg_turnover_20d),
     strength20dPct: asNumber(record.strength_20d_pct),
+    strength5dPct: asNumber(record.strength_5d_pct),
+    contributionRatio: asNumber(record.contribution_ratio),
+    netAmountRatio: asNumber(record.net_amount_ratio),
     proxyNetAmount: asNumber(record.proxy_net_amount),
     signal: signal === 'warming' || signal === 'cooling' || signal === 'neutral' || signal === 'insufficient'
       ? signal
@@ -2391,13 +2450,76 @@ function mapSectorCapitalFlowItem(value: unknown): StrategySectorCapitalFlowItem
   };
 }
 
+function mapSectorCapitalFlowMarketSummary(value: unknown): StrategySectorCapitalFlowMarketSummary | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) return null;
+  return {
+    sectorCount: asNumber(record.sector_count) ?? 0,
+    warmingCount: asNumber(record.warming_count) ?? 0,
+    coolingCount: asNumber(record.cooling_count) ?? 0,
+    neutralCount: asNumber(record.neutral_count) ?? 0,
+    insufficientCount: asNumber(record.insufficient_count) ?? 0,
+    coveredSymbolCount: asNumber(record.covered_symbol_count) ?? 0,
+    totalLatestAmount: asNumber(record.total_latest_amount),
+    proxyNetAmount: asNumber(record.proxy_net_amount),
+    risingRatio: asNumber(record.rising_ratio),
+    amountRatio20d: asNumber(record.amount_ratio_20d),
+    avgTurnover20d: asNumber(record.avg_turnover_20d),
+    strongestSectors: Array.isArray(record.strongest_sectors) ? record.strongest_sectors.map(String).filter(Boolean) : [],
+    weakestSectors: Array.isArray(record.weakest_sectors) ? record.weakest_sectors.map(String).filter(Boolean) : [],
+    analysis: Array.isArray(record.analysis) ? record.analysis.map(String).filter(Boolean) : [],
+  };
+}
+
+function mapSectorCapitalFlowTrendPoint(value: unknown): StrategySectorCapitalFlowTrendPoint {
+  const record = asRecord(value);
+  return {
+    tradeDate: asString(record.trade_date),
+    latestAmount: asNumber(record.latest_amount),
+    proxyNetAmount: asNumber(record.proxy_net_amount),
+    risingRatio: asNumber(record.rising_ratio),
+    amountRatio20d: asNumber(record.amount_ratio_20d),
+    limitUpCount: asNumber(record.limit_up_count) ?? 0,
+  };
+}
+
+function mapSectorCapitalFlowMember(value: unknown): StrategySectorCapitalFlowMember {
+  const record = asRecord(value);
+  return {
+    symbol: asString(record.symbol),
+    name: typeof record.name === 'string' ? record.name : null,
+    latestAmount: asNumber(record.latest_amount),
+    proxyNetAmount: asNumber(record.proxy_net_amount),
+    latestChangePercent: asNumber(record.latest_change_percent),
+    strength20dPct: asNumber(record.strength_20d_pct),
+    turnover: asNumber(record.turnover),
+    limitUp: asBoolean(record.limit_up),
+  };
+}
+
+function mapSectorCapitalFlowDetail(value: unknown): StrategySectorCapitalFlowDetail | null {
+  const record = asRecord(value);
+  if (!Object.keys(record).length) return null;
+  return {
+    sector: asString(record.sector),
+    item: mapSectorCapitalFlowItem(record.item),
+    trend: Array.isArray(record.trend) ? record.trend.map(mapSectorCapitalFlowTrendPoint) : [],
+    topMembers: Array.isArray(record.top_members) ? record.top_members.map(mapSectorCapitalFlowMember) : [],
+    analysis: Array.isArray(record.analysis) ? record.analysis.map(String).filter(Boolean) : [],
+  };
+}
+
 function mapSectorCapitalFlowResponse(value: unknown): StrategySectorCapitalFlowResponse {
   const record = asRecord(value);
   return {
     universeId: asString(record.universe_id),
     items: Array.isArray(record.items) ? record.items.map(mapSectorCapitalFlowItem) : [],
+    marketSummary: mapSectorCapitalFlowMarketSummary(record.market_summary),
+    detail: mapSectorCapitalFlowDetail(record.detail),
     source: asString(record.source, 'timescaledb'),
     proxyNote: asString(record.proxy_note),
+    cacheStatus: asString(record.cache_status, 'bypass'),
+    cacheTtlSeconds: asNumber(record.cache_ttl_seconds),
     fetchedAt: asString(record.fetched_at, new Date().toISOString()),
   };
 }
@@ -2553,11 +2675,19 @@ export async function controlStrategyIngestionJob(params: {
 export async function getStrategySectorCapitalFlow(params: {
   universeId?: string;
   limit?: number;
+  sector?: string;
+  detailDays?: number;
 } = {}): Promise<StrategySectorCapitalFlowResponse> {
   const query = new URLSearchParams({
     universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
     limit: String(Math.max(1, Math.min(params.limit ?? 40, 120))),
   });
+  if (params.sector) {
+    query.set('sector', params.sector);
+  }
+  if (params.detailDays) {
+    query.set('detail_days', String(Math.max(5, Math.min(params.detailDays, 60))));
+  }
   const payload = await fetchMarketApiJson<unknown>(
     `/api/v1/research/sector-capital-flow?${query.toString()}`
   );

@@ -214,6 +214,21 @@ async function ensureEnvironment(options = {}) {
   if (!hasEnvKey(envContents, 'POSTGRES_PORT')) {
     envDefaults.POSTGRES_PORT = '5432';
   }
+  if (!hasEnvKey(envContents, 'REDIS_URL')) {
+    envDefaults.REDIS_URL = '"redis://127.0.0.1:6379/0"';
+  }
+  if (!hasEnvKey(envContents, 'REDIS_IMAGE')) {
+    envDefaults.REDIS_IMAGE = '"redis:8-alpine"';
+  }
+  if (!hasEnvKey(envContents, 'REDIS_PORT')) {
+    envDefaults.REDIS_PORT = '6379';
+  }
+  if (!hasEnvKey(envContents, 'REDIS_NAMESPACE')) {
+    envDefaults.REDIS_NAMESPACE = '"quantpilot"';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_CACHE_ENABLED')) {
+    envDefaults.QUANTPILOT_REDIS_CACHE_ENABLED = '1';
+  }
   if (!hasEnvKey(envContents, 'PROJECTS_DIR')) {
     envDefaults.PROJECTS_DIR = '"./data/projects"';
   }

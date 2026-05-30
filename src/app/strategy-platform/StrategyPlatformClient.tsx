@@ -43,7 +43,9 @@ import type {
   StrategyIngestionJob,
   StrategyLocalKlineBar,
   StrategyLocalKlineResponse,
+  StrategySectorCapitalFlowDetail,
   StrategySectorCapitalFlowItem,
+  StrategySectorCapitalFlowMarketSummary,
   StrategyUniverse,
   StrategyUniverseMember,
   StrategyUniverseMembersPage,
@@ -334,6 +336,17 @@ function findLatestUniverseBatchJob(jobs: StrategyIngestionJob[]) {
 
 function findLatestAutoFillJob(jobs: StrategyIngestionJob[]) {
   return jobs.find((job) => job.provider === "baostock-autofill") ?? null;
+}
+
+function findLatestRunningAutoFillChildJob(jobs: StrategyIngestionJob[]) {
+  return jobs.find((job) => job.status === "running" && stringFromUnknown(job.metadata.parent_job_id)) ?? null;
+}
+
+function ingestionControlJobId(job?: StrategyIngestionJob | null) {
+  if (!job) return null;
+  return job.provider === "baostock-autofill"
+    ? job.id
+    : stringFromUnknown(job.metadata.parent_job_id) ?? job.id;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -717,7 +730,7 @@ function UniverseView({
         body: JSON.stringify({
           action: "ingestion-jobs",
           universeId: selectedUniverse.id,
-          limit: INGESTION_LOG_LIMIT,
+          limit: 100,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -790,10 +803,16 @@ function UniverseView({
   const pagedMembers = members;
   const latestUniverseBatchJob = findLatestUniverseBatchJob(ingestionJobs);
   const latestAutoFillJob = findLatestAutoFillJob(ingestionJobs);
+  const latestAutoFillChildJob = findLatestRunningAutoFillChildJob(ingestionJobs);
+  const controllableIngestionJob = latestAutoFillJob?.status === "running"
+    ? latestAutoFillJob
+    : latestAutoFillChildJob ?? latestAutoFillJob;
+  const controllableIngestionJobId = ingestionControlJobId(controllableIngestionJob);
   const hasRunningBatchJob = latestUniverseBatchJob?.status === "running";
-  const hasRunningAutoFillJob = latestAutoFillJob?.status === "running";
-  const recentRowsUpserted = ingestionJobs.reduce((sum, job) => sum + job.rowsUpserted, 0);
-  const activeJob = latestAutoFillJob ?? latestUniverseBatchJob;
+  const hasRunningAutoFillJob = latestAutoFillJob?.status === "running" || Boolean(latestAutoFillChildJob);
+  const visibleIngestionJobs = ingestionJobs.slice(0, INGESTION_LOG_LIMIT);
+  const recentRowsUpserted = visibleIngestionJobs.reduce((sum, job) => sum + job.rowsUpserted, 0);
+  const activeJob = controllableIngestionJob ?? latestUniverseBatchJob;
   const activeProgress = ingestionProgress(activeJob);
   const activeControl = activeProgress.control;
   const isIngestionBusy = isRunningBatch || isAutoFilling || hasRunningBatchJob || hasRunningAutoFillJob;
@@ -933,8 +952,8 @@ function UniverseView({
   };
 
   const controlIngestion = async (control: "pause" | "resume" | "stop") => {
-    const job = latestAutoFillJob;
-    if (!job || job.status !== "running" || isControllingIngestion) return;
+    const jobId = controllableIngestionJobId;
+    if (!jobId || !hasRunningAutoFillJob || isControllingIngestion) return;
     setIsControllingIngestion(true);
     setMemberError(null);
     const label = control === "pause" ? "暂停" : control === "resume" ? "继续" : "停止";
@@ -944,7 +963,7 @@ function UniverseView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "control-ingestion-job",
-          jobId: job.id,
+          jobId,
           control,
           reason: `${label}策略平台自动补数`,
         }),
@@ -972,7 +991,7 @@ function UniverseView({
     const running = hasRunningAutoFillJob || (isAutoFilling && autoFillMessage);
     if (!running) {
       stopAutoFillPolling();
-      if (latestAutoFillJob && isAutoFilling) {
+      if (controllableIngestionJob && isAutoFilling) {
         setIsAutoFilling(false);
       }
       return;
@@ -981,7 +1000,8 @@ function UniverseView({
     void loadIngestionJobs();
     autoFillPollRef.current = setInterval(() => {
       void loadIngestionJobs().then((jobs) => {
-        const autoFillJob = findLatestAutoFillJob(jobs);
+        const parentJob = findLatestAutoFillJob(jobs);
+        const autoFillJob = parentJob ?? findLatestRunningAutoFillChildJob(jobs);
         if (!autoFillJob) return;
         const completedBatches = numberFromUnknown(autoFillJob.metadata.completed_batches) ?? 0;
         const maxBatches = numberFromUnknown(autoFillJob.metadata.max_batches);
@@ -999,7 +1019,7 @@ function UniverseView({
       });
     }, 2000);
     return stopAutoFillPolling;
-  }, [autoFillMessage, batchOffset, hasRunningAutoFillJob, isAutoFilling, latestAutoFillJob, loadIngestionJobs]);
+  }, [autoFillMessage, batchOffset, controllableIngestionJob, hasRunningAutoFillJob, isAutoFilling, loadIngestionJobs]);
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -1296,7 +1316,10 @@ function UniverseView({
                               <p className="text-sm font-semibold text-slate-900">执行控制</p>
                               {(autoFillMessage || isIngestionBusy) && (
                                 <p className="mt-1 text-xs text-blue-600">
-                                  {autoFillMessage ?? "已有补数任务运行中，等待完成后可继续。"}
+                                  {autoFillMessage ??
+                                    (controllableIngestionJobId
+                                      ? `已有补数任务运行中，可暂停或停止。任务 ${controllableIngestionJobId}`
+                                      : "已有补数任务运行中，等待完成后可继续。")}
                                 </p>
                               )}
                             </div>
@@ -1366,7 +1389,7 @@ function UniverseView({
                     <p className="text-sm font-semibold text-slate-900">最近批次</p>
                     <span className="text-xs text-slate-500">近 {INGESTION_LOG_LIMIT} 批 · 入库 {recentRowsUpserted.toLocaleString("zh-CN")} 行</span>
                   </div>
-                  {ingestionJobs.length ? (
+                  {visibleIngestionJobs.length ? (
                     <div className="overflow-x-auto rounded-md border border-slate-200">
                       <table className="w-full min-w-[980px] text-left text-xs">
                         <thead className="bg-slate-50 text-slate-500">
@@ -1381,7 +1404,7 @@ function UniverseView({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {ingestionJobs.map((job) => {
+                          {visibleIngestionJobs.map((job) => {
                             const errorPreview = ingestionErrorPreview(job);
                             return (
                               <tr key={job.id} className="align-top">
@@ -2563,6 +2586,48 @@ function sectorSignalClass(signal: StrategySectorCapitalFlowItem["signal"]) {
   return "border-slate-200 bg-slate-50 text-slate-500";
 }
 
+function SectorTrendBars({ detail }: { detail: StrategySectorCapitalFlowDetail }) {
+  const maxAmount = Math.max(
+    ...detail.trend.map((point) => Math.abs(finiteNumber(point.proxyNetAmount) ?? 0)),
+    1
+  );
+  const visibleTrend = detail.trend.slice(-20);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">{detail.sector} 近段资金热度</p>
+          <p className="mt-1 text-xs text-slate-500">方向额代理、上涨占比、涨停数按交易日聚合。</p>
+        </div>
+        <Badge variant="outline" className={sectorSignalClass(detail.item.signal)}>
+          {sectorSignalLabel(detail.item.signal)}
+        </Badge>
+      </div>
+      <div className="mt-4 flex h-44 items-end gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+        {visibleTrend.map((point) => {
+          const net = finiteNumber(point.proxyNetAmount) ?? 0;
+          const height = Math.max(6, Math.min(100, Math.abs(net) / maxAmount * 100));
+          return (
+            <div key={point.tradeDate} className="flex min-w-8 flex-1 flex-col items-center justify-end gap-1">
+              <div
+                className={cn("w-full rounded-t", net >= 0 ? "bg-red-400" : "bg-emerald-400")}
+                style={{ height: `${height}%` }}
+                title={`${point.tradeDate} 方向额 ${formatLargeValue(point.proxyNetAmount, 1)} / 上涨 ${formatPercentValue(point.risingRatio)}`}
+              />
+              <span className="text-[10px] tabular-nums text-slate-400">{point.tradeDate.slice(5)}</span>
+            </div>
+          );
+        })}
+        {!visibleTrend.length && (
+          <div className="flex h-full flex-1 items-center justify-center text-sm text-slate-500">
+            暂无趋势明细
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
   const primaryUniverse =
     data.research.universes.find((universe) => universe.id === data.research.primaryUniverseId) ??
@@ -2571,9 +2636,15 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
     null;
   const [selectedUniverseId, setSelectedUniverseId] = useState(primaryUniverse?.id ?? data.research.primaryUniverseId);
   const [items, setItems] = useState<StrategySectorCapitalFlowItem[]>([]);
+  const [marketSummary, setMarketSummary] = useState<StrategySectorCapitalFlowMarketSummary | null>(null);
+  const [selectedSector, setSelectedSector] = useState<string | null>(null);
+  const [sectorDetail, setSectorDetail] = useState<StrategySectorCapitalFlowDetail | null>(null);
   const [proxyNote, setProxyNote] = useState("");
+  const [cacheStatus, setCacheStatus] = useState("bypass");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const selectedUniverse =
     data.research.universes.find((universe) => universe.id === selectedUniverseId) ??
@@ -2598,22 +2669,57 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
         throw new Error(payload.error ?? "读取板块资金失败");
       }
       setItems((payload.data?.items ?? []) as StrategySectorCapitalFlowItem[]);
+      setMarketSummary((payload.data?.marketSummary ?? null) as StrategySectorCapitalFlowMarketSummary | null);
       setProxyNote(String(payload.data?.proxyNote ?? ""));
+      setCacheStatus(String(payload.data?.cacheStatus ?? "bypass"));
     } catch (loadError) {
       setItems([]);
+      setMarketSummary(null);
       setError(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setIsLoading(false);
     }
   }, [selectedUniverse]);
 
+  const loadSectorDetail = useCallback(async (sector: string) => {
+    if (!selectedUniverse) return;
+    setSelectedSector(sector);
+    setIsLoadingDetail(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/quant/strategies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sector-capital-flow",
+          universeId: selectedUniverse.id,
+          limit: 50,
+          sector,
+          detailDays: 20,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error ?? "读取板块详情失败");
+      }
+      setSectorDetail((payload.data?.detail ?? null) as StrategySectorCapitalFlowDetail | null);
+    } catch (loadError) {
+      setSectorDetail(null);
+      setDetailError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  }, [selectedUniverse]);
+
   useEffect(() => {
+    setSelectedSector(null);
+    setSectorDetail(null);
     void loadSectorFlow();
   }, [loadSectorFlow]);
 
   const leadingItems = items.slice(0, 6);
-  const warmingCount = items.filter((item) => item.signal === "warming").length;
-  const totalProxyAmount = items.reduce((sum, item) => sum + (finiteNumber(item.proxyNetAmount) ?? 0), 0);
+  const warmingCount = marketSummary?.warmingCount ?? items.filter((item) => item.signal === "warming").length;
+  const totalProxyAmount = marketSummary?.proxyNetAmount ?? items.reduce((sum, item) => sum + (finiteNumber(item.proxyNetAmount) ?? 0), 0);
 
   return (
     <div className="space-y-5">
@@ -2624,6 +2730,9 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
               <h2 className="text-lg font-semibold text-slate-950">板块资金与主力动向</h2>
               <Badge variant="outline" className="bg-white text-slate-500">
                 {items.length ? `${items.length} 个板块标签` : "等待数据"}
+              </Badge>
+              <Badge variant="outline" className="bg-white text-slate-500">
+                缓存 {cacheStatus === "redis-hit" ? "Redis" : cacheStatus === "hit" ? "命中" : cacheStatus === "miss" ? "已刷新" : "直读"}
               </Badge>
               {isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
             </div>
@@ -2666,20 +2775,52 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
             <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{warmingCount}</p>
           </div>
           <div className="rounded-md bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">方向成交额代理</p>
+            <p className="text-xs text-slate-500">全市场方向额代理</p>
             <p className={cn("mt-1 text-xl font-bold tabular-nums", signedToneClass(totalProxyAmount))}>
               {formatLargeValue(totalProxyAmount, 1)}
             </p>
           </div>
           <div className="rounded-md bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">覆盖股票池</p>
-            <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{selectedUniverse?.memberCount ?? "-"}</p>
+            <p className="text-xs text-slate-500">全市场上涨占比</p>
+            <p className={cn("mt-1 text-xl font-bold tabular-nums", signedToneClass((marketSummary?.risingRatio ?? 50) - 50))}>
+              {formatPercentValue(marketSummary?.risingRatio)}
+            </p>
           </div>
           <div className="rounded-md bg-slate-50 px-4 py-3">
-            <p className="text-xs text-slate-500">真实主力字段</p>
-            <p className="mt-1 text-xl font-bold text-amber-600">待接入</p>
+            <p className="text-xs text-slate-500">全市场量能比</p>
+            <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">
+              {finiteNumber(marketSummary?.amountRatio20d) === null ? "-" : `${formatNumberValue(marketSummary?.amountRatio20d, 2)}x`}
+            </p>
           </div>
         </div>
+
+        {marketSummary?.analysis?.length ? (
+          <div className="grid gap-3 border-b border-slate-100 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-950">全市场资金流量分析</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {marketSummary.analysis.map((line, index) => (
+                  <p key={`${line}-${index}`} className="rounded-md bg-white px-3 py-2 text-sm leading-6 text-slate-600">
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="text-sm font-semibold text-slate-950">强弱方向</p>
+              <div className="mt-3 grid gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-slate-400">强势板块</span>
+                  <p className="mt-1 text-slate-700">{marketSummary.strongestSectors.join("、") || "-"}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400">弱势板块</span>
+                  <p className="mt-1 text-slate-700">{marketSummary.weakestSectors.join("、") || "-"}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="overflow-x-auto rounded-md border border-slate-200">
@@ -2699,10 +2840,19 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {items.map((item) => (
-                  <tr key={item.sector} className="align-top hover:bg-slate-50">
+                  <tr
+                    key={item.sector}
+                    onClick={() => void loadSectorDetail(item.sector)}
+                    className={cn(
+                      "cursor-pointer align-top transition-colors hover:bg-slate-50",
+                      selectedSector === item.sector && "bg-blue-50/70"
+                    )}
+                  >
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-950">{item.sector}</p>
-                      <p className="mt-1 text-xs text-slate-400">{item.coveredCount}/{item.memberCount} 已覆盖 · 涨停 {item.limitUpCount}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {item.coveredCount}/{item.memberCount} 已覆盖 · 涨停 {item.limitUpCount} · 跌停 {item.limitDownCount}
+                      </p>
                     </td>
                     <td className="px-3 py-3">
                       <Badge variant="outline" className={sectorSignalClass(item.signal)}>
@@ -2713,7 +2863,9 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
                       <p className={cn("font-semibold tabular-nums", signedToneClass(item.proxyNetAmount))}>
                         {formatLargeValue(item.proxyNetAmount, 1)}
                       </p>
-                      <p className="mt-1 text-xs text-slate-400">上涨为正、下跌为负</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        净额占比 {formatPercentValue(item.netAmountRatio)}
+                      </p>
                     </td>
                     <td className="px-3 py-3 font-semibold tabular-nums text-slate-900">
                       {formatLargeValue(item.latestAmount, 1)}
@@ -2723,7 +2875,7 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
                     </td>
                     <td className="px-3 py-3">
                       <p className="font-semibold tabular-nums text-slate-900">{formatPercentValue(item.risingRatio)}</p>
-                      <p className="mt-1 text-xs text-slate-400">{item.risingCount} 只上涨</p>
+                      <p className="mt-1 text-xs text-slate-400">{item.risingCount} 涨 / {item.fallingCount} 跌</p>
                     </td>
                     <td className={cn("px-3 py-3 font-semibold tabular-nums", signedToneClass(item.strength20dPct))}>
                       {formatSignedPercent(item.strength20dPct)}
@@ -2776,6 +2928,64 @@ function SectorCapitalFlowView({ data }: { data: StrategyDashboardData }) {
             </div>
           </aside>
         </div>
+
+        {(selectedSector || isLoadingDetail || detailError) && (
+          <div className="border-t border-slate-100 px-5 py-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">板块详情</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selectedSector ? `当前查看：${selectedSector}` : "点击任一板块查看资金热度趋势和龙头贡献。"}
+                </p>
+              </div>
+              {isLoadingDetail && (
+                <span className="inline-flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  正在读取板块详情
+                </span>
+              )}
+            </div>
+            {detailError && (
+              <div className="mb-4 rounded-md border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                {detailError}
+              </div>
+            )}
+            {sectorDetail && (
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                <SectorTrendBars detail={sectorDetail} />
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-sm font-semibold text-slate-950">详情解读</p>
+                    <div className="mt-3 space-y-2">
+                      {sectorDetail.analysis.map((line, index) => (
+                        <p key={`${line}-${index}`} className="text-sm leading-6 text-slate-600">{line}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-sm font-semibold text-slate-950">成交额贡献靠前</p>
+                    <div className="mt-3 space-y-2">
+                      {sectorDetail.topMembers.slice(0, 8).map((member) => (
+                        <div key={member.symbol} className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2 text-sm">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-slate-900">{member.name ?? member.symbol}</p>
+                            <p className="font-mono text-xs text-slate-400">{member.symbol}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className={cn("font-semibold tabular-nums", signedToneClass(member.latestChangePercent))}>
+                              {formatSignedPercent(member.latestChangePercent)}
+                            </p>
+                            <p className="text-xs tabular-nums text-slate-500">{formatLargeValue(member.latestAmount, 1)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {leadingItems.length > 0 && (
           <div className="border-t border-slate-100 px-5 py-4">

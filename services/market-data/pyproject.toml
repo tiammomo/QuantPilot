@@ -9,6 +9,7 @@ dependencies = [
     "httpx[http2]>=0.28.1",
     "psycopg[binary]>=3.3.2",
     "pydantic>=2.12.0",
+    "redis>=8.0.0",
     "requests>=2.34.2",
     "uvicorn[standard]>=0.48.0",
 ]

@@ -113,6 +113,8 @@ export async function POST(request: NextRequest) {
         await getStrategySectorCapitalFlow({
           universeId: typeof body.universeId === 'string' ? body.universeId : undefined,
           limit: typeof body.limit === 'number' ? body.limit : undefined,
+          sector: typeof body.sector === 'string' ? body.sector : undefined,
+          detailDays: typeof body.detailDays === 'number' ? body.detailDays : undefined,
         })
       );
     }

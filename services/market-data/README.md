@@ -73,6 +73,11 @@ export QUANTPILOT_QUOTE_CACHE_TTL_SECONDS=5
 export QUANTPILOT_KLINE_CACHE_TTL_SECONDS=1800
 export QUANTPILOT_FINANCIAL_CACHE_TTL_SECONDS=21600
 export QUANTPILOT_ANNOUNCEMENT_CACHE_TTL_SECONDS=600
+
+# Redis 跨进程短期缓存；默认由根目录 docker-compose 拉起
+export REDIS_URL=redis://127.0.0.1:6379/0
+export REDIS_NAMESPACE=quantpilot
+export QUANTPILOT_REDIS_CACHE_ENABLED=1
 ```
 
 ## 接口
@@ -192,7 +197,7 @@ curl 'http://127.0.0.1:8000/api/v1/events/announcements/600519?limit=20'
 
 ## 代码结构
 
-- `quantpilot_market_data/cache.py`：本地 JSON 缓存、TTL 和 fetch 元信息。
+- `quantpilot_market_data/cache.py`：本地 JSON 缓存、Redis JSON 缓存、TTL 和 fetch 元信息。
 - `quantpilot_market_data/providers/eastmoney.py`：东方财富数据源客户端。
 - `quantpilot_market_data/providers/baostock.py`：Baostock A 股历史字段补数 provider。
 - `quantpilot_market_data/providers/akshare.py`：AKShare 可选补数字段 provider。

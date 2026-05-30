@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -12,6 +13,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from quantpilot_market_data.cache import RedisJsonCache
 from quantpilot_market_data.models import (
     HistoryIngestionResponse,
     IngestionJobSummary,
@@ -37,6 +39,7 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_UNIVERSE_ID = "a-share-sample-research-pool"
 SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS = 300
 _SECTOR_CAPITAL_FLOW_CACHE: dict[tuple[str, int, str], tuple[datetime, dict[str, Any]]] = {}
+_SECTOR_CAPITAL_FLOW_REDIS_CACHE = RedisJsonCache()
 ROOT_DIR = Path(__file__).resolve().parents[4]
 SECTOR_HINT_LABELS = {
     "semiconductor": "半导体",
@@ -61,6 +64,18 @@ SECTOR_HINT_LABELS = {
     "chemical": "化工",
     "soda-ash": "纯碱",
     "fiberglass": "玻璃纤维",
+    "copper-clad-laminate": "覆铜板",
+    "semiconductor-packaging": "先进封装",
+    "electronic-ceramics": "电子陶瓷",
+    "consumer-electronics": "消费电子",
+    "industrial-metal": "工业金属",
+    "rare-earth": "稀土永磁",
+    "ai-chip": "AI芯片",
+    "memory-chip": "存储芯片",
+    "cpo": "CPO概念",
+    "robotics": "机器人",
+    "low-altitude-economy": "低空经济",
+    "computing-power": "算力",
 }
 
 
@@ -240,6 +255,18 @@ def json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def clean_sector_value(value: Any) -> str | None:
+    text = str(value).replace('\\"', '"').strip()
+    while text and text[0] in {'[', '"', "'", "“", "‘"}:
+        text = text[1:].strip()
+    while text and text[-1] in {']', '"', "'", "”", "’"}:
+        text = text[:-1].strip()
+    text = SECTOR_HINT_LABELS.get(text, text)
+    if not text or text in {"-", "--", "无", "暂无"}:
+        return None
+    return text
+
+
 def first_decimal(*values: Any) -> Decimal | None:
     for value in values:
         parsed = decimal_from_json(value)
@@ -262,24 +289,47 @@ def first_text(*values: Any) -> str | None:
 
 
 def split_sector_values(value: Any) -> list[str]:
-    if isinstance(value, list):
-        values = value
-    elif isinstance(value, str):
-        normalized = (
-            value.replace("，", ",")
-            .replace("、", ",")
-            .replace("；", ",")
-            .replace(";", ",")
-            .replace("|", ",")
-        )
-        values = normalized.split(",")
-    else:
-        values = []
-    return [
-        text
-        for item in values
-        if (text := str(item).strip()) and text not in {"-", "--", "无", "暂无"}
-    ]
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def collect(item: Any) -> None:
+        if isinstance(item, list):
+            for entry in item:
+                collect(entry)
+            return
+        if isinstance(item, str):
+            text = item.strip()
+            if not text:
+                return
+            if (text.startswith("[") and text.endswith("]")) or (
+                text.startswith('"') and text.endswith('"')
+            ):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+                if parsed is not None and parsed != item:
+                    collect(parsed)
+                    return
+            normalized = (
+                text.replace("，", ",")
+                .replace("、", ",")
+                .replace("；", ",")
+                .replace(";", ",")
+                .replace("|", ",")
+            )
+            candidates = normalized.split(",")
+        else:
+            candidates = [item]
+
+        for candidate in candidates:
+            cleaned = clean_sector_value(candidate)
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                values.append(cleaned)
+
+    collect(value)
+    return values
 
 
 def unique_non_empty(values: list[str | None]) -> list[str]:
@@ -288,8 +338,8 @@ def unique_non_empty(values: list[str | None]) -> list[str]:
     for value in values:
         if not value:
             continue
-        text = value.strip()
-        if not text or text in {"-", "--", "无", "暂无"} or text in seen:
+        text = clean_sector_value(value)
+        if not text or text in seen:
             continue
         seen.add(text)
         result.append(text)
@@ -303,11 +353,11 @@ def security_sector_fields(metadata_value: Any) -> dict[str, Any]:
     sector_hint_label = SECTOR_HINT_LABELS.get(sector_hint or "", sector_hint)
     industry = first_text(metadata.get("industry"), raw.get("industry"), raw.get("f100"))
     region = first_text(metadata.get("region"), raw.get("region"), raw.get("f102"))
-    concepts = split_sector_values(
-        metadata.get("concepts")
-        or raw.get("concepts")
-        or raw.get("f103")
-    )
+    concepts = unique_non_empty([
+        *split_sector_values(metadata.get("concepts")),
+        *split_sector_values(raw.get("concepts")),
+        *split_sector_values(raw.get("f103")),
+    ])
     sector_tags = unique_non_empty([industry, *concepts[:3], region, sector_hint_label])
     return {
         "industry": industry,
@@ -1005,6 +1055,82 @@ def _sector_cache_set(key: tuple[str, int, str], value: dict[str, Any]) -> None:
         _SECTOR_CAPITAL_FLOW_CACHE.pop(oldest_key, None)
 
 
+def _sector_redis_key(key: tuple[str, int, str]) -> str:
+    return _SECTOR_CAPITAL_FLOW_REDIS_CACHE.key(":".join(str(part) for part in key))
+
+
+def _sector_restore_summary_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    restored = dict(payload)
+    if isinstance(restored.get("items"), list):
+        restored["items"] = [
+            SectorCapitalFlowItem.model_validate(item)
+            for item in restored["items"]
+        ]
+    if isinstance(restored.get("_items_all"), list):
+        restored["_items_all"] = [
+            SectorCapitalFlowItem.model_validate(item)
+            for item in restored["_items_all"]
+        ]
+    if isinstance(restored.get("market_summary"), dict):
+        restored["market_summary"] = SectorCapitalFlowMarketSummary.model_validate(
+            restored["market_summary"]
+        )
+    if isinstance(restored.get("detail"), dict):
+        restored["detail"] = SectorCapitalFlowDetail.model_validate(restored["detail"])
+    return restored
+
+
+def _sector_redis_payload(value: dict[str, Any], *, include_source_rows: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "items": [
+            item.model_dump(mode="json") if isinstance(item, SectorCapitalFlowItem) else item
+            for item in value.get("items", [])
+        ],
+        "_items_all": [
+            item.model_dump(mode="json") if isinstance(item, SectorCapitalFlowItem) else item
+            for item in value.get("_items_all", [])
+        ],
+        "market_summary": (
+            value["market_summary"].model_dump(mode="json")
+            if isinstance(value.get("market_summary"), SectorCapitalFlowMarketSummary)
+            else value.get("market_summary")
+        ),
+        "detail": (
+            value["detail"].model_dump(mode="json")
+            if isinstance(value.get("detail"), SectorCapitalFlowDetail)
+            else value.get("detail")
+        ),
+        "cache_status": value.get("cache_status", "miss"),
+        "cache_ttl_seconds": value.get("cache_ttl_seconds"),
+    }
+    if include_source_rows:
+        payload["_source_rows"] = value.get("_source_rows", [])
+    return payload
+
+
+async def _sector_redis_get(key: tuple[str, int, str]) -> dict[str, Any] | None:
+    payload = await _SECTOR_CAPITAL_FLOW_REDIS_CACHE.read(_sector_redis_key(key))
+    if payload is None:
+        return None
+    try:
+        return _sector_restore_summary_payload(payload)
+    except (TypeError, ValueError):
+        return None
+
+
+async def _sector_redis_set(
+    key: tuple[str, int, str],
+    value: dict[str, Any],
+    *,
+    include_source_rows: bool = False,
+) -> None:
+    await _SECTOR_CAPITAL_FLOW_REDIS_CACHE.write(
+        _sector_redis_key(key),
+        ttl_seconds=SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+        payload=_sector_redis_payload(value, include_source_rows=include_source_rows),
+    )
+
+
 def _sector_market_analysis(summary: SectorCapitalFlowMarketSummary) -> list[str]:
     analysis: list[str] = []
     if summary.proxy_net_amount is not None:
@@ -1033,13 +1159,51 @@ def _sector_detail_analysis(item: SectorCapitalFlowItem) -> list[str]:
     return analysis
 
 
-def _build_sector_market_summary(items: list[SectorCapitalFlowItem]) -> SectorCapitalFlowMarketSummary:
-    total_latest_amount = sum((item.latest_amount or Decimal("0")) for item in items)
-    total_proxy_net_amount = sum((item.proxy_net_amount or Decimal("0")) for item in items)
-    total_covered = sum(item.covered_count for item in items)
-    total_rising = sum(item.rising_count for item in items)
-    weighted_amount_base = sum((item.avg_amount_20d or Decimal("0")) for item in items)
-    turnover_values = [item.avg_turnover_20d for item in items if item.avg_turnover_20d is not None]
+def directional_amount(amount: Decimal | None, change_percent: Decimal | None) -> Decimal | None:
+    if amount is None:
+        return None
+    if change_percent is None:
+        return Decimal("0")
+    if change_percent > 0:
+        return amount
+    if change_percent < 0:
+        return -amount
+    return Decimal("0")
+
+
+def _build_sector_market_summary(
+    items: list[SectorCapitalFlowItem],
+    source_rows: list[dict[str, Any]],
+) -> SectorCapitalFlowMarketSummary:
+    total_latest_amount = Decimal("0")
+    total_proxy_net_amount = Decimal("0")
+    total_covered = 0
+    total_rising = 0
+    weighted_amount_base = Decimal("0")
+    turnover_values: list[Decimal] = []
+    seen_symbols: set[str] = set()
+    for row in source_rows:
+        symbol = str(row["symbol"])
+        if symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        latest_amount = decimal_or_none(row["latest_amount"])
+        avg_amount_20d = decimal_or_none(row["avg_amount_20d"])
+        latest_change_percent = decimal_or_none(row["latest_change_percent"])
+        avg_turnover_20d = decimal_or_none(row["avg_turnover_20d"])
+        if row["sample_count"]:
+            total_covered += 1
+        if latest_change_percent is not None and latest_change_percent > 0:
+            total_rising += 1
+        if latest_amount is not None:
+            total_latest_amount += latest_amount
+            directional = directional_amount(latest_amount, latest_change_percent)
+            if directional is not None:
+                total_proxy_net_amount += directional
+        if avg_amount_20d is not None:
+            weighted_amount_base += avg_amount_20d
+        if avg_turnover_20d is not None:
+            turnover_values.append(avg_turnover_20d)
     signal_counts = {
         "warming": sum(1 for item in items if item.signal == "warming"),
         "cooling": sum(1 for item in items if item.signal == "cooling"),
@@ -1090,12 +1254,74 @@ async def list_sector_capital_flow(
     *,
     universe_id: str = DEFAULT_UNIVERSE_ID,
     limit: int = 40,
+    sector: str | None = None,
+    detail_days: int = 20,
 ) -> dict[str, Any]:
     normalized_limit = max(1, min(limit, 120))
-    cache_key = (universe_id, normalized_limit, "summary-v2")
-    cached = _sector_cache_get(cache_key)
-    if cached is not None:
-        return {**cached, "cache_status": "hit", "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS}
+    normalized_sector = (sector or "").strip()
+    normalized_detail_days = max(5, min(detail_days, 60))
+    summary_cache_key = (universe_id, normalized_limit, "sector-summary-v3")
+    detail_cache_key = (
+        universe_id,
+        normalized_limit,
+        f"sector-detail:{normalized_sector}:{normalized_detail_days}:v3",
+    )
+    if normalized_sector:
+        cached_detail = _sector_cache_get(detail_cache_key)
+        if cached_detail is not None:
+            return {
+                **cached_detail,
+                "cache_status": "hit",
+                "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+            }
+        cached_detail = await _sector_redis_get(detail_cache_key)
+        if cached_detail is not None:
+            _sector_cache_set(detail_cache_key, {**cached_detail, "cache_status": "hit"})
+            return {
+                **cached_detail,
+                "cache_status": "redis-hit",
+                "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+            }
+        cached_summary = _sector_cache_get(summary_cache_key)
+        if cached_summary is None:
+            cached_summary = await _sector_redis_get(summary_cache_key)
+            if cached_summary is not None:
+                _sector_cache_set(summary_cache_key, {**cached_summary, "cache_status": "hit"})
+        source_rows = cached_summary.get("_source_rows") if cached_summary else None
+        summary_items = cached_summary.get("_items_all") if cached_summary else None
+        if isinstance(source_rows, list) and isinstance(summary_items, list):
+            detail = await build_sector_capital_flow_detail(
+                universe_id=universe_id,
+                sector=normalized_sector,
+                detail_days=normalized_detail_days,
+                summary_items=summary_items,
+                source_rows=source_rows,
+            )
+            result = {
+                **cached_summary,
+                "detail": detail,
+                "cache_status": cached_summary.get("cache_status", "hit"),
+                "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+            }
+            _sector_cache_set(detail_cache_key, result)
+            await _sector_redis_set(detail_cache_key, result)
+            return result
+    else:
+        cached_summary = _sector_cache_get(summary_cache_key)
+        if cached_summary is not None:
+            return {
+                **cached_summary,
+                "cache_status": "hit",
+                "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+            }
+        cached_summary = await _sector_redis_get(summary_cache_key)
+        if cached_summary is not None:
+            _sector_cache_set(summary_cache_key, {**cached_summary, "cache_status": "hit"})
+            return {
+                **cached_summary,
+                "cache_status": "redis-hit",
+                "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
+            }
 
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(
@@ -1301,7 +1527,7 @@ async def list_sector_capital_flow(
             )
         )
 
-    ranked_items = sorted(
+    sorted_items = sorted(
         items,
         key=lambda item: (
             item.proxy_net_amount or Decimal("-999999999999999999"),
@@ -1309,15 +1535,187 @@ async def list_sector_capital_flow(
             item.member_count,
         ),
         reverse=True,
-    )[:normalized_limit]
+    )
+    total_latest_amount = sum((item.latest_amount or Decimal("0")) for item in sorted_items)
+    if total_latest_amount:
+        for item in sorted_items:
+            item.contribution_ratio = (
+                (item.latest_amount or Decimal("0")) / total_latest_amount * Decimal("100")
+            )
+
+    market_summary = _build_sector_market_summary(sorted_items, rows)
     result = {
-        "items": ranked_items,
-        "market_summary": _build_sector_market_summary(items),
-        "cache_status": "bypass",
+        "items": sorted_items[:normalized_limit],
+        "_items_all": sorted_items,
+        "_source_rows": rows,
+        "market_summary": market_summary,
+        "detail": None,
+        "cache_status": "miss",
         "cache_ttl_seconds": SECTOR_CAPITAL_FLOW_CACHE_TTL_SECONDS,
     }
-    _sector_cache_set(cache_key, result)
+    _sector_cache_set(summary_cache_key, result)
+    await _sector_redis_set(summary_cache_key, result, include_source_rows=True)
+
+    if normalized_sector:
+        detail = await build_sector_capital_flow_detail(
+            universe_id=universe_id,
+            sector=normalized_sector,
+            detail_days=normalized_detail_days,
+            summary_items=sorted_items,
+            source_rows=rows,
+        )
+        result = {**result, "detail": detail}
+        _sector_cache_set(detail_cache_key, result)
+        await _sector_redis_set(detail_cache_key, result)
     return result
+
+
+async def build_sector_capital_flow_detail(
+    *,
+    universe_id: str,
+    sector: str,
+    detail_days: int,
+    summary_items: list[SectorCapitalFlowItem],
+    source_rows: list[dict[str, Any]],
+) -> SectorCapitalFlowDetail | None:
+    item = next((entry for entry in summary_items if entry.sector == sector), None)
+    if item is None:
+        return None
+
+    selected_rows: list[dict[str, Any]] = []
+    selected_symbols: list[str] = []
+    for row in source_rows:
+        sector_fields = security_sector_fields(row["security_metadata"])
+        sector_tags = sector_fields["sector_tags"] or [sector_fields["industry"] or "未分组"]
+        if sector in [str(tag) for tag in sector_tags]:
+            selected_rows.append(row)
+            selected_symbols.append(str(row["symbol"]))
+
+    top_members = sorted(
+        [
+            SectorCapitalFlowMember(
+                symbol=str(row["symbol"]),
+                name=row["name"],
+                latest_amount=decimal_or_none(row["latest_amount"]),
+                proxy_net_amount=directional_amount(
+                    decimal_or_none(row["latest_amount"]),
+                    decimal_or_none(row["latest_change_percent"]),
+                ),
+                latest_change_percent=decimal_or_none(row["latest_change_percent"]),
+                strength_20d_pct=percent_change(
+                    decimal_or_none(row["latest_close"]),
+                    decimal_or_none(row["close_20d"]),
+                ),
+                turnover=decimal_or_none(row["latest_turnover"]),
+                limit_up=bool_or_none(row["latest_limit_up"]),
+            )
+            for row in selected_rows
+        ],
+        key=lambda member: member.latest_amount or Decimal("0"),
+        reverse=True,
+    )[:12]
+
+    if not selected_symbols:
+        return SectorCapitalFlowDetail(
+            sector=sector,
+            item=item,
+            top_members=top_members,
+            analysis=_sector_detail_analysis(item),
+        )
+
+    trend_days = max(detail_days, 20)
+    trend_cutoff = datetime.now(UTC) - timedelta(days=max(120, trend_days * 4))
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            WITH universe_config AS (
+              SELECT
+                COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+              FROM quant.security_universes
+              WHERE id = %s
+            ),
+            ranked_bars AS (
+              SELECT
+                bars.symbol,
+                bars.ts,
+                bars.amount,
+                bars.change_percent,
+                bars.limit_up,
+                dense_rank() OVER (ORDER BY bars.ts DESC) AS day_rank
+              FROM quant.stock_bars bars
+              CROSS JOIN universe_config
+              WHERE bars.symbol = ANY(%s)
+                AND bars.timeframe = universe_config.timeframe
+                AND bars.adjustment = universe_config.adjustment
+                AND bars.ts >= %s
+            )
+            SELECT symbol, ts::date AS trade_date, amount, change_percent, limit_up
+            FROM ranked_bars
+            WHERE day_rank <= %s
+            ORDER BY trade_date ASC, symbol
+            """,
+            (universe_id, selected_symbols, trend_cutoff, trend_days),
+        )
+        trend_rows = await cursor.fetchall()
+
+    by_date: dict[date, dict[str, Any]] = {}
+    for row in trend_rows:
+        trade_day = row["trade_date"]
+        group = by_date.setdefault(
+            trade_day,
+            {
+                "covered_count": 0,
+                "rising_count": 0,
+                "limit_up_count": 0,
+                "latest_amount": Decimal("0"),
+                "proxy_net_amount": Decimal("0"),
+            },
+        )
+        amount = decimal_or_none(row["amount"])
+        change_percent = decimal_or_none(row["change_percent"])
+        if amount is not None:
+            group["latest_amount"] += amount
+            if change_percent is not None:
+                group["covered_count"] += 1
+                if change_percent > 0:
+                    group["rising_count"] += 1
+                    group["proxy_net_amount"] += amount
+                elif change_percent < 0:
+                    group["proxy_net_amount"] -= amount
+        if bool_or_none(row["limit_up"]) is True:
+            group["limit_up_count"] += 1
+
+    raw_points: list[SectorCapitalFlowTrendPoint] = []
+    rolling_amounts: list[Decimal] = []
+    for trade_day, group in sorted(by_date.items()):
+        latest_amount = group["latest_amount"]
+        rolling_amounts.append(latest_amount)
+        rolling_window = rolling_amounts[-20:]
+        avg_amount = sum(rolling_window) / Decimal(len(rolling_window)) if rolling_window else None
+        covered_count = int(group["covered_count"])
+        raw_points.append(
+            SectorCapitalFlowTrendPoint(
+                trade_date=trade_day,
+                latest_amount=latest_amount if latest_amount else None,
+                proxy_net_amount=group["proxy_net_amount"] if latest_amount else None,
+                rising_ratio=(
+                    Decimal(group["rising_count"]) / Decimal(covered_count) * Decimal("100")
+                    if covered_count
+                    else None
+                ),
+                amount_ratio_20d=(latest_amount / avg_amount if avg_amount else None),
+                limit_up_count=int(group["limit_up_count"]),
+            )
+        )
+
+    return SectorCapitalFlowDetail(
+        sector=sector,
+        item=item,
+        trend=raw_points[-detail_days:],
+        top_members=top_members,
+        analysis=_sector_detail_analysis(item),
+    )
 
 
 async def add_security_to_universe(
@@ -2215,6 +2613,20 @@ async def get_history_ingestion_preflight(
                 WITH target_symbols(symbol) AS (
                   SELECT unnest(%s::text[])
                 ),
+                benchmark_dates AS (
+                  SELECT DISTINCT bars.ts
+                  FROM quant.stock_bars bars
+                  WHERE bars.timeframe = %s
+                    AND bars.adjustment = %s
+                    AND bars.ts >= %s
+                    AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                ),
+                benchmark_summary AS (
+                  SELECT
+                    count(*)::INT AS expected_rows_since_cutoff,
+                    max(ts) AS benchmark_last_ts
+                  FROM benchmark_dates
+                ),
                 bar_summary AS (
                   SELECT
                     bars.symbol,
@@ -2274,8 +2686,13 @@ async def get_history_ingestion_preflight(
                   target_symbols.symbol,
                   bar_summary.first_ts,
                   bar_summary.last_ts,
+                  benchmark_summary.benchmark_last_ts,
                   COALESCE(bar_summary.row_count, 0) AS row_count,
                   COALESCE(bar_summary.rows_since_cutoff, 0) AS rows_since_cutoff,
+                  COALESCE(
+                    benchmark_summary.expected_rows_since_cutoff,
+                    0
+                  ) AS expected_rows_since_cutoff,
                   COALESCE(
                     bar_summary.complete_rows_since_cutoff,
                     0
@@ -2285,6 +2702,7 @@ async def get_history_ingestion_preflight(
                   COALESCE(factor_summary.ps_ttm_count, 0) AS ps_ttm_count,
                   COALESCE(factor_summary.pcf_ncf_ttm_count, 0) AS pcf_ncf_ttm_count
                 FROM target_symbols
+                CROSS JOIN benchmark_summary
                 LEFT JOIN bar_summary
                   ON bar_summary.symbol = target_symbols.symbol
                 LEFT JOIN factor_summary
@@ -2292,6 +2710,11 @@ async def get_history_ingestion_preflight(
                 """,
             (
                 symbols,
+                timeframe,
+                adjustment,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
                 cutoff,
                 end_cutoff,
                 end_cutoff,
@@ -2328,8 +2751,10 @@ async def get_history_ingestion_preflight(
             symbol=str(row["symbol"]),
             first_ts=row["first_ts"],
             last_ts=row["last_ts"],
+            benchmark_last_ts=row["benchmark_last_ts"],
             row_count=int(row["row_count"] or 0),
             rows_since_cutoff=int(row["rows_since_cutoff"] or 0),
+            expected_rows_since_cutoff=int(row["expected_rows_since_cutoff"] or 0),
             complete_rows_since_cutoff=int(row["complete_rows_since_cutoff"] or 0),
             pe_ttm_count=int(row["pe_ttm_count"] or 0),
             pb_mrq_count=int(row["pb_mrq_count"] or 0),

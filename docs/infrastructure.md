@@ -1,6 +1,6 @@
 # 基础设施配置
 
-QuantPilot 本地开发默认使用 PostgreSQL + TimescaleDB。PostgreSQL 承载工作空间、项目、评测、配置和运行记录；TimescaleDB 承载股票 K 线、因子、策略信号和组合净值等时序数据。
+QuantPilot 本地开发默认使用 PostgreSQL + TimescaleDB + Redis。PostgreSQL 承载工作空间、项目、评测、配置和运行记录；TimescaleDB 承载股票 K 线、因子、策略信号和组合净值等时序数据；Redis 承载短期缓存，后续可扩展到任务队列、分布式锁和运行进度状态。
 
 ## 本地启动
 
@@ -21,6 +21,11 @@ POSTGRES_DB="quantpilot"
 POSTGRES_USER="quantpilot"
 POSTGRES_PASSWORD="quantpilot_dev_password"
 POSTGRES_PORT=5432
+REDIS_URL="redis://127.0.0.1:6379/0"
+REDIS_IMAGE="redis:8-alpine"
+REDIS_PORT=6379
+REDIS_NAMESPACE="quantpilot"
+QUANTPILOT_REDIS_CACHE_ENABLED=1
 ```
 
 ## 组件分工
@@ -29,7 +34,7 @@ POSTGRES_PORT=5432
 | --- | --- |
 | PostgreSQL | 主业务库，承载 Prisma 管理的应用表 |
 | TimescaleDB | 股票时序数据、因子、信号、组合快照 |
-| Redis | 后续用于缓存、任务队列和短期状态 |
+| Redis | 短期缓存，优先加速策略平台板块资金；后续用于任务队列、分布式锁和短期状态 |
 | 对象存储 | 后续用于原始行情文件、回测产物和大报告 |
 | ClickHouse | 后续用于超大量 tick、盘口快照和研究分析面板 |
 
@@ -77,8 +82,8 @@ npm run db:init
 
 | 组件 | 建议阶段 | 作用 |
 | --- | --- | --- |
-| Redis | 下一阶段 | 任务队列、短期缓存、分布式锁和进度状态 |
+| Redis | 已接入基础组件 | 跨进程短期缓存，后续承载任务队列、分布式锁和进度状态 |
 | 对象存储 | 产物规模上来后 | 截图、回测报告、原始行情文件和大 JSON |
 | ClickHouse | 数据规模明显放大后 | 超大量 tick、盘口快照和交互式研究分析 |
 
-短期继续以 PostgreSQL + TimescaleDB 作为核心数据底座即可。Redis 是最值得优先补的组件，因为它能把评测队列、策略扫描队列和生成任务队列从进程内状态中解耦出来。
+短期继续以 PostgreSQL + TimescaleDB 作为核心数据底座即可。Redis 已作为轻量缓存层接入，适合缓存板块资金、行情摘要、评测队列快照和任务进度；真正长期保存的行情、回测和评测结果仍应写回 PostgreSQL/TimescaleDB。
