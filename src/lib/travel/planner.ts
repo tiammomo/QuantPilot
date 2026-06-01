@@ -260,11 +260,36 @@ function adjustmentWantsFreshPlan(text: string): boolean {
 }
 
 function adjustmentWantsFoodChange(text: string): boolean {
-  return /午餐|中午|吃饭|餐饮|小吃|咖啡|换一个|换成|改成/.test(text);
+  return /(午餐|午饭|中午吃|吃饭|餐饮|餐厅|饭店|小吃|咖啡|正餐|美食|把午餐|换午餐|午餐换|换成.*(?:午餐|午饭|小吃|咖啡|餐厅|饭店|正餐|美食)|改成.*(?:午餐|午饭|小吃|咖啡|餐厅|饭店|正餐|美食))/.test(text);
 }
 
 function adjustmentWantsSnack(text: string): boolean {
   return /小吃|预算\s*\d+\s*以内的小吃|换成.*小吃/.test(text);
+}
+
+function parseTargetedReplacementIndex(text: string, total: number): number | null {
+  if (!total || !/(换成|换一个|替换|改成|更换)/.test(text)) return null;
+  if (/最后一个|最后1个|末尾|最后一站|最后1站/.test(text)) return total - 1;
+  const chineseNumbers: Record<string, number> = {
+    一: 0,
+    二: 1,
+    两: 1,
+    三: 2,
+    四: 3,
+    五: 4,
+    六: 5,
+  };
+  const chineseMatch = text.match(/第\s*([一二两三四五六])\s*(?:个|站|处)?(?:点|景点|地点|餐厅|饭店|POI)?/);
+  if (chineseMatch?.[1] && chineseMatch[1] in chineseNumbers) {
+    const index = chineseNumbers[chineseMatch[1]];
+    return index >= 0 && index < total ? index : null;
+  }
+  const digitMatch = text.match(/第\s*(\d+)\s*(?:个|站|处)?(?:点|景点|地点|餐厅|饭店|POI)?/i);
+  if (digitMatch?.[1]) {
+    const index = Number(digitMatch[1]) - 1;
+    return index >= 0 && index < total ? index : null;
+  }
+  return null;
 }
 
 function shouldPreservePoiOnReplan(params: {
@@ -878,11 +903,14 @@ export async function replanTravelRoute(payload: {
   const adjustmentText = payload.adjustment_text || '';
   if (selectedFirst && /保留|锁定|不要删/.test(adjustmentText)) locked.push(selectedFirst);
   const selectedIds = payload.selected_proposal?.ordered_poi_ids || [];
+  const targetedReplacementIndex = parseTargetedReplacementIndex(adjustmentText, selectedIds.length);
+  const targetedReplacementId = targetedReplacementIndex === null ? null : selectedIds[targetedReplacementIndex];
   const selectedPois = selectedIds
     .map((id) => data.plannerEntities.find((item) => item.poi_id === id) || data.culturePois.find((item) => item.poi_id === id) || data.mixedPois.find((item) => item.poi_id === id))
     .filter(Boolean) as Poi[];
   const excludedNames = (parsed.exclude_names || []).map(normalizePoiName);
   const excludedIds = new Set(parsed.exclude_poi_ids || []);
+  if (targetedReplacementId) excludedIds.add(targetedReplacementId);
   for (const poi of selectedPois) {
     if (matchesExcludedName(poi, excludedNames)) {
       excludedIds.add(poi.poi_id);
@@ -924,6 +952,7 @@ export async function replanTravelRoute(payload: {
         parsed.max_budget !== previous.max_budget ? 'Budget constraint updated.' : null,
         parsed.walk_preference !== previous.walk_preference ? 'Walking preference updated.' : null,
         parsed.max_duration_min !== previous.max_duration_min ? 'Duration constraint updated.' : null,
+        targetedReplacementId ? `Targeted replacement applied for stop ${Number(targetedReplacementIndex) + 1}.` : null,
         parsed.must_include_poi_ids?.length ? 'Unchanged POIs preserved for local replan.' : null,
         adjustmentWantsFoodChange(adjustmentText) ? 'Food stop replacement applied without rebuilding the full route.' : null,
         leakedNames.length ? 'Excluded POI leak prevented by final guard.' : null,

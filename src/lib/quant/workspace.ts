@@ -53,6 +53,7 @@ export interface QuantRunPlan {
   visualization: {
     required: boolean;
     templateId?: string;
+    variantId?: string;
     name?: string;
     scenario?: string;
     panels: string[];
