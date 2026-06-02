@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
+const net = require('net');
 const dotenv = require('dotenv');
 const { ensureEnvironment } = require('./setup-env');
 const { PrismaClient } = require('@prisma/client');
@@ -103,6 +104,15 @@ function runPrismaDbPush() {
 
 async function ensureDatabaseSynced() {
   if (process.env.SKIP_DB_SYNC === '1') {
+    console.log('↪️  Skipping Prisma schema sync because SKIP_DB_SYNC=1.');
+    return;
+  }
+  if (process.env.QUANTPILOT_DEGRADATION_MODE?.trim().toLowerCase() === 'offline') {
+    console.log('↪️  Skipping Prisma schema sync because QUANTPILOT_DEGRADATION_MODE=offline.');
+    return;
+  }
+  if (!envFlag('QUANTPILOT_DATABASE_ENABLED', true)) {
+    console.log('↪️  Skipping Prisma schema sync because QUANTPILOT_DATABASE_ENABLED=0.');
     return;
   }
 
@@ -150,6 +160,116 @@ async function probeUrl(url, timeoutMs = 1500) {
     return false;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+function envFlag(name, fallback) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return fallback;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(value)) return false;
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(value)) return true;
+  return fallback;
+}
+
+function isDegradedStartupEnv() {
+  return (
+    process.env.SKIP_DB_SYNC === '1' ||
+    process.env.QUANTPILOT_DEGRADATION_MODE?.trim().toLowerCase() === 'offline' ||
+    !envFlag('QUANTPILOT_DATABASE_ENABLED', true) ||
+    !envFlag('QUANTPILOT_MARKET_API_ENABLED', true) ||
+    !envFlag('QUANTPILOT_OBSERVABILITY_ENABLED', true) ||
+    !envFlag('QUANTPILOT_REDIS_CACHE_ENABLED', true)
+  );
+}
+
+async function probeDatabaseReady() {
+  let prisma;
+  try {
+    prisma = new PrismaClient();
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (prisma) {
+      await prisma.$disconnect().catch(() => {});
+    }
+  }
+}
+
+function probeTcp(urlText, timeoutMs = 800) {
+  return new Promise((resolve) => {
+    let parsed;
+    try {
+      parsed = new URL(urlText);
+    } catch {
+      resolve(false);
+      return;
+    }
+
+    const port = Number.parseInt(parsed.port || (parsed.protocol === 'rediss:' ? '6380' : '6379'), 10);
+    const socket = net.createConnection({
+      host: parsed.hostname || '127.0.0.1',
+      port,
+    });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, timeoutMs);
+
+    socket.once('connect', () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve(true);
+    });
+    socket.once('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
+async function restoreRecoveredDegradationComponents() {
+  if (process.env.QUANTPILOT_AUTO_RESTORE_DEGRADATION === '0') {
+    return;
+  }
+  if (!isDegradedStartupEnv()) {
+    return;
+  }
+
+  const recovered = [];
+  const databaseReady = await probeDatabaseReady();
+  if (databaseReady) {
+    delete process.env.SKIP_DB_SYNC;
+    process.env.QUANTPILOT_DATABASE_ENABLED = '1';
+    process.env.QUANTPILOT_DATABASE_REQUIRED = '1';
+    recovered.push('database');
+  }
+
+  const marketHealthUrl = process.env.QUANTPILOT_MARKET_API_URL
+    ? `${process.env.QUANTPILOT_MARKET_API_URL.replace(/\/$/, '')}/health`
+    : 'http://127.0.0.1:8000/health';
+  if (await probeUrl(marketHealthUrl)) {
+    process.env.QUANTPILOT_MARKET_API_ENABLED = '1';
+    recovered.push('market-api');
+  }
+
+  const lokiReadyUrl = process.env.LOKI_URL
+    ? `${process.env.LOKI_URL.replace(/\/$/, '')}/ready`
+    : 'http://127.0.0.1:3100/ready';
+  if (await probeUrl(lokiReadyUrl)) {
+    process.env.QUANTPILOT_OBSERVABILITY_ENABLED = '1';
+    recovered.push('observability');
+  }
+
+  if (await probeTcp(process.env.REDIS_URL || 'redis://127.0.0.1:6379/0')) {
+    process.env.QUANTPILOT_REDIS_CACHE_ENABLED = '1';
+    recovered.push('redis');
+  }
+
+  if (recovered.length) {
+    process.env.QUANTPILOT_DEGRADATION_MODE = 'auto';
+    console.log(`✅ Recovered components detected; restoring non-offline mode for this run: ${recovered.join(', ')}`);
   }
 }
 
@@ -247,6 +367,7 @@ async function startWebDevServer({
   });
 
   await buildStableCss();
+  await restoreRecoveredDegradationComponents();
   await ensureDatabaseSynced();
   await clearNextDevStartupCaches();
 

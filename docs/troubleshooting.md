@@ -54,6 +54,12 @@ QUANTPILOT_DEGRADATION_MODE=offline npm run doctor
 
 `offline` 会跳过市场数据后端、Loki/Grafana/Alloy 和 Redis 等可选外部探测；`auto` 适合本地开发；`strict` 适合 CI 或生产巡检。
 
+前端开发启动还有一个恢复保护：如果曾经用降级方式启动，但下一次启动时数据库、market-data、Redis 或 Loki 已经恢复，`npm run dev` 会在本次进程里切回 `auto` 和启用状态。只有确实要保留降级时才加：
+
+```bash
+QUANTPILOT_AUTO_RESTORE_DEGRADATION=0 npm run dev
+```
+
 ## 3000 端口被占用
 
 ```bash

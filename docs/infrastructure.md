@@ -81,6 +81,12 @@ Loki 宿主机端口默认使用标准 `3100`，生成项目预览端口池从 `
 
 推荐本地开发保持 `auto`，只在 CI、演示环境或生产巡检中切到 `strict`。完全离线看页面结构、Skills、日志文件时可切到 `offline`。
 
+开发启动脚本会做一次轻量恢复探测：如果上一次是通过 `SKIP_DB_SYNC=1`、`offline` 或关闭组件的方式降级启动，但本次启动时 PostgreSQL/TimescaleDB、market-data、Redis 或 Loki 已经恢复可用，脚本会在当前进程内把这些组件切回启用状态，并把模式恢复为 `auto`。这不会改写 `.env`，只是避免“组件已经拉起来了，前端仍沿用旧的降级环境”。如果确实想强制保持降级，可临时设置：
+
+```bash
+QUANTPILOT_AUTO_RESTORE_DEGRADATION=0 npm run dev
+```
+
 ## 回填本地工作空间索引
 
 如果 PostgreSQL 中的首页项目列表为空，但 `data/projects/project-*` 目录仍在，可以回填项目索引：
