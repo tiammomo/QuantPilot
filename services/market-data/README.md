@@ -73,6 +73,7 @@ export QUANTPILOT_QUOTE_CACHE_TTL_SECONDS=5
 export QUANTPILOT_KLINE_CACHE_TTL_SECONDS=1800
 export QUANTPILOT_FINANCIAL_CACHE_TTL_SECONDS=21600
 export QUANTPILOT_ANNOUNCEMENT_CACHE_TTL_SECONDS=600
+export QUANTPILOT_SCREENER_CACHE_TTL_SECONDS=60
 
 # Redis 跨进程短期缓存；默认由根目录 docker-compose 拉起
 export REDIS_URL=redis://127.0.0.1:6379/0
@@ -146,12 +147,12 @@ curl 'http://127.0.0.1:8000/api/v1/quotes/history/600519?period=daily&adjustment
 
 ### 历史 K 线字段补数
 
-Baostock / AKShare 补数端点用于把 `amount`、`amplitude`、`change_percent`、`change_amount`、`turnover` 写入 `quant.stock_bars` 正式列。它不会删除已有更早历史，稀疏源也不会覆盖已有非空增强字段。当前本地优先使用 Baostock，因为它不依赖东方财富历史域名。
+Baostock / AKShare 补数端点用于把 `amount`、`amplitude`、`change_percent`、`change_amount`、`turnover`、停牌/ST 和涨跌停字段写入正式列。它不会删除已有更早历史，稀疏源也不会覆盖已有非空增强字段。当前本地优先使用 Baostock，因为它不依赖东方财富历史域名。估值因子默认不参与日常增量补数，需要时传 `include_valuation_factors=true` 单独纳入完整性检查。
 
 ```bash
 curl -X POST 'http://127.0.0.1:8000/api/v1/ingestion/baostock/history' \
   -H 'Content-Type: application/json' \
-  -d '{"symbols":["002156.SZ","002555.SZ"],"period":"daily","adjustment":"qfq","lookback_years":5,"limit":1260,"request_delay_seconds":1.5}'
+  -d '{"symbols":["002156.SZ","002555.SZ"],"period":"daily","adjustment":"qfq","lookback_years":5,"limit":1260,"request_delay_seconds":0.2}'
 ```
 
 更完整的 provider 选择和字段口径见项目根目录的 `docs/market-data-source-knowledge.md`。

@@ -43,7 +43,7 @@ TimescaleDB 是 PostgreSQL 的时序扩展镜像，所以连接方式仍然是 P
 当前建议采用多源策略：
 
 1. 东方财富直连：实时行情、分红、公告、证券解析和可达时的历史 K 线。
-2. Baostock：A 股历史日线增强字段补数，包括成交额、换手率、停牌、ST、涨跌停和估值。
+2. Baostock：A 股历史日线增强字段补数，包括成交额、换手率、停牌、ST 和涨跌停；估值因子默认不混入日常增量补数，需要时单独打开。
 3. AKShare：作为聚合补充层，用于验证和补充可得字段。
 4. Yahoo Finance：只用于海外市场，不作为 A 股主源。
 5. 商业源：Wind、Choice、iFinD 等作为未来授权数据源，不混用网页非正式接口。
@@ -130,7 +130,7 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/ingestion/baostock/history/batch' \
     "adjustment": "qfq",
     "lookback_years": 5,
     "limit": 1260,
-    "request_delay_seconds": 1.2
+    "request_delay_seconds": 0.2
   }'
 ```
 

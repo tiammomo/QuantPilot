@@ -77,6 +77,7 @@ Loki 宿主机端口默认使用标准 `3100`，生成项目预览端口池从 `
 | `QUANTPILOT_OBSERVABILITY_ENABLED` | `1` | 是否探测 Loki/Grafana/Alloy。关闭后运维平台只读本地文件日志。 |
 | `QUANTPILOT_OBSERVABILITY_REQUIRED` | `0` | Loki/Grafana/Alloy 不可用时是否失败。 |
 | `QUANTPILOT_REDIS_CACHE_ENABLED` | `1` | 是否启用 Redis 缓存；Redis 不可用时后端会自动直读/文件缓存兜底。 |
+| `QUANTPILOT_SCREENER_CACHE_TTL_SECONDS` | `60` | A 股选股筛选接口的短 TTL；skills/首页重复调用同一日期和模式时优先返回缓存结果。 |
 | `QUANTPILOT_REDIS_REQUIRED` | `0` | Redis 不可用时是否作为健康失败。 |
 
 推荐本地开发保持 `auto`，只在 CI、演示环境或生产巡检中切到 `strict`。完全离线看页面结构、Skills、日志文件时可切到 `offline`。

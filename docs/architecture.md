@@ -51,7 +51,7 @@ flowchart LR
 
 | 执行器 | 模型 | 用途 | Reasoning |
 | --- | --- | --- | --- |
-| `claude` | `MiniMax-M2.7` | 默认分析、默认评测 | 不展示 |
+| `claude` | `mimo-v2.5-pro` | 默认分析、默认评测 | 不展示 |
 | `codex` | `gpt-5.5` | GPT 兼容链路和对照评测 | 默认 `low` |
 
 模型和 CLI 的注册入口：

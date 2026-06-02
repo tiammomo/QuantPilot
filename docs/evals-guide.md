@@ -13,7 +13,7 @@ http://localhost:3000/eval-platform
 默认评测运行时：
 
 - 执行器：`Claude Code`
-- 模型：`MiniMax M2.7`
+- 模型：`Mimo V2.5 Pro`
 - Reasoning：不展示、不传递
 
 可选运行时：

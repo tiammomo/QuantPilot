@@ -23,7 +23,7 @@ cp .env.example .env
 cp .env.example .env.local
 ```
 
-把 `.env` 或 `.env.local` 中的模型 token 改成自己的值，真实密钥不要提交到 Git。
+把 `.env` 或 `.env.local` 中的模型 token 改成自己的值，真实密钥不要提交到 Git。当前默认运行时是 `Claude Code / Mimo V2.5 Pro`。
 
 ```bash
 npm run db:up
