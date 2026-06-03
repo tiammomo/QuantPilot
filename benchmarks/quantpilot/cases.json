@@ -117,6 +117,27 @@
     ]
   },
   {
+    "id": "broad-a-share-buy-candidates",
+    "name": "宽域 A 股买入候选推荐",
+    "question": "帮我推荐6月3日要买的股票，给我推荐10个",
+    "capabilityId": "asset_comparison",
+    "expectedTemplateId": "stock-selection",
+    "expectedRawFiles": [
+      "a-share-screener.json",
+      "batch-quotes.json"
+    ],
+    "expectedFinalFields": [
+      "assets",
+      "comparison",
+      "selectionRanking",
+      "financialQuality",
+      "correlation",
+      "liquidity",
+      "tradingPlan",
+      "screener"
+    ]
+  },
+  {
     "id": "portfolio-risk-adjustment",
     "name": "持仓调仓风险分析",
     "question": "我当前持有杭钢股份、京沪高铁、三七互娱、中国黄金、完美世界，帮我先集中风险，再决定是否动用现金，生成调仓分析看板。",

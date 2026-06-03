@@ -143,6 +143,7 @@ function isQuantAnalysisTask(instruction: string): boolean {
 function shouldUseAssetComparison(instruction: string) {
   const normalized = instruction.replace(/\s+/g, '');
   const symbolCount = inferSymbols(instruction).length;
+  const broadStockScreenerIntent = isBroadStockScreenerInstruction(instruction);
   const comparisonIntent =
     /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(
       normalized
@@ -151,12 +152,15 @@ function shouldUseAssetComparison(instruction: string) {
     /、|，|,|和|与|及/.test(normalized) &&
     KNOWN_SYMBOLS.filter((item) => normalized.includes(item.keyword)).length >= 2;
 
-  return symbolCount >= 2 || comparisonIntent || multiNamedStocks;
+  return symbolCount >= 2 || comparisonIntent || multiNamedStocks || broadStockScreenerIntent;
 }
 
 function isBroadStockScreenerInstruction(instruction: string): boolean {
   const normalized = instruction.replace(/\s+/g, '');
-  return /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|买股|买入策略|短线/.test(normalized);
+  if (!/(?:股票|个股|A股|全A|股票池)/.test(normalized)) {
+    return false;
+  }
+  return /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized);
 }
 
 function inferCapabilityId(params: {

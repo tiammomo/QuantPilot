@@ -145,9 +145,8 @@ function canUsePrefetchedSelectionDashboard(params: {
   return (
     params.runPlan.visualization?.templateId === "stock-selection" &&
     params.runPlan.symbols.length === 0 &&
-    /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|买股|买入策略|短线/.test(
-      normalized,
-    )
+    /(?:股票|个股|A股|全A|股票池)/.test(normalized) &&
+    /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized)
   );
 }
 

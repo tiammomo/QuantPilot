@@ -1279,8 +1279,10 @@ function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null):
   const plannedSymbols = extractPlannedSymbols(runPlan);
   if (
     plannedSymbols.length >= 2 ||
-    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(
-      taskText
+    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(taskText) ||
+    (
+      /(?:股票|个股|a股|全a|股票池)/i.test(taskText) &&
+      /全a|a股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/i.test(taskText)
     )
   ) {
     return 'stock-selection';

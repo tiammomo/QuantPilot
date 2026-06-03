@@ -207,7 +207,10 @@ function isBroadStockScreenerPlan(plan: QuantRunPlan): boolean {
   const normalized = `${plan.question} ${plan.dataRequirements.join(' ')}`.replace(/\s+/g, '');
   return (
     normalized.includes('/api/v1/research/screeners/a-share/short-term-candidates') ||
-    /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|买股|买入策略|短线/.test(normalized)
+    (
+      /(?:股票|个股|A股|全A|股票池)/.test(normalized) &&
+      /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized)
+    )
   );
 }
 
@@ -246,7 +249,51 @@ function screenerLimitForQuestion(question: string): number {
   const explicit = normalized.match(/(?:候选|筛选|推荐|选出)?(\d+)(?:只|个)/);
   const value = explicit?.[1] ? Number.parseInt(explicit[1], 10) : 5;
   if (!Number.isFinite(value)) return 5;
-  return Math.min(Math.max(value, 3), 8);
+  return Math.min(Math.max(value, 3), 10);
+}
+
+function currentShanghaiYear(): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+  });
+  return Number.parseInt(formatter.format(new Date()), 10) || new Date().getFullYear();
+}
+
+function normalizeMonthDayTradeDate(year: number, month: number, day: number): string | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+  const paddedMonth = String(month).padStart(2, '0');
+  const paddedDay = String(day).padStart(2, '0');
+  return `${year}-${paddedMonth}-${paddedDay}`;
+}
+
+function screenerTradeDateForQuestion(question: string): string | null {
+  const normalized = question.replace(/\s+/g, '');
+  const isoMatch = normalized.match(/((?:19|20)\d{2})[-年/]?(\d{1,2})[-月/](\d{1,2})日?/);
+  if (isoMatch?.[1] && isoMatch[2] && isoMatch[3]) {
+    return normalizeMonthDayTradeDate(
+      Number.parseInt(isoMatch[1], 10),
+      Number.parseInt(isoMatch[2], 10),
+      Number.parseInt(isoMatch[3], 10)
+    );
+  }
+
+  const monthDayMatch = normalized.match(/(\d{1,2})月(\d{1,2})日?/);
+  if (monthDayMatch?.[1] && monthDayMatch[2]) {
+    return normalizeMonthDayTradeDate(
+      currentShanghaiYear(),
+      Number.parseInt(monthDayMatch[1], 10),
+      Number.parseInt(monthDayMatch[2], 10)
+    );
+  }
+
+  return null;
 }
 
 async function fetchScreenerSeedSymbols(params: {
@@ -258,8 +305,16 @@ async function fetchScreenerSeedSymbols(params: {
 }): Promise<{ symbols: string[]; screener: JsonRecord | null }> {
   const mode = screenerModeForQuestion(params.plan.question);
   const limit = screenerLimitForQuestion(params.plan.question);
+  const tradeDate = screenerTradeDateForQuestion(params.plan.question);
+  const query = new URLSearchParams({
+    mode,
+    limit: String(limit),
+  });
+  if (tradeDate) {
+    query.set('trade_date', tradeDate);
+  }
   const screener = await fetchJson(
-    `/api/v1/research/screeners/a-share/short-term-candidates?mode=${encodeURIComponent(mode)}&limit=${limit}`,
+    `/api/v1/research/screeners/a-share/short-term-candidates?${query.toString()}`,
     {},
     { timeoutMs: SCREENER_FETCH_TIMEOUT_MS }
   );

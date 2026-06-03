@@ -2495,50 +2495,40 @@ async def screen_a_share_short_term_candidates(
 ) -> AShareScreenerResponse:
     safe_limit = max(1, min(limit, 100))
     resolved_trade_date = trade_date
-    if resolved_trade_date is not None:
-        cache_key = _screener_cache_key(
-            universe_id=universe_id,
-            trade_date=resolved_trade_date,
-            mode=mode,
-            limit=safe_limit,
-        )
-        cached = _screener_cache_get(cache_key)
-        if cached is not None:
-            return cached
-        cached = await _screener_redis_get(cache_key)
-        if cached is not None:
-            _screener_cache_set(cache_key, cached)
-            return cached
+    requested_trade_date_input = trade_date
 
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
-        if resolved_trade_date is None:
-            await cursor.execute(
-                """
-                WITH universe_config AS (
-                  SELECT
-                    id,
-                    COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
-                    COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
-                  FROM quant.security_universes
-                  WHERE id = %s
-                )
-                SELECT max((bars.ts AT TIME ZONE 'Asia/Shanghai')::date) AS trade_date
-                FROM quant.security_universe_members members
-                JOIN universe_config
-                  ON universe_config.id = members.universe_id
-                JOIN quant.securities securities
-                  ON securities.symbol = members.symbol
-                JOIN quant.stock_bars bars
-                  ON bars.symbol = members.symbol
-                 AND bars.timeframe = universe_config.timeframe
-                 AND bars.adjustment = universe_config.adjustment
-                WHERE members.universe_id = %s
-                  AND securities.asset_type = 'stock'
-                """,
-                (universe_id, universe_id),
+        await cursor.execute(
+            """
+            WITH universe_config AS (
+              SELECT
+                id,
+                COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+              FROM quant.security_universes
+              WHERE id = %s
             )
-            target_row = await cursor.fetchone()
-            resolved_trade_date = target_row["trade_date"] if target_row else None
+            SELECT max((bars.ts AT TIME ZONE 'Asia/Shanghai')::date) AS trade_date
+            FROM quant.security_universe_members members
+            JOIN universe_config
+              ON universe_config.id = members.universe_id
+            JOIN quant.securities securities
+              ON securities.symbol = members.symbol
+            JOIN quant.stock_bars bars
+              ON bars.symbol = members.symbol
+             AND bars.timeframe = universe_config.timeframe
+             AND bars.adjustment = universe_config.adjustment
+            WHERE members.universe_id = %s
+              AND securities.asset_type = 'stock'
+              AND (
+                %s::date IS NULL
+                OR bars.ts < ((%s::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+              )
+            """,
+            (universe_id, universe_id, resolved_trade_date, resolved_trade_date),
+        )
+        target_row = await cursor.fetchone()
+        resolved_trade_date = target_row["trade_date"] if target_row else None
 
         if resolved_trade_date is None:
             return AShareScreenerResponse(
@@ -2834,18 +2824,23 @@ async def screen_a_share_short_term_candidates(
         )
         candidates.append(candidate)
 
-    requested_trade_date = next(
-        (row.get("requested_trade_date") for row in rows if row.get("requested_trade_date")),
-        trade_date,
+    response_trade_date = next(
+        (row.get("latest_trade_date") for row in rows if row.get("latest_trade_date")),
+        resolved_trade_date,
     )
     notes = [
         "本接口只通过 QuantPilot market-data API 读取本地 TimescaleDB；skills 不直接访问数据库。",
         "当前 DDE 大单金额/大单净量未落库，候选结果使用日线 OHLCV、涨跌停、均线和流动性代理。",
     ]
+    if requested_trade_date_input is not None and response_trade_date != requested_trade_date_input:
+        notes.append(
+            f"用户请求交易日 {requested_trade_date_input.isoformat()} 本地没有完整股票池覆盖，"
+            f"已使用不晚于该日期的最近可用交易日 {response_trade_date.isoformat()}。"
+        )
     response = AShareScreenerResponse(
         universe_id=universe_id,
         mode=mode,
-        trade_date=requested_trade_date,
+        trade_date=response_trade_date,
         scanned_symbols=int(rows[0]["scanned_symbols"] or len(rows)) if rows else 0,
         limit=safe_limit,
         candidates=candidates,
@@ -2853,10 +2848,10 @@ async def screen_a_share_short_term_candidates(
         cache_status="miss",
         cache_ttl_seconds=SCREENER_CACHE_TTL_SECONDS,
     )
-    if requested_trade_date is not None:
+    if response_trade_date is not None:
         cache_key = _screener_cache_key(
             universe_id=universe_id,
-            trade_date=requested_trade_date,
+            trade_date=response_trade_date,
             mode=mode,
             limit=safe_limit,
         )

@@ -14,6 +14,10 @@ const { writeInitialRunPlan } = jiti('../../src/lib/quant/workspace.ts');
 const { buildClarificationContinuation } = jiti('../../src/lib/quant/intent.ts');
 const { prefetchQuantDataForRunPlan } = jiti('../../src/lib/quant/data-prefetch.ts');
 const {
+  startQuantGenerationRun,
+  updateQuantGenerationStep,
+} = jiti('../../src/lib/quant/generation-state.ts');
+const {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
   validateQuantProject,
@@ -1052,6 +1056,14 @@ async function runCase(testCase) {
   const requestId = `${projectId}-run`;
 
   await ensureBenchmarkProject({ projectId, projectPath, testCase });
+  await startQuantGenerationRun({
+    projectPath,
+    projectId,
+    requestId,
+    instruction: testCase.question,
+    cliPreference: 'benchmark',
+    selectedModel: 'mimo-v2.5-pro',
+  });
   if (testCase.imageAttachment) {
     await writeBenchmarkImageAttachment({
       projectPath,
@@ -1067,14 +1079,70 @@ async function runCase(testCase) {
     capabilityId: testCase.capabilityId,
     hasImageAttachments: Boolean(testCase.imageAttachment),
   });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'planning',
+    status: plan.status === 'needs_clarification' ? 'warning' : 'success',
+    summary: `benchmark 已生成 ${plan.capabilityId} 执行计划。`,
+    runStatus: plan.status === 'needs_clarification' ? 'needs_clarification' : undefined,
+    metadata: {
+      capabilityId: plan.capabilityId,
+      templateId: plan.visualization?.templateId,
+      symbols: plan.symbols,
+    },
+  });
   const prefetch = await prefetchQuantDataForRunPlan({ projectPath, plan });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'data_prefetch',
+    status: prefetch.skipped ? 'skipped' : 'success',
+    summary: prefetch.summary,
+    metadata: {
+      skipped: prefetch.skipped,
+      symbols: prefetch.symbols,
+      finalDataPath: prefetch.finalDataPath,
+      rawFiles: prefetch.rawFiles,
+    },
+  });
   await ensureQuantDashboardTemplate(projectPath);
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'agent_execution',
+    status: 'skipped',
+    summary: 'benchmark 使用平台标准模板生成看板，跳过外部 Agent 执行。',
+    metadata: {
+      deterministicDashboard: true,
+    },
+  });
   const artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'validation',
+    status: 'running',
+    summary: 'benchmark 开始自动验证。',
+  });
   const validation = await validateQuantProject({
     projectId,
     projectPath,
     requestId,
     cliSource: 'benchmark',
+  });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'validation',
+    status: validation.passed ? 'success' : 'failed',
+    summary: validation.passed ? 'benchmark 自动验证通过。' : 'benchmark 自动验证失败。',
+    runStatus: validation.passed ? 'completed' : 'failed',
   });
   const visualCheck = await runVisualCheck({ projectId, testCase });
   const eventAudit = await auditProjectEvents({
