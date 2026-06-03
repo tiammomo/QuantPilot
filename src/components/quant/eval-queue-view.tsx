@@ -53,30 +53,33 @@ export function EvalQueueView({
   onScheduleCaseChange,
   onSaveSchedule,
 }: EvalQueueViewProps) {
+  const activeCount = queue.filter((item) => item.status === 'queued' || item.status === 'running').length;
+  const title = activeCount > 0 ? '运行中' : '运行历史';
+
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Panel
-        title="运行队列"
+        title={title}
         icon={<Activity className="h-4 w-4 text-amber-600" />}
         action={
-          <Badge variant="outline" className="bg-white text-slate-500">
-            {queue.length}
+          <Badge variant="outline" className="text-muted-foreground">
+            {activeCount > 0 ? activeCount : queue.length}
           </Badge>
         }
       >
-        <div id="queue" className="divide-y divide-slate-100">
+        <div id="queue" className="divide-y divide-border/40">
           {queue.map((item) => (
             <div key={item.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {queueBadge(item.status)}
-                    <span className="truncate font-mono text-xs text-slate-500">{item.id}</span>
+                    <span className="truncate font-mono text-xs text-muted-foreground">{item.id}</span>
                   </div>
-                  <p className="mt-2 truncate text-sm font-medium text-slate-800">
+                  <p className="mt-2 truncate text-sm font-medium text-foreground">
                     {CLI_LABELS[item.cli] ?? item.cli} · {item.model}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     创建 {formatDate(item.createdAt)} · 开始 {formatDate(item.startedAt)} · 结束 {formatDate(item.finishedAt)}
                   </p>
                   {item.error && <p className="mt-2 text-xs text-red-600">{item.error}</p>}
@@ -95,11 +98,11 @@ export function EvalQueueView({
               </div>
             </div>
           ))}
-          {!queue.length && <div className="p-8 text-center text-sm text-slate-500">暂无队列记录。</div>}
+          {!queue.length && <div className="p-8 text-center text-sm text-muted-foreground">暂无运行历史。</div>}
         </div>
       </Panel>
 
-      <Panel title="定时回归" icon={<Clock3 className="h-4 w-4 text-blue-600" />}>
+      <Panel title="定时回归" icon={<Clock3 className="h-4 w-4 text-primary" />}>
         <div className="space-y-3 p-4">
           <div className="grid grid-cols-2 gap-2">
             <select className={selectClassName} value={scheduleEnabled ? 'enabled' : 'disabled'} onChange={(event) => onScheduleEnabledChange(event.target.value === 'enabled')}>
@@ -149,16 +152,16 @@ export function EvalQueueView({
             ))}
           </select>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-md bg-slate-50 p-3">
-              <p className="text-slate-500">下次触发</p>
-              <p className="mt-1 font-medium text-slate-900">{formatDate(schedule.nextRunAt)}</p>
+            <div className="rounded-xl bg-muted/60 p-3">
+              <p className="text-muted-foreground">下次触发</p>
+              <p className="mt-1 font-medium text-foreground">{formatDate(schedule.nextRunAt)}</p>
             </div>
-            <div className="rounded-md bg-slate-50 p-3">
-              <p className="text-slate-500">上次触发</p>
-              <p className="mt-1 font-medium text-slate-900">{formatDate(schedule.lastRunAt)}</p>
+            <div className="rounded-xl bg-muted/60 p-3">
+              <p className="text-muted-foreground">上次触发</p>
+              <p className="mt-1 font-medium text-foreground">{formatDate(schedule.lastRunAt)}</p>
             </div>
           </div>
-          <Button onClick={onSaveSchedule} disabled={isSavingSchedule} className="w-full bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={onSaveSchedule} disabled={isSavingSchedule} className="w-full">
             {isSavingSchedule ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
             保存配置
           </Button>

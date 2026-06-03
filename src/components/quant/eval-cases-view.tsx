@@ -38,22 +38,22 @@ export function EvalCasesView({
   return (
     <Panel
       title="测试用例"
-      icon={<ClipboardList className="h-4 w-4 text-blue-600" />}
+      icon={<ClipboardList className="h-4 w-4 text-primary" />}
       action={
-        <Badge variant="outline" className="bg-white text-slate-500">
+        <Badge variant="outline" className="text-muted-foreground">
           {filteredCases.length}/{totalCaseCount}
         </Badge>
       }
     >
-      <div className="border-b border-slate-100 p-3">
+      <div className="border-b border-border/40 p-3">
         <div className="grid gap-2 lg:grid-cols-[minmax(220px,1fr)_220px_auto]">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={caseKeyword}
               onChange={(event) => onCaseKeywordChange(event.target.value)}
               placeholder="搜索用例、能力、标的..."
-              className="h-9 border-slate-200 bg-white pl-9"
+              className="h-9 pl-9"
             />
           </div>
           <select className={selectClassName} value={selectedCase} onChange={(event) => onSelectedCaseChange(event.target.value)}>
@@ -73,7 +73,7 @@ export function EvalCasesView({
 
       <div id="cases" className="overflow-x-auto">
         <table className="w-full min-w-[980px] border-collapse text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold text-slate-500">
+          <thead className="bg-muted/60 text-left text-xs font-semibold text-muted-foreground">
             <tr>
               <th className="w-[26%] px-4 py-3">用例名称</th>
               <th className="w-[28%] px-4 py-3">用户 Query</th>
@@ -87,38 +87,38 @@ export function EvalCasesView({
             {filteredCases.map((testCase) => {
               const result = latestResultByCase.get(testCase.id) ?? latestResultByCase.get(testCase.name);
               return (
-                <tr key={testCase.id} className="border-t border-slate-100 bg-white hover:bg-slate-50/70">
+                <tr key={testCase.id} className="border-t border-border/40 bg-card transition-colors hover:bg-muted/30">
                   <td className="px-4 py-3 align-top">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-blue-700">{testCase.name}</p>
-                      <p className="mt-1 truncate text-xs text-slate-500">{testCase.id}</p>
+                      <p className="truncate font-medium text-primary">{testCase.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{testCase.id}</p>
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top">
-                    <p className="line-clamp-2 text-slate-600">{testCase.question}</p>
+                    <p className="line-clamp-2 text-foreground/80">{testCase.question}</p>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <div className="flex flex-wrap gap-1.5">
-                      <Badge className="border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                      <Badge className="border-primary/20 bg-primary/5 text-primary">
                         {testCase.capabilityLabel}
                       </Badge>
-                      <Badge variant="outline" className="bg-white text-slate-600">
+                      <Badge variant="outline" className="text-muted-foreground">
                         {testCase.typeLabel}
                       </Badge>
                       {testCase.tags.slice(0, 2).map((tag) => (
-                        <Badge key={tag} variant="outline" className="bg-white text-slate-500">
+                        <Badge key={tag} variant="outline" className="text-muted-foreground">
                           {tag}
                         </Badge>
                       ))}
                       {testCase.tags.length > 2 && (
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                           +{testCase.tags.length - 2}
                         </span>
                       )}
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top">
-                    <div className="space-y-1 text-xs text-slate-600">
+                    <div className="space-y-1 text-xs text-foreground/80">
                       <p className="truncate font-mono">{testCase.expectedSymbols.slice(0, 3).join(', ') || '-'}</p>
                       <p className="truncate">{testCase.expectedTemplateId ?? testCase.expectedAssetType ?? '-'}</p>
                     </div>
@@ -143,7 +143,7 @@ export function EvalCasesView({
             })}
             {!filteredCases.length && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">
                   没有匹配的测试用例。
                 </td>
               </tr>

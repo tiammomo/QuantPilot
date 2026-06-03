@@ -103,7 +103,7 @@ export function EvalOverviewView({
         <StatTile
           icon={<TriangleAlert className="h-4 w-4" />}
           label="失败用例"
-          value={<span className={dashboard.summary.latestFailedCount ? 'text-red-600' : 'text-slate-950'}>{dashboard.summary.latestFailedCount}</span>}
+          value={<span className={dashboard.summary.latestFailedCount ? 'text-red-600' : 'text-foreground'}>{dashboard.summary.latestFailedCount}</span>}
           helper={
             <span className="flex items-center gap-2">
               最新运行
@@ -114,14 +114,14 @@ export function EvalOverviewView({
         />
         <StatTile
           icon={<Activity className="h-4 w-4" />}
-          label="运行队列"
+          label={activeQueueCount > 0 ? '运行中' : '运行历史'}
           value={activeQueueCount}
-          helper={`${dashboard.queue.length} 条队列记录`}
+          helper={`${dashboard.queue.length} 条运行历史`}
           tone={activeQueueCount ? 'amber' : 'slate'}
         />
       </section>
 
-      <Panel title="运行配置" icon={<SlidersHorizontal className="h-4 w-4 text-blue-600" />}>
+      <Panel title="运行配置" icon={<SlidersHorizontal className="h-4 w-4 text-primary" />}>
         <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_150px_190px_160px_130px_auto]">
           <ConfigField label="评测集">
             <select className={selectClassName} value={selectedEvalSetId} onChange={(event) => onSelectedEvalSetChange(event.target.value)}>
@@ -163,7 +163,7 @@ export function EvalOverviewView({
                 <option value="xhigh">xhigh</option>
               </select>
             ) : (
-              <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500">
+              <div className="flex h-9 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm text-muted-foreground">
                 不适用
               </div>
             )}
@@ -176,7 +176,7 @@ export function EvalOverviewView({
               <option value="6">6 个</option>
             </select>
           </ConfigField>
-          <Button className="mt-auto bg-blue-600 text-white hover:bg-blue-700 xl:self-end" onClick={onStart} disabled={isStarting}>
+          <Button className="mt-auto xl:self-end" onClick={onStart} disabled={isStarting}>
             {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             运行评测集
           </Button>
@@ -189,22 +189,22 @@ export function EvalOverviewView({
             {latestRun ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">通过率</p>
+                  <div className="rounded-xl bg-muted/60 p-3">
+                    <p className="text-xs text-muted-foreground">通过率</p>
                     <p className={`mt-1 text-lg font-semibold ${passRateClass(latestRun.passRate)}`}>{latestRun.passRate}%</p>
                   </div>
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">得分</p>
+                  <div className="rounded-xl bg-muted/60 p-3">
+                    <p className="text-xs text-muted-foreground">得分</p>
                     <p className={`mt-1 text-lg font-semibold ${scoreClass(latestRun.averageScore)}`}>{latestRun.averageScore}</p>
                   </div>
-                  <div className="rounded-md bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">耗时</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900">{formatDuration(latestRun.durationMs)}</p>
+                  <div className="rounded-xl bg-muted/60 p-3">
+                    <p className="text-xs text-muted-foreground">耗时</p>
+                    <p className="mt-1 text-lg font-semibold text-foreground">{formatDuration(latestRun.durationMs)}</p>
                   </div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <p className="truncate font-mono text-xs text-slate-600">{latestRun.fileName}</p>
-                  <p className="mt-1 text-xs text-slate-500">
+                <div className="rounded-xl border border-border/60 bg-card p-3">
+                  <p className="truncate font-mono text-xs text-foreground/80">{latestRun.fileName}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {formatDate(latestRun.createdAt)} · {latestRun.metadata.runtime.cli} / {latestRun.metadata.runtime.model}
                   </p>
                 </div>
@@ -216,26 +216,26 @@ export function EvalOverviewView({
                 </Button>
               </div>
             ) : (
-              <p className="text-sm text-slate-500">暂无评测报告。</p>
+              <p className="text-sm text-muted-foreground">暂无评测报告。</p>
             )}
           </div>
         </Panel>
 
-        <Panel title="模型概览" icon={<Layers3 className="h-4 w-4 text-blue-600" />}>
-          <div className="divide-y divide-slate-100">
+        <Panel title="模型概览" icon={<Layers3 className="h-4 w-4 text-primary" />}>
+          <div className="divide-y divide-border/40">
             {dashboard.modelComparison.slice(0, 4).map((item) => (
               <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-center gap-3 px-4 py-3 text-sm">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">
+                  <p className="truncate font-medium text-foreground">
                     {CLI_LABELS[item.cli] ?? item.cli} · {item.model}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">{item.runs} 次运行</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.runs} 次运行</p>
                 </div>
                 <span className={`font-semibold ${passRateClass(item.latestPassRate)}`}>{item.latestPassRate}%</span>
                 <span className={`font-semibold ${scoreClass(item.averageScore)}`}>{item.averageScore}</span>
               </div>
             ))}
-            {!dashboard.modelComparison.length && <div className="p-8 text-center text-sm text-slate-500">暂无模型对比数据。</div>}
+            {!dashboard.modelComparison.length && <div className="p-8 text-center text-sm text-muted-foreground">暂无模型对比数据。</div>}
           </div>
         </Panel>
       </section>

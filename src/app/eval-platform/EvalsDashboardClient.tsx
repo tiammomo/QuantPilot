@@ -1,29 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import {
   Activity,
+  ArrowLeft,
   CalendarClock,
+  CheckCircle2,
   ClipboardList,
   Cpu,
-  Database,
   FolderOpen,
   Gauge,
   Loader2,
   Play,
   RefreshCcw,
-  Wrench,
+  XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/layout/PageHeader";
-import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
 import { EvalCasesView } from "@/components/quant/eval-cases-view";
 import { EvalEvaluatorView } from "@/components/quant/eval-evaluator-view";
 import { EvalOverviewView } from "@/components/quant/eval-overview-view";
 import { EvalQueueView } from "@/components/quant/eval-queue-view";
-import { EvalRepairsView } from "@/components/quant/eval-repairs-view";
-import { EvalRunsView } from "@/components/quant/eval-runs-view";
 import { EvalSetsView } from "@/components/quant/eval-sets-view";
 import {
   EVAL_SET_PAGE_SIZE,
@@ -44,31 +43,18 @@ import { cn } from "@/lib/utils";
 type Props = { data: QuantEvalDashboardData };
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
-const SUB_NAV_ITEMS: SubNavItem[] = [
-  { id: "overview", label: "仪表盘", icon: <Gauge className="h-4 w-4" /> },
-  { id: "cases", label: "测试用例", icon: <ClipboardList className="h-4 w-4" /> },
-  { id: "evalSets", label: "评测集", icon: <FolderOpen className="h-4 w-4" /> },
-  { id: "evaluator", label: "评测器", icon: <Cpu className="h-4 w-4" /> },
-  { id: "queue", label: "运行队列", icon: <Activity className="h-4 w-4" /> },
-  { id: "runs", label: "运行记录", icon: <Database className="h-4 w-4" /> },
-  { id: "repairs", label: "失败修复", icon: <Wrench className="h-4 w-4" /> },
+const VIEW_TABS: { id: EvalView; label: string; icon: typeof Gauge }[] = [
+  { id: "overview", label: "仪表盘", icon: Gauge },
+  { id: "cases", label: "测试用例", icon: ClipboardList },
+  { id: "evalSets", label: "评测集", icon: FolderOpen },
+  { id: "evaluator", label: "评测器", icon: Cpu },
+  { id: "queue", label: "运行历史", icon: Activity },
 ];
-
-const VIEW_META: Record<EvalView, { badge: string }> = {
-  overview: { badge: "" },
-  cases: { badge: "" },
-  evalSets: { badge: "" },
-  evaluator: { badge: "" },
-  queue: { badge: "" },
-  runs: { badge: "" },
-  repairs: { badge: "" },
-};
 
 export default function EvalsDashboardClient({ data }: Props) {
   const [dashboard, setDashboard] = useState(data);
   const [activeView, setActiveView] = useState<EvalView>("overview");
   const [caseKeyword, setCaseKeyword] = useState("");
-  const [runKeyword, setRunKeyword] = useState("");
   const [selectedEvalSetId, setSelectedEvalSetId] = useState("all");
   const [evalSetKeyword, setEvalSetKeyword] = useState("");
   const [evalSetCategoryFilter, setEvalSetCategoryFilter] = useState("all");
@@ -139,7 +125,12 @@ export default function EvalsDashboardClient({ data }: Props) {
   const selectEvalSet = (id: string) => { setSelectedEvalSetId(id); setSelectedCase("all"); };
   const startSelectedEvalSet = () => startBenchmark(undefined, selectedEvalSet);
 
-  const refreshDashboard = async () => {
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const refreshDashboard = useCallback(async () => {
     setIsRefreshing(true);
     try {
       const r = await fetch(`${API_BASE}/api/evals`, { cache: "no-store" });
@@ -147,11 +138,11 @@ export default function EvalsDashboardClient({ data }: Props) {
       if (!r.ok || !p.success) throw new Error(p.error ?? "刷新失败");
       setDashboard(p.data);
     } catch (error) {
-      setToast({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      showToast("error", error instanceof Error ? error.message : String(error));
     } finally { setIsRefreshing(false); }
-  };
+  }, [showToast]);
 
-  useEffect(() => { if (!activeQueue) return; const t = setInterval(() => { void refreshDashboard(); }, 3000); return () => clearInterval(t); }, [activeQueue]);
+  useEffect(() => { if (!activeQueue) return; const t = setInterval(() => { void refreshDashboard(); }, 3000); return () => clearInterval(t); }, [activeQueue, refreshDashboard]);
   useEffect(() => { setEvalSetPage(1); }, [evalSetCategoryFilter, evalSetKeyword]);
   useEffect(() => { if (evalSetPage > evalSetPageCount) setEvalSetPage(evalSetPageCount); }, [evalSetPage, evalSetPageCount]);
 
@@ -163,9 +154,9 @@ export default function EvalsDashboardClient({ data }: Props) {
       const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start-benchmark", cli: benchmarkCli, model: benchmarkModel || benchmarkRuntime.defaultModel, reasoningEffort: benchmarkRuntimeSupportsReasoning ? benchmarkReasoningEffort : undefined, selectedCases: sc, limit: caseOverride || sc.length > 0 || limit === "all" ? null : Number(limit), keepProjects: false }) });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "启动失败");
-      setToast({ type: "success", message: "评测任务已进入队列。" });
+      showToast("success", "评测任务已进入队列。");
       await refreshDashboard();
-    } catch (error) { setToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
     finally { setIsStarting(false); }
   };
 
@@ -177,8 +168,8 @@ export default function EvalsDashboardClient({ data }: Props) {
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "模拟失败");
       setFlowSimulation(p.data);
-      setToast({ type: "success", message: p.data.ready ? "评测链路模拟通过。" : "评测链路存在阻断项。" });
-    } catch (error) { setToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+      showToast("success", p.data.ready ? "评测链路模拟通过。" : "评测链路存在阻断项。");
+    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
     finally { setIsSimulatingFlow(false); }
   };
 
@@ -188,9 +179,9 @@ export default function EvalsDashboardClient({ data }: Props) {
       const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel-benchmark", queueId }) });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "取消失败");
-      setToast({ type: "success", message: "评测任务已取消。" });
+      showToast("success", "评测任务已取消。");
       await refreshDashboard();
-    } catch (error) { setToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
   };
 
   const saveSchedule = async () => {
@@ -199,9 +190,9 @@ export default function EvalsDashboardClient({ data }: Props) {
       const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-schedule", enabled: scheduleEnabled, intervalHours: Number(scheduleInterval), cli: scheduleCli, model: scheduleModel || scheduleRuntime.defaultModel, reasoningEffort: scheduleRuntimeSupportsReasoning ? scheduleReasoningEffort : undefined, selectedCases: scheduleCase === "all" ? [] : [scheduleCase], limit: null, keepProjects: false }) });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "保存失败");
-      setToast({ type: "success", message: "定时回归配置已保存。" });
+      showToast("success", "定时回归配置已保存。");
       await refreshDashboard();
-    } catch (error) { setToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
     finally { setIsSavingSchedule(false); }
   };
 
@@ -211,9 +202,9 @@ export default function EvalsDashboardClient({ data }: Props) {
       const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check-schedule" }) });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "检查失败");
-      setToast({ type: "success", message: p.data.queued ? "已加入评测队列。" : "未到触发时间。" });
+      showToast("success", p.data.queued ? "已加入评测队列。" : "未到触发时间。");
       await refreshDashboard();
-    } catch (error) { setToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
+    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
   };
 
   const latestResultByCase = useMemo(() => {
@@ -227,136 +218,187 @@ export default function EvalsDashboardClient({ data }: Props) {
     if (!kw) return selectedEvalSetCases;
     return selectedEvalSetCases.filter((c) => [c.id, c.name, c.question, c.capabilityLabel, c.typeLabel, ...c.expectedSymbols, ...c.tags].join(" ").toLowerCase().includes(kw));
   }, [caseKeyword, selectedEvalSetCases]);
-  const filteredRuns = useMemo(() => {
-    const kw = runKeyword.trim().toLowerCase();
-    if (!kw) return dashboard.runs;
-    return dashboard.runs.filter((r) => [r.id, r.fileName, r.passed ? "通过" : "失败", r.metadata.runtime.cli, r.metadata.runtime.model, ...Object.keys(r.coverage.byCapability), ...r.results.map((x) => x.name)].join(" ").toLowerCase().includes(kw));
-  }, [dashboard.runs, runKeyword]);
-  const warningResults = latestRun?.results.filter((r) => r.validationChecks.some((c) => c.status === "warning")) ?? [];
-
-  // Dynamic badge
   const viewBadge: Record<EvalView, string> = {
     overview: `${dashboard.summary.caseCount} 用例`,
     cases: `${filteredCases.length}/${dashboard.cases.length}`,
     evalSets: `${filteredEvalSets.length}/${evalSets.length}`,
     evaluator: `${runtimeOptions.length} 个`,
-    queue: `${dashboard.queue.length} 条`,
-    runs: `${dashboard.runs.length} 次`,
-    repairs: `${dashboard.repairTickets.length} 单`,
+    queue: activeQueueCount > 0 ? `${activeQueueCount} 运行中` : `${dashboard.queue.length} 条`,
   };
 
   return (
-    <div className="min-h-screen bg-surface text-slate-900">
-      <PageHeader
-        title="评测平台"
-        badge={<Badge variant="outline" className="bg-white text-slate-500">{viewBadge[activeView]}</Badge>}
-        subtitle="Agent 评测控制台：管理测试用例、评测集、运行队列、报告和失败修复"
-      />
-
-      <SubNav
-        items={SUB_NAV_ITEMS}
-        activeId={activeView}
-        onChange={(id) => setActiveView(id as EvalView)}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={refreshDashboard} disabled={isRefreshing}>
-              <RefreshCcw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-              <span className="hidden sm:inline">刷新</span>
-            </Button>
-            <Button variant="outline" size="sm" onClick={checkScheduleNow}>
-              <CalendarClock className="h-4 w-4" />
-              <span className="hidden sm:inline">检查定时</span>
-            </Button>
-            <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={startSelectedEvalSet} disabled={isStarting}>
-              {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              <span className="hidden sm:inline">启动评测</span>
-            </Button>
+    <div className="flex h-screen flex-col bg-background text-foreground">
+      {/* Top navigation */}
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" asChild className="shrink-0 h-8 w-8">
+            <Link href="/" aria-label="返回首页">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+            <Gauge className="h-4 w-4" />
           </div>
-        }
-      />
+          <div>
+            <h1 className="text-base font-bold tracking-tight">评测平台</h1>
+            <p className="text-[11px] text-muted-foreground hidden sm:block">
+              Agent 评测控制台
+            </p>
+          </div>
+        </div>
 
-      <main className="mx-auto max-w-7xl space-y-5 px-4 py-6 lg:px-6">
-        {toast && (
-          <div className={cn("rounded-md border px-4 py-3 text-sm shadow-sm",
-            toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"
-          )}>{toast.message}</div>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 md:flex">
+            <Badge variant="secondary" className="text-xs">{viewBadge[activeView]}</Badge>
+            {activeQueueCount > 0 && (
+              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="font-semibold tabular-nums">{activeQueueCount}</span>
+                <span>运行中</span>
+              </div>
+            )}
+          </div>
 
-        {activeView === "overview" && (
-          <EvalOverviewView
-            dashboard={dashboard} latestRun={latestRun} delta={delta} activeQueueCount={activeQueueCount}
-            evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} limit={limit}
-            runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-            benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-            benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-            isStarting={isStarting} onSelectedEvalSetChange={selectEvalSet}
-            onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-            onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onLimitChange={setLimit}
-            onStart={startSelectedEvalSet}
-          />
-        )}
+          <div className="h-4 w-px bg-border hidden md:block" />
 
-        {activeView === "cases" && (
-          <EvalCasesView
-            caseKeyword={caseKeyword} selectedCase={selectedCase} totalCaseCount={dashboard.cases.length}
-            filteredCases={filteredCases} selectedEvalSetCases={selectedEvalSetCases}
-            latestRun={latestRun} latestResultByCase={latestResultByCase} isStarting={isStarting}
-            onCaseKeywordChange={setCaseKeyword} onSelectedCaseChange={setSelectedCase}
-            onRunSelection={() => startBenchmark()} onRunCase={(caseId) => startBenchmark(caseId)}
-          />
-        )}
+          <Button variant="ghost" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="gap-1.5 text-xs">
+            <RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+            <span className="hidden sm:inline">刷新</span>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={checkScheduleNow} className="gap-1.5 text-xs">
+            <CalendarClock className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">检查定时</span>
+          </Button>
+          <Button size="sm" onClick={startSelectedEvalSet} disabled={isStarting} className="gap-1.5 text-xs">
+            {isStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">启动评测</span>
+          </Button>
+        </div>
+      </header>
 
-        {activeView === "evalSets" && (
-          <EvalSetsView
-            evalSets={evalSets} filteredEvalSets={filteredEvalSets} pagedEvalSets={pagedEvalSets}
-            selectedEvalSet={selectedEvalSet} selectedEvalSetStats={selectedEvalSetStats}
-            latestResultByCase={latestResultByCase} evalSetKeyword={evalSetKeyword}
-            evalSetCategoryFilter={evalSetCategoryFilter} evalSetCategories={evalSetCategories}
-            evalSetPage={evalSetPage} evalSetPageCount={evalSetPageCount} isStarting={isStarting}
-            onEvalSetKeywordChange={setEvalSetKeyword} onEvalSetCategoryFilterChange={setEvalSetCategoryFilter}
-            onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage} onRunSelectedEvalSet={startSelectedEvalSet}
-          />
-        )}
+      {/* Sub navigation */}
+      <nav className="sticky top-14 z-20 flex items-center gap-1 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-6">
+        <div className="flex h-10 min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist">
+          {VIEW_TABS.map((tab) => {
+            const isActive = activeView === tab.id;
+            const label = tab.id === "queue" && activeQueueCount > 0 ? "运行中" : tab.label;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveView(tab.id)}
+                className={cn(
+                  "relative flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 text-sm font-medium transition-colors",
+                  isActive
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <tab.icon className="h-3.5 w-3.5" />
+                <span>{label}</span>
+                {isActive && (
+                  <motion.span
+                    layoutId="eval-tab-indicator"
+                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-primary"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
-        {activeView === "evaluator" && (
-          <EvalEvaluatorView
-            runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-            benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-            benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-            evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} selectedEvalSet={selectedEvalSet}
-            flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
-            onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-            onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onEvalSetSelect={selectEvalSet}
-            onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
-          />
-        )}
+      {/* Main content */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 lg:px-6">
+          {/* Toast */}
+          <AnimatePresence>
+            {toast && (
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              >
+                <div className={cn(
+                  "flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-sm backdrop-blur-xl",
+                  toast.type === "success"
+                    ? "border-emerald-200/60 bg-emerald-50/90 text-emerald-800"
+                    : "border-red-200/60 bg-red-50/90 text-red-800"
+                )}>
+                  {toast.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+                  {toast.message}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        {activeView === "queue" && (
-          <EvalQueueView
-            queue={dashboard.queue} schedule={dashboard.schedule} cases={dashboard.cases}
-            runtimeOptions={runtimeOptions} scheduleRuntime={scheduleRuntime}
-            scheduleRuntimeSupportsReasoning={scheduleRuntimeSupportsReasoning}
-            scheduleEnabled={scheduleEnabled} scheduleInterval={scheduleInterval}
-            scheduleCli={scheduleCli} scheduleModel={scheduleModel} scheduleReasoningEffort={scheduleReasoningEffort}
-            scheduleCase={scheduleCase} isSavingSchedule={isSavingSchedule}
-            onCancelBenchmark={cancelBenchmark} onScheduleEnabledChange={setScheduleEnabled}
-            onScheduleIntervalChange={setScheduleInterval} onScheduleCliChange={updateScheduleCli}
-            onScheduleModelChange={setScheduleModel} onScheduleReasoningEffortChange={setScheduleReasoningEffort}
-            onScheduleCaseChange={setScheduleCase} onSaveSchedule={saveSchedule}
-          />
-        )}
+          {activeView === "overview" && (
+            <EvalOverviewView
+              dashboard={dashboard} latestRun={latestRun} delta={delta} activeQueueCount={activeQueueCount}
+              evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} limit={limit}
+              runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
+              benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
+              benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
+              isStarting={isStarting} onSelectedEvalSetChange={selectEvalSet}
+              onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
+              onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onLimitChange={setLimit}
+              onStart={startSelectedEvalSet}
+            />
+          )}
 
-        {activeView === "runs" && (
-          <EvalRunsView
-            runKeyword={runKeyword} filteredRuns={filteredRuns}
-            modelComparison={dashboard.modelComparison} skillVersionImpact={dashboard.skillVersionImpact}
-            onRunKeywordChange={setRunKeyword}
-          />
-        )}
+          {activeView === "cases" && (
+            <EvalCasesView
+              caseKeyword={caseKeyword} selectedCase={selectedCase} totalCaseCount={dashboard.cases.length}
+              filteredCases={filteredCases} selectedEvalSetCases={selectedEvalSetCases}
+              latestRun={latestRun} latestResultByCase={latestResultByCase} isStarting={isStarting}
+              onCaseKeywordChange={setCaseKeyword} onSelectedCaseChange={setSelectedCase}
+              onRunSelection={() => startBenchmark()} onRunCase={(caseId) => startBenchmark(caseId)}
+            />
+          )}
 
-        {activeView === "repairs" && (
-          <EvalRepairsView repairTickets={dashboard.repairTickets} warningResults={warningResults} latestRun={latestRun} />
-        )}
+          {activeView === "evalSets" && (
+            <EvalSetsView
+              evalSets={evalSets} filteredEvalSets={filteredEvalSets} pagedEvalSets={pagedEvalSets}
+              selectedEvalSet={selectedEvalSet} selectedEvalSetStats={selectedEvalSetStats}
+              latestResultByCase={latestResultByCase} evalSetKeyword={evalSetKeyword}
+              evalSetCategoryFilter={evalSetCategoryFilter} evalSetCategories={evalSetCategories}
+              evalSetPage={evalSetPage} evalSetPageCount={evalSetPageCount} isStarting={isStarting}
+              onEvalSetKeywordChange={setEvalSetKeyword} onEvalSetCategoryFilterChange={setEvalSetCategoryFilter}
+              onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage} onRunSelectedEvalSet={startSelectedEvalSet}
+            />
+          )}
+
+          {activeView === "evaluator" && (
+            <EvalEvaluatorView
+              runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
+              benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
+              benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
+              evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} selectedEvalSet={selectedEvalSet}
+              flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
+              onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
+              onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onEvalSetSelect={selectEvalSet}
+              onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
+            />
+          )}
+
+          {activeView === "queue" && (
+            <EvalQueueView
+              queue={dashboard.queue} schedule={dashboard.schedule} cases={dashboard.cases}
+              runtimeOptions={runtimeOptions} scheduleRuntime={scheduleRuntime}
+              scheduleRuntimeSupportsReasoning={scheduleRuntimeSupportsReasoning}
+              scheduleEnabled={scheduleEnabled} scheduleInterval={scheduleInterval}
+              scheduleCli={scheduleCli} scheduleModel={scheduleModel} scheduleReasoningEffort={scheduleReasoningEffort}
+              scheduleCase={scheduleCase} isSavingSchedule={isSavingSchedule}
+              onCancelBenchmark={cancelBenchmark} onScheduleEnabledChange={setScheduleEnabled}
+              onScheduleIntervalChange={setScheduleInterval} onScheduleCliChange={updateScheduleCli}
+              onScheduleModelChange={setScheduleModel} onScheduleReasoningEffortChange={setScheduleReasoningEffort}
+              onScheduleCaseChange={setScheduleCase} onSaveSchedule={saveSchedule}
+            />
+          )}
+
+        </div>
       </main>
     </div>
   );

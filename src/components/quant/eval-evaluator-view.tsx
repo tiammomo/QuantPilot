@@ -55,7 +55,7 @@ export function EvalEvaluatorView({
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Panel
         title="评测器链路"
-        icon={<Cpu className="h-4 w-4 text-blue-600" />}
+        icon={<Cpu className="h-4 w-4 text-primary" />}
         action={
           <Button variant="outline" size="sm" onClick={onSimulateFlow} disabled={isSimulatingFlow}>
             {isSimulatingFlow ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -105,7 +105,7 @@ export function EvalEvaluatorView({
                   <option value="xhigh">xhigh</option>
                 </select>
               ) : (
-                <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500">
+                <div className="flex h-9 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm text-muted-foreground">
                   不适用
                 </div>
               )}
@@ -114,17 +114,17 @@ export function EvalEvaluatorView({
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {runtimeOptions.map((runtime) => (
-              <div key={runtime.cli} className="rounded-md border border-slate-200 bg-white p-3">
+              <div key={runtime.cli} className="rounded-xl border border-border/60 bg-card p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-slate-900">{runtime.label}</p>
-                  <Badge variant="outline" className="bg-white text-slate-500">
+                  <p className="font-medium text-foreground">{runtime.label}</p>
+                  <Badge variant="outline" className="text-muted-foreground">
                     {runtime.supportsReasoningEffort ? 'reasoning' : 'standard'}
                   </Badge>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">{runtime.models.length} 个模型 · 默认 {runtime.defaultModel}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{runtime.models.length} 个模型 · 默认 {runtime.defaultModel}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {runtime.models.map((model) => (
-                    <Badge key={model.id} className="border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                    <Badge key={model.id} className="border-primary/20 bg-primary/5 text-primary">
                       {model.name}
                     </Badge>
                   ))}
@@ -133,16 +133,16 @@ export function EvalEvaluatorView({
             ))}
           </div>
 
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+          <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-900">链路模拟结果</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="text-sm font-semibold text-foreground">链路模拟结果</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   dry-run 会验证选择、运行器、脚本、目录、报告解析和修复单存储。
                 </p>
               </div>
               {flowSimulation && (
-                <Badge className={flowSimulation.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}>
+                <Badge className={flowSimulation.ready ? 'border-emerald-200/60 bg-emerald-50 text-emerald-700' : 'border-red-200/60 bg-red-50 text-red-700'}>
                   {flowSimulation.ready ? '可运行' : '有阻断'}
                 </Badge>
               )}
@@ -151,7 +151,7 @@ export function EvalEvaluatorView({
             {flowSimulation ? (
               <div className="mt-4 space-y-2">
                 {flowSimulation.steps.map((step) => (
-                  <div key={step.id} className={`rounded-md border px-3 py-2 ${flowStepClass(step.status)}`}>
+                  <div key={step.id} className={`rounded-xl border px-3 py-2 ${flowStepClass(step.status)}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold">{step.name}</p>
@@ -164,7 +164,7 @@ export function EvalEvaluatorView({
                 ))}
               </div>
             ) : (
-              <p className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+              <p className="mt-4 rounded-xl border border-dashed border-border/60 bg-card p-6 text-center text-sm text-muted-foreground">
                 点击“模拟链路”后查看每一步状态。
               </p>
             )}
@@ -173,29 +173,29 @@ export function EvalEvaluatorView({
       </Panel>
 
       <div className="space-y-5">
-        <Panel title="当前选择" icon={<SlidersHorizontal className="h-4 w-4 text-blue-600" />}>
+        <Panel title="当前选择" icon={<SlidersHorizontal className="h-4 w-4 text-primary" />}>
           <div className="space-y-3 p-4 text-sm">
-            <div className="rounded-md bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">评测集</p>
-              <p className="mt-1 font-semibold text-slate-900">{selectedEvalSet.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{selectedEvalSet.caseIds.length} 个用例</p>
+            <div className="rounded-xl bg-muted/60 p-3">
+              <p className="text-xs text-muted-foreground">评测集</p>
+              <p className="mt-1 font-semibold text-foreground">{selectedEvalSet.name}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{selectedEvalSet.caseIds.length} 个用例</p>
             </div>
-            <div className="rounded-md bg-slate-50 p-3">
-              <p className="text-xs text-slate-500">运行器</p>
-              <p className="mt-1 font-semibold text-slate-900">
+            <div className="rounded-xl bg-muted/60 p-3">
+              <p className="text-xs text-muted-foreground">运行器</p>
+              <p className="mt-1 font-semibold text-foreground">
                 {benchmarkRuntime.label} · {benchmarkModel || benchmarkRuntime.defaultModel}
               </p>
             </div>
-            <Button className="w-full bg-blue-600 text-white hover:bg-blue-700" onClick={onStart} disabled={isStarting}>
+            <Button className="w-full" onClick={onStart} disabled={isStarting}>
               {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               启动真实评测
             </Button>
           </div>
         </Panel>
 
-        <Panel title="执行命令" icon={<FileText className="h-4 w-4 text-slate-600" />}>
+        <Panel title="执行命令" icon={<FileText className="h-4 w-4 text-muted-foreground" />}>
           <div className="p-4">
-            <pre className="max-h-48 max-w-full whitespace-pre-wrap break-all rounded-md bg-slate-950 p-3 text-xs text-slate-100">
+            <pre className="max-h-48 max-w-full whitespace-pre-wrap break-all rounded-xl bg-foreground p-3 text-xs text-background">
               {flowSimulation?.command.join(' ') ?? '尚未生成 dry-run 命令'}
             </pre>
           </div>
