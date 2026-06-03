@@ -4222,169 +4222,635 @@ function FactorCatalogView({ data }: { data: StrategyDashboardData }) {
   );
 }
 
-const FINANCIAL_KNOWLEDGE_ITEMS = [
+type FinancialWikiPageType = "concept" | "indicator" | "workflow" | "risk" | "source";
+
+type FinancialWikiPage = {
+  id: string;
+  title: string;
+  type: FinancialWikiPageType;
+  domain: string;
+  summary: string;
+  formula?: string;
+  decisionUse: string;
+  sources: string[];
+  links: string[];
+  qualityGate: string;
+  caveats: string[];
+};
+
+type FinancialWikiCollection = {
+  id: string;
+  name: string;
+  description: string;
+  pages: string[];
+};
+
+const FINANCIAL_WIKI_PAGE_TYPE_LABELS: Record<FinancialWikiPageType, string> = {
+  concept: "概念",
+  indicator: "指标",
+  workflow: "流程",
+  risk: "风控",
+  source: "数据源",
+};
+
+const FINANCIAL_WIKI_PURPOSE = {
+  title: "QuantPilot 金融知识库",
+  statement:
+    "把策略平台反复用到的行情、因子、资金流、交易规则和风控知识整理成可追溯 Wiki，供策略目录、因子目录、Agent 生成和人工复核共同引用。",
+  scope: [
+    "A 股股票、ETF、指数的行情与策略研究口径",
+    "选股、买卖价格、参数扫描、回测和数据质量检查",
+    "本地 market-data 服务可验证的数据字段与外部源限制",
+  ],
+  questions: [
+    "这个概念依赖哪些字段，字段当前是否可用？",
+    "它如何影响选股、买入、卖出或风控？",
+    "它有哪些常见误用，是否需要数据源口径隔离？",
+    "它和哪些策略模板、因子或基础组件互相引用？",
+  ],
+} as const;
+
+const FINANCIAL_WIKI_SCHEMA_RULES = [
+  "每个页面必须有 frontmatter：type、domain、status、sources、updatedBy、qualityGate。",
+  "指标页面必须写明 formula、字段依赖、复权/时区/交易日口径和缺失值处理。",
+  "策略相关页面必须链接到至少一个风险页面或数据质量页面。",
+  "不能把外部源口径不同的字段直接混排；必须保留 provider、as_of、fetched_at。",
+  "页面之间用 [[页面标题]] 交叉引用，孤立页面进入 Lint 待补链接队列。",
+] as const;
+
+const FINANCIAL_WIKI_OPERATIONS = [
   {
-    category: "资金流",
-    title: "DDE 大单金额",
-    formula: "大单买入金额 - 大单卖出金额",
-    meaning: "衡量大资金在某只股票上的净流入方向。不同数据源对“大单”的阈值会不同，落库时必须保留 provider 和 raw_payload。",
-    decision: "连续为正通常代表资金承接更强，适合和涨停、均线多头、放量一起使用；单日转负可作为接力策略的降权或退出信号。",
-    caveats: ["不要只看单日", "必须看成交额覆盖", "需要区分日终数据和盘中快照"],
+    id: "ingest",
+    title: "Ingest 摄入",
+    description: "读取 API 文档、因子定义、策略模板和外部资料，先形成结构化分析，再生成或更新 Wiki 页面。",
+    checks: ["提取实体与指标", "记录来源和字段", "建议 wikilinks", "写入 log.md"],
   },
   {
-    category: "资金流",
-    title: "大单净量",
-    formula: "大单买入量 - 大单卖出量；部分源会再除以流通盘",
-    meaning: "更偏成交数量口径，适合做同日股票间排序。若用百分比口径，大小盘之间更可比。",
-    decision: "用于候选股排序时，比简单涨幅更能体现资金主动性；但需要和价格是否过热一起约束，避免追高。",
-    caveats: ["不同源口径不可直接混排", "小盘股容易被极端成交放大", "缺失时不能回填为 0"],
+    id: "query",
+    title: "Query 查询",
+    description: "按关键词、页面类型和图谱关联组装上下文，用编号页面回答策略问题。",
+    checks: ["先搜 index.md", "再扩展相关页面", "预算内保留公式和边界", "回答引用页面编号"],
   },
   {
-    category: "趋势",
-    title: "移动均线 MA",
-    formula: "MA(N) = 最近 N 个交易日收盘价之和 / N",
-    meaning: "MA5/10 反映短线成本，MA20/30 反映月度趋势，MA60 更接近中期趋势。",
-    decision: "股价在 MA5 上方且 MA5 > MA10 > MA20 > MA30 > MA60，通常说明短中期成本逐级抬升，是趋势选股的重要过滤。",
-    caveats: ["均线滞后", "震荡市容易反复假信号", "除权复权口径必须统一"],
-  },
-  {
-    category: "事件",
-    title: "涨停/跌停",
-    formula: "涨停价约等于前收盘价 * (1 + 涨跌幅限制)",
-    meaning: "主板、创业板、科创板、北交所、ST 的涨跌幅规则不同，所以策略里要明确剔除或分层处理。",
-    decision: "近 4 日涨停至少 1 次说明短线情绪被激活；当日已经涨停则可能无法合理买入，应从候选中剔除或标记不可成交。",
-    caveats: ["涨停不等于可以买到", "一字板需要盘口数据", "不同板块涨跌幅制度不同"],
-  },
-  {
-    category: "波动",
-    title: "ATR 真实波幅",
-    formula: "TR = max(高-低, |高-昨收|, |低-昨收|)，ATR = TR 的 N 日均值",
-    meaning: "ATR 衡量一只股票近期正常波动范围，比简单涨跌幅更适合做止损和买入区间。",
-    decision: "买入价、止损价、追高上限可以用 ATR 反推，例如止损距离 1.2 ATR，止盈至少 2R。",
-    caveats: ["突发事件会抬高 ATR", "低价股 ATR 百分比更重要", "不能替代流动性检查"],
-  },
-  {
-    category: "流动性",
-    title: "换手率",
-    formula: "换手率 = 成交量 / 流通股本 * 100%",
-    meaning: "反映筹码交换程度。高换手说明交易活跃，也可能说明分歧很大。",
-    decision: "接力策略需要最低换手确认活跃度；但极端高换手叠加放量阴线，往往是短线转弱信号。",
-    caveats: ["流通股本口径要稳定", "新股和小盘股需单独阈值", "高换手不必然上涨"],
-  },
-  {
-    category: "流动性",
-    title: "成交额",
-    formula: "成交额 = 成交价格 * 成交量 的日内累计",
-    meaning: "比成交量更适合跨价格区间比较流动性，策略筛选时应设置最低成交额门槛。",
-    decision: "成交额不足的股票，即使命中 DDE 或均线条件，也可能无法承载实际交易规模。",
-    caveats: ["放量也可能是出货", "需要和涨跌幅方向一起看", "低成交额样本回测容易虚高"],
-  },
-  {
-    category: "开盘强弱",
-    title: "高开与回踩承接",
-    formula: "开盘涨幅 = (今日开盘价 - 昨日收盘价) / 昨日收盘价 * 100%",
-    meaning: "高开代表情绪延续，回踩前收或 MA5 不破代表承接较强。",
-    decision: "涨停次日策略里，开盘价大于昨收是强势条件；高开过多则成本失控，需要等待回踩或放弃。",
-    caveats: ["日线只能粗略判断", "真实承接要分钟线", "集合竞价金额很关键"],
-  },
-  {
-    category: "风控",
-    title: "R 倍数与收益风险比",
-    formula: "R = 买入价 - 止损价；收益风险比 = (目标价 - 买入价) / R",
-    meaning: "把买入、止损、止盈统一成可比较的风险单位，避免只看涨幅不看亏损。",
-    decision: "建议买入前先算止损，至少看到 2R 空间再考虑入场；达到 2R 可先减仓，再用均线跟踪。",
-    caveats: ["止损不能事后移动放宽", "目标价不应凭感觉设置", "滑点会降低真实收益风险比"],
+    id: "lint",
+    title: "Lint 检查",
+    description: "检查页面结构、缺失来源、断链、口径冲突和过期数据，生成待人工处理项。",
+    checks: ["frontmatter 完整", "sources 可追溯", "无孤立页面", "质量门明确"],
   },
 ] as const;
 
+const FINANCIAL_WIKI_PAGES: FinancialWikiPage[] = [
+  {
+    id: "market-data-contract",
+    title: "行情数据契约",
+    type: "source",
+    domain: "数据源",
+    summary:
+      "定义行情响应必须包含 asset_type、source、as_of、fetched_at、currency、timezone、fetch 和 data_quality，避免页面只读价格而丢失来源上下文。",
+    decisionUse:
+      "任何策略、图表或 Agent 输出在展示行情时，都要同步展示来源、时间和质量状态；缺失字段不能静默置零。",
+    sources: ["services/market-data/README.md", "/api/v1/quotes/realtime", "/api/v1/quotes/history"],
+    links: ["[[回测样本完整性]]", "[[复权与交易日口径]]", "[[成交额与流动性]]"],
+    qualityGate: "响应中 source、as_of、fetched_at、data_quality.status 至少四项完整。",
+    caveats: ["浏览器页面优先走同源 /api/market 代理", "外部源失败时要标注 degraded", "缓存命中不代表数据已过期"],
+  },
+  {
+    id: "adjustment-calendar",
+    title: "复权与交易日口径",
+    type: "concept",
+    domain: "行情基础",
+    summary:
+      "日线、周线、月线和回测必须统一复权口径；A 股交易日以本地交易日历或已入库 K 线推断为准。",
+    formula: "前复权 qfq 用于趋势与回测；不复权 none 用于盘中和原始价格检查。",
+    decisionUse:
+      "均线、收益率、回撤、ATR 和突破信号在复权口径不一致时会失真，策略扫描前必须固定 adjustment。",
+    sources: ["quant.stock_bars", "/api/v1/foundation/trading-calendar", "/api/v1/quotes/history/{symbol}"],
+    links: ["[[移动均线 MA]]", "[[ATR 真实波幅]]", "[[行情数据契约]]"],
+    qualityGate: "同一策略模板只允许一个 timeframe + adjustment 组合进入回测。",
+    caveats: ["分红除权会影响历史价格", "指数/ETF/股票可能适用不同默认口径", "节假日不能用自然日推断样本间隔"],
+  },
+  {
+    id: "moving-average",
+    title: "移动均线 MA",
+    type: "indicator",
+    domain: "趋势",
+    summary:
+      "MA5/10 反映短线成本，MA20/30 反映月度趋势，MA60 更接近中期趋势，是趋势过滤和持仓跟踪的基础页面。",
+    formula: "MA(N) = 最近 N 个交易日收盘价之和 / N",
+    decisionUse:
+      "股价在 MA5 上方且 MA5 > MA10 > MA20 > MA30 > MA60，通常说明短中期成本逐级抬升，可作为趋势选股过滤。",
+    sources: ["quant.stock_bars.close", "/api/v1/indicators/technical/{symbol}"],
+    links: ["[[复权与交易日口径]]", "[[涨停/跌停制度]]", "[[回撤与收益风险比]]"],
+    qualityGate: "至少 60 根同一复权口径 K 线可用，否则 MA60 不进入判断。",
+    caveats: ["均线滞后", "震荡市容易反复假信号", "不同复权口径不可混用"],
+  },
+  {
+    id: "dde-order-flow",
+    title: "DDE 大单金额",
+    type: "indicator",
+    domain: "资金流",
+    summary:
+      "衡量大资金在某只股票上的净流入方向；不同数据源对“大单”的阈值会不同，落库时必须保留 provider 和 raw_payload。",
+    formula: "大单买入金额 - 大单卖出金额",
+    decisionUse:
+      "连续为正通常代表资金承接更强，适合与涨停、均线多头、放量一起使用；单日转负可作为接力策略降权或退出信号。",
+    sources: ["待接入 DDE provider", "quant.stock_factors.capital_flow_*"],
+    links: ["[[板块资金热度代理]]", "[[成交额与流动性]]", "[[涨停/跌停制度]]"],
+    qualityGate: "同一 provider、同一粒度、连续 3 个交易日以上才允许参与排序。",
+    caveats: ["不要只看单日", "必须看成交额覆盖", "需要区分日终数据和盘中快照"],
+  },
+  {
+    id: "sector-flow-proxy",
+    title: "板块资金热度代理",
+    type: "workflow",
+    domain: "资金流",
+    summary:
+      "在真实 DDE/主力净流入字段接入前，用板块内成交额、换手、上涨占比、涨停数和 20 日强弱构建资金热度代理。",
+    formula: "proxyNetAmount = Σ(成交额 × 涨跌方向权重)",
+    decisionUse:
+      "先判断资金是否在板块层面共振，再下钻龙头；避免只因为单只股票异动就误判为主线行情。",
+    sources: ["/api/v1/research/screeners/a-share/short-term-candidates", "/api/v1/research/bars/{symbol}", "sector tags"],
+    links: ["[[DDE 大单金额]]", "[[成交额与流动性]]", "[[涨停/跌停制度]]"],
+    qualityGate: "板块样本至少 5 只且覆盖率超过 60%，否则只展示观察状态。",
+    caveats: ["这是资金热度代理，不是真实 DDE", "板块标签稀疏会影响聚合", "单日热度不能替代连续性"],
+  },
+  {
+    id: "turnover-liquidity",
+    title: "成交额与流动性",
+    type: "indicator",
+    domain: "流动性",
+    summary:
+      "成交额比成交量更适合跨价格区间比较流动性，换手率反映筹码交换程度，两者共同决定策略是否可交易。",
+    formula: "成交额 = 成交价格 × 成交量；换手率 = 成交量 / 流通股本 × 100%",
+    decisionUse:
+      "成交额不足的股票，即使命中 DDE 或均线条件，也可能无法承载实际交易规模；极端换手叠加放量阴线需降权。",
+    sources: ["quant.stock_bars.amount", "quant.stock_bars.turnover", "quant.stock_bars.volume"],
+    links: ["[[DDE 大单金额]]", "[[ATR 真实波幅]]", "[[回测样本完整性]]"],
+    qualityGate: "20 日平均成交额和换手率至少一项可用，缺失时不参与流动性排序。",
+    caveats: ["放量也可能是出货", "低成交额样本回测容易虚高", "新股和小盘股需单独阈值"],
+  },
+  {
+    id: "limit-up-down",
+    title: "涨停/跌停制度",
+    type: "concept",
+    domain: "交易规则",
+    summary:
+      "主板、创业板、科创板、北交所、ST 的涨跌幅限制不同，策略里要明确剔除、分层或单独设置阈值。",
+    formula: "涨停价 ≈ 前收盘价 × (1 + 涨跌幅限制)",
+    decisionUse:
+      "近 4 日涨停至少 1 次说明短线情绪被激活；当日已经涨停则可能无法合理买入，应标记不可成交。",
+    sources: ["quant.stock_bars.limit_up", "quant.stock_bars.limit_down", "quant.stock_bars.is_st"],
+    links: ["[[移动均线 MA]]", "[[开盘强弱与回踩承接]]", "[[成交额与流动性]]"],
+    qualityGate: "必须识别 ST、停牌、涨停、跌停和市场板块，避免错误计算可成交性。",
+    caveats: ["涨停不等于可以买到", "一字板需要盘口数据", "涨跌幅制度随市场板块变化"],
+  },
+  {
+    id: "gap-open-support",
+    title: "开盘强弱与回踩承接",
+    type: "indicator",
+    domain: "买卖价格",
+    summary:
+      "高开代表情绪延续，回踩前收、MA5 或关键价位不破代表承接较强，是短线买点设计的重要页面。",
+    formula: "开盘涨幅 = (今日开盘价 - 昨日收盘价) / 昨日收盘价 × 100%",
+    decisionUse:
+      "涨停次日策略里，开盘价大于昨收是强势条件；高开过多则成本失控，需要等待回踩或放弃。",
+    sources: ["quant.stock_bars.open", "quant.stock_bars.previous_close", "minute1 intraday"],
+    links: ["[[涨停/跌停制度]]", "[[ATR 真实波幅]]", "[[回撤与收益风险比]]"],
+    qualityGate: "日线可给粗判断；真实承接必须接入分钟线或集合竞价金额。",
+    caveats: ["高开过多会降低收益风险比", "日线无法判断盘中承接", "集合竞价金额很关键"],
+  },
+  {
+    id: "atr-volatility",
+    title: "ATR 真实波幅",
+    type: "indicator",
+    domain: "波动",
+    summary:
+      "ATR 衡量标的近期正常波动范围，比简单涨跌幅更适合做止损、买入区间和追高上限。",
+    formula: "TR = max(高 - 低, |高 - 昨收|, |低 - 昨收|)；ATR = TR 的 N 日均值",
+    decisionUse:
+      "买入价、止损价、追高上限可以用 ATR 反推，例如止损距离 1.2 ATR，止盈至少 2R。",
+    sources: ["quant.stock_bars.high", "quant.stock_bars.low", "quant.stock_bars.close"],
+    links: ["[[回撤与收益风险比]]", "[[开盘强弱与回踩承接]]", "[[成交额与流动性]]"],
+    qualityGate: "至少 14 根连续 K 线可用；低价股优先使用 ATR 百分比。",
+    caveats: ["突发事件会抬高 ATR", "ATR 不能替代流动性检查", "波动扩张不必然代表趋势"],
+  },
+  {
+    id: "risk-r-multiple",
+    title: "回撤与收益风险比",
+    type: "risk",
+    domain: "风控",
+    summary:
+      "把买入、止损、止盈统一成可比较的风险单位，避免只看涨幅不看亏损，是策略输出必须附带的风险页面。",
+    formula: "R = 买入价 - 止损价；收益风险比 = (目标价 - 买入价) / R",
+    decisionUse:
+      "买入前先算止损，至少看到 2R 空间再考虑入场；达到 2R 可先减仓，再用均线或 ATR 跟踪。",
+    sources: ["strategy templates", "backtest metrics", "quant.stock_bars.close"],
+    links: ["[[ATR 真实波幅]]", "[[移动均线 MA]]", "[[回测样本完整性]]"],
+    qualityGate: "策略工作空间必须同时输出买入价、止损价、目标价和放弃条件。",
+    caveats: ["止损不能事后移动放宽", "目标价不应凭感觉设置", "滑点会降低真实收益风险比"],
+  },
+  {
+    id: "backtest-integrity",
+    title: "回测样本完整性",
+    type: "risk",
+    domain: "回测",
+    summary:
+      "回测前检查 K 线缺口、复权口径、成交额、停牌/ST、涨跌停和字段增强状态，避免样本质量问题伪造收益。",
+    decisionUse:
+      "只有通过数据质量扫描的标的才进入参数扫描；缺字段策略必须保持 planned 或 needs_data 状态。",
+    sources: ["/api/v1/foundation/data-quality/scan", "strategyScanRun", "strategyScanJob"],
+    links: ["[[行情数据契约]]", "[[复权与交易日口径]]", "[[成交额与流动性]]"],
+    qualityGate: "错误级问题为 0，警告项必须在页面中显式展示。",
+    caveats: ["低流动性样本回测可能虚高", "不能用 0 替代缺失值", "参数扫描要控制过拟合"],
+  },
+] as const;
+
+const FINANCIAL_WIKI_COLLECTIONS: FinancialWikiCollection[] = [
+  {
+    id: "foundation",
+    name: "基础口径",
+    description: "先确认数据契约、复权、交易日和行情质量，再谈指标。",
+    pages: ["market-data-contract", "adjustment-calendar", "backtest-integrity"],
+  },
+  {
+    id: "signals",
+    name: "信号与因子",
+    description: "趋势、资金流、流动性、波动和开盘强弱的计算与误用边界。",
+    pages: ["moving-average", "dde-order-flow", "turnover-liquidity", "gap-open-support", "atr-volatility"],
+  },
+  {
+    id: "strategy",
+    name: "策略与风控",
+    description: "把信号组合成可执行策略，并用收益风险比和样本完整性约束。",
+    pages: ["sector-flow-proxy", "limit-up-down", "risk-r-multiple"],
+  },
+];
+
+const FINANCIAL_WIKI_LOG = [
+  { date: "2026-06-03", event: "重构金融知识模块为 Wiki 结构，补齐 purpose、schema、index、pages 与 lint 清单。" },
+  { date: "2026-05-30", event: "接入因子目录与基础组件视图，知识页面开始引用本地 market-data 字段口径。" },
+  { date: "2026-05-28", event: "策略平台新增股票池、策略目录、参数扫描和回测归档入口。" },
+] as const;
+
+function pageTypeClass(type: FinancialWikiPageType) {
+  if (type === "indicator") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (type === "workflow") return "border-violet-200 bg-violet-50 text-violet-700";
+  if (type === "risk") return "border-red-200 bg-red-50 text-red-700";
+  if (type === "source") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
 function FinancialKnowledgeView() {
-  const categories = Array.from(new Set(FINANCIAL_KNOWLEDGE_ITEMS.map((item) => item.category)));
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("all");
+  const [selectedType, setSelectedType] = useState<FinancialWikiPageType | "all">("all");
+  const [query, setQuery] = useState("");
+  const pageById = useMemo(() => new Map(FINANCIAL_WIKI_PAGES.map((page) => [page.id, page])), []);
+  const selectedCollection = FINANCIAL_WIKI_COLLECTIONS.find((collection) => collection.id === selectedCollectionId);
+  const selectedCollectionPages = useMemo(
+    () => (selectedCollection ? new Set(selectedCollection.pages) : null),
+    [selectedCollection],
+  );
+  const filteredPages = useMemo(() => {
+    const lower = query.trim().toLowerCase();
+    return FINANCIAL_WIKI_PAGES.filter((page) => {
+      const collectionMatch = !selectedCollectionPages || selectedCollectionPages.has(page.id);
+      const typeMatch = selectedType === "all" || page.type === selectedType;
+      const text = [
+        page.id,
+        page.title,
+        page.type,
+        page.domain,
+        page.summary,
+        page.formula,
+        page.decisionUse,
+        page.qualityGate,
+        ...page.sources,
+        ...page.links,
+        ...page.caveats,
+      ].join(" ").toLowerCase();
+      return collectionMatch && typeMatch && (!lower || text.includes(lower));
+    });
+  }, [query, selectedCollectionPages, selectedType]);
+  const pageTypes = Object.keys(FINANCIAL_WIKI_PAGE_TYPE_LABELS) as FinancialWikiPageType[];
+  const linkGraphEdges = FINANCIAL_WIKI_PAGES.reduce((sum, page) => sum + page.links.length, 0);
+  const sourceCount = new Set(FINANCIAL_WIKI_PAGES.flatMap((page) => page.sources)).size;
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <BookOpen className="h-4 w-4 text-blue-600" />
-            指标公式
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-4xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-950">{FINANCIAL_WIKI_PURPOSE.title}</h2>
+              <Badge variant="outline" className="bg-white text-slate-500">Wiki OS</Badge>
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                {FINANCIAL_WIKI_PAGES.length} 页
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{FINANCIAL_WIKI_PURPOSE.statement}</p>
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            统一沉淀 MA、DDE、ATR、换手率、涨停和收益风险比的计算口径。
-          </p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <BarChart3 className="h-4 w-4 text-emerald-600" />
-            决策影响
+          <div className="grid min-w-[300px] grid-cols-3 gap-2 text-sm">
+            {[
+              { label: "知识页面", value: FINANCIAL_WIKI_PAGES.length },
+              { label: "引用源", value: sourceCount },
+              { label: "交叉链接", value: linkGraphEdges },
+            ].map((item) => (
+              <div key={item.label} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-xs text-slate-500">{item.label}</p>
+                <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{item.value}</p>
+              </div>
+            ))}
           </div>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            每个指标都对应选股、买入成本、卖出风控或流动性过滤，不做孤立解释。
-          </p>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <ShieldCheck className="h-4 w-4 text-amber-600" />
-            使用边界
-          </div>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            明确常见误用和数据口径差异，避免把单个信号误解成交易结论。
-          </p>
-        </div>
-      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">知识分类</p>
-          <div className="mt-3 space-y-2">
-            {categories.map((category) => {
-              const count = FINANCIAL_KNOWLEDGE_ITEMS.filter((item) => item.category === category).length;
-              return (
-                <div key={category} className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm">
-                  <span className="font-medium text-slate-700">{category}</span>
-                  <span className="tabular-nums text-slate-400">{count}</span>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
+            <p className="text-sm font-semibold text-slate-950">purpose.md</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold text-slate-400">范围</p>
+                <div className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
+                  {FINANCIAL_WIKI_PURPOSE.scope.map((item) => <p key={item}>{item}</p>)}
                 </div>
-              );
-            })}
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-400">关键问题</p>
+                <div className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
+                  {FINANCIAL_WIKI_PURPOSE.questions.map((item) => <p key={item}>{item}</p>)}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-            DDE 和大单净量必须保留数据源口径；不同供应商阈值不同，不能直接混用。
+          <div className="rounded-md border border-blue-100 bg-blue-50/70 p-4">
+            <p className="text-sm font-semibold text-blue-950">schema.md</p>
+            <div className="mt-3 space-y-2">
+              {FINANCIAL_WIKI_SCHEMA_RULES.map((rule) => (
+                <p key={rule} className="rounded-md bg-white px-3 py-2 text-xs leading-5 text-blue-900">
+                  {rule}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">index.md</p>
+            <div className="mt-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => setSelectedCollectionId("all")}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                  selectedCollectionId === "all"
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                )}
+              >
+                <span className="font-medium">全部页面</span>
+                <span className="tabular-nums text-slate-400">{FINANCIAL_WIKI_PAGES.length}</span>
+              </button>
+              {FINANCIAL_WIKI_COLLECTIONS.map((collection) => (
+                <button
+                  key={collection.id}
+                  type="button"
+                  onClick={() => setSelectedCollectionId(collection.id)}
+                  className={cn(
+                    "w-full rounded-md border px-3 py-2 text-left transition-colors",
+                    selectedCollectionId === collection.id
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">{collection.name}</span>
+                    <span className="tabular-nums text-slate-400">{collection.pages.length}</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{collection.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">页面类型</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedType("all")}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                  selectedType === "all" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"
+                )}
+              >
+                全部
+              </button>
+              {pageTypes.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setSelectedType(type)}
+                  className={cn(
+                    "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                    selectedType === type ? pageTypeClass(type) : "border-slate-200 bg-white text-slate-600"
+                  )}
+                >
+                  {FINANCIAL_WIKI_PAGE_TYPE_LABELS[type]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 shadow-sm">
+            <p className="text-sm font-semibold text-amber-900">Lint 待检查</p>
+            <div className="mt-3 space-y-2 text-xs leading-5 text-amber-800">
+              <p>待接入真实 DDE provider 后更新 [[DDE 大单金额]]。</p>
+              <p>分钟线和集合竞价口径接入后复核 [[开盘强弱与回踩承接]]。</p>
+              <p>新增页面必须补至少 2 个 wikilinks 和 1 个 source。</p>
+            </div>
           </div>
         </aside>
 
-        <div className="space-y-3">
-          {FINANCIAL_KNOWLEDGE_ITEMS.map((item) => (
-            <article key={item.title} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-slate-50 text-slate-500">{item.category}</Badge>
-                    <h3 className="text-base font-bold text-slate-950">{item.title}</h3>
-                  </div>
-                  <code className="mt-2 block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800">
-                    {item.formula}
-                  </code>
-                </div>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">pages/</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  显示 {filteredPages.length} / {FINANCIAL_WIKI_PAGES.length} 页，页面标题和链接均按 Wiki 方式维护。
+                </p>
               </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1.2fr_1fr]">
-                <div className="rounded-md bg-slate-50 p-3">
-                  <p className="text-xs font-semibold text-slate-500">含义</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-700">{item.meaning}</p>
+              <div className="relative min-w-[260px] flex-1 md:max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索公式、来源、链接、质量门..."
+                  className="h-9 border-slate-200 bg-white pl-9"
+                />
+              </div>
+            </div>
+          </div>
+
+          {filteredPages.map((page) => (
+            <article key={page.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={pageTypeClass(page.type)}>
+                      {FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white text-slate-500">{page.domain}</Badge>
+                    <h3 className="text-base font-bold text-slate-950">{page.title}</h3>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{page.summary}</p>
                 </div>
+                <code className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
+                  type: {page.type}<br />
+                  status: maintained<br />
+                  page: {page.id}.md
+                </code>
+              </div>
+
+              {page.formula && (
+                <code className="mt-4 block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800">
+                  {page.formula}
+                </code>
+              )}
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_1fr_1fr]">
                 <div className="rounded-md bg-blue-50 p-3">
-                  <p className="text-xs font-semibold text-blue-600">对决策的影响</p>
-                  <p className="mt-1 text-sm leading-6 text-blue-900">{item.decision}</p>
+                  <p className="text-xs font-semibold text-blue-600">决策使用</p>
+                  <p className="mt-1 text-sm leading-6 text-blue-950">{page.decisionUse}</p>
+                </div>
+                <div className="rounded-md bg-emerald-50 p-3">
+                  <p className="text-xs font-semibold text-emerald-700">质量门</p>
+                  <p className="mt-1 text-sm leading-6 text-emerald-950">{page.qualityGate}</p>
                 </div>
                 <div className="rounded-md bg-amber-50 p-3">
-                  <p className="text-xs font-semibold text-amber-700">注意事项</p>
+                  <p className="text-xs font-semibold text-amber-700">误用边界</p>
                   <div className="mt-1 space-y-1 text-sm leading-6 text-amber-900">
-                    {item.caveats.map((caveat) => <p key={caveat}>{caveat}</p>)}
+                    {page.caveats.map((caveat) => <p key={`${page.id}-caveat-${caveat}`}>{caveat}</p>)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs font-semibold text-slate-500">sources[]</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {page.sources.map((source) => (
+                      <code key={`${page.id}-source-${source}`} className="rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">
+                        {source}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs font-semibold text-slate-500">wikilinks</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {page.links.map((link) => {
+                      const targetTitle = link.replace("[[", "").replace("]]", "");
+                      const target = FINANCIAL_WIKI_PAGES.find((item) => item.title === targetTitle);
+                      return (
+                        <button
+                          key={`${page.id}-link-${link}`}
+                          type="button"
+                          onClick={() => {
+                            if (target) {
+                              setSelectedCollectionId("all");
+                              setSelectedType("all");
+                              setQuery(target.title);
+                            }
+                          }}
+                          className="rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                        >
+                          {link}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
             </article>
           ))}
+
+          {!filteredPages.length && (
+            <EmptyState title="没有匹配的知识页面" description="调整目录、类型或搜索关键词" className="border-0" />
+          )}
         </div>
-      </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Ingest / Query / Lint</h3>
+              <p className="mt-1 text-sm text-slate-500">金融知识库按固定生命周期维护，不依赖一次性人工整理。</p>
+            </div>
+            <Badge variant="outline" className="bg-white text-slate-500">操作协议</Badge>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {FINANCIAL_WIKI_OPERATIONS.map((operation) => (
+              <article key={operation.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                <p className="text-sm font-bold text-slate-950">{operation.title}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{operation.description}</p>
+                <div className="mt-3 space-y-1">
+                  {operation.checks.map((check) => (
+                    <p key={`${operation.id}-${check}`} className="flex gap-2 text-xs leading-5 text-slate-600">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                      <span>{check}</span>
+                    </p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-slate-950">log.md</p>
+          <div className="mt-3 space-y-3">
+            {FINANCIAL_WIKI_LOG.map((item) => (
+              <div key={`${item.date}-${item.event}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="font-mono text-xs font-semibold text-slate-500">{item.date}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-700">{item.event}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-950">知识图谱预览</h3>
+        <p className="mt-1 text-sm text-slate-500">按 collection 和 wikilinks 组织，后续可接入图谱可视化和自动 Lint。</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {FINANCIAL_WIKI_COLLECTIONS.map((collection) => (
+            <div key={`graph-${collection.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+              <p className="text-sm font-bold text-slate-950">{collection.name}</p>
+              <div className="mt-3 space-y-2">
+                {collection.pages.map((pageId) => {
+                  const page = pageById.get(pageId);
+                  if (!page) return null;
+                  return (
+                    <div key={`${collection.id}-${pageId}`} className="rounded-md bg-white px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium text-slate-800">{page.title}</p>
+                        <Badge variant="outline" className={pageTypeClass(page.type)}>
+                          {FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{page.links.length} links · {page.sources.length} sources</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

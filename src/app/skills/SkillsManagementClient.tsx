@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
   Code2,
@@ -17,12 +18,19 @@ import {
   Search,
   TriangleAlert,
   Upload,
+  ArrowLeft,
+  XCircle,
+  Sparkles,
+  Package,
+  GitBranch,
+  Shield,
+  Settings,
 } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCompactDate as formatTime } from "@/components/quant/console-primitives";
@@ -63,32 +71,48 @@ const statusLabels: Record<SkillHealthStatus, string> = {
   warning: "需同步",
   error: "异常",
 };
-const statusStyles: Record<SkillHealthStatus, string> = {
-  ok: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  warning: "border-amber-200 bg-amber-50 text-amber-700",
-  error: "border-red-200 bg-red-50 text-red-700",
+
+const statusConfig: Record<SkillHealthStatus, { bg: string; text: string; border: string; dot: string; icon: typeof CheckCircle2 }> = {
+  ok: {
+    bg: "bg-emerald-50",
+    text: "text-emerald-700",
+    border: "border-emerald-200",
+    dot: "bg-emerald-500",
+    icon: CheckCircle2,
+  },
+  warning: {
+    bg: "bg-amber-50",
+    text: "text-amber-700",
+    border: "border-amber-200",
+    dot: "bg-amber-500",
+    icon: TriangleAlert,
+  },
+  error: {
+    bg: "bg-red-50",
+    text: "text-red-700",
+    border: "border-red-200",
+    dot: "bg-red-500",
+    icon: XCircle,
+  },
 };
 
-function pillClass(status: SkillHealthStatus) {
-  return `inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`;
-}
-
-const FILTER_CHIPS: { id: SkillHealthStatus | "all"; label: string }[] = [
+const FILTER_CHIPS: { id: SkillHealthStatus | "all"; label: string; icon?: typeof CheckCircle2 }[] = [
   { id: "all", label: "全部" },
-  { id: "error", label: "异常" },
-  { id: "warning", label: "需同步" },
-  { id: "ok", label: "正常" },
+  { id: "ok", label: "正常", icon: CheckCircle2 },
+  { id: "warning", label: "需同步", icon: TriangleAlert },
+  { id: "error", label: "异常", icon: XCircle },
 ];
-const SKILL_LIST_DEFAULT_WIDTH = 280;
-const SKILL_LIST_MIN_WIDTH = 220;
-const SKILL_LIST_MAX_WIDTH = 380;
+
+const SKILL_LIST_DEFAULT_WIDTH = 300;
+const SKILL_LIST_MIN_WIDTH = 240;
+const SKILL_LIST_MAX_WIDTH = 400;
 
 function clampSkillListWidth(width: number) {
   return Math.min(SKILL_LIST_MAX_WIDTH, Math.max(SKILL_LIST_MIN_WIDTH, width));
 }
 
 export default function SkillsManagementClient({ initialData }: { initialData: SkillsPayload }) {
-  // ── State (unchanged) ──────────────────────────────────────
+  // ── State ─────────────────────────────────────────────────
   const [payload, setPayload] = useState<SkillsPayload>(initialData);
   const [selectedId, setSelectedId] = useState<string | null>(initialData.skills[0]?.id ?? null);
   const [isVersionManagerOpen, setIsVersionManagerOpen] = useState(false);
@@ -149,7 +173,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   // ── Toast ────────────────────────────────────────────────────
   const showToast = useCallback((t: ToastState) => {
     setToast(t);
-    if (t) window.setTimeout(() => setToast(null), 3200);
+    if (t) window.setTimeout(() => setToast(null), 3500);
   }, []);
 
   // ── Data refresh ─────────────────────────────────────────────
@@ -408,45 +432,55 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   const pendingCount = payload.totals.warning + payload.totals.error;
 
   return (
-    <div className="flex h-screen flex-col bg-surface text-slate-900">
-      <PageHeader
-        title="Skills 管理"
-        badge={<Badge variant="outline" className="bg-white text-slate-500">{payload.totals.total} 个核心技能</Badge>}
-        subtitle="统一管理 skill 的源码、版本、Diff、打包与发布"
-      />
-
-      {/* Stats bar */}
-      <div className="border-b border-slate-200 bg-white px-4 py-2.5 lg:px-6">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-slate-500">状态概览</span>
+    <div className="flex h-screen flex-col bg-background text-foreground">
+      {/* Top navigation */}
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" asChild className="shrink-0 h-8 w-8">
+            <Link href="/" aria-label="返回首页">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+            <Package className="h-4 w-4" />
           </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-slate-400" />
+          <div>
+            <h1 className="text-base font-bold tracking-tight">Skills 管理</h1>
+            <p className="text-[11px] text-muted-foreground hidden sm:block">
+              管理 skill 源码、版本、Diff、打包与发布
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Stats pills */}
+          <div className="hidden items-center gap-2 md:flex">
+            <div className="flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-xs">
               <span className="font-semibold tabular-nums">{payload.totals.total}</span>
-              <span className="text-slate-500">总计</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="font-semibold tabular-nums text-emerald-700">{payload.totals.ok}</span>
-              <span className="text-slate-500">正常</span>
-            </span>
+              <span className="text-muted-foreground">技能</span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span className="font-semibold tabular-nums">{payload.totals.ok}</span>
+            </div>
             {pendingCount > 0 && (
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-amber-500" />
-                <span className="font-semibold tabular-nums text-amber-700">{pendingCount}</span>
-                <span className="text-slate-500">待处理</span>
-              </span>
+              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                <span className="font-semibold tabular-nums">{pendingCount}</span>
+              </div>
             )}
           </div>
-          <Button variant="ghost" size="sm" className="ml-auto" onClick={refreshDashboard}>
-            <RefreshCcw className="h-4 w-4" /> 刷新
+
+          <div className="h-4 w-px bg-border hidden md:block" />
+
+          <Button variant="ghost" size="sm" onClick={refreshDashboard} className="gap-1.5 text-xs">
+            <RefreshCcw className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">刷新</span>
           </Button>
         </div>
-      </div>
+      </header>
 
-      {/* Main content: Skill List | Editor */}
+      {/* Main content */}
       <div className="relative flex flex-1 overflow-hidden">
         {isSkillListCollapsed && (
           <Button
@@ -454,7 +488,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
             variant="outline"
             size="sm"
             onClick={() => setIsSkillListCollapsed(false)}
-            className="absolute left-2 top-3 z-30 h-8 w-8 rounded-full border-slate-200 bg-white p-0 shadow-sm"
+            className="absolute left-3 top-3 z-30 h-8 w-8 rounded-lg border-border/60 bg-card p-0 shadow-sm"
             aria-label="展开 Skill 列表"
             title="展开 Skill 列表"
           >
@@ -465,7 +499,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
         {/* ── Left: Skill List ───────────────────────────────── */}
         <aside
           className={cn(
-            "relative flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-out",
+            "relative flex shrink-0 flex-col border-r border-border/60 bg-card transition-all duration-300 ease-out",
             isSkillListCollapsed
               ? "min-w-0 -translate-x-4 overflow-hidden border-r-0 opacity-0 pointer-events-none"
               : "translate-x-0 opacity-100"
@@ -473,76 +507,112 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
           style={{ width: isSkillListCollapsed ? 0 : skillListWidth }}
           aria-hidden={isSkillListCollapsed}
         >
-          <div className="border-b border-slate-100 p-3">
-            <div className="mb-2 flex items-center gap-2">
+          {/* Search + filter */}
+          <div className="border-b border-border/40 p-3 space-y-2.5">
+            <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索 skill..." className="h-8 border-slate-200 bg-white pl-9 text-sm" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索 skill..."
+                  className="h-8 border-border/60 bg-muted/30 pl-8 text-sm"
+                />
               </div>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsSkillListCollapsed(true)}
-                className="h-8 w-8 shrink-0 border border-transparent p-0 text-slate-500 hover:border-slate-200 hover:bg-slate-50 hover:text-slate-900"
-                aria-label="收起 Skill 列表"
-                title="收起 Skill 列表"
+                className="h-8 w-8 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+                aria-label="收起列表"
+                title="收起列表"
               >
                 <PanelLeftClose className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex gap-1">
-              {FILTER_CHIPS.map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => setFilter(chip.id)}
-                  className={cn("rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                    filter === chip.id ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50"
-                  )}
-                >{chip.label}</button>
-              ))}
+              {FILTER_CHIPS.map((chip) => {
+                const isActive = filter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setFilter(chip.id)}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-all",
+                      isActive
+                        ? "bg-primary/10 text-primary ring-1 ring-primary/20"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    )}
+                  >
+                    {chip.icon && <chip.icon className="h-3 w-3" />}
+                    {chip.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+
+          {/* Skill cards */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {filteredSkills.map((skill) => {
               const active = selectedSkill?.id === skill.id;
+              const config = statusConfig[skill.health.status];
+              const StatusIcon = config.icon;
               return (
                 <button
                   key={skill.id}
                   type="button"
                   onClick={() => selectSkill(skill.id)}
-                  className={cn("mb-1 w-full rounded-lg border p-3 text-left transition-colors",
-                    active ? "border-blue-200 bg-blue-50/60" : "border-transparent hover:border-slate-200 hover:bg-slate-50"
+                  className={cn(
+                    "w-full rounded-xl border p-3 text-left transition-all",
+                    active
+                      ? "border-primary/25 bg-primary/5 shadow-sm shadow-primary/5"
+                      : "border-transparent hover:border-border/60 hover:bg-muted/30"
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{skill.name}</p>
-                      <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500">{skill.id}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("truncate text-sm font-semibold", active ? "text-primary" : "text-foreground")}>
+                        {skill.name}
+                      </p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{skill.id}</p>
                     </div>
-                    <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold", statusStyles[skill.health.status])}>
+                    <span className={cn("shrink-0 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold", config.bg, config.text, config.border)}>
+                      <StatusIcon className="h-2.5 w-2.5" />
                       {statusLabels[skill.health.status]}
                     </span>
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
-                    <span>v{skill.version}</span>
-                    <span>·</span>
+                  <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <GitBranch className="h-3 w-3" />
+                      v{skill.version}
+                    </span>
+                    <span className="text-border">·</span>
                     <span>{skill.changelog.releaseCount} 版本</span>
-                    <span>·</span>
+                    <span className="text-border">·</span>
                     <span>{skill.source.fileCount} 文件</span>
                   </div>
+                  {skill.health.missing.length > 0 && (
+                    <div className="mt-2 flex items-center gap-1 text-[10px] text-amber-600">
+                      <TriangleAlert className="h-3 w-3" />
+                      需处理: {skill.health.missing.slice(0, 2).join(", ")}
+                    </div>
+                  )}
                 </button>
               );
             })}
             {filteredSkills.length === 0 && (
-              <EmptyState title="没有匹配的 skill" description="尝试其他关键词" className="mx-2 border-0 py-8" />
+              <EmptyState title="没有匹配的 skill" description="尝试其他关键词或清除筛选" className="mx-1 border-0 py-8" />
             )}
           </div>
+
+          {/* Resize handle */}
           {!isSkillListCollapsed && (
             <div
               role="separator"
-              aria-label="调整 Skill 列表宽度"
+              aria-label="调整列表宽度"
               aria-orientation="vertical"
               tabIndex={0}
               onPointerDown={startSkillListResize}
@@ -558,7 +628,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
               }}
               className={cn(
                 "absolute -right-1 top-0 z-20 flex h-full w-2 cursor-col-resize items-center justify-center outline-none",
-                "after:h-12 after:w-1 after:rounded-full after:bg-slate-300 after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:after:opacity-100",
+                "after:h-12 after:w-1 after:rounded-full after:bg-border after:opacity-0 after:transition-opacity hover:after:opacity-100 focus-visible:after:opacity-100",
                 isResizingSkillList && "after:opacity-100"
               )}
             />
@@ -566,32 +636,49 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
         </aside>
 
         {/* ── Right: Editor Area ──────────────────────────────── */}
-        <div className={cn("flex min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-300", isSkillListCollapsed && "pl-10")}>
+        <div className={cn("flex min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-300", isSkillListCollapsed && "pl-12")}>
           {selectedSkill ? (
             <>
               {/* Skill overview bar */}
-              <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Code2 className="h-4 w-4 shrink-0 text-slate-500" />
-                  <h2 className="truncate text-sm font-bold text-slate-900">{selectedSkill.name}</h2>
-                  <span className={pillClass(selectedSkill.health.status)}>
-                    {selectedSkill.health.status === "ok" ? <CheckCircle2 className="mr-0.5 h-3 w-3" /> : <TriangleAlert className="mr-0.5 h-3 w-3" />}
-                    {statusLabels[selectedSkill.health.status]}
+              <div className="flex flex-wrap items-center gap-3 border-b border-border/40 bg-card/50 px-4 py-2.5 backdrop-blur">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
+                    <Code2 className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <h2 className="truncate text-sm font-bold text-foreground">{selectedSkill.name}</h2>
+                  {(() => {
+                    const config = statusConfig[selectedSkill.health.status];
+                    const StatusIcon = config.icon;
+                    return (
+                      <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold", config.bg, config.text, config.border)}>
+                        <StatusIcon className="h-3 w-3" />
+                        {statusLabels[selectedSkill.health.status]}
+                      </span>
+                    );
+                  })()}
+                  <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    v{selectedSkill.version}
                   </span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">v{selectedSkill.version}</span>
                 </div>
                 {selectedSkill.health.missing.length > 0 && (
-                  <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
-                    需处理: {selectedSkill.health.missing.join(", ")}
+                  <span className="flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                    <TriangleAlert className="h-3 w-3" />
+                    {selectedSkill.health.missing.join(", ")}
                   </span>
                 )}
                 <div className="ml-auto flex items-center gap-2">
-                  {sourceDirty && <span className="text-xs text-amber-600">未保存</span>}
-                  <Button variant="outline" size="sm" onClick={() => setIsVersionManagerOpen(true)}>
-                    <History className="h-4 w-4" /> 版本管理
+                  {sourceDirty && (
+                    <span className="flex items-center gap-1 text-xs text-amber-600">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      未保存
+                    </span>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => setIsVersionManagerOpen(true)} className="gap-1.5 text-xs">
+                    <History className="h-3.5 w-3.5" />
+                    版本管理
                   </Button>
-                  <Button size="sm" onClick={saveSource} disabled={isSavingSource || isLoadingSource || !sourceDirty}>
-                    {isSavingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  <Button size="sm" onClick={saveSource} disabled={isSavingSource || isLoadingSource || !sourceDirty} className="gap-1.5 text-xs">
+                    {isSavingSource ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                     保存
                   </Button>
                 </div>
@@ -600,12 +687,12 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
               {/* File tree + Editor */}
               <div className="flex flex-1 overflow-hidden">
                 {/* File tree panel */}
-                <div className="flex w-[260px] shrink-0 flex-col border-r border-slate-200 bg-slate-50/50">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                      <FolderTree className="h-3.5 w-3.5 text-slate-500" /> 文件清单
+                <div className="flex w-[260px] shrink-0 flex-col border-r border-border/40 bg-muted/20">
+                  <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                      <FolderTree className="h-3.5 w-3.5" /> 文件清单
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5">
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => createSourceFile()} aria-label="新建文件" title="新建文件">
                         <FileText className="h-3 w-3" />
                       </Button>
@@ -614,10 +701,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                       </Button>
                     </div>
                   </div>
-                  <div className="border-b border-slate-200 p-2">
+                  <div className="border-b border-border/40 p-2">
                     <div className="relative">
-                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
-                      <Input value={sourceFileQuery} onChange={(e) => setSourceFileQuery(e.target.value)} placeholder="搜索文件..." className="h-7 border-slate-200 bg-white pl-8 text-xs" />
+                      <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                      <Input value={sourceFileQuery} onChange={(e) => setSourceFileQuery(e.target.value)} placeholder="搜索文件..." className="h-7 border-border/60 bg-card pl-7 text-xs" />
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-1.5">
@@ -637,23 +724,24 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                 </div>
 
                 {/* Editor panel */}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">
+                <div className="flex min-w-0 flex-1 flex-col bg-card">
+                  <div className="flex items-center gap-2 border-b border-border/40 px-4 py-2 text-xs text-muted-foreground">
                     <span className="min-w-0 truncate font-mono">{source?.filePath ?? selectedFilePath}</span>
-                    {source && <span>· {formatBytes(source.size)}</span>}
-                    {source?.updatedAt && <span>· {formatTime(source.updatedAt)}</span>}
+                    {source && <span className="text-border">·</span>}
+                    {source && <span>{formatBytes(source.size)}</span>}
+                    {source?.updatedAt && <><span className="text-border">·</span><span>{formatTime(source.updatedAt)}</span></>}
                     <Button variant="ghost" size="sm" className="ml-auto h-6 px-2 text-xs" onClick={() => loadSource(selectedSkill.id, selectedFilePath)} disabled={isLoadingSource}>
                       {isLoadingSource ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
                     </Button>
                   </div>
                   {isLoadingSource ? (
-                    <div className="flex-1 p-4"><Skeleton className="h-full w-full rounded-md" /></div>
+                    <div className="flex-1 p-4"><Skeleton className="h-full w-full rounded-lg" /></div>
                   ) : (
                     <Textarea
                       value={sourceDraft}
                       onChange={(e) => setSourceDraft(e.target.value)}
                       spellCheck={false}
-                      className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-xs leading-5 shadow-none focus-visible:ring-0"
+                      className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-xs leading-5 shadow-none focus-visible:ring-0 bg-card"
                       placeholder="选择一个可编辑文件..."
                     />
                   )}
@@ -713,11 +801,33 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
         onDeleteFolder={deleteSourceFolder}
       />
 
-      {toast && (
-        <div className={cn("fixed bottom-5 right-5 z-50 rounded-md border px-4 py-3 text-sm shadow-lg",
-          toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"
-        )}>{toast.message}</div>
-      )}
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-5 right-5 z-50"
+          >
+            <div
+              className={cn(
+                "flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur-xl",
+                toast.type === "success"
+                  ? "border-emerald-200/60 bg-emerald-50/90 text-emerald-800"
+                  : "border-red-200/60 bg-red-50/90 text-red-800"
+              )}
+            >
+              {toast.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 shrink-0" />
+              )}
+              {toast.message}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
