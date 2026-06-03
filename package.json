@@ -75,6 +75,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-icons": "^5.6.0",
+    "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
@@ -87,13 +88,13 @@
     "autoprefixer": "^10.5.0",
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
-    "eslint": "^10.4.0",
+    "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.6",
     "playwright": "^1.60.0",
     "postcss": "^8.5.15",
     "prettier": "^3.8.3",
     "prisma": "^6.19.3",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^3.4.19",
     "typescript": "^6.0.3"
   },
   "engines": {

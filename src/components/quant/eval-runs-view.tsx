@@ -39,15 +39,15 @@ export function EvalRunsView({
               value={runKeyword}
               onChange={(event) => onRunKeywordChange(event.target.value)}
               placeholder="搜索运行记录..."
-              className="h-9 pl-9"
+              className="h-9 border-border/40 bg-card/60 pl-9 text-sm"
             />
           </div>
         }
       >
         <div id="runs" className="overflow-x-auto">
-          <table className="w-full min-w-[820px] border-collapse text-sm">
-            <thead className="bg-muted/60 text-left text-xs font-semibold text-muted-foreground">
-              <tr>
+          <table className="w-full min-w-[820px] text-sm">
+            <thead>
+              <tr className="border-b border-border/30 text-left text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-3">运行</th>
                 <th className="px-4 py-3">模型</th>
                 <th className="px-4 py-3">通过率</th>
@@ -58,13 +58,13 @@ export function EvalRunsView({
             </thead>
             <tbody>
               {filteredRuns.map((run) => (
-                <tr key={run.id} className="border-t border-border/40 bg-card transition-colors hover:bg-muted/30">
+                <tr key={run.id} className="border-b border-border/20 transition-colors hover:bg-muted/20">
                   <td className="min-w-0 px-4 py-3">
                     <div className="flex items-center gap-2">
                       {run.passed ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
                       ) : (
-                        <XCircle className="h-4 w-4 text-red-600" />
+                        <XCircle className="h-4 w-4 text-red-400" />
                       )}
                       <div className="min-w-0">
                         <p className="truncate font-mono text-xs text-foreground/80">{run.fileName}</p>
@@ -79,9 +79,9 @@ export function EvalRunsView({
                   <td className={`px-4 py-3 font-semibold ${scoreClass(run.averageScore)}`}>{run.averageScore}</td>
                   <td className="px-4 py-3 text-foreground/80">{formatDuration(run.durationMs)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="icon" asChild>
+                    <Button variant="ghost" size="icon" asChild className="h-7 w-7">
                       <Link href={`/eval-platform/runs/${run.id}`} aria-label="查看详情">
-                        <ChevronRight className="h-4 w-4" />
+                        <ChevronRight className="h-3.5 w-3.5" />
                       </Link>
                     </Button>
                   </td>
@@ -101,7 +101,7 @@ export function EvalRunsView({
 
       <section className="grid gap-5 xl:grid-cols-2">
         <Panel title="模型对比" icon={<Layers3 className="h-4 w-4 text-primary" />}>
-          <div className="divide-y divide-border/40">
+          <div className="divide-y divide-border/30">
             {modelComparison.slice(0, 6).map((item) => (
               <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_72px_72px_auto] items-center gap-3 px-4 py-3 text-sm">
                 <div className="min-w-0">
@@ -112,9 +112,9 @@ export function EvalRunsView({
                 </div>
                 <span className={`font-semibold ${passRateClass(item.latestPassRate)}`}>{item.latestPassRate}%</span>
                 <span className={`font-semibold ${scoreClass(item.averageScore)}`}>{item.averageScore}</span>
-                <Button variant="ghost" size="icon" asChild>
+                <Button variant="ghost" size="icon" asChild className="h-7 w-7">
                   <Link href={`/eval-platform/runs/${item.latestRunId}`} aria-label="查看最新模型报告">
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </Link>
                 </Button>
               </div>
@@ -123,8 +123,8 @@ export function EvalRunsView({
           </div>
         </Panel>
 
-        <Panel title="Skill 版本影响" icon={<BarChart3 className="h-4 w-4 text-emerald-600" />}>
-          <div className="max-h-[340px] overflow-y-auto divide-y divide-border/40">
+        <Panel title="Skill 版本影响" icon={<BarChart3 className="h-4 w-4 text-emerald-400" />}>
+          <div className="max-h-[340px] overflow-y-auto divide-y divide-border/30">
             {skillVersionImpact.slice(0, 8).map((item) => (
               <div key={`${item.skillId}@${item.version}`} className="grid grid-cols-[minmax(0,1fr)_72px_72px] items-center gap-3 px-4 py-3 text-sm">
                 <div className="min-w-0">

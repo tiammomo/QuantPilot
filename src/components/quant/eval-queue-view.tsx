@@ -60,14 +60,14 @@ export function EvalQueueView({
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Panel
         title={title}
-        icon={<Activity className="h-4 w-4 text-amber-600" />}
+        icon={<Activity className="h-4 w-4 text-amber-400" />}
         action={
-          <Badge variant="outline" className="text-muted-foreground">
+          <Badge variant="outline" className="text-muted-foreground border-border/40">
             {activeCount > 0 ? activeCount : queue.length}
           </Badge>
         }
       >
-        <div id="queue" className="divide-y divide-border/40">
+        <div id="queue" className="divide-y divide-border/30">
           {queue.map((item) => (
             <div key={item.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
@@ -82,7 +82,7 @@ export function EvalQueueView({
                   <p className="mt-1 text-xs text-muted-foreground">
                     创建 {formatDate(item.createdAt)} · 开始 {formatDate(item.startedAt)} · 结束 {formatDate(item.finishedAt)}
                   </p>
-                  {item.error && <p className="mt-2 text-xs text-red-600">{item.error}</p>}
+                  {item.error && <p className="mt-2 text-xs text-red-400">{item.error}</p>}
                 </div>
                 {item.reportId ? (
                   <Button variant="ghost" size="icon" asChild>
@@ -152,11 +152,11 @@ export function EvalQueueView({
             ))}
           </select>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="rounded-xl bg-muted/60 p-3">
+            <div className="rounded-lg border border-border/30 bg-card/40 p-3">
               <p className="text-muted-foreground">下次触发</p>
               <p className="mt-1 font-medium text-foreground">{formatDate(schedule.nextRunAt)}</p>
             </div>
-            <div className="rounded-xl bg-muted/60 p-3">
+            <div className="rounded-lg border border-border/30 bg-card/40 p-3">
               <p className="text-muted-foreground">上次触发</p>
               <p className="mt-1 font-medium text-foreground">{formatDate(schedule.lastRunAt)}</p>
             </div>

@@ -1,18 +1,14 @@
-import Link from 'next/link';
 import {
   Activity,
   BarChart3,
   ClipboardList,
-  FileText,
-  Layers3,
+  Clock,
   Loader2,
   Play,
   ShieldCheck,
-  SlidersHorizontal,
-  TriangleAlert,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatCompactDate as formatDate } from '@/components/quant/console-primitives';
 import {
   CLI_LABELS,
   ConfigField,
@@ -26,6 +22,10 @@ import {
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
 import type { QuantEvalDashboardData, QuantEvalRun, QuantEvalRuntimeOption } from '@/lib/quant/evals';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell,
+} from 'recharts';
 
 type RunDelta = {
   passRate: number;
@@ -56,6 +56,66 @@ type EvalOverviewViewProps = {
   onStart: () => void;
 };
 
+function ScoreDistributionChart({ runs }: { runs: QuantEvalRun[] }) {
+  const buckets = [
+    { range: '0-20', min: 0, max: 20, count: 0 },
+    { range: '20-40', min: 20, max: 40, count: 0 },
+    { range: '40-60', min: 40, max: 60, count: 0 },
+    { range: '60-80', min: 60, max: 80, count: 0 },
+    { range: '80-100', min: 80, max: 100, count: 0 },
+  ];
+  for (const run of runs) {
+    const score = run.averageScore;
+    for (const bucket of buckets) {
+      if (score >= bucket.min && score < bucket.max + (bucket.max === 100 ? 1 : 0)) {
+        bucket.count++;
+        break;
+      }
+    }
+  }
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={buckets} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,20%,18%)" vertical={false} />
+        <XAxis dataKey="range" tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
+        <Tooltip
+          contentStyle={{ backgroundColor: 'hsl(222,25%,10%)', border: '1px solid hsl(217,20%,18%)', borderRadius: 8, color: 'hsl(210,40%,95%)', fontSize: 12 }}
+          cursor={{ fill: 'hsl(217,25%,15%)' }}
+        />
+        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+          {buckets.map((_, index) => (
+            <Cell key={index} fill={index < 2 ? 'hsl(0,60%,50%)' : index < 3 ? 'hsl(38,90%,55%)' : 'hsl(160,60%,45%)'} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function RunsOverTimeChart({ runs }: { runs: QuantEvalRun[] }) {
+  const chartData = [...runs].reverse().slice(-20).map((run, i) => ({
+    name: `第 ${i + 1} 次`,
+    passRate: run.passRate,
+    score: run.averageScore,
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,20%,18%)" vertical={false} />
+        <XAxis dataKey="name" tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+        <Tooltip
+          contentStyle={{ backgroundColor: 'hsl(222,25%,10%)', border: '1px solid hsl(217,20%,18%)', borderRadius: 8, color: 'hsl(210,40%,95%)', fontSize: 12 }}
+        />
+        <Line type="monotone" dataKey="passRate" stroke="hsl(160,60%,45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(160,60%,45%)' }} name="通过率 %" />
+        <Line type="monotone" dataKey="score" stroke="hsl(217,91%,60%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(217,91%,60%)' }} name="平均分" />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function EvalOverviewView({
   dashboard,
   latestRun,
@@ -78,167 +138,126 @@ export function EvalOverviewView({
   onLimitChange,
   onStart,
 }: EvalOverviewViewProps) {
+  const queueDepth = dashboard.queue.filter((q) => q.status === 'queued').length;
+
   return (
-    <>
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-5">
+      {/* Stat cards */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
-          icon={<ClipboardList className="h-4 w-4" />}
-          label="全部用例"
-          value={dashboard.summary.caseCount}
-          helper={`${dashboard.summary.capabilityCount} 个能力域`}
-          tone="blue"
+          icon={<Activity className="h-4 w-4" />}
+          label="运行中"
+          value={activeQueueCount}
+          helper="当前正在运行"
+          tone={activeQueueCount > 0 ? 'amber' : 'slate'}
         />
         <StatTile
           icon={<ShieldCheck className="h-4 w-4" />}
-          label="最新通过率"
+          label="通过率"
           value={<span className={passRateClass(dashboard.summary.latestPassRate)}>{dashboard.summary.latestPassRate}%</span>}
           helper={
             <span className="flex items-center gap-2">
-              {dashboard.summary.latestPassedCount}/{dashboard.summary.latestTotal} 通过
+              {dashboard.summary.latestPassedCount}/{dashboard.summary.latestTotal}
               {delta && <DeltaText value={delta.passRate} suffix="%" />}
             </span>
           }
           tone="emerald"
         />
         <StatTile
-          icon={<TriangleAlert className="h-4 w-4" />}
-          label="失败用例"
-          value={<span className={dashboard.summary.latestFailedCount ? 'text-red-600' : 'text-foreground'}>{dashboard.summary.latestFailedCount}</span>}
-          helper={
-            <span className="flex items-center gap-2">
-              最新运行
-              {delta && <DeltaText value={delta.failed} />}
-            </span>
-          }
-          tone={dashboard.summary.latestFailedCount ? 'red' : 'slate'}
+          icon={<TrendingUp className="h-4 w-4" />}
+          label="平均分"
+          value={<span className={scoreClass(dashboard.summary.latestAverageScore)}>{dashboard.summary.latestAverageScore}</span>}
+          helper={delta ? <DeltaText value={delta.score} /> : '最近一次'}
+          tone="blue"
         />
         <StatTile
-          icon={<Activity className="h-4 w-4" />}
-          label={activeQueueCount > 0 ? '运行中' : '运行历史'}
-          value={activeQueueCount}
-          helper={`${dashboard.queue.length} 条运行历史`}
-          tone={activeQueueCount ? 'amber' : 'slate'}
+          icon={<ClipboardList className="h-4 w-4" />}
+          label="测试用例"
+          value={dashboard.summary.caseCount}
+          helper="覆盖用例数"
+          tone="slate"
+        />
+        <StatTile
+          icon={<Clock className="h-4 w-4" />}
+          label="等待队列"
+          value={queueDepth}
+          helper="等待运行"
+          tone={queueDepth > 0 ? 'blue' : 'slate'}
         />
       </section>
 
-      <Panel title="运行配置" icon={<SlidersHorizontal className="h-4 w-4 text-primary" />}>
+      {/* Run config */}
+      <Panel title="运行配置" icon={<Play className="h-4 w-4 text-primary" />}>
         <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_150px_190px_160px_130px_auto]">
           <ConfigField label="评测集">
             <select className={selectClassName} value={selectedEvalSetId} onChange={(event) => onSelectedEvalSetChange(event.target.value)}>
               {evalSets.map((evalSet) => (
-                <option key={evalSet.id} value={evalSet.id}>
-                  {evalSet.name}（{evalSet.caseIds.length}）
-                </option>
+                <option key={evalSet.id} value={evalSet.id}>{evalSet.name} ({evalSet.caseIds.length})</option>
               ))}
             </select>
           </ConfigField>
           <ConfigField label="运行器">
             <select className={selectClassName} value={benchmarkCli} onChange={(event) => onBenchmarkCliChange(event.target.value)}>
               {runtimeOptions.map((runtime) => (
-                <option key={runtime.cli} value={runtime.cli}>
-                  {runtime.label}
-                </option>
+                <option key={runtime.cli} value={runtime.cli}>{runtime.label}</option>
               ))}
             </select>
           </ConfigField>
           <ConfigField label="模型">
             <select className={selectClassName} value={benchmarkModel} onChange={(event) => onBenchmarkModelChange(event.target.value)}>
               {benchmarkRuntime.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
+                <option key={model.id} value={model.id}>{model.name}</option>
               ))}
             </select>
           </ConfigField>
           <ConfigField label="推理强度">
             {benchmarkRuntimeSupportsReasoning ? (
-              <select
-                className={selectClassName}
-                value={benchmarkReasoningEffort}
-                onChange={(event) => onBenchmarkReasoningEffortChange(event.target.value)}
-              >
+              <select className={selectClassName} value={benchmarkReasoningEffort} onChange={(event) => onBenchmarkReasoningEffortChange(event.target.value)}>
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
                 <option value="xhigh">xhigh</option>
               </select>
             ) : (
-              <div className="flex h-9 items-center rounded-lg border border-border bg-muted/50 px-3 text-sm text-muted-foreground">
-                不适用
-              </div>
+              <div className="flex h-9 items-center rounded-lg border border-border/40 bg-muted/30 px-3 text-sm text-muted-foreground">不适用</div>
             )}
           </ConfigField>
-          <ConfigField label="数量限制">
+          <ConfigField label="数量">
             <select className={selectClassName} value={limit} onChange={(event) => onLimitChange(event.target.value)}>
               <option value="all">不限</option>
-              <option value="1">1 个</option>
-              <option value="3">3 个</option>
-              <option value="6">6 个</option>
+              <option value="1">1</option>
+              <option value="3">3</option>
+              <option value="6">6</option>
             </select>
           </ConfigField>
           <Button className="mt-auto xl:self-end" onClick={onStart} disabled={isStarting}>
             {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            运行评测集
+            启动评测
           </Button>
         </div>
       </Panel>
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Panel title="最新运行" icon={<BarChart3 className="h-4 w-4 text-emerald-600" />}>
+      {/* Charts */}
+      <section className="grid gap-5 xl:grid-cols-2">
+        <Panel title="运行趋势" icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}>
           <div className="p-4">
-            {latestRun ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-xl bg-muted/60 p-3">
-                    <p className="text-xs text-muted-foreground">通过率</p>
-                    <p className={`mt-1 text-lg font-semibold ${passRateClass(latestRun.passRate)}`}>{latestRun.passRate}%</p>
-                  </div>
-                  <div className="rounded-xl bg-muted/60 p-3">
-                    <p className="text-xs text-muted-foreground">得分</p>
-                    <p className={`mt-1 text-lg font-semibold ${scoreClass(latestRun.averageScore)}`}>{latestRun.averageScore}</p>
-                  </div>
-                  <div className="rounded-xl bg-muted/60 p-3">
-                    <p className="text-xs text-muted-foreground">耗时</p>
-                    <p className="mt-1 text-lg font-semibold text-foreground">{formatDuration(latestRun.durationMs)}</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-card p-3">
-                  <p className="truncate font-mono text-xs text-foreground/80">{latestRun.fileName}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {formatDate(latestRun.createdAt)} · {latestRun.metadata.runtime.cli} / {latestRun.metadata.runtime.model}
-                  </p>
-                </div>
-                <Button variant="outline" className="w-full" asChild>
-                  <Link href={`/eval-platform/runs/${latestRun.id}`}>
-                    <FileText className="h-4 w-4" />
-                    查看详情
-                  </Link>
-                </Button>
-              </div>
+            {dashboard.runs.length > 0 ? (
+              <RunsOverTimeChart runs={dashboard.runs} />
             ) : (
-              <p className="text-sm text-muted-foreground">暂无评测报告。</p>
+              <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">暂无运行数据。</div>
             )}
           </div>
         </Panel>
-
-        <Panel title="模型概览" icon={<Layers3 className="h-4 w-4 text-primary" />}>
-          <div className="divide-y divide-border/40">
-            {dashboard.modelComparison.slice(0, 4).map((item) => (
-              <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-center gap-3 px-4 py-3 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-foreground">
-                    {CLI_LABELS[item.cli] ?? item.cli} · {item.model}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.runs} 次运行</p>
-                </div>
-                <span className={`font-semibold ${passRateClass(item.latestPassRate)}`}>{item.latestPassRate}%</span>
-                <span className={`font-semibold ${scoreClass(item.averageScore)}`}>{item.averageScore}</span>
-              </div>
-            ))}
-            {!dashboard.modelComparison.length && <div className="p-8 text-center text-sm text-muted-foreground">暂无模型对比数据。</div>}
+        <Panel title="分数分布" icon={<BarChart3 className="h-4 w-4 text-primary" />}>
+          <div className="p-4">
+            {dashboard.runs.length > 0 ? (
+              <ScoreDistributionChart runs={dashboard.runs} />
+            ) : (
+              <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">暂无运行数据。</div>
+            )}
           </div>
         </Panel>
       </section>
-    </>
+    </div>
   );
 }

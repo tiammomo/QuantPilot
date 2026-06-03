@@ -34,7 +34,7 @@ export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
 };
 
 export const selectClassName =
-  'h-9 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50';
+  'h-9 w-full rounded-lg border border-border/40 bg-card/60 px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50';
 
 export const EVAL_SET_PAGE_SIZE = 9;
 
@@ -46,21 +46,21 @@ export function formatDuration(value: number) {
 }
 
 export function scoreClass(score: number) {
-  if (score >= 90) return 'text-emerald-600';
-  if (score >= 75) return 'text-amber-600';
-  return 'text-red-600';
+  if (score >= 90) return 'text-emerald-400';
+  if (score >= 75) return 'text-amber-400';
+  return 'text-red-400';
 }
 
 export function passRateClass(rate: number) {
-  if (rate >= 95) return 'text-emerald-600';
-  if (rate >= 80) return 'text-amber-600';
-  return 'text-red-600';
+  if (rate >= 95) return 'text-emerald-400';
+  if (rate >= 80) return 'text-amber-400';
+  return 'text-red-400';
 }
 
 export function statusPill(result?: QuantEvalResult) {
   if (!result) {
     return (
-      <Badge variant="outline" className="border-border/60 bg-muted/30 text-muted-foreground">
+      <Badge variant="outline" className="border-border/40 bg-muted/20 text-muted-foreground">
         未运行
       </Badge>
     );
@@ -68,7 +68,7 @@ export function statusPill(result?: QuantEvalResult) {
 
   if (result.passed) {
     return (
-      <Badge className="border-emerald-200/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+      <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/10">
         <CheckCircle2 className="mr-1 h-3 w-3" />
         通过
       </Badge>
@@ -76,7 +76,7 @@ export function statusPill(result?: QuantEvalResult) {
   }
 
   return (
-    <Badge className="border-red-200/60 bg-red-50 text-red-700 hover:bg-red-50">
+    <Badge className="border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/10">
       <XCircle className="mr-1 h-3 w-3" />
       失败
     </Badge>
@@ -85,11 +85,11 @@ export function statusPill(result?: QuantEvalResult) {
 
 export function queueBadge(status: QuantEvalQueueItem['status']) {
   const config: Record<QuantEvalQueueItem['status'], { className: string; label: string }> = {
-    queued: { className: 'border-blue-200/60 bg-blue-50 text-blue-700 hover:bg-blue-50', label: '排队中' },
-    running: { className: 'border-amber-200/60 bg-amber-50 text-amber-700 hover:bg-amber-50', label: '运行中' },
-    passed: { className: 'border-emerald-200/60 bg-emerald-50 text-emerald-700 hover:bg-emerald-50', label: '已通过' },
-    failed: { className: 'border-red-200/60 bg-red-50 text-red-700 hover:bg-red-50', label: '已失败' },
-    cancelled: { className: 'border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/30', label: '已取消' },
+    queued: { className: 'border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/10', label: '排队中' },
+    running: { className: 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/10', label: '运行中' },
+    passed: { className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/10', label: '已通过' },
+    failed: { className: 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/10', label: '已失败' },
+    cancelled: { className: 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/20', label: '已取消' },
   };
   return <Badge className={config[status].className}>{config[status].label}</Badge>;
 }
@@ -187,7 +187,7 @@ export function buildEvalSets(data: QuantEvalDashboardData): EvalSet[] {
 export function DeltaText({ value, suffix = '' }: { value: number; suffix?: string }) {
   if (!value) return null;
   return (
-    <span className={value > 0 ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-red-600'}>
+    <span className={value > 0 ? 'text-xs font-medium text-emerald-400' : 'text-xs font-medium text-red-400'}>
       {value > 0 ? '+' : ''}{value}{suffix}
     </span>
   );
@@ -207,15 +207,15 @@ export function StatTile({
   tone?: 'blue' | 'emerald' | 'amber' | 'red' | 'slate';
 }) {
   const toneConfig = {
-    blue: { bg: 'bg-blue-50', text: 'text-blue-600' },
-    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
-    amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
-    red: { bg: 'bg-red-50', text: 'text-red-600' },
-    slate: { bg: 'bg-muted/60', text: 'text-muted-foreground' },
+    blue: { bg: 'bg-blue-500/10', text: 'text-blue-400' },
+    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
+    amber: { bg: 'bg-amber-500/10', text: 'text-amber-400' },
+    red: { bg: 'bg-red-500/10', text: 'text-red-400' },
+    slate: { bg: 'bg-muted/40', text: 'text-muted-foreground' },
   }[tone];
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-4 py-3.5 shadow-sm">
+    <div className="rounded-xl border border-border/40 bg-card/80 px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -224,7 +224,7 @@ export function StatTile({
           </div>
           <div className="mt-1 text-xs text-muted-foreground">{helper}</div>
         </div>
-        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${toneConfig.bg} ${toneConfig.text}`}>
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${toneConfig.bg} ${toneConfig.text}`}>
           {icon}
         </div>
       </div>
@@ -246,8 +246,8 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`min-w-0 rounded-xl border border-border/60 bg-card shadow-sm ${className ?? ''}`}>
-      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border/40 px-4 py-3">
+    <section className={`min-w-0 rounded-xl border border-border/40 bg-card/80 ${className ?? ''}`}>
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border/30 px-5 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {icon}
           <h2>{title}</h2>
@@ -285,7 +285,7 @@ export function getEvalSetStats(evalSet: EvalSet, latestResultByCase: Map<string
 }
 
 export function flowStepClass(status: QuantEvalFlowSimulation['steps'][number]['status']) {
-  if (status === 'passed') return 'border-emerald-200/60 bg-emerald-50 text-emerald-700';
-  if (status === 'warning') return 'border-amber-200/60 bg-amber-50 text-amber-700';
-  return 'border-red-200/60 bg-red-50 text-red-700';
+  if (status === 'passed') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+  if (status === 'warning') return 'border-amber-500/30 bg-amber-500/10 text-amber-400';
+  return 'border-red-500/30 bg-red-500/10 text-red-400';
 }

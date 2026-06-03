@@ -114,7 +114,7 @@ export function EvalEvaluatorView({
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {runtimeOptions.map((runtime) => (
-              <div key={runtime.cli} className="rounded-xl border border-border/60 bg-card p-3">
+              <div key={runtime.cli} className="rounded-xl border border-border/30 bg-card/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-medium text-foreground">{runtime.label}</p>
                   <Badge variant="outline" className="text-muted-foreground">
@@ -133,7 +133,7 @@ export function EvalEvaluatorView({
             ))}
           </div>
 
-          <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-foreground">链路模拟结果</p>
@@ -142,8 +142,8 @@ export function EvalEvaluatorView({
                 </p>
               </div>
               {flowSimulation && (
-                <Badge className={flowSimulation.ready ? 'border-emerald-200/60 bg-emerald-50 text-emerald-700' : 'border-red-200/60 bg-red-50 text-red-700'}>
-                  {flowSimulation.ready ? '可运行' : '有阻断'}
+                <Badge className={flowSimulation.ready ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}>
+                  {flowSimulation.ready ? 'Ready' : 'Blocked'}
                 </Badge>
               )}
             </div>
@@ -175,12 +175,12 @@ export function EvalEvaluatorView({
       <div className="space-y-5">
         <Panel title="当前选择" icon={<SlidersHorizontal className="h-4 w-4 text-primary" />}>
           <div className="space-y-3 p-4 text-sm">
-            <div className="rounded-xl bg-muted/60 p-3">
+            <div className="rounded-lg border border-border/30 bg-card/40 p-3">
               <p className="text-xs text-muted-foreground">评测集</p>
               <p className="mt-1 font-semibold text-foreground">{selectedEvalSet.name}</p>
               <p className="mt-1 text-xs text-muted-foreground">{selectedEvalSet.caseIds.length} 个用例</p>
             </div>
-            <div className="rounded-xl bg-muted/60 p-3">
+            <div className="rounded-lg border border-border/30 bg-card/40 p-3">
               <p className="text-xs text-muted-foreground">运行器</p>
               <p className="mt-1 font-semibold text-foreground">
                 {benchmarkRuntime.label} · {benchmarkModel || benchmarkRuntime.defaultModel}
@@ -195,7 +195,7 @@ export function EvalEvaluatorView({
 
         <Panel title="执行命令" icon={<FileText className="h-4 w-4 text-muted-foreground" />}>
           <div className="p-4">
-            <pre className="max-h-48 max-w-full whitespace-pre-wrap break-all rounded-xl bg-foreground p-3 text-xs text-background">
+            <pre className="max-h-48 max-w-full whitespace-pre-wrap break-all rounded-lg bg-[hsl(222,30%,5%)] border border-border/30 p-3 text-xs text-foreground/80">
               {flowSimulation?.command.join(' ') ?? '尚未生成 dry-run 命令'}
             </pre>
           </div>

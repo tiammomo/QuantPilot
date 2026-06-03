@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
   Activity,
-  ArrowLeft,
   CalendarClock,
   CheckCircle2,
   ClipboardList,
@@ -218,188 +217,189 @@ export default function EvalsDashboardClient({ data }: Props) {
     if (!kw) return selectedEvalSetCases;
     return selectedEvalSetCases.filter((c) => [c.id, c.name, c.question, c.capabilityLabel, c.typeLabel, ...c.expectedSymbols, ...c.tags].join(" ").toLowerCase().includes(kw));
   }, [caseKeyword, selectedEvalSetCases]);
-  const viewBadge: Record<EvalView, string> = {
-    overview: `${dashboard.summary.caseCount} 用例`,
-    cases: `${filteredCases.length}/${dashboard.cases.length}`,
-    evalSets: `${filteredEvalSets.length}/${evalSets.length}`,
-    evaluator: `${runtimeOptions.length} 个`,
-    queue: activeQueueCount > 0 ? `${activeQueueCount} 运行中` : `${dashboard.queue.length} 条`,
+  const viewTitle: Record<EvalView, string> = {
+    overview: "仪表盘",
+    cases: "测试用例",
+    evalSets: "评测集",
+    evaluator: "评测器",
+    queue: activeQueueCount > 0 ? "运行中" : "运行历史",
   };
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      {/* Top navigation */}
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" asChild className="shrink-0 h-8 w-8">
-            <Link href="/" aria-label="返回首页">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+    <div className="dark flex h-screen bg-background text-foreground">
+      {/* Sidebar */}
+      <aside className="flex w-60 shrink-0 flex-col border-r border-border/30 bg-[hsl(222,30%,5%)]">
+        {/* Logo */}
+        <div className="flex h-14 items-center gap-3 border-b border-border/30 px-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
             <Gauge className="h-4 w-4" />
           </div>
           <div>
-            <h1 className="text-base font-bold tracking-tight">评测平台</h1>
-            <p className="text-[11px] text-muted-foreground hidden sm:block">
-              Agent 评测控制台
-            </p>
+            <h1 className="text-sm font-bold text-foreground">评测平台</h1>
+            <p className="text-[10px] text-muted-foreground">Agent 控制台</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-2 md:flex">
-            <Badge variant="secondary" className="text-xs">{viewBadge[activeView]}</Badge>
+        {/* Navigation */}
+        <nav className="flex-1 space-y-0.5 px-3 py-3">
+          {VIEW_TABS.map((tab) => {
+            const isActive = activeView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveView(tab.id)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+                )}
+              >
+                <tab.icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+                {tab.id === "queue" && activeQueueCount > 0 && (
+                  <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-400">
+                    {activeQueueCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar footer */}
+        <div className="border-t border-border/30 px-3 py-3">
+          <Button variant="ghost" size="sm" asChild className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground">
+            <Link href="/">
+              <span className="text-xs">返回首页</span>
+            </Link>
+          </Button>
+        </div>
+      </aside>
+
+      {/* Main area */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top bar */}
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/30 bg-card/50 px-6 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-foreground">{viewTitle[activeView]}</h2>
             {activeQueueCount > 0 && (
-              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
                 <span className="font-semibold tabular-nums">{activeQueueCount}</span>
                 <span>运行中</span>
               </div>
             )}
           </div>
 
-          <div className="h-4 w-px bg-border hidden md:block" />
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+              <RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+              <span className="hidden sm:inline">刷新</span>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={checkScheduleNow} className="gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+              <CalendarClock className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">检查定时</span>
+            </Button>
+            <Button size="sm" onClick={startSelectedEvalSet} disabled={isStarting} className="gap-1.5 text-xs">
+              {isStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">启动评测</span>
+            </Button>
+          </div>
+        </header>
 
-          <Button variant="ghost" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="gap-1.5 text-xs">
-            <RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
-            <span className="hidden sm:inline">刷新</span>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={checkScheduleNow} className="gap-1.5 text-xs">
-            <CalendarClock className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">检查定时</span>
-          </Button>
-          <Button size="sm" onClick={startSelectedEvalSet} disabled={isStarting} className="gap-1.5 text-xs">
-            {isStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">启动评测</span>
-          </Button>
-        </div>
-      </header>
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-[1400px] space-y-5 px-6 py-5">
+            {/* Toast */}
+            <AnimatePresence>
+              {toast && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                >
+                  <div className={cn(
+                    "flex items-center gap-2.5 rounded-lg border px-4 py-3 text-sm",
+                    toast.type === "success"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      : "border-red-500/30 bg-red-500/10 text-red-400"
+                  )}>
+                    {toast.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+                    {toast.message}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-      {/* Sub navigation */}
-      <nav className="sticky top-14 z-20 flex items-center gap-1 border-b border-border/40 bg-background/80 px-4 backdrop-blur-xl md:px-6">
-        <div className="flex h-10 min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" role="tablist">
-          {VIEW_TABS.map((tab) => {
-            const isActive = activeView === tab.id;
-            const label = tab.id === "queue" && activeQueueCount > 0 ? "运行中" : tab.label;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActiveView(tab.id)}
-                className={cn(
-                  "relative flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md px-3 text-sm font-medium transition-colors",
-                  isActive
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <tab.icon className="h-3.5 w-3.5" />
-                <span>{label}</span>
-                {isActive && (
-                  <motion.span
-                    layoutId="eval-tab-indicator"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-primary"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 lg:px-6">
-          {/* Toast */}
-          <AnimatePresence>
-            {toast && (
-              <motion.div
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              >
-                <div className={cn(
-                  "flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm shadow-sm backdrop-blur-xl",
-                  toast.type === "success"
-                    ? "border-emerald-200/60 bg-emerald-50/90 text-emerald-800"
-                    : "border-red-200/60 bg-red-50/90 text-red-800"
-                )}>
-                  {toast.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
-                  {toast.message}
-                </div>
-              </motion.div>
+            {activeView === "overview" && (
+              <EvalOverviewView
+                dashboard={dashboard} latestRun={latestRun} delta={delta} activeQueueCount={activeQueueCount}
+                evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} limit={limit}
+                runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
+                benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
+                benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
+                isStarting={isStarting} onSelectedEvalSetChange={selectEvalSet}
+                onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
+                onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onLimitChange={setLimit}
+                onStart={startSelectedEvalSet}
+              />
             )}
-          </AnimatePresence>
 
-          {activeView === "overview" && (
-            <EvalOverviewView
-              dashboard={dashboard} latestRun={latestRun} delta={delta} activeQueueCount={activeQueueCount}
-              evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} limit={limit}
-              runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-              benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-              benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-              isStarting={isStarting} onSelectedEvalSetChange={selectEvalSet}
-              onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-              onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onLimitChange={setLimit}
-              onStart={startSelectedEvalSet}
-            />
-          )}
+            {activeView === "cases" && (
+              <EvalCasesView
+                caseKeyword={caseKeyword} selectedCase={selectedCase} totalCaseCount={dashboard.cases.length}
+                filteredCases={filteredCases} selectedEvalSetCases={selectedEvalSetCases}
+                latestRun={latestRun} latestResultByCase={latestResultByCase} isStarting={isStarting}
+                onCaseKeywordChange={setCaseKeyword} onSelectedCaseChange={setSelectedCase}
+                onRunSelection={() => startBenchmark()} onRunCase={(caseId) => startBenchmark(caseId)}
+              />
+            )}
 
-          {activeView === "cases" && (
-            <EvalCasesView
-              caseKeyword={caseKeyword} selectedCase={selectedCase} totalCaseCount={dashboard.cases.length}
-              filteredCases={filteredCases} selectedEvalSetCases={selectedEvalSetCases}
-              latestRun={latestRun} latestResultByCase={latestResultByCase} isStarting={isStarting}
-              onCaseKeywordChange={setCaseKeyword} onSelectedCaseChange={setSelectedCase}
-              onRunSelection={() => startBenchmark()} onRunCase={(caseId) => startBenchmark(caseId)}
-            />
-          )}
+            {activeView === "evalSets" && (
+              <EvalSetsView
+                evalSets={evalSets} filteredEvalSets={filteredEvalSets} pagedEvalSets={pagedEvalSets}
+                selectedEvalSet={selectedEvalSet} selectedEvalSetStats={selectedEvalSetStats}
+                latestResultByCase={latestResultByCase} evalSetKeyword={evalSetKeyword}
+                evalSetCategoryFilter={evalSetCategoryFilter} evalSetCategories={evalSetCategories}
+                evalSetPage={evalSetPage} evalSetPageCount={evalSetPageCount} isStarting={isStarting}
+                onEvalSetKeywordChange={setEvalSetKeyword} onEvalSetCategoryFilterChange={setEvalSetCategoryFilter}
+                onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage} onRunSelectedEvalSet={startSelectedEvalSet}
+              />
+            )}
 
-          {activeView === "evalSets" && (
-            <EvalSetsView
-              evalSets={evalSets} filteredEvalSets={filteredEvalSets} pagedEvalSets={pagedEvalSets}
-              selectedEvalSet={selectedEvalSet} selectedEvalSetStats={selectedEvalSetStats}
-              latestResultByCase={latestResultByCase} evalSetKeyword={evalSetKeyword}
-              evalSetCategoryFilter={evalSetCategoryFilter} evalSetCategories={evalSetCategories}
-              evalSetPage={evalSetPage} evalSetPageCount={evalSetPageCount} isStarting={isStarting}
-              onEvalSetKeywordChange={setEvalSetKeyword} onEvalSetCategoryFilterChange={setEvalSetCategoryFilter}
-              onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage} onRunSelectedEvalSet={startSelectedEvalSet}
-            />
-          )}
+            {activeView === "evaluator" && (
+              <EvalEvaluatorView
+                runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
+                benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
+                benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
+                evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} selectedEvalSet={selectedEvalSet}
+                flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
+                onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
+                onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onEvalSetSelect={selectEvalSet}
+                onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
+              />
+            )}
 
-          {activeView === "evaluator" && (
-            <EvalEvaluatorView
-              runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-              benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-              benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-              evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} selectedEvalSet={selectedEvalSet}
-              flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
-              onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-              onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onEvalSetSelect={selectEvalSet}
-              onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
-            />
-          )}
+            {activeView === "queue" && (
+              <EvalQueueView
+                queue={dashboard.queue} schedule={dashboard.schedule} cases={dashboard.cases}
+                runtimeOptions={runtimeOptions} scheduleRuntime={scheduleRuntime}
+                scheduleRuntimeSupportsReasoning={scheduleRuntimeSupportsReasoning}
+                scheduleEnabled={scheduleEnabled} scheduleInterval={scheduleInterval}
+                scheduleCli={scheduleCli} scheduleModel={scheduleModel} scheduleReasoningEffort={scheduleReasoningEffort}
+                scheduleCase={scheduleCase} isSavingSchedule={isSavingSchedule}
+                onCancelBenchmark={cancelBenchmark} onScheduleEnabledChange={setScheduleEnabled}
+                onScheduleIntervalChange={setScheduleInterval} onScheduleCliChange={updateScheduleCli}
+                onScheduleModelChange={setScheduleModel} onScheduleReasoningEffortChange={setScheduleReasoningEffort}
+                onScheduleCaseChange={setScheduleCase} onSaveSchedule={saveSchedule}
+              />
+            )}
 
-          {activeView === "queue" && (
-            <EvalQueueView
-              queue={dashboard.queue} schedule={dashboard.schedule} cases={dashboard.cases}
-              runtimeOptions={runtimeOptions} scheduleRuntime={scheduleRuntime}
-              scheduleRuntimeSupportsReasoning={scheduleRuntimeSupportsReasoning}
-              scheduleEnabled={scheduleEnabled} scheduleInterval={scheduleInterval}
-              scheduleCli={scheduleCli} scheduleModel={scheduleModel} scheduleReasoningEffort={scheduleReasoningEffort}
-              scheduleCase={scheduleCase} isSavingSchedule={isSavingSchedule}
-              onCancelBenchmark={cancelBenchmark} onScheduleEnabledChange={setScheduleEnabled}
-              onScheduleIntervalChange={setScheduleInterval} onScheduleCliChange={updateScheduleCli}
-              onScheduleModelChange={setScheduleModel} onScheduleReasoningEffortChange={setScheduleReasoningEffort}
-              onScheduleCaseChange={setScheduleCase} onSaveSchedule={saveSchedule}
-            />
-          )}
-
-        </div>
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

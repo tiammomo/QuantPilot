@@ -16,24 +16,24 @@ export function EvalRepairsView({ repairTickets, warningResults, latestRun }: Ev
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Panel
         title="失败修复"
-        icon={<Wrench className="h-4 w-4 text-amber-600" />}
+        icon={<Wrench className="h-4 w-4 text-amber-400" />}
         action={
-          <Badge variant="outline" className="text-muted-foreground">
+          <Badge variant="outline" className="text-muted-foreground border-border/40">
             {repairTickets.length}
           </Badge>
         }
       >
-        <div id="repairs" className="divide-y divide-border/40">
+        <div id="repairs" className="divide-y divide-border/30">
           {repairTickets.map((ticket) => (
             <div key={ticket.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap gap-1.5">
-                    <Badge className={ticket.severity === 'high' ? 'border-red-200/60 bg-red-50 text-red-700' : 'border-amber-200/60 bg-amber-50 text-amber-700'}>
-                      {ticket.severity === 'high' ? '高' : '中'}
+                    <Badge className={ticket.severity === 'high' ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-amber-500/30 bg-amber-500/10 text-amber-400'}>
+                      {ticket.severity === 'high' ? 'High' : 'Medium'}
                     </Badge>
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {ticket.status === 'open' ? '待处理' : '已解决'}
+                    <Badge variant="outline" className="text-muted-foreground border-border/40">
+                      {ticket.status === 'open' ? 'Open' : 'Resolved'}
                     </Badge>
                   </div>
                   <p className="mt-2 line-clamp-2 text-sm font-medium text-foreground">{ticket.title}</p>
@@ -41,7 +41,7 @@ export function EvalRepairsView({ repairTickets, warningResults, latestRun }: Ev
                     {ticket.caseId} · {ticket.model}
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" asChild>
+                <Button variant="ghost" size="icon" asChild className="h-8 w-8">
                   <Link href={`/eval-platform/runs/${ticket.runId}`} aria-label="查看修复单报告">
                     <ChevronRight className="h-4 w-4" />
                   </Link>
@@ -53,13 +53,13 @@ export function EvalRepairsView({ repairTickets, warningResults, latestRun }: Ev
         </div>
       </Panel>
 
-      <Panel title="警告用例" icon={<TriangleAlert className="h-4 w-4 text-amber-600" />}>
+      <Panel title="警告用例" icon={<TriangleAlert className="h-4 w-4 text-amber-400" />}>
         <div className="space-y-2 p-4">
           {warningResults.slice(0, 10).map((result) => (
             <Link
               key={result.id}
               href={latestRun ? `/eval-platform/runs/${latestRun.id}#case-${result.id}` : '#'}
-              className="block rounded-xl border border-amber-200/60 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100/80"
+              className="block rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 transition-colors hover:bg-amber-500/20"
             >
               {result.name}
             </Link>
