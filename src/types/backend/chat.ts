@@ -60,6 +60,9 @@ export interface ChatActRequest {
   isInitialPrompt?: boolean;
   selectedModel?: string;
   requestId?: string;
+  quantCapabilityId?: string;
+  capabilityId?: string;
+  quantCapabilitySource?: 'manual' | 'default' | 'inferred';
 }
 
 export interface CreateMessageInput {

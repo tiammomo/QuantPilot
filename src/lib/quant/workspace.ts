@@ -18,6 +18,7 @@ type QuantManifest = {
     validationRules?: string[];
     executionCapabilityId?: string;
     status?: string;
+    capabilitySource?: string;
   };
 };
 
@@ -165,10 +166,20 @@ function isBroadStockScreenerInstruction(instruction: string): boolean {
 
 function inferCapabilityId(params: {
   requestedCapabilityId?: string | null;
+  requestedCapabilitySource?: string | null;
   manifestCapabilityId?: string | null;
+  manifestCapabilitySource?: string | null;
   instruction: string;
   hasImageAttachments?: boolean;
 }) {
+  if (params.requestedCapabilityId && params.requestedCapabilitySource === 'manual') {
+    return params.requestedCapabilityId;
+  }
+
+  if (!params.requestedCapabilityId && params.manifestCapabilityId && params.manifestCapabilitySource === 'manual') {
+    return params.manifestCapabilityId;
+  }
+
   const normalized = params.instruction.replace(/\s+/g, '');
   if (
     /持仓|仓位|组合|调仓|盈亏|成本|账户|总资产|可用资金|浮动盈亏/.test(normalized) ||
@@ -310,6 +321,7 @@ export async function writeInitialRunPlan(params: {
   instruction: string;
   requestId: string;
   capabilityId?: string | null;
+  capabilitySource?: string | null;
   hasImageAttachments?: boolean;
 }) {
   await ensureQuantWorkspace(params.projectPath);
@@ -317,7 +329,9 @@ export async function writeInitialRunPlan(params: {
   const manifestQuant = manifest?.quant;
   const inferredCapabilityId = inferCapabilityId({
     requestedCapabilityId: params.capabilityId,
+    requestedCapabilitySource: params.capabilitySource,
     manifestCapabilityId: manifestQuant?.capabilityId,
+    manifestCapabilitySource: manifestQuant?.capabilitySource,
     instruction: params.instruction,
     hasImageAttachments: params.hasImageAttachments,
   });

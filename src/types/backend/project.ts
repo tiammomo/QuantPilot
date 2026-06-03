@@ -45,6 +45,7 @@ export interface CreateProjectInput {
   selectedModel?: string;
   description?: string;
   quantCapabilityId?: string;
+  quantCapabilitySource?: 'manual' | 'default' | 'inferred';
 }
 
 export interface UpdateProjectInput {

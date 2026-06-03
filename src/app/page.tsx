@@ -396,6 +396,7 @@ export default function HomePage() {
           preferredCli: selectedAssistant,
           selectedModel,
           quantCapabilityId: selectedCapability,
+          quantCapabilitySource: "default",
         }),
       });
       if (!r.ok) {
@@ -445,6 +446,7 @@ export default function HomePage() {
             cliPreference: selectedAssistant,
             selectedModel,
             quantCapabilityId: selectedCapability,
+            quantCapabilitySource: "default",
           }),
         }).catch(() => null);
       }
@@ -493,6 +495,10 @@ export default function HomePage() {
     setSelectedModel(normalizeModelForAssistant(selectedAssistant, modelId));
   };
 
+  const handleCapabilityChange = (capabilityId: QuantCapabilityId) => {
+    setSelectedCapability(capabilityId);
+  };
+
   // --- Render ---
   return (
     <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
@@ -501,7 +507,7 @@ export default function HomePage() {
         <div className="hidden lg:block">
           <Sidebar
             selectedCapability={selectedCapability}
-            onSelectCapability={setSelectedCapability}
+            onSelectCapability={handleCapabilityChange}
             onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
             onShowSettings={() => setShowGlobalSettings(true)}
           />
@@ -516,7 +522,7 @@ export default function HomePage() {
             <div className="h-full" onClick={(e) => e.stopPropagation()}>
               <Sidebar
                 selectedCapability={selectedCapability}
-                onSelectCapability={setSelectedCapability}
+                onSelectCapability={handleCapabilityChange}
                 onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
                 onShowSettings={() => setShowGlobalSettings(true)}
                 isMobile
@@ -597,7 +603,7 @@ export default function HomePage() {
                   QuantPilot
                 </h2>
                 <p className="mt-3 text-sm text-muted-foreground md:text-base">
-                  选择角色模块，描述真实需求，等待任务完成并生成可验证的量化看板
+                  描述金融分析需求，系统自动识别任务类型并生成可验证的量化看板
                 </p>
               </div>
 

@@ -23,52 +23,12 @@ const ROLE_MODULES: Array<{
   inputPlaceholder: string;
 }> = [
   {
-    id: "holding-analysis",
-    name: "持仓分析",
-    description: "识别持仓结构、盈亏、集中度、回撤和调仓约束",
-    capabilityId: "portfolio_risk",
-    inputPlaceholder:
-      "描述你的持仓、成本、可用资金或上传持仓截图，我会按持仓分析角色生成风险与调仓看板",
-  },
-  {
-    id: "stock-selection",
-    name: "选股分析",
-    description: "从候选标的中比较趋势、财务、估值、流动性和风险",
-    capabilityId: "asset_comparison",
-    inputPlaceholder:
-      "输入候选股票、行业方向或筛选条件，我会按选股分析角色拉取数据并生成对比看板",
-  },
-  {
-    id: "single-stock-diagnosis",
-    name: "个股诊断",
-    description: "围绕单只股票整合行情、K 线、财务、公告和风险",
+    id: "financial-analysis",
+    name: "金融分析",
+    description: "自动识别个股、选股、持仓、技术、基本面和回测任务",
     capabilityId: "stock_diagnosis",
     inputPlaceholder:
-      "输入股票名称或代码，以及你关心的行情、财务、公告或风险问题",
-  },
-  {
-    id: "timing-analysis",
-    name: "技术择时",
-    description: "分析价格趋势、均线结构、成交量、回撤和触发条件",
-    capabilityId: "technical_analysis",
-    inputPlaceholder:
-      "输入标的和时间范围，我会按技术择时角色生成 K 线、量价和趋势模板看板",
-  },
-  {
-    id: "fundamental-research",
-    name: "基本面研究",
-    description: "研究盈利质量、现金流、ROE、公告事件和估值情景",
-    capabilityId: "fundamental_analysis",
-    inputPlaceholder:
-      "输入公司或行业，我会按基本面研究角色整理财务、公告、估值情景和数据质量",
-  },
-  {
-    id: "strategy-backtest",
-    name: "策略回测",
-    description: "拆解信号规则、样本、参数、交易明细和回测限制",
-    capabilityId: "backtest_review",
-    inputPlaceholder:
-      "描述策略规则、标的和时间窗口，我会按策略回测角色生成可复盘的量化看板",
+      "描述你的金融分析需求，例如个股诊断、选股推荐、持仓风险、技术择时、基本面研究或策略回测",
   },
 ];
 
@@ -126,7 +86,7 @@ function Sidebar({
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <div className="mb-2 px-2">
           <span className="text-xs font-semibold tracking-wide text-muted-foreground">
-            角色模块
+            金融入口
           </span>
         </div>
 
@@ -166,6 +126,11 @@ function Sidebar({
                 >
                   {role.description}
                 </p>
+                {active && (
+                  <p className="mt-2 text-[11px] leading-5 text-primary/70">
+                    系统会根据问题自动匹配分析模板和数据链路
+                  </p>
+                )}
               </button>
             );
           })}

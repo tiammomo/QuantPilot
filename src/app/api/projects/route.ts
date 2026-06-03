@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
       selectedModel: normalizeModelId(preferredCli, requestedModel ?? getDefaultModelForCli(preferredCli)),
       description: body.description,
       quantCapabilityId: quantCapability.id,
+      quantCapabilitySource:
+        body.quantCapabilitySource || body.quant_capability_source || body.capabilitySource || body.capability_source,
     };
 
     // Validation

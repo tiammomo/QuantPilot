@@ -1151,6 +1151,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       coerceString(legacyBody["quant_capability_id"]) ??
       coerceString((body as Record<string, unknown>).capabilityId) ??
       coerceString(legacyBody["capability_id"]);
+    const quantCapabilitySource =
+      coerceString((body as Record<string, unknown>).quantCapabilitySource) ??
+      coerceString(legacyBody["quant_capability_source"]) ??
+      coerceString((body as Record<string, unknown>).capabilitySource) ??
+      coerceString(legacyBody["capability_source"]);
 
     await startQuantGenerationRun({
       projectPath,
@@ -1285,6 +1290,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         instruction: effectiveInstruction,
         requestId,
         capabilityId: quantCapabilityId,
+        capabilitySource: quantCapabilitySource,
         hasImageAttachments: processedImages.length > 0,
       });
 

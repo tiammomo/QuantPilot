@@ -36,6 +36,10 @@ function mergeProjectSettings(existing: string | null | undefined, quantCapabili
   });
 }
 
+function normalizeCapabilitySource(value?: string | null): 'manual' | 'default' | 'inferred' {
+  return value === 'manual' || value === 'default' || value === 'inferred' ? value : 'default';
+}
+
 async function writeQuantPilotManifest(params: {
   projectPath: string;
   projectId: string;
@@ -43,8 +47,10 @@ async function writeQuantPilotManifest(params: {
   preferredCli: string;
   selectedModel: string;
   quantCapabilityId?: string | null;
+  quantCapabilitySource?: string | null;
 }) {
   const capability = getQuantCapability(params.quantCapabilityId);
+  const capabilitySource = normalizeCapabilitySource(params.quantCapabilitySource);
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
   const quantPilotDir = path.join(params.projectPath, '.quantpilot');
   await fs.mkdir(quantPilotDir, { recursive: true });
@@ -67,7 +73,10 @@ async function writeQuantPilotManifest(params: {
       cli: params.preferredCli,
       model: params.selectedModel,
     },
-    quant: buildQuantProjectSettings(capability.id),
+    quant: {
+      ...buildQuantProjectSettings(capability.id),
+      capabilitySource,
+    },
   };
 
   await fs.writeFile(
@@ -174,6 +183,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     preferredCli,
     selectedModel,
     quantCapabilityId: quantCapability.id,
+    quantCapabilitySource: input.quantCapabilitySource,
   });
 
   // Create project in database
