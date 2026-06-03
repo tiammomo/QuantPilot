@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ArrowUp, Image as ImageIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { ArrowUp, Image as ImageIcon, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -29,9 +28,11 @@ interface AssistantOption {
 interface RoleModule {
   id: string;
   name: string;
+  shortName?: string;
   description: string;
-  capabilityId: QuantCapabilityId;
-  inputPlaceholder: string;
+  capabilityId?: QuantCapabilityId;
+  inputPlaceholder?: string;
+  inputHint?: string;
 }
 
 interface UploadedImage {
@@ -142,8 +143,10 @@ function CreateTaskForm({
         if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
       }}
       className={cn(
-        "relative w-full max-w-4xl rounded-lg border bg-card text-card-foreground shadow-sm transition-colors",
-        isDragOver ? "border-primary bg-primary/5" : "border-border"
+        "relative w-full rounded-2xl border bg-card text-card-foreground shadow-lg transition-all",
+        isDragOver
+          ? "border-primary shadow-primary/10"
+          : "border-border/60 shadow-black/5"
       )}
     >
       {/* Uploaded image previews */}
@@ -155,7 +158,7 @@ function CreateTaskForm({
               <img
                 src={image.url}
                 alt={image.name}
-                className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                className="h-16 w-16 rounded-lg border border-border object-cover"
               />
               <span className="absolute bottom-1 left-1 rounded bg-black/55 px-1 text-[10px] text-white">
                 图 {index + 1}
@@ -163,7 +166,7 @@ function CreateTaskForm({
               <button
                 type="button"
                 onClick={() => removeImage(image.id)}
-                className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs text-white opacity-0 transition-opacity hover:bg-destructive/80 group-hover:opacity-100"
                 aria-label={`移除图片 ${image.name}`}
               >
                 ×
@@ -176,9 +179,9 @@ function CreateTaskForm({
       <Textarea
         value={prompt}
         onChange={(e) => onPromptChange(e.target.value)}
-        placeholder={selectedRole.inputPlaceholder}
+        placeholder={selectedRole.inputPlaceholder ?? selectedRole.inputHint ?? "描述你的金融分析需求..."}
         disabled={isCreating}
-        className="min-h-[128px] resize-none border-0 px-5 py-4 text-[16px] leading-6 shadow-none focus-visible:ring-0"
+        className="min-h-[100px] resize-none border-0 bg-transparent px-5 pt-4 pb-2 text-base leading-6 shadow-none focus-visible:ring-0 md:min-h-[120px]"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -189,7 +192,7 @@ function CreateTaskForm({
 
       {/* Drag overlay */}
       {isDragOver && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/10">
           <div className="text-center text-primary">
             <ImageIcon className="mx-auto mb-2 h-6 w-6" />
             <p className="text-sm font-semibold">将图片拖到这里</p>
@@ -199,17 +202,18 @@ function CreateTaskForm({
       )}
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-t px-3 py-3">
+      <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2.5">
+        {/* Upload button */}
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="relative h-9 w-9"
+          className="relative h-8 w-8 text-muted-foreground hover:text-foreground"
           aria-label="上传图片"
           asChild
         >
           <label>
-            <ImageIcon className="h-4 w-4" />
+            <Paperclip className="h-4 w-4" />
             <input
               ref={fileInputRef}
               type="file"
@@ -222,9 +226,17 @@ function CreateTaskForm({
           </label>
         </Button>
 
+        {/* Capability badge */}
+        <div className="flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            {selectedRole.shortName ?? selectedRole.name}
+          </span>
+        </div>
+
+        {/* Assistant selector */}
         <Select value={selectedAssistant} onValueChange={onAssistantChange}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="选择助手" />
+          <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
+            <SelectValue placeholder="助手" />
           </SelectTrigger>
           <SelectContent>
             {assistantOptions.map((opt) => (
@@ -239,14 +251,11 @@ function CreateTaskForm({
           </SelectContent>
         </Select>
 
-        <Badge variant="secondary" className="h-9 rounded-md px-3 text-sm text-primary">
-          {selectedRole.name}
-        </Badge>
-
+        {/* Model selector */}
         {modelOptions.length > 0 && (
           <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger className="w-[170px]">
-              <SelectValue placeholder="选择模型" />
+            <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
+              <SelectValue placeholder="模型" />
             </SelectTrigger>
             <SelectContent>
               {modelOptions.map((m) => (
@@ -258,11 +267,12 @@ function CreateTaskForm({
           </Select>
         )}
 
+        {/* Submit button */}
         <Button
           type="submit"
           disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreating}
           size="icon"
-          className="ml-auto h-9 w-9"
+          className="ml-auto h-8 w-8 rounded-lg"
           aria-label="提交任务"
         >
           {isCreating ? (
@@ -287,7 +297,7 @@ function CreateTaskForm({
               />
             </svg>
           ) : (
-            <ArrowUp className="h-5 w-5" />
+            <ArrowUp className="h-4 w-4" />
           )}
         </Button>
       </div>

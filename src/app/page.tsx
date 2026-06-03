@@ -1,15 +1,26 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
   BarChart3,
   Boxes,
   CheckCircle2,
   Clock3,
-  Menu,
+  Gauge,
+  Settings,
   ShieldCheck,
+  TrendingUp,
   XCircle,
+  Sparkles,
+  ChevronRight,
+  Activity,
+  Search,
+  BarChart2,
+  PieChart,
+  Layers,
+  Target,
+  Zap,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -25,7 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Sidebar, ROLE_MODULES } from "@/components/layout/Sidebar";
+import { Badge } from "@/components/ui/badge";
 import { TaskDrawer } from "@/components/task/TaskDrawer";
 import { CreateTaskForm } from "@/components/task/CreateTaskForm";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
@@ -33,7 +44,6 @@ import type { Project as ProjectSummary } from "@/types/project";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 import {
-  ACTIVE_CLI_BRAND_COLORS,
   ACTIVE_CLI_MODEL_OPTIONS,
   ACTIVE_CLI_OPTIONS,
   ACTIVE_CLI_OPTIONS_MAP,
@@ -45,15 +55,49 @@ import {
 import {
   DEFAULT_QUANT_CAPABILITY_ID,
   getQuantCapability,
+  QUANT_CAPABILITIES,
+  QUANT_CAPABILITY_GROUPS,
   type QuantCapabilityId,
 } from "@/lib/quant/capabilities";
+import { cn } from "@/lib/utils";
 
 const fetchAPI = globalThis.fetch || fetch;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name }) => ({ id, name }));
-const assistantBrandColors = ACTIVE_CLI_BRAND_COLORS;
-const MODEL_OPTIONS_BY_ASSISTANT = ACTIVE_CLI_MODEL_OPTIONS;
+
+const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
+  stock_diagnosis: <Activity className="h-5 w-5" />,
+  technical_analysis: <TrendingUp className="h-5 w-5" />,
+  fundamental_analysis: <BarChart2 className="h-5 w-5" />,
+  asset_comparison: <Search className="h-5 w-5" />,
+  sector_rotation: <PieChart className="h-5 w-5" />,
+  strategy_research: <Layers className="h-5 w-5" />,
+  backtest_review: <Target className="h-5 w-5" />,
+  portfolio_risk: <Zap className="h-5 w-5" />,
+};
+
+const CAPABILITY_COLORS: Record<string, string> = {
+  stock_diagnosis: "from-blue-500/10 to-blue-600/5 border-blue-200/60 hover:border-blue-300",
+  technical_analysis: "from-emerald-500/10 to-emerald-600/5 border-emerald-200/60 hover:border-emerald-300",
+  fundamental_analysis: "from-violet-500/10 to-violet-600/5 border-violet-200/60 hover:border-violet-300",
+  asset_comparison: "from-amber-500/10 to-amber-600/5 border-amber-200/60 hover:border-amber-300",
+  sector_rotation: "from-rose-500/10 to-rose-600/5 border-rose-200/60 hover:border-rose-300",
+  strategy_research: "from-cyan-500/10 to-cyan-600/5 border-cyan-200/60 hover:border-cyan-300",
+  backtest_review: "from-orange-500/10 to-orange-600/5 border-orange-200/60 hover:border-orange-300",
+  portfolio_risk: "from-indigo-500/10 to-indigo-600/5 border-indigo-200/60 hover:border-indigo-300",
+};
+
+const CAPABILITY_ICON_COLORS: Record<string, string> = {
+  stock_diagnosis: "text-blue-600 bg-blue-100",
+  technical_analysis: "text-emerald-600 bg-emerald-100",
+  fundamental_analysis: "text-violet-600 bg-violet-100",
+  asset_comparison: "text-amber-600 bg-amber-100",
+  sector_rotation: "text-rose-600 bg-rose-100",
+  strategy_research: "text-cyan-600 bg-cyan-100",
+  backtest_review: "text-orange-600 bg-orange-100",
+  portfolio_risk: "text-indigo-600 bg-indigo-100",
+};
 
 export default function HomePage() {
   // --- State ---
@@ -125,7 +169,6 @@ export default function HomePage() {
   const [selectedCapability, setSelectedCapability] =
     useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [cliStatus, setCLIStatus] = useState<CLIStatus>(() =>
     createCliStatusFallback()
@@ -139,13 +182,13 @@ export default function HomePage() {
   const { settings: globalSettings } = useGlobalSettings();
 
   const availableModels =
-    MODEL_OPTIONS_BY_ASSISTANT[selectedAssistant] || [];
+    ACTIVE_CLI_MODEL_OPTIONS[selectedAssistant] || [];
   const selectedModelLabel =
     availableModels.find((m) => m.id === selectedModel)?.name ??
     getModelDisplayName(selectedAssistant, selectedModel);
   const selectedRoleModule =
-    ROLE_MODULES.find((r) => r.capabilityId === selectedCapability) ??
-    ROLE_MODULES[0];
+    QUANT_CAPABILITIES.find((c) => c.id === selectedCapability) ??
+    QUANT_CAPABILITIES[0];
   const runningProjects = projects.filter(
     (p) => p.previewUrl || p.status === "running"
   ).length;
@@ -400,7 +443,7 @@ export default function HomePage() {
         }),
       });
       if (!r.ok) {
-        showToast("Failed to create project", "error");
+        showToast("创建任务失败", "error");
         setIsCreatingProject(false);
         return;
       }
@@ -464,7 +507,7 @@ export default function HomePage() {
         `/${createdProjectId}/chat${params.toString() ? "?" + params.toString() : ""}`
       );
     } catch {
-      showToast("Failed to create project", "error");
+      showToast("创建任务失败", "error");
     } finally {
       setIsCreatingProject(false);
     }
@@ -499,206 +542,336 @@ export default function HomePage() {
     setSelectedCapability(capabilityId);
   };
 
+  const handleCapabilityCardClick = (capabilityId: QuantCapabilityId) => {
+    setSelectedCapability(capabilityId);
+    const cap = QUANT_CAPABILITIES.find((c) => c.id === capabilityId);
+    if (cap) {
+      setPrompt(cap.inputHint);
+    }
+    // Scroll to input
+    document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  // --- Group capabilities ---
+  const groupedCapabilities = QUANT_CAPABILITY_GROUPS.map((group) => ({
+    ...group,
+    capabilities: QUANT_CAPABILITIES.filter((c) => c.groupId === group.id),
+  }));
+
   // --- Render ---
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
-      <div className="relative z-10 flex h-full w-full">
-        {/* Desktop sidebar */}
-        <div className="hidden lg:block">
-          <Sidebar
-            selectedCapability={selectedCapability}
-            onSelectCapability={handleCapabilityChange}
-            onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
-            onShowSettings={() => setShowGlobalSettings(true)}
-          />
+    <div className="relative flex min-h-screen flex-col bg-background text-foreground">
+      {/* Top navigation */}
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+            Q
+          </div>
+          <h1 className="text-base font-bold tracking-tight md:text-lg">
+            QuantPilot
+          </h1>
+          <div className="hidden items-center gap-1.5 md:flex">
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground">
+              {selectedModelLabel}
+            </span>
+          </div>
         </div>
 
-        {/* Mobile sidebar overlay */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/20 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            onClick={() => setTaskDrawerOpen(true)}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
           >
-            <div className="h-full" onClick={(e) => e.stopPropagation()}>
-              <Sidebar
-                selectedCapability={selectedCapability}
-                onSelectCapability={handleCapabilityChange}
-                onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
-                onShowSettings={() => setShowGlobalSettings(true)}
-                isMobile
-                onCloseMobile={() => setSidebarOpen(false)}
-              />
-            </div>
+            <Clock3 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">最近任务</span>
+            {projects.length > 0 && (
+              <Badge variant="secondary" className="ml-0.5 h-5 px-1.5 text-[10px]">
+                {projects.length}
+              </Badge>
+            )}
+          </Button>
+
+          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+
+          <Button
+            type="button"
+            onClick={() => router.push("/strategy-platform")}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">策略</span>
+          </Button>
+          <Button
+            type="button"
+            onClick={() => router.push("/ops-platform")}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">运维</span>
+          </Button>
+          <Button
+            type="button"
+            onClick={() => router.push("/data-platform")}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
+          >
+            <Boxes className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">数据</span>
+          </Button>
+          <Button
+            type="button"
+            onClick={() => router.push("/eval-platform")}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-xs"
+          >
+            <Gauge className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">评测</span>
+          </Button>
+
+          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
+
+          <Button
+            type="button"
+            onClick={() => setShowGlobalSettings(true)}
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label="设置"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="flex flex-1 flex-col items-center px-4 pt-12 pb-16 md:pt-20 md:pb-24">
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="mb-10 text-center md:mb-14"
+        >
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
+            <Sparkles className="h-3 w-3 text-primary" />
+            AI 驱动的量化金融分析平台
           </div>
+          <h2 className="text-3xl font-bold tracking-tight md:text-5xl lg:text-6xl">
+            <span className="bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
+              量化分析
+            </span>
+            ，一句话搞定
+          </h2>
+          <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground md:text-base">
+            描述你的金融分析需求，系统自动识别任务类型，获取真实数据，生成可验证的量化看板
+          </p>
+        </motion.div>
+
+        {/* Input form */}
+        <motion.div
+          id="task-input"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
+          className="w-full max-w-3xl"
+        >
+          <CreateTaskForm
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            isCreating={isCreatingProject}
+            onSubmit={handleSubmit}
+            uploadedImages={uploadedImages}
+            onImagesChange={setUploadedImages}
+            selectedAssistant={selectedAssistant}
+            onAssistantChange={handleAssistantChange}
+            assistantOptions={ASSISTANT_OPTIONS}
+            isAssistantSelectable={isAssistantSelectable}
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+            modelOptions={availableModels}
+            selectedRole={selectedRoleModule}
+          />
+        </motion.div>
+
+        {/* Recent projects quick access */}
+        {projects.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="mt-6 flex flex-wrap items-center justify-center gap-2"
+          >
+            <span className="text-xs text-muted-foreground">最近：</span>
+            {projects.slice(0, 3).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => openProject(p)}
+                className="group inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+              >
+                <span className="max-w-[140px] truncate">
+                  {p.name || p.initialPrompt?.slice(0, 20) || "未命名"}
+                </span>
+                <ChevronRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+              </button>
+            ))}
+            {projects.length > 3 && (
+              <button
+                type="button"
+                onClick={() => setTaskDrawerOpen(true)}
+                className="text-xs text-muted-foreground hover:text-primary"
+              >
+                查看全部 {projects.length} 个
+              </button>
+            )}
+          </motion.div>
         )}
 
-        {/* Main content */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* Top bar */}
-          <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background/85 px-4 backdrop-blur md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <Button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                size="icon"
-                variant="ghost"
-                className="lg:hidden"
-                aria-label="打开任务记录"
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-base font-bold text-primary-foreground shadow-sm">
-                Q
-              </div>
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-bold md:text-lg">
-                  QuantPilot
-                </h1>
-                <div className="mt-0.5 hidden items-center gap-2 text-xs text-muted-foreground md:flex">
-                  <span>任务 {projects.length}</span>
-                  <span>·</span>
-                  <span>运行中 {runningProjects}</span>
-                  <span>·</span>
-                  <span>{selectedModelLabel}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                onClick={() => router.push("/strategy-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
-              >
-                <BarChart3 className="h-4 w-4" />
-                策略平台
-              </Button>
-              <Button
-                type="button"
-                onClick={() => router.push("/ops-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                运维平台
-              </Button>
-              <Button
-                type="button"
-                onClick={() => router.push("/data-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
-              >
-                <Boxes className="h-4 w-4" />
-                数据平台
-              </Button>
-            </div>
-          </header>
-
-          {/* Main area */}
-          <main className="relative flex flex-1 flex-col items-center overflow-y-auto px-4 py-12 md:justify-center md:py-8">
-            <div className="flex w-full max-w-4xl flex-col items-center">
-              {/* Title */}
-              <div className="mb-8 text-center">
-                <h2 className="text-3xl font-bold tracking-normal text-primary md:text-5xl">
-                  QuantPilot
-                </h2>
-                <p className="mt-3 text-sm text-muted-foreground md:text-base">
-                  描述金融分析需求，系统自动识别任务类型并生成可验证的量化看板
-                </p>
-              </div>
-
-              {/* Recent projects */}
-              {projects.length > 0 && (
-                <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
-                  <Clock3 className="h-3.5 w-3.5 text-slate-400" />
-                  <span className="text-xs text-slate-500">最近任务</span>
-                  {projects.slice(0, 4).map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => openProject(p)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600 transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                    >
-                      {p.name || p.initialPrompt?.slice(0, 20) || "未命名"}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Create form */}
-              <CreateTaskForm
-                prompt={prompt}
-                onPromptChange={setPrompt}
-                isCreating={isCreatingProject}
-                onSubmit={handleSubmit}
-                uploadedImages={uploadedImages}
-                onImagesChange={setUploadedImages}
-                selectedAssistant={selectedAssistant}
-                onAssistantChange={handleAssistantChange}
-                assistantOptions={ASSISTANT_OPTIONS}
-                isAssistantSelectable={isAssistantSelectable}
-                selectedModel={selectedModel}
-                onModelChange={handleModelChange}
-                modelOptions={availableModels}
-                selectedRole={selectedRoleModule}
-              />
-            </div>
-          </main>
-        </div>
-
-        {/* Task drawer */}
-        <TaskDrawer
-          open={taskDrawerOpen}
-          onOpenChange={setTaskDrawerOpen}
-          projects={projects}
-          editingProject={editingProject}
-          onEditProject={setEditingProject}
-          onUpdateProject={updateProject}
-          onOpenProject={openProject}
-          onDeleteProject={openDeleteModal}
-          formatTime={formatTime}
-          formatCliInfo={formatCliInfo}
-          getCapabilityShortName={getCapabilityShortName}
-        />
-
-        {/* Global settings */}
-        <GlobalSettings
-          isOpen={showGlobalSettings}
-          onClose={() => setShowGlobalSettings(false)}
-        />
-
-        {/* Delete confirmation */}
-        <AlertDialog
-          open={deleteModal.isOpen && Boolean(deleteModal.project)}
-          onOpenChange={(open) => {
-            if (!open) closeDeleteModal();
-          }}
+        {/* Capability cards */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.25, ease: "easeOut" }}
+          className="mt-14 w-full max-w-5xl md:mt-20"
         >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>删除任务</AlertDialogTitle>
-              <AlertDialogDescription>
-                确定要删除 <strong>{deleteModal.project?.name}</strong>{" "}
-                吗？该任务的项目文件与对话记录将被永久删除。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault();
-                  deleteProject();
-                }}
-                disabled={isDeleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {isDeleting ? "删除中..." : "删除任务"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          {groupedCapabilities.map((group) => (
+            <div key={group.id} className="mb-8 last:mb-0">
+              <div className="mb-3 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">
+                  {group.name}
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  {group.description}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {group.capabilities.map((cap) => {
+                  const isActive = selectedCapability === cap.id;
+                  const isPlanned = cap.status === "planned";
+                  return (
+                    <button
+                      key={cap.id}
+                      type="button"
+                      onClick={() => !isPlanned && handleCapabilityCardClick(cap.id)}
+                      disabled={isPlanned}
+                      className={cn(
+                        "group relative flex flex-col items-start gap-2.5 rounded-xl border bg-gradient-to-br p-4 text-left transition-all",
+                        CAPABILITY_COLORS[cap.id],
+                        isActive && "ring-2 ring-primary/30",
+                        isPlanned && "opacity-60 cursor-not-allowed"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-lg",
+                            CAPABILITY_ICON_COLORS[cap.id]
+                          )}
+                        >
+                          {CAPABILITY_ICONS[cap.id]}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-semibold">
+                              {cap.name}
+                            </span>
+                            {isPlanned && (
+                              <Badge
+                                variant="secondary"
+                                className="h-4 px-1 text-[10px]"
+                              >
+                                规划中
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {cap.description}
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {cap.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </motion.div>
+      </main>
 
-        {/* Toast */}
+      {/* Task drawer */}
+      <TaskDrawer
+        open={taskDrawerOpen}
+        onOpenChange={setTaskDrawerOpen}
+        projects={projects}
+        editingProject={editingProject}
+        onEditProject={setEditingProject}
+        onUpdateProject={updateProject}
+        onOpenProject={openProject}
+        onDeleteProject={openDeleteModal}
+        formatTime={formatTime}
+        formatCliInfo={formatCliInfo}
+        getCapabilityShortName={getCapabilityShortName}
+      />
+
+      {/* Global settings */}
+      <GlobalSettings
+        isOpen={showGlobalSettings}
+        onClose={() => setShowGlobalSettings(false)}
+      />
+
+      {/* Delete confirmation */}
+      <AlertDialog
+        open={deleteModal.isOpen && Boolean(deleteModal.project)}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteModal();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除任务</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除 <strong>{deleteModal.project?.name}</strong>{" "}
+              吗？该任务的项目文件与对话记录将被永久删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                deleteProject();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "删除中..." : "删除任务"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Toast */}
+      <AnimatePresence>
         {toast && (
           <div className="fixed bottom-4 right-4 z-50">
             <motion.div
@@ -723,7 +896,7 @@ export default function HomePage() {
             </motion.div>
           </div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }
