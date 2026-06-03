@@ -14,9 +14,17 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from quantpilot_market_data.cache import RedisJsonCache, ttl_from_env
+from quantpilot_market_data.clickhouse import (
+    ClickHouseError,
+    initialize_clickhouse,
+    insert_daily_bars,
+    is_clickhouse_enabled,
+    query_screener_feature_rows,
+)
 from quantpilot_market_data.models import (
     AShareScreenerCandidate,
     AShareScreenerResponse,
+    ClickHouseSyncResponse,
     DataQualityIssue,
     DataQualityScanRequest,
     DataQualityScanResponse,
@@ -2486,6 +2494,126 @@ async def _screener_redis_set(
     )
 
 
+async def sync_clickhouse_daily_bars(
+    *,
+    universe_id: str = DEFAULT_UNIVERSE_ID,
+    start: date | None = None,
+    end: date | None = None,
+    timeframe: str = "daily",
+    adjustment: str = "qfq",
+    limit: int | None = 300_000,
+) -> ClickHouseSyncResponse:
+    if not is_clickhouse_enabled():
+        return ClickHouseSyncResponse(
+            enabled=False,
+            status="disabled",
+            universe_id=universe_id,
+            timeframe=timeframe,
+            adjustment=adjustment,
+            start=start,
+            end=end,
+            message="ClickHouse 分析层未启用，设置 QUANTPILOT_CLICKHOUSE_ENABLED=1 后可同步。",
+        )
+
+    safe_limit = None if limit is None else max(1, min(limit, 2_000_000))
+    limit_clause = "" if safe_limit is None else "LIMIT %s"
+    params: list[Any] = [
+        universe_id,
+        universe_id,
+        timeframe,
+        adjustment,
+        start,
+        start,
+        end,
+        end,
+    ]
+    if safe_limit is not None:
+        params.append(safe_limit)
+
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            f"""
+            SELECT
+              %s::text AS universe_id,
+              bars.symbol,
+              COALESCE(securities.code, split_part(bars.symbol, '.', 1)) AS code,
+              securities.name,
+              COALESCE(securities.exchange, 'UNKNOWN') AS exchange,
+              COALESCE(securities.asset_type, 'stock') AS asset_type,
+              (bars.ts AT TIME ZONE 'Asia/Shanghai')::date AS trade_date,
+              bars.timeframe,
+              bars.adjustment,
+              bars.open,
+              bars.high,
+              bars.low,
+              bars.close,
+              bars.previous_close,
+              bars.volume,
+              bars.amount,
+              bars.amplitude,
+              bars.change_percent,
+              bars.change_amount,
+              bars.turnover,
+              bars.trade_status,
+              bars.is_st,
+              bars.limit_up,
+              bars.limit_down,
+              COALESCE(securities.metadata, '{{}}'::jsonb) AS security_metadata,
+              bars.provider
+            FROM quant.stock_bars bars
+            JOIN quant.security_universe_members members
+              ON members.symbol = bars.symbol
+              AND members.universe_id = %s
+            LEFT JOIN quant.securities securities
+              ON securities.symbol = bars.symbol
+            WHERE bars.timeframe = %s
+              AND bars.adjustment = %s
+              AND (
+                %s::date IS NULL
+                OR bars.ts >= (%s::date::timestamp AT TIME ZONE 'Asia/Shanghai')
+              )
+              AND (
+                %s::date IS NULL
+                OR bars.ts < (((%s::date + 1)::timestamp) AT TIME ZONE 'Asia/Shanghai')
+              )
+            ORDER BY bars.ts DESC, bars.symbol ASC
+            {limit_clause}
+            """,
+            params,
+        )
+        rows = [dict(row) for row in await cursor.fetchall()]
+
+    try:
+        await initialize_clickhouse()
+        written = await insert_daily_bars(rows)
+    except ClickHouseError as error:
+        return ClickHouseSyncResponse(
+            enabled=True,
+            status="error",
+            universe_id=universe_id,
+            timeframe=timeframe,
+            adjustment=adjustment,
+            start=start,
+            end=end,
+            rows_read=len(rows),
+            rows_written=0,
+            message=str(error),
+        )
+
+    return ClickHouseSyncResponse(
+        enabled=True,
+        status="ok",
+        universe_id=universe_id,
+        timeframe=timeframe,
+        adjustment=adjustment,
+        start=start,
+        end=end,
+        rows_read=len(rows),
+        rows_written=written,
+        message="已同步日线行情到 ClickHouse 分析表。",
+    )
+
+
 async def screen_a_share_short_term_candidates(
     *,
     universe_id: str = DEFAULT_UNIVERSE_ID,
@@ -2555,158 +2683,185 @@ async def screen_a_share_short_term_candidates(
             _screener_cache_set(cache_key, cached)
             return cached
 
-        await cursor.execute(
-            """
-            WITH universe_config AS (
-              SELECT
-                id,
-                COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
-                COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
-              FROM quant.security_universes
-              WHERE id = %s
-            ),
-            member_symbols AS (
-              SELECT
-                securities.symbol,
-                securities.code,
-                securities.name,
-                securities.exchange,
-                securities.metadata AS security_metadata,
-                universe_config.timeframe,
-                universe_config.adjustment
-              FROM quant.security_universe_members members
-              JOIN universe_config
-                ON universe_config.id = members.universe_id
-              JOIN quant.securities securities
-                ON securities.symbol = members.symbol
-              WHERE members.universe_id = %s
-                AND securities.asset_type = 'stock'
-                AND securities.exchange <> 'BJ'
-                AND securities.code !~ '^(688|8|4)'
-                AND securities.name NOT ILIKE '%%ST%%'
-            ),
-            features AS (
-              SELECT
-                members.symbol,
-                members.code,
-                members.name,
-                members.exchange,
-                members.security_metadata,
-                count(recent_bars.*)::INT AS sample_count,
-                max(recent_bars.trade_date) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_trade_date,
-                max(recent_bars.provider) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_provider,
-                max(recent_bars.open) FILTER (WHERE recent_bars.rn = 1) AS latest_open,
-                max(recent_bars.high) FILTER (WHERE recent_bars.rn = 1) AS latest_high,
-                max(recent_bars.low) FILTER (WHERE recent_bars.rn = 1) AS latest_low,
-                max(recent_bars.close) FILTER (WHERE recent_bars.rn = 1) AS latest_close,
-                max(recent_bars.previous_close) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS previous_close,
-                max(recent_bars.amount) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_amount,
-                max(recent_bars.turnover) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_turnover,
-                max(recent_bars.change_percent) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_change_percent,
-                max(recent_bars.change_percent) FILTER (
-                  WHERE recent_bars.rn = 2
-                ) AS previous_change_percent,
-                bool_or(recent_bars.limit_up) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_limit_up,
-                bool_or(recent_bars.is_st) FILTER (
-                  WHERE recent_bars.rn = 1
-                ) AS latest_is_st,
-                avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 5) AS ma5,
-                avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 10) AS ma10,
-                avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 20) AS ma20,
-                avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 30) AS ma30,
-                avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 60) AS ma60,
-                avg(recent_bars.amount) FILTER (
-                  WHERE recent_bars.rn <= 20 AND recent_bars.amount IS NOT NULL
-                ) AS avg_amount_20d,
-                max(recent_bars.close) FILTER (WHERE recent_bars.rn = 21) AS close_20d,
-                count(*) FILTER (
-                  WHERE recent_bars.rn <= 4 AND recent_bars.limit_up IS TRUE
-                )::INT AS limit_up_count_4d,
-                count(*) FILTER (
-                  WHERE recent_bars.rn <= 10 AND recent_bars.limit_up IS TRUE
-                )::INT AS limit_up_count_10d,
-                max(recent_bars.trade_date) FILTER (
-                  WHERE recent_bars.rn <= 10 AND recent_bars.limit_up IS TRUE
-                ) AS latest_limit_up_date
-              FROM member_symbols members
-              LEFT JOIN LATERAL (
-                SELECT
-                  local_bars.*,
-                  row_number() OVER (ORDER BY local_bars.ts DESC) AS rn
-                FROM (
+        data_basis = "timescaledb.stock_bars"
+        clickhouse_note: str | None = None
+        rows: list[dict[str, Any]] = []
+        if is_clickhouse_enabled():
+            try:
+                clickhouse_trade_date, clickhouse_rows = await query_screener_feature_rows(
+                    universe_id=universe_id,
+                    trade_date=resolved_trade_date,
+                    timeframe="daily",
+                    adjustment="qfq",
+                )
+                if clickhouse_trade_date == resolved_trade_date and clickhouse_rows:
+                    rows = clickhouse_rows
+                    data_basis = "clickhouse.quant_bars_daily"
+                    clickhouse_note = "本次筛选使用 ClickHouse 分析表生成横截面特征。"
+                elif clickhouse_trade_date == resolved_trade_date:
+                    clickhouse_note = "ClickHouse 未返回可用筛选特征，已回退 TimescaleDB。"
+                elif clickhouse_trade_date is not None:
+                    clickhouse_note = (
+                        "ClickHouse 分析表最新交易日为 "
+                        f"{clickhouse_trade_date.isoformat()}，"
+                        "与 TimescaleDB 目标交易日不一致，已回退 TimescaleDB。"
+                    )
+            except Exception as error:
+                clickhouse_note = f"ClickHouse 查询失败，已回退 TimescaleDB：{error}"
+
+        if not rows:
+            await cursor.execute(
+                """
+                WITH universe_config AS (
                   SELECT
-                    bars.ts,
-                    (bars.ts AT TIME ZONE 'Asia/Shanghai')::date AS trade_date,
-                    bars.open,
-                    bars.high,
-                    bars.low,
-                    bars.close,
-                    bars.previous_close,
-                    bars.amount,
-                    bars.volume,
-                    bars.turnover,
-                    bars.change_percent,
-                    bars.limit_up,
-                    bars.is_st,
-                    bars.provider
-                  FROM quant.stock_bars bars
-                  WHERE bars.symbol = members.symbol
-                    AND bars.timeframe = members.timeframe
-                    AND bars.adjustment = members.adjustment
-                    AND bars.ts >= (
-                      (%s::date - 260)::timestamp
-                      AT TIME ZONE 'Asia/Shanghai'
-                    )
-                    AND bars.ts < (
-                      (%s::date + 1)::timestamp
-                      AT TIME ZONE 'Asia/Shanghai'
-                    )
-                  ORDER BY bars.ts DESC
-                  LIMIT 60
-                ) local_bars
-              ) recent_bars ON TRUE
-              GROUP BY
-                members.symbol,
-                members.code,
-                members.name,
-                members.exchange,
-                members.security_metadata
+                    id,
+                    COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                    COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+                  FROM quant.security_universes
+                  WHERE id = %s
+                ),
+                member_symbols AS (
+                  SELECT
+                    securities.symbol,
+                    securities.code,
+                    securities.name,
+                    securities.exchange,
+                    securities.metadata AS security_metadata,
+                    universe_config.timeframe,
+                    universe_config.adjustment
+                  FROM quant.security_universe_members members
+                  JOIN universe_config
+                    ON universe_config.id = members.universe_id
+                  JOIN quant.securities securities
+                    ON securities.symbol = members.symbol
+                  WHERE members.universe_id = %s
+                    AND securities.asset_type = 'stock'
+                    AND securities.exchange <> 'BJ'
+                    AND securities.code !~ '^(688|8|4)'
+                    AND securities.name NOT ILIKE '%%ST%%'
+                ),
+                features AS (
+                  SELECT
+                    members.symbol,
+                    members.code,
+                    members.name,
+                    members.exchange,
+                    members.security_metadata,
+                    count(recent_bars.*)::INT AS sample_count,
+                    max(recent_bars.trade_date) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_trade_date,
+                    max(recent_bars.provider) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_provider,
+                    max(recent_bars.open) FILTER (WHERE recent_bars.rn = 1) AS latest_open,
+                    max(recent_bars.high) FILTER (WHERE recent_bars.rn = 1) AS latest_high,
+                    max(recent_bars.low) FILTER (WHERE recent_bars.rn = 1) AS latest_low,
+                    max(recent_bars.close) FILTER (WHERE recent_bars.rn = 1) AS latest_close,
+                    max(recent_bars.previous_close) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS previous_close,
+                    max(recent_bars.amount) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_amount,
+                    max(recent_bars.turnover) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_turnover,
+                    max(recent_bars.change_percent) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_change_percent,
+                    max(recent_bars.change_percent) FILTER (
+                      WHERE recent_bars.rn = 2
+                    ) AS previous_change_percent,
+                    bool_or(recent_bars.limit_up) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_limit_up,
+                    bool_or(recent_bars.is_st) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_is_st,
+                    avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 5) AS ma5,
+                    avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 10) AS ma10,
+                    avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 20) AS ma20,
+                    avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 30) AS ma30,
+                    avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 60) AS ma60,
+                    avg(recent_bars.amount) FILTER (
+                      WHERE recent_bars.rn <= 20 AND recent_bars.amount IS NOT NULL
+                    ) AS avg_amount_20d,
+                    max(recent_bars.close) FILTER (WHERE recent_bars.rn = 21) AS close_20d,
+                    count(*) FILTER (
+                      WHERE recent_bars.rn <= 4 AND recent_bars.limit_up IS TRUE
+                    )::INT AS limit_up_count_4d,
+                    count(*) FILTER (
+                      WHERE recent_bars.rn <= 10 AND recent_bars.limit_up IS TRUE
+                    )::INT AS limit_up_count_10d,
+                    max(recent_bars.trade_date) FILTER (
+                      WHERE recent_bars.rn <= 10 AND recent_bars.limit_up IS TRUE
+                    ) AS latest_limit_up_date
+                  FROM member_symbols members
+                  LEFT JOIN LATERAL (
+                    SELECT
+                      local_bars.*,
+                      row_number() OVER (ORDER BY local_bars.ts DESC) AS rn
+                    FROM (
+                      SELECT
+                        bars.ts,
+                        (bars.ts AT TIME ZONE 'Asia/Shanghai')::date AS trade_date,
+                        bars.open,
+                        bars.high,
+                        bars.low,
+                        bars.close,
+                        bars.previous_close,
+                        bars.amount,
+                        bars.volume,
+                        bars.turnover,
+                        bars.change_percent,
+                        bars.limit_up,
+                        bars.is_st,
+                        bars.provider
+                      FROM quant.stock_bars bars
+                      WHERE bars.symbol = members.symbol
+                        AND bars.timeframe = members.timeframe
+                        AND bars.adjustment = members.adjustment
+                        AND bars.ts >= (
+                          (%s::date - 260)::timestamp
+                          AT TIME ZONE 'Asia/Shanghai'
+                        )
+                        AND bars.ts < (
+                          (%s::date + 1)::timestamp
+                          AT TIME ZONE 'Asia/Shanghai'
+                        )
+                      ORDER BY bars.ts DESC
+                      LIMIT 60
+                    ) local_bars
+                  ) recent_bars ON TRUE
+                  GROUP BY
+                    members.symbol,
+                    members.code,
+                    members.name,
+                    members.exchange,
+                    members.security_metadata
+                )
+                SELECT
+                  features.*,
+                  %s::date AS requested_trade_date,
+                  count(*) OVER ()::INT AS scanned_symbols
+                FROM features
+                WHERE features.latest_trade_date = %s::date
+                  AND COALESCE(features.latest_is_st, FALSE) IS FALSE
+                  AND COALESCE(features.latest_limit_up, FALSE) IS FALSE
+                  AND features.latest_close IS NOT NULL
+                  AND features.sample_count >= 20
+                """,
+                (
+                    universe_id,
+                    universe_id,
+                    resolved_trade_date,
+                    resolved_trade_date,
+                    resolved_trade_date,
+                    resolved_trade_date,
+                ),
             )
-            SELECT
-              features.*,
-              %s::date AS requested_trade_date,
-              count(*) OVER ()::INT AS scanned_symbols
-            FROM features
-            WHERE features.latest_trade_date = %s::date
-              AND COALESCE(features.latest_is_st, FALSE) IS FALSE
-              AND COALESCE(features.latest_limit_up, FALSE) IS FALSE
-              AND features.latest_close IS NOT NULL
-              AND features.sample_count >= 20
-            """,
-            (
-                universe_id,
-                universe_id,
-                resolved_trade_date,
-                resolved_trade_date,
-                resolved_trade_date,
-                resolved_trade_date,
-            ),
-        )
-        rows = await cursor.fetchall()
+            rows = await cursor.fetchall()
 
     def passes_mode(row: dict[str, Any]) -> bool:
         close = decimal_or_none(row.get("latest_close"))
@@ -2829,9 +2984,19 @@ async def screen_a_share_short_term_candidates(
         resolved_trade_date,
     )
     notes = [
-        "本接口只通过 QuantPilot market-data API 读取本地 TimescaleDB；skills 不直接访问数据库。",
+        (
+            "本接口通过 QuantPilot market-data API 读取 ClickHouse 分析表；"
+            "skills 不直接访问数据库。"
+            if data_basis.startswith("clickhouse.")
+            else (
+                "本接口只通过 QuantPilot market-data API 读取本地 TimescaleDB；"
+                "skills 不直接访问数据库。"
+            )
+        ),
         "当前 DDE 大单金额/大单净量未落库，候选结果使用日线 OHLCV、涨跌停、均线和流动性代理。",
     ]
+    if clickhouse_note:
+        notes.append(clickhouse_note)
     if requested_trade_date_input is not None and response_trade_date != requested_trade_date_input:
         notes.append(
             f"用户请求交易日 {requested_trade_date_input.isoformat()} 本地没有完整股票池覆盖，"
@@ -2844,6 +3009,7 @@ async def screen_a_share_short_term_candidates(
         scanned_symbols=int(rows[0]["scanned_symbols"] or len(rows)) if rows else 0,
         limit=safe_limit,
         candidates=candidates,
+        data_basis=data_basis,
         notes=notes,
         cache_status="miss",
         cache_ttl_seconds=SCREENER_CACHE_TTL_SECONDS,

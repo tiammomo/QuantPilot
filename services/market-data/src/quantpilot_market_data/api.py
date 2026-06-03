@@ -12,6 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from quantpilot_market_data.backtest import build_ma_crossover_backtest, build_strategy_backtest
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache, ttl_from_env
+from quantpilot_market_data.clickhouse import (
+    ClickHouseError,
+    get_clickhouse_health,
+    initialize_clickhouse,
+)
 from quantpilot_market_data.database import (
     DatabaseError,
     add_securities_to_universe,
@@ -35,6 +40,7 @@ from quantpilot_market_data.database import (
     normalize_fetch_symbol,
     run_data_quality_scan,
     screen_a_share_short_term_candidates,
+    sync_clickhouse_daily_bars,
     update_ingestion_job_progress,
     upsert_kline_response,
     upsert_realtime_quote_snapshot,
@@ -51,6 +57,9 @@ from quantpilot_market_data.models import (
     BacktestResponse,
     BatchQuoteRequest,
     BatchQuoteResponse,
+    ClickHouseHealthResponse,
+    ClickHouseSyncRequest,
+    ClickHouseSyncResponse,
     DataProviderInfo,
     DataQualityScanRequest,
     DataQualityScanResponse,
@@ -222,6 +231,26 @@ DATA_PROVIDERS = [
         endpoints=["/api/v1/research/screeners/a-share/short-term-candidates"],
         cache_ttl_seconds=SCREENER_CACHE_TTL_SECONDS,
         limitations=["DDE 大单金额/大单净量尚未落库，当前筛选为日线量价代理。"],
+    ),
+    DataProviderInfo(
+        id="quantpilot-clickhouse-analytics",
+        name="QuantPilot ClickHouse 分析加速层",
+        category="analytics",
+        status="planned",
+        description=(
+            "可选单节点 ClickHouse OLAP 旁路，用于全市场筛选、因子宽表和批量分析；"
+            "TimescaleDB 仍是事实主库。"
+        ),
+        endpoints=[
+            "/api/v1/analytics/clickhouse/health",
+            "/api/v1/analytics/clickhouse/init",
+            "/api/v1/analytics/clickhouse/sync",
+        ],
+        cache_ttl_seconds=None,
+        limitations=[
+            "默认关闭，需要设置 QUANTPILOT_CLICKHOUSE_ENABLED=1。",
+            "当前使用显式同步，不替代 TimescaleDB 入库状态。",
+        ],
     ),
     DataProviderInfo(
         id="eastmoney-history-ingestion",
@@ -912,6 +941,43 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/registry", response_model=DataRegistryResponse)
     async def get_data_registry() -> DataRegistryResponse:
         return DataRegistryResponse(providers=DATA_PROVIDERS)
+
+    @app.get(
+        "/api/v1/analytics/clickhouse/health",
+        response_model=ClickHouseHealthResponse,
+    )
+    async def get_clickhouse_analytics_health() -> ClickHouseHealthResponse:
+        return await get_clickhouse_health()
+
+    @app.post(
+        "/api/v1/analytics/clickhouse/init",
+        response_model=ClickHouseHealthResponse,
+    )
+    async def initialize_clickhouse_analytics() -> ClickHouseHealthResponse:
+        try:
+            await initialize_clickhouse()
+            return await get_clickhouse_health()
+        except ClickHouseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @app.post(
+        "/api/v1/analytics/clickhouse/sync",
+        response_model=ClickHouseSyncResponse,
+    )
+    async def sync_clickhouse_analytics(
+        request: ClickHouseSyncRequest,
+    ) -> ClickHouseSyncResponse:
+        try:
+            return await sync_clickhouse_daily_bars(
+                universe_id=request.universe_id.strip(),
+                start=request.start,
+                end=request.end,
+                timeframe=str(request.timeframe),
+                adjustment=str(request.adjustment),
+                limit=request.limit,
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
     @app.get("/api/v1/foundation/status", response_model=FoundationStatusResponse)
     async def get_foundation_status() -> FoundationStatusResponse:

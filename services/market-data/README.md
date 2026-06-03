@@ -79,6 +79,13 @@ export QUANTPILOT_SCREENER_CACHE_TTL_SECONDS=60
 export REDIS_URL=redis://127.0.0.1:6379/0
 export REDIS_NAMESPACE=quantpilot
 export QUANTPILOT_REDIS_CACHE_ENABLED=1
+
+# ClickHouse 分析加速层；默认关闭，启用后仍以 TimescaleDB 为事实主库
+export QUANTPILOT_CLICKHOUSE_ENABLED=1
+export CLICKHOUSE_URL=http://127.0.0.1:8123
+export CLICKHOUSE_DB=quantpilot
+export CLICKHOUSE_USER=quantpilot
+export CLICKHOUSE_PASSWORD=quantpilot_dev_password
 ```
 
 ## 接口
@@ -94,6 +101,20 @@ curl http://127.0.0.1:8000/health
 ```bash
 curl http://127.0.0.1:8000/api/v1/registry
 ```
+
+### ClickHouse 分析加速层
+
+ClickHouse 是可选旁路，只承载全市场筛选、因子宽表和批量分析，不替代 TimescaleDB。
+
+```bash
+curl http://127.0.0.1:8000/api/v1/analytics/clickhouse/health
+curl -X POST http://127.0.0.1:8000/api/v1/analytics/clickhouse/init
+curl -X POST http://127.0.0.1:8000/api/v1/analytics/clickhouse/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"universe_id":"a-share-sample-research-pool","timeframe":"daily","adjustment":"qfq","limit":300000}'
+```
+
+同步完成后，A 股短线筛选器会优先读取 `clickhouse.quant_bars_daily`；未启用、未同步或查询失败时自动回退 `timescaledb.stock_bars`。
 
 ### 候选免费信源池
 

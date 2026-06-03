@@ -5,6 +5,7 @@ description = "QuantPilot 市场数据后端模块，提供东方财富实时行
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "clickhouse-connect>=0.9.2",
     "fastapi>=0.124.0",
     "httpx[http2]>=0.28.1",
     "psycopg[binary]>=3.3.2",

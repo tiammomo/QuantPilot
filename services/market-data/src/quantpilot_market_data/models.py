@@ -154,6 +154,18 @@ class DataRegistryResponse(BaseModel):
     providers: list[DataProviderInfo]
 
 
+class ClickHouseHealthResponse(BaseModel):
+    enabled: bool = False
+    status: Literal["disabled", "ok", "error"] = "disabled"
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    server_version: str | None = None
+    tables: dict[str, int] = Field(default_factory=dict)
+    error: str | None = None
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class FoundationComponentStatus(BaseModel):
     id: str
     name: str
@@ -774,6 +786,30 @@ class AShareScreenerResponse(BaseModel):
                 status="warning",
             )
         return self
+
+
+class ClickHouseSyncRequest(BaseModel):
+    universe_id: str = Field(default="a-share-sample-research-pool", min_length=1)
+    start: date | None = None
+    end: date | None = None
+    timeframe: KlinePeriod | str = "daily"
+    adjustment: Adjustment | str = "qfq"
+    limit: int | None = Field(default=300_000, ge=1, le=2_000_000)
+
+
+class ClickHouseSyncResponse(BaseModel):
+    enabled: bool = True
+    status: Literal["ok", "disabled", "error"] = "ok"
+    universe_id: str
+    timeframe: KlinePeriod | str = "daily"
+    adjustment: Adjustment | str = "qfq"
+    start: date | None = None
+    end: date | None = None
+    rows_read: int = 0
+    rows_written: int = 0
+    table: str = "quant_bars_daily"
+    message: str | None = None
+    synced_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class LocalKlineBar(BaseModel):
