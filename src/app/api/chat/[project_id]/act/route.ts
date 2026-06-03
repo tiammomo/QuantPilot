@@ -1447,26 +1447,33 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           : prefetch.symbol
             ? [prefetch.symbol]
             : [];
+        const screenerRawFiles =
+          prefetch.rawFiles?.filter((file) => file.includes("a-share-screener")) ??
+          [];
+        const usedScreener = screenerRawFiles.length > 0;
         await publishQuantPipelineToolMessage({
           projectId: project_id,
           requestId,
           conversationId,
           cliSource: cliPreference,
           toolName: "quant-data-registry",
-          target:
-            "/api/v1/research/screeners/a-share/short-term-candidates",
-          summary: symbols.length
-            ? `调用本地选股接口，得到候选标的：${symbols.join("、")}。`
-            : "调用本地选股接口并完成候选筛选。",
+          target: usedScreener
+            ? "/api/v1/research/screeners/a-share/short-term-candidates"
+            : "/api/v1/symbols/resolve",
+          summary: usedScreener
+            ? symbols.length
+              ? `调用本地选股接口，得到候选标的：${symbols.join("、")}。`
+              : "调用本地选股接口并完成候选筛选。"
+            : symbols.length
+              ? `解析用户问题中的标的并确认代码：${symbols.join("、")}。`
+              : "完成标的解析与本地数据能力检查。",
           input: {
             question: runPlan.question,
             templateId: runPlan.visualization?.templateId,
           },
           output: {
             symbols,
-            rawFiles: prefetch.rawFiles?.filter((file) =>
-              file.includes("a-share-screener"),
-            ),
+            rawFiles: usedScreener ? screenerRawFiles : prefetch.rawFiles,
           },
         });
         await publishQuantPipelineToolMessage({

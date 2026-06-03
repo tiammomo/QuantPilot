@@ -836,6 +836,51 @@ async function readJson(filePath: string): Promise<JsonRecord | null> {
   }
 }
 
+async function syncRunPlanSymbols(params: {
+  projectPath: string;
+  plan: QuantRunPlan;
+  symbols: string[];
+  source: 'question' | 'screener';
+  warnings: string[];
+}) {
+  const symbols = uniqueSymbols(params.symbols);
+  if (symbols.length === 0) {
+    return;
+  }
+
+  const runPlanPath = path.join(params.projectPath, '.quantpilot', 'run_plan.json');
+  const runPlan = await readJson(runPlanPath);
+  if (!runPlan) {
+    return;
+  }
+
+  const existingSymbols = Array.isArray(runPlan.symbols)
+    ? uniqueSymbols(
+        runPlan.symbols
+          .map(pickSymbolCode)
+          .filter((symbol): symbol is string => Boolean(symbol))
+      )
+    : [];
+  const existingKey = existingSymbols.join(',');
+  const nextKey = symbols.join(',');
+
+  params.plan.symbols = symbols;
+  if (existingKey === nextKey && asRecord(runPlan.symbolResolution)) {
+    return;
+  }
+
+  await writeJson(runPlanPath, {
+    ...runPlan,
+    symbols,
+    symbolResolution: {
+      source: params.source,
+      resolvedAt: new Date().toISOString(),
+      warnings: params.warnings,
+    },
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function isInside(parent: string, candidate: string): boolean {
   const relative = path.relative(parent, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -1700,6 +1745,14 @@ export async function prefetchQuantDataForRunPlan(params: {
       summary: `未识别到 A 股、指数或 ETF 标的，跳过平台预取。${warnings.length ? ` ${warnings.join('；')}` : ''}`,
     };
   }
+
+  await syncRunPlanSymbols({
+    projectPath: params.projectPath,
+    plan: params.plan,
+    symbols,
+    source: screenerData ? 'screener' : 'question',
+    warnings,
+  });
 
   const imageExtractionEvidence = await buildImageExtractionEvidence(params.projectPath, runId, warnings);
   const imageExtraction = asRecord(imageExtractionEvidence?.imageExtraction);

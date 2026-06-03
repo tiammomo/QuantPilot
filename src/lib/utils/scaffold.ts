@@ -4346,6 +4346,17 @@ export default async function Home() {
         </div>
       </section>
 
+      <section className="chart-zone">
+        <TrendChart bars={bars} />
+        <SignalPanel
+          quote={quote}
+          latestBar={latestBar}
+          summary={summary}
+          computedMetrics={computedMetrics}
+          data={data}
+        />
+      </section>
+
       <div className="metric-strip">
         <div className="metric-cell">
           <span className="metric-label">最新价</span>
@@ -4372,17 +4383,6 @@ export default async function Home() {
           <span className="metric-value">{displayNumber(summary?.ma20 ?? computedMetrics?.ma20)}</span>
         </div>
       </div>
-
-      <section className="chart-zone">
-        <TrendChart bars={bars} />
-        <SignalPanel
-          quote={quote}
-          latestBar={latestBar}
-          summary={summary}
-          computedMetrics={computedMetrics}
-          data={data}
-        />
-      </section>
 
       <BacktestPanel backtest={backtest} />
 
@@ -5508,7 +5508,8 @@ tbody tr:hover {
   }
 
   .hero-panel {
-    padding: 16px;
+    margin-bottom: 12px;
+    padding: 12px;
   }
 
   .top-bar {
@@ -5542,6 +5543,11 @@ tbody tr:hover {
     font-size: 14px;
   }
 
+  .price-header .id-area .name {
+    font-size: 28px;
+    line-height: 1.05;
+  }
+
   .metric-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -5550,13 +5556,39 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .meta-row,
+  .meta-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .meta-row .meta-item {
+    min-height: 56px;
+    padding: 8px;
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .meta-row .meta-item .meta-value {
+    font-size: 14px;
+  }
+
   .insight-strip {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .insight-strip article {
+    min-height: auto;
+    padding: 10px;
+  }
+
+  .insight-strip article:nth-child(n + 2) {
+    display: none;
   }
 
   .meta-row .meta-source {
     justify-self: start;
+    grid-column: 1 / -1;
   }
 
   .chart-zone,

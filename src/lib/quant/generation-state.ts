@@ -55,8 +55,14 @@ export interface QuantGenerationState {
   } | null;
 }
 
+const configuredMaxRepairAttempts = Number.parseInt(
+  process.env.QUANTPILOT_MAX_VALIDATION_REPAIR_ATTEMPTS ?? '',
+  10
+);
 const DEFAULT_MAX_REPAIR_ATTEMPTS =
-  Number.parseInt(process.env.QUANTPILOT_MAX_VALIDATION_REPAIR_ATTEMPTS ?? '', 10) || 1;
+  Number.isFinite(configuredMaxRepairAttempts) && configuredMaxRepairAttempts > 0
+    ? configuredMaxRepairAttempts
+    : 3;
 
 const STEP_LABELS: Record<QuantGenerationStepId, string> = {
   request_received: '接收请求',

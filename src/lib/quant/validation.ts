@@ -2101,6 +2101,8 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         ...common,
         '查看 .quantpilot/visual-validation.json 和 tmp/visual-checks 下的截图。',
         '修复桌面/移动端布局：首屏不能空白，不能横向溢出，文本不能互相遮挡。',
+        '移动端 390x844 首屏必须露出一个可用的核心图表、矩阵或表格；如果摘要区过高，压缩或下移次要指标、信源、模板说明和免责声明。',
+        '技术分析页移动端优先顺序是：数据状态、标的与价格、K 线主图、成交量/信号；财务、公告、信源和场景模板放到下方。',
         '补齐真实金融语义和图表元素：K 线、成交量、财务趋势、持仓/风险或回测图表必须按任务展示。',
         '页面需要显示数据信源、更新时间或 dashboard-data.json 绑定说明。',
       ];
@@ -2280,11 +2282,12 @@ ${repairSteps || '请重新检查验证报告并补齐缺失产物。'}
 9. 不得引用外部 CDN、远程脚本、远程样式或浏览器直连外部接口；页面资源必须本地化，浏览器取数只能走 final 数据文件或同源 /api/market/**。
 10. 不得留下 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据等 mock/static 产物，也不得写入任何鉴权凭据、会话凭据或密钥值。
 11. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-12. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
-13. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须同步修复 .quantpilot/run_plan.json、data_file/final/dashboard-data.json 的 visualization.template_id 和 app/page.tsx 的页面结构。
-14. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
-15. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
-16. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+12. 移动端不能只在首屏展示标题、指标卡和说明；390x844 首屏内必须能看到核心图表、矩阵或表格的主体区域。
+13. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
+14. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须同步修复 .quantpilot/run_plan.json、data_file/final/dashboard-data.json 的 visualization.template_id 和 app/page.tsx 的页面结构。
+15. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
+16. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
+17. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(
