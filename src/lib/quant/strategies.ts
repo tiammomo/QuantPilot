@@ -618,6 +618,91 @@ export interface StrategyFoundationState {
   error?: string | null;
 }
 
+export type StrategyFactorCatalogStatus = 'ready' | 'partial' | 'needs_data';
+export type StrategyFactorCatalogDirection =
+  | 'higher_is_better'
+  | 'lower_is_better'
+  | 'middle_is_better'
+  | 'event_driven';
+
+export interface StrategyFactorCatalogItem {
+  id: string;
+  name: string;
+  category: string;
+  horizon: string;
+  direction: StrategyFactorCatalogDirection;
+  status: StrategyFactorCatalogStatus;
+  priority: number;
+  formula: string;
+  rationale: string;
+  currentData: string[];
+  missingData: string[];
+  enrichmentPlan: string[];
+  useCases: string[];
+  guardrails: string[];
+  sourceFrameworks: string[];
+}
+
+export interface StrategyFactorCatalogCategory {
+  id: string;
+  name: string;
+  description: string;
+  factors: StrategyFactorCatalogItem[];
+}
+
+export interface StrategyFactorCatalogEnrichmentItem {
+  id: string;
+  title: string;
+  priority: 'P0' | 'P1' | 'P2';
+  currentGap: string;
+  targetTables: string[];
+  providerOptions: string[];
+  unlocks: string[];
+}
+
+export interface StrategyFactorResearchWorkflowStep {
+  id: string;
+  stage: string;
+  title: string;
+  objective: string;
+  inputs: string[];
+  outputs: string[];
+  qualityGate: string;
+}
+
+export interface StrategyFactorDataLayer {
+  id: string;
+  name: string;
+  status: StrategyFactorCatalogStatus;
+  priority: 'P0' | 'P1' | 'P2';
+  tables: string[];
+  availableData: string[];
+  factorIdeas: string[];
+  dataGaps: string[];
+  nextAction: string;
+}
+
+export interface StrategyFactorStrategyBlueprint {
+  id: string;
+  name: string;
+  status: StrategyFactorCatalogStatus;
+  horizon: string;
+  factorInputs: string[];
+  strategyIdea: string;
+  validationPath: string[];
+  riskControls: string[];
+}
+
+export interface StrategyFactorCatalogState {
+  source: 'built-in-research';
+  methodology: string[];
+  workflow: StrategyFactorResearchWorkflowStep[];
+  dataLayers: StrategyFactorDataLayer[];
+  categories: StrategyFactorCatalogCategory[];
+  strategyBlueprints: StrategyFactorStrategyBlueprint[];
+  enrichmentPlan: StrategyFactorCatalogEnrichmentItem[];
+}
+
 export interface StrategyUniverseMemberAddResult {
   universe_id: string;
   member: StrategyUniverseMember;
@@ -704,6 +789,7 @@ export interface StrategyDashboardData {
   scanJobs: StrategyScanJob[];
   research: StrategyResearchState;
   foundation: StrategyFoundationState;
+  factorCatalog: StrategyFactorCatalogState;
 }
 
 const ROOT = process.cwd();
@@ -1083,6 +1169,457 @@ const STRATEGY_DDE_DATA_MISSING = [
   '近 3/5 日 DDE 聚合',
   '当日实时 DDE 更新时间',
 ];
+
+const STRATEGY_FACTOR_CATALOG: StrategyFactorCatalogState = {
+  source: 'built-in-research',
+  methodology: [
+    '先用学术和指数公司的主流因子框架做骨架：动量、价值、质量、低波、规模、股息/现金回报。',
+    '再按 A 股短中期交易特点补充可成交性、涨跌停、ST、行业/概念热度和资金流连续性。',
+    '所有因子必须区分“可直接计算”“部分可用”“需要补数”，缺失不能默认为 0。',
+    '组合因子只做排序和候选降权，不直接给确定性买卖结论；最终仍要经过回测、交易成本和风控约束。',
+  ],
+  workflow: [
+    {
+      id: 'data-inventory',
+      stage: '01',
+      title: '先盘点数据',
+      objective: '确认现有数据表、字段完整性、覆盖时间、复权口径和缺口，避免用不存在或不稳定的字段设计因子。',
+      inputs: ['quant.stock_bars', 'quant.stock_factors', 'quant.securities', 'security_universe_members', 'data_quality_scans'],
+      outputs: ['可直接计算的字段清单', '缺失字段清单', '优先补数路线', '不可用于策略的风险字段'],
+      qualityGate: '字段覆盖率、最新交易日、样本长度和缺失值处理规则都明确后，才能进入因子设计。',
+    },
+    {
+      id: 'factor-design',
+      stage: '02',
+      title: '再设计因子',
+      objective: '从可验证的数据出发，设计可解释、可排序、可回测的因子，并标记方向、质量和落地状态。',
+      inputs: ['数据盘点结果', '主流因子框架', 'A 股交易规则', '已有策略模板需求'],
+      outputs: ['因子公式', '数据依赖', '方向定义', '落地质量', '入库或批处理计划'],
+      qualityGate: '因子必须可复算、可解释、可标记缺口；缺数据因子保持 needs_data，不允许用 0 或 mock 值通过。',
+    },
+    {
+      id: 'strategy-composition',
+      stage: '03',
+      title: '最后组合策略',
+      objective: '将多个因子组合成选股、买卖价格或风险控制策略，并通过样本内外、费用和风控验证。',
+      inputs: ['可用因子', '部分可用因子', '策略模板', '回测引擎', '交易成本模型'],
+      outputs: ['候选排序规则', '入场/退出规则', '参数扫描矩阵', '回测和风险报告'],
+      qualityGate: '策略必须输出触发条件、排序理由、剔除原因、止损/目标价和回测限制，不能只输出推荐列表。',
+    },
+  ],
+  dataLayers: [
+    {
+      id: 'daily-bars',
+      name: '日线行情与交易字段',
+      status: 'ready',
+      priority: 'P0',
+      tables: ['quant.stock_bars'],
+      availableData: ['open/high/low/close', 'volume/amount/turnover', 'change_percent', 'trade_status/is_st', 'limit_up/limit_down'],
+      factorIdeas: ['相对强弱', '均线多头质量', '突破确认', '实现波动率', '最大回撤', '成交额放大倍数'],
+      dataGaps: ['分钟线承接', '盘口封单', '集合竞价成交额'],
+      nextAction: '先把日频衍生因子批量写入 stock_factors 或截面 rank 表，支撑股票池分页排序和宽域选股。',
+    },
+    {
+      id: 'security-master',
+      name: '证券主数据与股票池关系',
+      status: 'ready',
+      priority: 'P0',
+      tables: ['quant.securities', 'quant.security_universes', 'quant.security_universe_members'],
+      availableData: ['股票/ETF/指数边界', '交易所', '资产类型', '板块/概念标签', '成员关系'],
+      factorIdeas: ['行业内强弱', '板块热度', '可交易性过滤', 'ETF/个股分层策略'],
+      dataGaps: ['历史行业成分', '申万/中信行业映射', '板块成分变更日期'],
+      nextAction: '先保证股票池和 ETF/指数池不混用，再补行业历史映射和行业内 rank。',
+    },
+    {
+      id: 'valuation-factors',
+      name: '估值快照',
+      status: 'partial',
+      priority: 'P1',
+      tables: ['quant.stock_factors'],
+      availableData: ['pe_ttm', 'pb_mrq', 'ps_ttm', 'pcf_ncf_ttm'],
+      factorIdeas: ['复合估值便宜度', '行业中性估值', '估值风险提示'],
+      dataGaps: ['全市场覆盖率', '行业中位数', '极端值 winsorize', 'ETF/指数空值规则'],
+      nextAction: '继续低频补齐 Baostock 估值字段，再做行业中性化和极端值处理。',
+    },
+    {
+      id: 'financial-quality',
+      name: '财报质量与成长',
+      status: 'needs_data',
+      priority: 'P1',
+      tables: ['quant.financial_statements', 'quant.financial_indicators'],
+      availableData: ['少量 provider 可解析字段，尚未形成稳定表'],
+      factorIdeas: ['盈利质量', '成长加速度', '现金流质量', '资产负债率风险'],
+      dataGaps: ['ROE_TTM', '毛利率', '净利率', '营收同比', '净利润同比', '经营现金流/净利润', '公告披露日'],
+      nextAction: '补财报表和披露日生效规则，防止未来函数，再接入质量/成长因子。',
+    },
+    {
+      id: 'capital-flow',
+      name: '资金流与盘口事件',
+      status: 'needs_data',
+      priority: 'P1',
+      tables: ['quant.capital_flow_daily', 'quant.intraday_bars', 'quant.limit_event_snapshots'],
+      availableData: ['板块资金代理：成交额、涨跌占比、强弱和方向额'],
+      factorIdeas: ['主力资金连续性', 'DDE 大单净额', '封单强度', '炸板风险', '板块资金热度'],
+      dataGaps: ['主力净流入', '超大单净额', 'DDE 大单净量', '封单金额', '炸板次数', '分钟线成交分布'],
+      nextAction: '优先调研可授权资金流源；代理口径只做提示，不等价为真实主力净流入。',
+    },
+  ],
+  categories: [
+    {
+      id: 'momentum-trend',
+      name: '趋势与动量',
+      description: '用价格强弱、均线结构和突破质量捕捉短中期相对强势。',
+      factors: [
+        {
+          id: 'relative-strength-20-60',
+          name: '20/60 日相对强弱',
+          category: '趋势与动量',
+          horizon: '20-60 交易日',
+          direction: 'higher_is_better',
+          status: 'ready',
+          priority: 1,
+          formula: 'rank(ret_20d) * 0.6 + rank(ret_60d) * 0.4，ret_N = close / close_N_days_ago - 1',
+          rationale: '短中期强者恒强是 A 股题材和趋势行情里最先落地的排序信号，适合和流动性、涨跌停可成交性一起用。',
+          currentData: ['quant.stock_bars.close', 'quant.security_universe_members'],
+          missingData: ['行业内相对强弱基准'],
+          enrichmentPlan: ['为每个交易日写入 ret_20d、ret_60d 和行业内 rank。'],
+          useCases: ['短线候选排序', '趋势突破策略过滤', '板块龙头识别'],
+          guardrails: ['连续涨停或一字板需要标记不可成交。', '强弱因子必须叠加最大回撤和成交额，避免只追高。'],
+          sourceFrameworks: ['MSCI Momentum', 'S&P Momentum'],
+        },
+        {
+          id: 'ma-stack-quality',
+          name: '均线多头质量',
+          category: '趋势与动量',
+          horizon: '5-60 交易日',
+          direction: 'higher_is_better',
+          status: 'ready',
+          priority: 2,
+          formula: 'I(MA5>MA10>MA20>MA30>MA60) + normalized(close/MA20 - 1) - overheat_penalty',
+          rationale: '均线排列能把趋势状态变成稳定的可解释信号，比单日涨幅更不容易被噪声误导。',
+          currentData: ['quant.stock_bars.close', 'MA5/10/20/30/60 可计算'],
+          missingData: [],
+          enrichmentPlan: ['将 MA 栈、乖离率、过热惩罚每日落到 stock_factors。'],
+          useCases: ['强趋势筛选', '买入价格计划', '卖出破位判断'],
+          guardrails: ['均线信号滞后，震荡市需结合 ATR 或布林带过滤。'],
+          sourceFrameworks: ['Technical trend following'],
+        },
+        {
+          id: 'breakout-confirmation',
+          name: '突破确认质量',
+          category: '趋势与动量',
+          horizon: '20 交易日',
+          direction: 'higher_is_better',
+          status: 'ready',
+          priority: 3,
+          formula: 'I(close > rolling_high_20) + amount_ratio_20d + close_position_in_range',
+          rationale: '有效突破通常需要价格创阶段新高、成交额同步放大，并且收盘位置不能太弱。',
+          currentData: ['quant.stock_bars.high', 'quant.stock_bars.low', 'quant.stock_bars.close', 'quant.stock_bars.amount'],
+          missingData: ['盘中突破回落幅度'],
+          enrichmentPlan: ['后续接入分钟线后补充 intraday_breakout_fail_ratio。'],
+          useCases: ['放量突破', '涨停回踩再启动', '短线买点过滤'],
+          guardrails: ['当日涨停无法成交时不应作为直接买入候选。'],
+          sourceFrameworks: ['Price momentum', 'Volume-price confirmation'],
+        },
+      ],
+    },
+    {
+      id: 'risk-liquidity',
+      name: '风险与流动性',
+      description: '控制回撤、波动和可成交性，避免策略只挑出看起来强但无法交易的样本。',
+      factors: [
+        {
+          id: 'realized-volatility-20',
+          name: '20 日实现波动率',
+          category: '风险与流动性',
+          horizon: '20 交易日',
+          direction: 'lower_is_better',
+          status: 'ready',
+          priority: 1,
+          formula: 'stddev(daily_return, 20) * sqrt(252)',
+          rationale: '低波动/风险控制因子可帮助降低组合回撤，也能约束短线追高后的尾部风险。',
+          currentData: ['quant.stock_bars.close'],
+          missingData: [],
+          enrichmentPlan: ['按交易日批量写入 realized_vol_20d、realized_vol_60d。'],
+          useCases: ['低波趋势持有', '候选股风险降权', '仓位权重'],
+          guardrails: ['低波不等于低风险，停牌、跌停和流动性缺失要单独扣分。'],
+          sourceFrameworks: ['MSCI Low Volatility', 'S&P Low Volatility'],
+        },
+        {
+          id: 'max-drawdown-60',
+          name: '60 日最大回撤',
+          category: '风险与流动性',
+          horizon: '60 交易日',
+          direction: 'lower_is_better',
+          status: 'ready',
+          priority: 2,
+          formula: 'min(close / rolling_max(close, 60) - 1)',
+          rationale: '短中期最大回撤比波动率更直接地描述持有体验，适合作为追涨策略的硬过滤。',
+          currentData: ['quant.stock_bars.close'],
+          missingData: [],
+          enrichmentPlan: ['写入 drawdown_60d 和 drawdown_120d，供股票池和回测复用。'],
+          useCases: ['风险过滤', '止损参数扫描', '组合候选降权'],
+          guardrails: ['历史回撤小可能只是样本太短，需要最小样本数。'],
+          sourceFrameworks: ['Risk control'],
+        },
+        {
+          id: 'liquidity-amount-turnover',
+          name: '成交额与换手活跃度',
+          category: '风险与流动性',
+          horizon: '5-20 交易日',
+          direction: 'middle_is_better',
+          status: 'ready',
+          priority: 3,
+          formula: 'rank(avg_amount_20d) + rank(avg_turnover_20d) - extreme_turnover_penalty',
+          rationale: '成交额决定策略容量，换手率反映筹码交换；两者一起比单看成交量更可比。',
+          currentData: ['quant.stock_bars.amount', 'quant.stock_bars.turnover', 'quant.stock_bars.volume'],
+          missingData: ['部分早期样本的自由流通股本口径'],
+          enrichmentPlan: ['继续用 Baostock/EastMoney 补齐 amount、turnover；后续补流通股本快照。'],
+          useCases: ['股票池排序', '资金流代理', '剔除低成交额候选'],
+          guardrails: ['极端高换手叠加放量阴线往往是风险，不应简单加分。'],
+          sourceFrameworks: ['Liquidity risk', 'A-share tradability'],
+        },
+      ],
+    },
+    {
+      id: 'value-quality-growth',
+      name: '估值、质量与成长',
+      description: '把价格因子和基本面因子拆开，支持短中期交易之外的质量过滤。',
+      factors: [
+        {
+          id: 'value-composite',
+          name: '复合估值便宜度',
+          category: '估值、质量与成长',
+          horizon: '日频快照 + 财报期',
+          direction: 'higher_is_better',
+          status: 'partial',
+          priority: 1,
+          formula: 'z(-PE_TTM) + z(-PB_MRQ) + z(-PS_TTM) + z(-PCF_NCF_TTM)',
+          rationale: '单一估值指标容易失真，组合估值更适合跨行业做降权或观察，而不是直接买入。',
+          currentData: ['quant.stock_factors.pe_ttm', 'quant.stock_factors.pb_mrq', 'quant.stock_factors.ps_ttm', 'quant.stock_factors.pcf_ncf_ttm'],
+          missingData: ['全股票池估值覆盖率', '行业中位数估值', '负值和极端值 winsorize 规则'],
+          enrichmentPlan: ['继续用 Baostock 全量补估值因子；增加行业内 z-score 和 winsorize。'],
+          useCases: ['价值过滤', '质量价值动量综合分', '估值风险提示'],
+          guardrails: ['银行、周期、成长股估值口径差异大，必须行业中性化。'],
+          sourceFrameworks: ['Fama-French Value', 'MSCI Value', 'S&P Value'],
+        },
+        {
+          id: 'profitability-quality',
+          name: '盈利质量',
+          category: '估值、质量与成长',
+          horizon: '季度/年度财报',
+          direction: 'higher_is_better',
+          status: 'needs_data',
+          priority: 2,
+          formula: 'z(ROE_TTM) + z(gross_margin) + z(net_margin) - z(debt_to_asset)',
+          rationale: 'Fama-French 盈利能力和 AQR 质量因子都强调盈利、稳健和可持续性，是中期持有最值得补的数据。',
+          currentData: ['部分股票可通过 fundamentals/provider 补财报字段'],
+          missingData: ['ROE_TTM', '毛利率', '净利率', '资产负债率', '经营现金流/净利润'],
+          enrichmentPlan: ['接入 AKShare/Baostock 财报端点或 Tushare Pro 授权源，落库 quant.financial_statements 与 quant.financial_indicators。'],
+          useCases: ['中期持有过滤', '高质量低估筛选', '避开题材垃圾股'],
+          guardrails: ['财报滞后，不能和未来公告数据混用；需要按报告披露日生效。'],
+          sourceFrameworks: ['Fama-French Profitability', 'AQR Quality Minus Junk', 'MSCI Quality'],
+        },
+        {
+          id: 'growth-acceleration',
+          name: '成长加速度',
+          category: '估值、质量与成长',
+          horizon: '季度/年度财报',
+          direction: 'higher_is_better',
+          status: 'needs_data',
+          priority: 3,
+          formula: 'z(revenue_yoy) + z(net_profit_yoy) + z(delta_net_profit_yoy)',
+          rationale: '成长因子更适合科技、消费和周期复苏阶段，和动量叠加能识别“业绩确认后的趋势”。',
+          currentData: [],
+          missingData: ['营收同比', '归母净利润同比', '扣非净利润同比', '分析师一致预期'],
+          enrichmentPlan: ['补财报指标，并保留公告日、报告期和更新批次。'],
+          useCases: ['成长动量', '业绩确认后的趋势候选', '行业景气对比'],
+          guardrails: ['小基数高增长需要过滤；财报披露前不得使用未来数据。'],
+          sourceFrameworks: ['MSCI Growth', 'AQR Quality growth pillar'],
+        },
+      ],
+    },
+    {
+      id: 'capital-flow-event',
+      name: '资金流与事件',
+      description: '补充 A 股短线交易中特有的资金、涨跌停和事件驱动信号。',
+      factors: [
+        {
+          id: 'main-money-flow-continuity',
+          name: '主力资金连续性',
+          category: '资金流与事件',
+          horizon: '1-5 交易日',
+          direction: 'higher_is_better',
+          status: 'needs_data',
+          priority: 1,
+          formula: 'z(main_net_inflow_1d) + z(sum(main_net_inflow_3d)) + z(sum(main_net_inflow_5d))',
+          rationale: '短线接力最需要观察资金是否连续进入，单日大额流入很容易误判。',
+          currentData: ['板块资金已有成交额/涨跌代理'],
+          missingData: ['主力净流入', '超大单净额', '大单净额', 'DDE 大单金额', 'DDE 大单净量'],
+          enrichmentPlan: ['优先调研东方财富资金流接口可用性；授权源不足时记录为 planned，不混用不明口径数据。'],
+          useCases: ['DDE 涨停资金接力', '资金转弱退出', '板块龙头确认'],
+          guardrails: ['不同数据源“大单”定义不一致，必须保留 provider 和口径。'],
+          sourceFrameworks: ['A-share capital flow'],
+        },
+        {
+          id: 'limit-up-continuation',
+          name: '涨停延续性',
+          category: '资金流与事件',
+          horizon: '4-10 交易日',
+          direction: 'event_driven',
+          status: 'ready',
+          priority: 2,
+          formula: 'limit_up_count_4d + 0.5 * limit_up_count_10d - untradable_limit_penalty',
+          rationale: '涨停代表情绪事件被激活，延续性要同时看最近涨停、是否开板可成交和回踩承接。',
+          currentData: ['quant.stock_bars.limit_up', 'quant.stock_bars.limit_down', 'quant.stock_bars.is_st'],
+          missingData: ['封单金额', '炸板次数', '一字板成交可得性'],
+          enrichmentPlan: ['后续接入分钟线/盘口后补封单和炸板特征。'],
+          useCases: ['涨停回踩延续', '接力候选过滤', '事件强度标记'],
+          guardrails: ['涨停本身不是买点；当日涨停无法合理成交时必须剔除或降权。'],
+          sourceFrameworks: ['A-share event momentum'],
+        },
+        {
+          id: 'sector-flow-heat',
+          name: '板块资金热度',
+          category: '资金流与事件',
+          horizon: '5-20 交易日',
+          direction: 'higher_is_better',
+          status: 'partial',
+          priority: 3,
+          formula: 'rising_ratio + amount_ratio_20d + strength_20d + proxy_net_amount_ratio',
+          rationale: 'A 股个股短线强弱常受板块共振影响，板块维度能帮助识别不是孤立拉升的标的。',
+          currentData: ['sector tags', 'quant.stock_bars.amount', 'quant.stock_bars.change_percent'],
+          missingData: ['真实板块主力净流入', '板块成分历史变更'],
+          enrichmentPlan: ['为板块资金结果做 Redis 缓存，并补真实资金流端点。'],
+          useCases: ['板块龙头识别', '市场资金环境判断', '候选股行业降权'],
+          guardrails: ['当前是代理口径，不能当作真实主力净流入。'],
+          sourceFrameworks: ['Sector rotation', 'A-share capital flow proxy'],
+        },
+      ],
+    },
+    {
+      id: 'composite-ranking',
+      name: '综合排序',
+      description: '把单因子组合成可解释的候选分，供股票池、选股和回测统一使用。',
+      factors: [
+        {
+          id: 'qvm-composite',
+          name: '质量-价值-动量综合分',
+          category: '综合排序',
+          horizon: '20-120 交易日 + 财报期',
+          direction: 'higher_is_better',
+          status: 'partial',
+          priority: 1,
+          formula: '0.4 * momentum_z + 0.3 * quality_z + 0.2 * value_z + 0.1 * liquidity_z',
+          rationale: '把动量、质量和估值拆开后再组合，避免页面只有单一“强弱”视角，也能服务中短期持有。',
+          currentData: ['momentum_z', 'liquidity_z', '部分 value_z'],
+          missingData: ['quality_z', 'growth_z', '行业中性化后的 value_z'],
+          enrichmentPlan: ['先落地价格和流动性分，再接财报质量，最后做行业中性化。'],
+          useCases: ['股票池默认排序', '短中期候选池', '组合回测入口'],
+          guardrails: ['组合权重必须通过样本外回测验证，不凭主观固定。'],
+          sourceFrameworks: ['S&P QVM', 'MSCI systematic factors', 'AQR Quality'],
+        },
+        {
+          id: 'short-term-tradeability-score',
+          name: '短线可交易分',
+          category: '综合排序',
+          horizon: '1-20 交易日',
+          direction: 'higher_is_better',
+          status: 'ready',
+          priority: 2,
+          formula: 'trend_score + liquidity_score + event_score - risk_penalty - untradable_penalty',
+          rationale: '用于回答“明天/今天候选”的宽域选股问题，强调能不能交易，而不是只看涨幅。',
+          currentData: ['OHLCV', 'amount', 'turnover', 'limit_up/down', 'is_st', 'sector tags'],
+          missingData: ['盘中流动性', '实时资金流'],
+          enrichmentPlan: ['短期先基于日线和实时行情输出候选；接分钟线后细化买点。'],
+          useCases: ['首页宽域选股', '短线候选推荐', '买入价格计划前置过滤'],
+          guardrails: ['必须输出止损、目标价、放弃条件和数据日期，不给确定性买卖承诺。'],
+          sourceFrameworks: ['A-share tradability', 'Momentum and liquidity composite'],
+        },
+      ],
+    },
+  ],
+  strategyBlueprints: [
+    {
+      id: 'data-ready-short-term-candidates',
+      name: '数据就绪短线候选',
+      status: 'ready',
+      horizon: '1-5 交易日',
+      factorInputs: ['短线可交易分', '20/60 日相对强弱', '均线多头质量', '成交额与换手活跃度', '涨停延续性'],
+      strategyIdea: '仅使用当前日线和证券主数据可稳定计算的因子，筛出短线候选，并给出买入区间、止损、目标价和放弃条件。',
+      validationPath: ['按最近交易日做全 A 股票池截面排序', '剔除 ST、科创、北证、当日涨停不可成交样本', '回测 1/3/5 日持有与止损', '比较费用和滑点后的收益回撤'],
+      riskControls: ['候选必须有成交额和换手覆盖', '不使用缺失的 DDE 字段', '输出数据日期和被剔除原因'],
+    },
+    {
+      id: 'qvm-mid-term-holding',
+      name: '质量价值动量中期持有',
+      status: 'partial',
+      horizon: '20-120 交易日',
+      factorInputs: ['质量-价值-动量综合分', '复合估值便宜度', '20/60 日相对强弱', '20 日实现波动率', '60 日最大回撤'],
+      strategyIdea: '先用动量和估值形成候选，再等待盈利质量和成长数据补齐后做行业中性综合分，适合中期持有和组合轮动。',
+      validationPath: ['先以价格和估值可用字段生成 v0 排序', '补 ROE/毛利率/现金流质量后生成 v1 排序', '按行业中性分位做月度调仓回测', '对比买入持有和等权组合'],
+      riskControls: ['财报字段必须按披露日生效', '估值极端值要 winsorize', '行业内比较优先于跨行业裸比较'],
+    },
+    {
+      id: 'capital-flow-limit-up-relay',
+      name: '资金流涨停接力',
+      status: 'needs_data',
+      horizon: '1-10 交易日',
+      factorInputs: ['主力资金连续性', '涨停延续性', '板块资金热度', '突破确认质量', '成交额与换手活跃度'],
+      strategyIdea: '用于资金流和盘口事件补齐后的接力策略，关注近期涨停、板块共振、主力资金连续净流入和可成交性。',
+      validationPath: ['接入真实资金流后重算 DDE 3/5 日连续性', '区分一字板、开板和炸板样本', '回测次日/3日/5日收益和无法成交占比', '与无资金流版本对比增益'],
+      riskControls: ['当前资金流代理不能当真实 DDE 使用', '涨停当日不直接生成买入', '必须记录资金流 provider 和更新时间'],
+    },
+    {
+      id: 'low-vol-drawdown-defense',
+      name: '低波回撤防守',
+      status: 'ready',
+      horizon: '20-60 交易日',
+      factorInputs: ['20 日实现波动率', '60 日最大回撤', '均线多头质量', '成交额与换手活跃度'],
+      strategyIdea: '在趋势仍然成立时优先选择波动和回撤更可控的股票，用于降低短中期候选的尾部风险。',
+      validationPath: ['按趋势候选内低波和低回撤排序', '比较加入防守因子前后的最大回撤和胜率', '扫描波动阈值和回撤阈值', '检查过度过滤导致的空仓比例'],
+      riskControls: ['低波不能替代停牌和跌停风险检查', '低成交额样本不允许因为低波获得高分', '必须保留趋势过滤'],
+    },
+  ],
+  enrichmentPlan: [
+    {
+      id: 'daily-factor-worker',
+      title: '日频衍生因子批处理',
+      priority: 'P0',
+      currentGap: 'MA、强弱、波动、回撤和流动性现在多为查询时计算，跨页面复用和分页排序不够快。',
+      targetTables: ['quant.stock_factors', 'quant.platform_jobs'],
+      providerOptions: ['TimescaleDB continuous aggregate', '本地 worker 批处理'],
+      unlocks: ['股票池服务端排序', '宽域选股加速', '回测前置过滤'],
+    },
+    {
+      id: 'valuation-financials',
+      title: '估值与财报质量补数',
+      priority: 'P1',
+      currentGap: 'PE/PB/PS/PCF 已有部分来源，但 ROE、毛利率、现金流质量和成长同比缺表。',
+      targetTables: ['quant.stock_factors', 'quant.financial_statements', 'quant.financial_indicators'],
+      providerOptions: ['Baostock', 'AKShare', 'Tushare Pro 授权源'],
+      unlocks: ['质量价值动量综合分', '中期持有过滤', '行业内估值对比'],
+    },
+    {
+      id: 'capital-flow',
+      title: '真实资金流与盘口事件',
+      priority: 'P1',
+      currentGap: '板块资金目前是成交额代理，个股 DDE/大单净额/封单炸板仍缺真实字段。',
+      targetTables: ['quant.capital_flow_daily', 'quant.intraday_bars', 'quant.limit_event_snapshots'],
+      providerOptions: ['东方财富资金流', 'AKShare 聚合接口', '授权 Level-2/商业源'],
+      unlocks: ['DDE 涨停资金接力', '资金转弱退出', '板块资金真实排行'],
+    },
+    {
+      id: 'industry-neutralization',
+      title: '行业中性化与板块成分历史',
+      priority: 'P2',
+      currentGap: '当前板块标签多为最新状态，缺少历史成分和行业内分位。',
+      targetTables: ['quant.security_industry_memberships', 'quant.factor_cross_section_ranks'],
+      providerOptions: ['东方财富板块', '申万/中信行业映射', '手工维护行业字典'],
+      unlocks: ['行业内强弱', '行业中性估值', '板块轮动回测'],
+    },
+  ],
+};
 
 const STRATEGY_TEMPLATES: StrategyTemplate[] = [
   {
@@ -3378,6 +3915,7 @@ export async function getStrategyDashboardData(): Promise<StrategyDashboardData>
     scanJobs,
     research,
     foundation,
+    factorCatalog: STRATEGY_FACTOR_CATALOG,
   };
 }
 

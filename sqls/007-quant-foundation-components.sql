@@ -254,6 +254,150 @@ VALUES
     '["stock_factors.pb_mrq"]'::jsonb,
     'baostock',
     '{"display_order": 420}'::jsonb
+  ),
+  (
+    'ps_ttm',
+    '市销率 TTM',
+    'valuation',
+    'daily',
+    'ratio',
+    '滚动市销率，用于收入规模稳定但利润波动较大的行业估值观察。',
+    'provider field',
+    '["stock_factors.ps_ttm"]'::jsonb,
+    'baostock',
+    '{"display_order": 430}'::jsonb
+  ),
+  (
+    'pcf_ncf_ttm',
+    '市现率 TTM',
+    'valuation',
+    'daily',
+    'ratio',
+    '经营现金流口径市现率，用于观察盈利质量和现金回报风险。',
+    'provider field',
+    '["stock_factors.pcf_ncf_ttm"]'::jsonb,
+    'baostock',
+    '{"display_order": 440}'::jsonb
+  ),
+  (
+    'ret_20d',
+    '20 日相对强弱',
+    'momentum',
+    'daily',
+    '%',
+    '最近 20 个交易日区间收益，用于短线强弱排序。',
+    'close / lag(close, 20) - 1',
+    '["stock_bars.close"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 510, "decision_hint": "适合和成交额、换手率、涨跌停可成交性一起用于短线候选排序。"}'::jsonb
+  ),
+  (
+    'ret_60d',
+    '60 日相对强弱',
+    'momentum',
+    'daily',
+    '%',
+    '最近 60 个交易日区间收益，用于中期趋势强弱排序。',
+    'close / lag(close, 60) - 1',
+    '["stock_bars.close"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 520}'::jsonb
+  ),
+  (
+    'ma_stack_score',
+    '均线多头质量',
+    'technical',
+    'daily',
+    'score',
+    'MA5/10/20/30/60 多头排列和价格相对均线位置的综合趋势质量分。',
+    'I(MA5>MA10>MA20>MA30>MA60) + normalized(close/MA20 - 1)',
+    '["stock_bars.close"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 530}'::jsonb
+  ),
+  (
+    'amount_ratio_20d',
+    '20 日成交额放大倍数',
+    'liquidity',
+    'daily',
+    'ratio',
+    '当日成交额相对过去 20 日平均成交额的倍数，用于突破和资金热度确认。',
+    'amount / avg(amount, 20)',
+    '["stock_bars.amount"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 540}'::jsonb
+  ),
+  (
+    'realized_vol_20d',
+    '20 日实现波动率',
+    'risk',
+    'daily',
+    '%',
+    '20 日收益率年化波动率，用于低波动和仓位风险控制。',
+    'stddev(close / lag(close, 1) - 1, 20) * sqrt(252)',
+    '["stock_bars.close"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 610}'::jsonb
+  ),
+  (
+    'max_drawdown_60d',
+    '60 日最大回撤',
+    'risk',
+    'daily',
+    '%',
+    '最近 60 个交易日从阶段高点回撤的最大幅度。',
+    'min(close / rolling_max(close, 60) - 1)',
+    '["stock_bars.close"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 620}'::jsonb
+  ),
+  (
+    'value_composite',
+    '复合估值便宜度',
+    'valuation',
+    'daily',
+    'score',
+    'PE/PB/PS/PCF 行业内标准化后的复合估值得分。',
+    'z(-pe_ttm) + z(-pb_mrq) + z(-ps_ttm) + z(-pcf_ncf_ttm)',
+    '["stock_factors.pe_ttm", "stock_factors.pb_mrq", "stock_factors.ps_ttm", "stock_factors.pcf_ncf_ttm"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 710, "data_gap": "需要全股票池估值覆盖和行业中性化。"}'::jsonb
+  ),
+  (
+    'profitability_quality',
+    '盈利质量',
+    'quality',
+    'quarterly',
+    'score',
+    'ROE、毛利率、净利率、资产负债率和现金流质量组成的质量因子。',
+    'z(roe_ttm) + z(gross_margin) + z(net_margin) - z(debt_to_asset)',
+    '[]'::jsonb,
+    'planned',
+    '{"display_order": 810, "data_gap": "需要财报指标表和披露日生效规则。"}'::jsonb
+  ),
+  (
+    'growth_acceleration',
+    '成长加速度',
+    'growth',
+    'quarterly',
+    'score',
+    '营收同比、利润同比和同比变化量组成的成长确认因子。',
+    'z(revenue_yoy) + z(net_profit_yoy) + z(delta_net_profit_yoy)',
+    '[]'::jsonb,
+    'planned',
+    '{"display_order": 820, "data_gap": "需要季度财报和公告披露日期。"}'::jsonb
+  ),
+  (
+    'sector_flow_heat',
+    '板块资金热度',
+    'capital_flow',
+    'daily',
+    'score',
+    '上涨占比、成交额放大、20 日强弱和方向额代理组成的板块热度因子。',
+    'rising_ratio + amount_ratio_20d + strength_20d + proxy_net_amount_ratio',
+    '["stock_bars.amount", "stock_bars.change_percent", "security_universe_members.sector_tags"]'::jsonb,
+    'quantpilot',
+    '{"display_order": 910, "data_gap": "当前为代理口径，真实主力净流入需另接资金流。"}'::jsonb
   )
 ON CONFLICT (factor_key) DO UPDATE SET
   name = EXCLUDED.name,
@@ -268,3 +412,13 @@ ON CONFLICT (factor_key) DO UPDATE SET
   provider = EXCLUDED.provider,
   metadata = quant.factor_definitions.metadata || EXCLUDED.metadata,
   updated_at = now();
+
+UPDATE quant.factor_definitions
+SET status = 'planned',
+    updated_at = now()
+WHERE factor_key IN ('dde_net_amount', 'profitability_quality', 'growth_acceleration');
+
+UPDATE quant.factor_definitions
+SET status = 'partial',
+    updated_at = now()
+WHERE factor_key IN ('value_composite', 'sector_flow_heat');
