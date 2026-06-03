@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Container,
   Cpu,
   Database,
   ExternalLink,
@@ -70,8 +71,10 @@ import type {
   GenerationTraceStatus,
 } from "@/lib/quant/generation-observability";
 import type { OpsCheck, OpsCheckStatus, OpsLogEntry, OpsPlatformDashboard } from "@/lib/ops/ops-platform";
+import { OpsDockerView } from "@/components/quant/ops-docker-view";
+import { getMockDockerDashboard, type DockerDashboard } from "@/lib/ops/docker";
 
-type OpsView = "health" | "trace" | "system" | "logs";
+type OpsView = "health" | "trace" | "system" | "logs" | "docker";
 type Props = {
   initialData: WorkspaceHealthDashboard;
   initialTraceData: GenerationObservabilityDashboard;
@@ -87,6 +90,7 @@ const SUB_NAV_ITEMS: SubNavItem[] = [
   { id: "trace", label: "链路", icon: <GitBranch className="h-4 w-4" /> },
   { id: "system", label: "巡检", icon: <ServerCog className="h-4 w-4" /> },
   { id: "logs", label: "日志", icon: <ScrollText className="h-4 w-4" /> },
+  { id: "docker", label: "容器", icon: <Container className="h-4 w-4" /> },
 ];
 
 type LogTimeRange = "all" | "5m" | "30m" | "1h" | "6h" | "24h" | "custom";
@@ -767,6 +771,7 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
   const [healthPage, setHealthPage] = useState(1);
   const [tracePage, setTracePage] = useState(1);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dockerDashboard] = useState<DockerDashboard>(getMockDockerDashboard);
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
@@ -1046,6 +1051,8 @@ export default function WorkspacesHealthClient({ initialData, initialTraceData, 
             onSelectLog={setActiveLogId}
           />
         )}
+
+        {view === "docker" && <OpsDockerView dashboard={dockerDashboard} />}
 
         {/* ── Health Detail Sheet ────────────────────────── */}
         <HealthSheet
