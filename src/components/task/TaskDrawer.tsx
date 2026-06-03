@@ -56,15 +56,15 @@ function TaskDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="flex w-full max-w-[420px] flex-col p-0 sm:max-w-[420px]">
-        <SheetHeader className="border-b px-4 py-3">
+      <SheetContent side="left" className="flex w-[min(420px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden border-r border-slate-200 bg-white p-0 sm:max-w-none">
+        <SheetHeader className="border-b bg-white px-4 py-3">
           <div className="flex items-baseline gap-1.5">
             <SheetTitle className="text-base">任务记录</SheetTitle>
             <SheetDescription className="text-xs">({projects.length})</SheetDescription>
           </div>
         </SheetHeader>
 
-        <div className="border-b bg-muted/30 px-4 py-3">
+        <div className="border-b bg-slate-50 px-4 py-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -132,7 +132,10 @@ function TaskDrawer({
                     <div>
                       <button
                         type="button"
-                        onClick={() => onOpenProject(project)}
+                        onClick={() => {
+                          onOpenChange(false);
+                          onOpenProject(project);
+                        }}
                         className="block w-full min-w-0 text-left"
                       >
                         <p className="truncate text-sm font-semibold text-slate-950">

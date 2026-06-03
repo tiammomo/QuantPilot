@@ -562,8 +562,8 @@ export default function HomePage() {
   return (
     <div className="relative flex min-h-screen flex-col bg-background text-foreground">
       {/* Top navigation */}
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
-        <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-3 backdrop-blur-xl md:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
             Q
           </div>
@@ -576,15 +576,13 @@ export default function HomePage() {
               {selectedModelLabel}
             </span>
           </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
+          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
           <Button
             type="button"
             onClick={() => setTaskDrawerOpen(true)}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-xs"
+            className="gap-1.5 px-2 text-xs sm:px-3"
           >
             <Clock3 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">最近任务</span>
@@ -594,15 +592,15 @@ export default function HomePage() {
               </Badge>
             )}
           </Button>
+        </div>
 
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
-
+        <div className="flex items-center gap-1.5">
           <Button
             type="button"
             onClick={() => router.push("/strategy-platform")}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-xs"
+            className="gap-1.5 px-2 text-xs sm:px-3"
           >
             <BarChart3 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">策略</span>
@@ -612,7 +610,7 @@ export default function HomePage() {
             onClick={() => router.push("/ops-platform")}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-xs"
+            className="gap-1.5 px-2 text-xs sm:px-3"
           >
             <ShieldCheck className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">运维</span>
@@ -622,7 +620,7 @@ export default function HomePage() {
             onClick={() => router.push("/data-platform")}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-xs"
+            className="gap-1.5 px-2 text-xs sm:px-3"
           >
             <Boxes className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">数据</span>
@@ -632,7 +630,7 @@ export default function HomePage() {
             onClick={() => router.push("/eval-platform")}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-xs"
+            className="gap-1.5 px-2 text-xs sm:px-3"
           >
             <Gauge className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">评测</span>
@@ -702,40 +700,6 @@ export default function HomePage() {
             selectedRole={selectedRoleModule}
           />
         </motion.div>
-
-        {/* Recent projects quick access */}
-        {projects.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="mt-6 flex flex-wrap items-center justify-center gap-2"
-          >
-            <span className="text-xs text-muted-foreground">最近：</span>
-            {projects.slice(0, 3).map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => openProject(p)}
-                className="group inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-              >
-                <span className="max-w-[140px] truncate">
-                  {p.name || p.initialPrompt?.slice(0, 20) || "未命名"}
-                </span>
-                <ChevronRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
-              </button>
-            ))}
-            {projects.length > 3 && (
-              <button
-                type="button"
-                onClick={() => setTaskDrawerOpen(true)}
-                className="text-xs text-muted-foreground hover:text-primary"
-              >
-                查看全部 {projects.length} 个
-              </button>
-            )}
-          </motion.div>
-        )}
 
         {/* Capability cards */}
         <motion.div

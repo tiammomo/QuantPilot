@@ -56,3 +56,95 @@
     animation: none !important;
   }
 }
+
+@layer components {
+  .sheet-overlay[data-state='open'] {
+    animation: sheet-overlay-in 180ms ease-out;
+  }
+
+  .sheet-overlay[data-state='closed'] {
+    animation: sheet-overlay-out 160ms ease-in;
+  }
+
+  .sheet-content[data-state='open'][data-side='left'] {
+    animation: sheet-left-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sheet-content[data-state='closed'][data-side='left'] {
+    animation: sheet-left-out 200ms cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  .sheet-content[data-state='open'][data-side='right'] {
+    animation: sheet-right-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sheet-content[data-state='closed'][data-side='right'] {
+    animation: sheet-right-out 200ms cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  .sheet-content[data-state='open'][data-side='top'] {
+    animation: sheet-top-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sheet-content[data-state='closed'][data-side='top'] {
+    animation: sheet-top-out 180ms cubic-bezier(0.4, 0, 1, 1);
+  }
+
+  .sheet-content[data-state='open'][data-side='bottom'] {
+    animation: sheet-bottom-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .sheet-content[data-state='closed'][data-side='bottom'] {
+    animation: sheet-bottom-out 180ms cubic-bezier(0.4, 0, 1, 1);
+  }
+}
+
+@keyframes sheet-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sheet-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes sheet-left-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-left-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes sheet-right-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes sheet-right-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes sheet-top-in {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-top-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+@keyframes sheet-bottom-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-bottom-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
