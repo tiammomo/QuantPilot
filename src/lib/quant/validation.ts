@@ -845,6 +845,12 @@ async function checkFinalDataFile(
       const runPlanVisualization = asRecord(runPlan?.visualization);
       const plannedTemplateId = pickString(runPlanVisualization?.templateId);
       const expectedTemplateId = inferExpectedTemplateFromTask(runPlan);
+      const taskText = normalizeTextForIntent([
+        runPlan?.question,
+        runPlan?.task,
+        runPlan?.instruction,
+        runPlan?.clarification,
+      ]);
       const visualization = asRecord(asRecord(parsed)?.visualization);
       const finalTemplateId = pickString(visualization?.template_id ?? visualization?.templateId);
       const requiredComponents = Array.isArray(visualization?.required_components)
@@ -888,8 +894,18 @@ async function checkFinalDataFile(
         continue;
       }
 
+      const record = asRecord(parsed);
+      const tradingPlanRows = Array.isArray(asRecord(record?.tradingPlan)?.rows)
+        ? asRecord(record?.tradingPlan)?.rows as unknown[]
+        : [];
+      if (!hasExplicitTradingPlanIntent(taskText) && tradingPlanRows.length > 0) {
+        errors.push(
+          `${normalizeRelativePath(projectPath, filePath)} 包含 tradingPlan.rows，但原始需求没有明确要求交易计划、买入区间、止损或目标价。`
+        );
+        continue;
+      }
+
       if (plannedTemplateId === 'stock-selection') {
-        const record = asRecord(parsed);
         const selectionRanking = asRecord(record?.selectionRanking);
         const financialQuality = asRecord(record?.financialQuality);
         const rankingRows = Array.isArray(selectionRanking?.rows) ? selectionRanking.rows : [];
@@ -1244,6 +1260,12 @@ function normalizeTextForIntent(value: unknown): string {
 
 function hasHoldingAnalysisIntent(taskText: string): boolean {
   return /持仓|仓位|调仓|盈亏|成本价|持仓成本|买入成本|成本线|成本偏离|账户|证券账户|总资产|可用资金|可用现金|浮动盈亏|持仓截图|截图持仓|账户截图|交易截图|组合持仓|我的组合|账户组合|持仓组合|交割单/.test(
+    taskText
+  );
+}
+
+function hasExplicitTradingPlanIntent(taskText: string): boolean {
+  return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(
     taskText
   );
 }
@@ -1681,6 +1703,12 @@ async function checkDashboardBinding(
   const runPlanVisualization = asRecord(runPlan?.visualization);
   const plannedTemplateId = pickString(runPlanVisualization?.templateId);
   const expectedTemplateId = inferExpectedTemplateFromTask(runPlan);
+  const taskText = normalizeTextForIntent([
+    runPlan?.question,
+    runPlan?.task,
+    runPlan?.instruction,
+    runPlan?.clarification,
+  ]);
   const requiredPanels = Array.isArray(runPlanVisualization?.panels)
     ? runPlanVisualization.panels.map((panel) => pickString(panel)).filter((panel): panel is string => Boolean(panel))
     : [];
@@ -1741,6 +1769,22 @@ async function checkDashboardBinding(
       metadata: {
         expectedTemplateId,
         finalTemplateId,
+      },
+    };
+  }
+
+  const tradingPlanRows = Array.isArray(asRecord(finalDataRecord?.tradingPlan)?.rows)
+    ? asRecord(finalDataRecord?.tradingPlan)?.rows as unknown[]
+    : [];
+  const hasPageTradingPlan = /短线交易计划|交易计划|买入区间|买点|卖点|止损|止盈|目标价|仓位上限|入场|出场/.test(page);
+  if (!hasExplicitTradingPlanIntent(taskText) && (tradingPlanRows.length > 0 || hasPageTradingPlan)) {
+    return {
+      status: 'failed',
+      summary: '页面包含未被用户明确要求的交易执行计划。',
+      details: '原始需求没有要求买入区间、止损、目标价、仓位或操作建议。请移除 tradingPlan 和页面中的短线交易计划，只保留事实对比、研究结论、风险提示和数据限制。',
+      metadata: {
+        hasTradingPlanData: tradingPlanRows.length > 0,
+        hasPageTradingPlan,
       },
     };
   }
@@ -2151,13 +2195,26 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         '移除 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据、占位数据和明文密钥。',
       ];
     case 'dashboard_data_binding':
-      return [
+      {
+        const tradingPlanFailure = /交易执行计划|交易计划|买入区间|止损|目标价|仓位|操作建议/.test(
+          `${check.summary}\n${check.details ?? ''}`
+        );
+        return [
         ...common,
         '让 app/page.tsx 使用 QuantPilot 标准数据绑定结构读取 data_file/final/dashboard-data.json。',
         '保留 DATA_FILE、readDashboardData()、getBars() 或 data-source-file={DATA_FILE} 等标准入口。',
+        ...(tradingPlanFailure
+          ? [
+              '必须实际编辑 app/page.tsx：删除 getTradingPlanRows、priceRange、TradingPlanPanel、tradingRows 变量和 <TradingPlanPanel ... /> 调用。',
+              '必须实际编辑 app/globals.css：删除 .trading-plan-grid、.trade-card、.trade-title、.trade-rationale、.trade-abandon 等交易计划样式，或确保页面不再引用这些 class。',
+              '用 rg "短线交易计划|交易计划|买入区间|止损|目标价|仓位上限" app data_file 检查，除“不是买卖建议/不构成交易指令”这类免责声明外，不得再命中页面交易执行内容。',
+              '不要只读取文件或解释计划；必须使用 Edit/MultiEdit/Write 工具完成删除，然后运行 npm run build。',
+            ]
+          : []),
         '如果页面残留持仓矩阵、调仓优先级或 holding-analysis，但任务实际是多标的对比/相关性看板，先修 run_plan 和 final visualization.template_id，再把页面改回 stock-selection 多标的结构。',
         '不要把完整行情、K 线、财务或公告对象内联到页面代码。',
-      ];
+        ];
+      }
     case 'chart_presence':
       return [
         ...common,

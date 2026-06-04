@@ -107,15 +107,15 @@ const TEMPLATE_BY_CAPABILITY: Record<QuantCapabilityId, QuantVisualizationTempla
   },
   asset_comparison: {
     id: 'stock-selection',
-    name: '选股分析模板',
-    scenario: '横向比较多只股票、指数或 ETF 的收益、波动、回撤、估值和质量。',
+    name: '多标的对比模板',
+    scenario: '横向比较多只股票、指数或 ETF 的收益、波动、回撤、估值和质量，默认服务投研复盘而非交易执行。',
     painPoints: [
-      '不能只展示主标的，必须覆盖用户输入的全部候选标的。',
-      '不能基于单一指标给推荐，需要展示排名依据、剔除原因和数据限制。',
+      '不能只展示主标的，必须覆盖用户输入的全部对比标的。',
+      '不能基于单一指标给交易建议，需要展示对比口径、排序依据和数据限制。',
       '不同标的必须使用同一时间窗口和同一指标口径。',
     ],
     requiredComponents: [
-      '候选标的覆盖摘要',
+      '对比标的覆盖摘要',
       '多标的指标矩阵',
       '收益对比图',
       '波动/回撤对比图',
@@ -296,15 +296,15 @@ const VARIANTS_BY_TEMPLATE_ID: Record<string, QuantVisualizationTemplateVariant[
   'stock-selection': [
     {
       id: 'selection-ranking-matrix',
-      name: '多标的排名矩阵',
-      scenario: '横向比较多只股票，输出候选排序、收益/回撤/波动和质量依据。',
+      name: '多标的对比矩阵',
+      scenario: '横向比较多只股票，输出收益/回撤/波动、估值和质量依据。',
       layout: 'coverage-summary-matrix-main-comparison-charts',
       density: 'dense',
       match: { keywords: ['对比', '比较', '排名', '排序', '推荐', '哪只', '候选', '选股'], minSymbols: 2 },
-      requiredComponents: ['候选覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排名依据', '信源追踪'],
+      requiredComponents: ['标的覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排序依据', '信源追踪'],
       optionalComponents: ['财务质量', '趋势模板', '估值情景'],
-      firstViewport: ['候选覆盖摘要', '多标的指标矩阵', '至少一个对比主图'],
-      guidance: ['不要只展示第一只股票，必须覆盖全部候选。'],
+      firstViewport: ['标的覆盖摘要', '多标的指标矩阵', '至少一个对比主图'],
+      guidance: ['不要只展示第一只股票，必须覆盖全部对比标的。'],
     },
     {
       id: 'selection-correlation-risk-map',

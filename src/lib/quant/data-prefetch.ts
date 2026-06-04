@@ -59,6 +59,11 @@ function isQuantAnalysisPlan(plan: QuantRunPlan): boolean {
   ].includes(plan.capabilityId);
 }
 
+function hasExplicitTradingPlanIntent(instruction: string): boolean {
+  const normalized = instruction.replace(/\s+/g, '');
+  return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(normalized);
+}
+
 const SYMBOL_CODE_PATTERN = /^(?:6|0|3|5)\d{5}$/;
 const GENERIC_QUESTION_WORDS = [
   '分析',
@@ -349,7 +354,18 @@ async function fetchScreenerSeedSymbols(params: {
 function inferHistoryLimit(plan: QuantRunPlan): number {
   const source = `${plan.timeRange ?? ''} ${plan.question}`.replace(/\s+/g, '');
   const dayMatch = source.match(/最近(\d+)(?:个)?(?:交易日|日|天)/);
-  const rawDays = dayMatch?.[1] ? Number.parseInt(dayMatch[1], 10) : 120;
+  let rawDays = dayMatch?.[1] ? Number.parseInt(dayMatch[1], 10) : 120;
+  if (!dayMatch) {
+    if (/近?两年|最近两年|过去两年|2年|24个月/.test(source)) {
+      rawDays = 500;
+    } else if (/近?一年|最近一年|过去一年|1年|12个月|十二个月/.test(source)) {
+      rawDays = 252;
+    } else if (/近?半年|最近半年|过去半年|6个月|六个月/.test(source)) {
+      rawDays = 126;
+    } else if (/近?三个月|最近三个月|过去三个月|3个月|一季度|一个季度/.test(source)) {
+      rawDays = 63;
+    }
+  }
   if (!Number.isFinite(rawDays)) {
     return 120;
   }
@@ -1269,7 +1285,7 @@ function buildComparisonSummary(assets: JsonRecord[]): JsonRecord {
   const numericRows = rows.map((row) => ({
     ...row,
     periodReturnNumber: numeric(row.period_return),
-    return120dNumber: numeric(row.return_120d_pct ?? row.period_return),
+    return120dNumber: numeric(row.period_return ?? row.return_120d_pct),
     drawdownNumber: numeric(row.max_drawdown),
     volatilityNumber: numeric(row.volatility20d),
     liquidityNumber: numeric(row.avg_amount_20d ?? row.amount),
@@ -1319,8 +1335,8 @@ function buildComparisonSummary(assets: JsonRecord[]): JsonRecord {
         ? '数据待补齐'
         : compositeScore >= 72
           ? '优先研究'
-          : compositeScore >= 55
-            ? '观察候选'
+        : compositeScore >= 55
+            ? '观察研究'
             : '谨慎观察',
       ranking_reason: [
         returnRank ? `收益排名 ${returnRank}` : null,
@@ -1337,7 +1353,7 @@ function buildComparisonSummary(assets: JsonRecord[]): JsonRecord {
     rows: enrichedRows,
     leaders: {
       best_return: bestReturn
-        ? { symbol: bestReturn.symbol, name: bestReturn.name, value: bestReturn.return_120d_pct ?? bestReturn.period_return }
+        ? { symbol: bestReturn.symbol, name: bestReturn.name, value: bestReturn.period_return ?? bestReturn.return_120d_pct }
         : null,
       lowest_drawdown: lowestDrawdown
         ? { symbol: lowestDrawdown.symbol, name: lowestDrawdown.name, value: lowestDrawdown.max_drawdown }
@@ -1848,7 +1864,9 @@ export async function prefetchQuantDataForRunPlan(params: {
   const comparison = buildComparisonSummary(assets);
   const financialQuality = buildFinancialQualitySummary(assets);
   const selectionRanking = buildSelectionRanking(comparison, assets);
-  const tradingPlan = buildTradingPlan(assets, selectionRanking);
+  const tradingPlan = hasExplicitTradingPlanIntent(params.plan.question)
+    ? buildTradingPlan(assets, selectionRanking)
+    : null;
   const conclusion = buildConclusion({ comparison, selectionRanking, financialQuality });
   const finalData = symbols.length === 1
     ? {
@@ -1867,7 +1885,7 @@ export async function prefetchQuantDataForRunPlan(params: {
         liquidity: buildLiquiditySummary([primaryAsset]),
         financialQuality,
         selectionRanking,
-        tradingPlan,
+        ...(tradingPlan ? { tradingPlan } : {}),
         conclusion,
       }
     : {
@@ -1891,7 +1909,7 @@ export async function prefetchQuantDataForRunPlan(params: {
         liquidity: buildLiquiditySummary(assets),
         financialQuality,
         selectionRanking,
-        tradingPlan,
+        ...(tradingPlan ? { tradingPlan } : {}),
         ...(screenerData ? { screener: screenerData } : {}),
         visualization,
         conclusion,

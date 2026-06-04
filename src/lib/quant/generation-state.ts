@@ -121,6 +121,14 @@ function mergeStep(
   const timestamp = nowIso();
   let found = false;
   const steps = state.steps.map((step) => {
+    if (step.id === 'request_received' && stepId !== 'request_received' && step.status === 'running') {
+      return {
+        ...step,
+        status: 'success' as const,
+        completedAt: step.completedAt ?? timestamp,
+        summary: step.summary || '请求已接收。',
+      };
+    }
     if (step.id !== stepId) return step;
     found = true;
     return {

@@ -1071,10 +1071,6 @@ function getConclusion(data: JsonRecord | null): string[] {
   return asArray(conclusion?.summary).map(String).filter(Boolean);
 }
 
-function getTradingPlanRows(data: JsonRecord | null): JsonRecord[] {
-  return getRowsFrom(data, 'tradingPlan');
-}
-
 function pickMetric(row: JsonRecord, fields: string[]): number | null {
   for (const field of fields) {
     const value = numeric(row[field]);
@@ -1099,58 +1095,10 @@ function RankingPanel({ rows }: { rows: JsonRecord[] }) {
             <span className="rank-badge">{String(row.rank ?? index + 1)}</span>
             <div>
               <strong>{String(row.name ?? row.symbol ?? '-')}</strong>
-              <small>{String(row.symbol ?? '-')} · {String(row.view ?? row.selection_view ?? '观察候选')}</small>
+              <small>{String(row.symbol ?? '-')} · {String(row.view ?? row.selection_view ?? '观察研究')}</small>
             </div>
             <em>{formatNumber(row.score ?? row.composite_score, 0)}</em>
             <p>{String(row.reason ?? row.ranking_reason ?? row.exclusion_reason ?? '等待更多指标确认。')}</p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function priceRange(low: unknown, high: unknown): string {
-  const left = numeric(low);
-  const right = numeric(high);
-  if (left === null || right === null) {
-    return '-';
-  }
-  return formatNumber(left) + ' - ' + formatNumber(right);
-}
-
-function TradingPlanPanel({ rows }: { rows: JsonRecord[] }) {
-  if (rows.length === 0) {
-    return null;
-  }
-  return (
-    <section className="selection-panel trading-plan-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>短线交易计划</h2>
-          <p>买入区间、止损、目标价和放弃条件按本地行情与均线结构估算</p>
-        </div>
-        <span>{rows.length} 项</span>
-      </div>
-      <div className="trading-plan-grid">
-        {rows.map((row, index) => (
-          <article key={String(row.symbol ?? index)} className="trade-card">
-            <div className="trade-title">
-              <div>
-                <strong>{String(row.name ?? row.symbol ?? '-')}</strong>
-                <small>{String(row.symbol ?? '-')} · {String(row.timeframe ?? '1-3 个交易日')}</small>
-              </div>
-              <em>{String(row.entry_style ?? '回踩承接')}</em>
-            </div>
-            <dl>
-              <div><dt>当前价</dt><dd>{formatNumber(row.current_price)}</dd></div>
-              <div><dt>买入区间</dt><dd>{priceRange(row.buy_zone_low, row.buy_zone_high)}</dd></div>
-              <div><dt>止损</dt><dd className="down">{formatNumber(row.stop_loss)}</dd></div>
-              <div><dt>目标价</dt><dd className="up">{formatNumber(row.target_price_1)} / {formatNumber(row.target_price_2)}</dd></div>
-              <div><dt>仓位上限</dt><dd>{formatPercent(row.position_limit_pct)}</dd></div>
-            </dl>
-            <p className="trade-rationale">{String(row.rationale ?? '等待更多数据确认。')}</p>
-            <p className="trade-abandon"><strong>放弃条件：</strong>{String(row.abandon_condition ?? '触发风险约束时放弃。')}</p>
           </article>
         ))}
       </div>
@@ -1175,12 +1123,12 @@ function ComparisonTable({ rows }: { rows: JsonRecord[] }) {
               <th>标的</th>
               <th>最新价</th>
               <th>涨跌幅</th>
-              <th>120 日收益</th>
+              <th>区间收益</th>
               <th>最大回撤</th>
               <th>波动率</th>
               <th>成交额</th>
               <th>综合分</th>
-              <th>候选视图</th>
+              <th>研究视图</th>
             </tr>
           </thead>
           <tbody>
@@ -1189,7 +1137,7 @@ function ComparisonTable({ rows }: { rows: JsonRecord[] }) {
                 <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
                 <td>{formatNumber(row.price)}</td>
                 <td className={tone(row.change_percent)}>{formatPercent(row.change_percent)}</td>
-                <td className={tone(row.return_120d_pct ?? row.period_return)}>{formatPercent(row.return_120d_pct ?? row.period_return)}</td>
+                <td className={tone(row.period_return ?? row.return_120d_pct)}>{formatPercent(row.period_return ?? row.return_120d_pct)}</td>
                 <td className="down">{formatPercent(row.max_drawdown)}</td>
                 <td>{formatPercent(row.volatility20d)}</td>
                 <td>{formatMoney(row.amount ?? row.avg_amount_20d)}</td>
@@ -1300,7 +1248,7 @@ function AssetCards({ assets }: { assets: JsonRecord[] }) {
             <Sparkline asset={asset} />
             <dl>
               <div><dt>最新价</dt><dd>{formatNumber(quote?.price)}</dd></div>
-              <div><dt>120 日</dt><dd className={tone(technical?.return_120d_pct)}>{formatPercent(technical?.return_120d_pct)}</dd></div>
+              <div><dt>区间</dt><dd className={tone(technical?.period_return_pct ?? technical?.return_120d_pct)}>{formatPercent(technical?.period_return_pct ?? technical?.return_120d_pct)}</dd></div>
               <div><dt>MA20</dt><dd>{formatNumber(technical?.ma20)}</dd></div>
               <div><dt>质量分</dt><dd>{formatNumber(quality?.quality_score, 0)}</dd></div>
             </dl>
@@ -1356,7 +1304,7 @@ function DataQualityPanel({ data, assets }: { data: JsonRecord | null; assets: J
           <h2>数据信源渠道逐项追踪</h2>
           <p>逐只标的展示实际使用的行情、K 线、财务渠道和样本覆盖。</p>
         </div>
-        <span>{String(visualization?.template_id ?? 'stock-selection')}</span>
+        <span>多标的对比</span>
       </div>
       <div className="table-wrap">
         <table>
@@ -1379,7 +1327,7 @@ function DataQualityPanel({ data, assets }: { data: JsonRecord | null; assets: J
           </tbody>
         </table>
       </div>
-      <p className="component-line">模板组件：{components.join(' / ') || '按 stock-selection 标准模板渲染'} · 技术证据：{DATA_FILE}</p>
+      <p className="component-line">组件覆盖：{components.join(' / ') || '按多标的对比模板渲染'} · 技术证据：{DATA_FILE}</p>
     </section>
   );
 }
@@ -1390,7 +1338,6 @@ export default async function Home() {
   const rows = getComparisonRows(data);
   const rankingRows = getRowsFrom(data, 'selectionRanking');
   const financialRows = getRowsFrom(data, 'financialQuality');
-  const tradingRows = getTradingPlanRows(data);
   const conclusion = getConclusion(data);
   const leaders = asRecord(asRecord(data?.comparison)?.leaders);
   const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
@@ -1400,14 +1347,14 @@ export default async function Home() {
     <main className="selection-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="stock-selection">
       <section className="selection-hero">
         <div>
-          <p className="eyebrow">QuantPilot 选股分析</p>
-          <h1>{topRanking ? String(topRanking.name ?? topRanking.symbol) + ' 暂列研究优先级第一' : '多标的选股看板'}</h1>
-          <p>覆盖 {requestedSymbols.length || rows.length} 个候选：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}。以下排序仅用于研究，不构成交易指令。</p>
+          <p className="eyebrow">QuantPilot 多标的对比</p>
+          <h1>{topRanking ? String(topRanking.name ?? topRanking.symbol) + ' 暂列研究优先级第一' : '多标的研究看板'}</h1>
+          <p>覆盖 {requestedSymbols.length || rows.length} 个标的：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}。以下排序仅用于研究，不构成交易指令。</p>
         </div>
         <aside>
-          <span>模板</span>
-          <strong>stock-selection</strong>
-          <em>读取最终数据并关联信源证据</em>
+          <span>研究用途</span>
+          <strong>多标的对比</strong>
+          <em>统一口径读取真实数据与信源证据</em>
         </aside>
       </section>
 
@@ -1415,14 +1362,13 @@ export default async function Home() {
         <article><span>收益领先</span><strong>{String(asRecord(leaders?.best_return)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.best_return)?.value)}</em></article>
         <article><span>回撤较小</span><strong>{String(asRecord(leaders?.lowest_drawdown)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.lowest_drawdown)?.value)}</em></article>
         <article><span>波动较低</span><strong>{String(asRecord(leaders?.lowest_volatility)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.lowest_volatility)?.value)}</em></article>
-        <article><span>候选数量</span><strong>{rows.length}</strong><em>{assets.length} 只已绑定数据</em></article>
+        <article><span>标的数量</span><strong>{rows.length}</strong><em>{assets.length} 只已绑定数据</em></article>
       </section>
 
       <ComparisonTable rows={rows} />
-      <TradingPlanPanel rows={tradingRows} />
 
       <section className="chart-grid core-chart-grid">
-        <BarCompare rows={rows} fields={['return_120d_pct', 'period_return', 'return_120d', 'period_return_pct']} title="收益对比主图" subtitle="统一样本窗口下的阶段收益" />
+        <BarCompare rows={rows} fields={['period_return', 'period_return_pct', 'return_120d_pct', 'return_120d']} title="收益对比主图" subtitle="统一样本窗口下的累计收益" />
         <BarCompare rows={rows} fields={['max_drawdown', 'max_drawdown_pct']} title="回撤对比主图" subtitle="回撤越小越稳健" inverse />
         <BarCompare rows={rows} fields={['volatility20d', 'volatility_20d_annualized_pct', 'volatility20d_pct']} title="波动对比主图" subtitle="20 日年化波动率口径" inverse />
       </section>
@@ -1917,83 +1863,6 @@ function stockSelectionCss() {
   gap: 10px;
 }
 
-.trading-plan-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.trade-card {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-1);
-}
-
-.trade-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.trade-title strong,
-.trade-title small,
-.trade-title em {
-  display: block;
-}
-
-.trade-title small {
-  margin-top: 3px;
-  color: var(--muted);
-}
-
-.trade-title em {
-  flex-shrink: 0;
-  max-width: 130px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: normal;
-  text-align: right;
-}
-
-.trade-card dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.trade-card dt {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.trade-card dd {
-  margin: 3px 0 0;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.trade-card dl div:nth-child(2),
-.trade-card dl div:nth-child(4) {
-  grid-column: span 2;
-}
-
-.trade-rationale,
-.trade-abandon {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.trade-abandon strong {
-  color: var(--ink);
-}
-
 .ranking-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 64px;
@@ -2209,16 +2078,14 @@ td small {
 
   .asset-grid,
   .chart-grid,
-  .main-grid,
-  .trading-plan-grid {
+  .main-grid {
     grid-template-columns: 1fr;
   }
 
   .summary-grid > *,
   .asset-grid > *,
   .chart-grid > *,
-  .main-grid > *,
-  .trading-plan-grid > * {
+  .main-grid > * {
     min-width: 0;
   }
 
@@ -3081,11 +2948,14 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
 
   const pagePath = path.join(projectPath, 'app', 'page.tsx');
   const page = await fs.readFile(pagePath, 'utf8').catch(() => '');
+  const hasLegacySelectionPage =
+    /TradingPlanPanel|getTradingPlanRows|tradingRows|短线交易计划|买入区间|止损|目标价|仓位上限/.test(page) ||
+    /QuantPilot 选股分析|<strong>stock-selection<\/strong>|模板组件：|候选数量|候选视图|120 日收益|<dt>120 日<\/dt>/.test(page);
   const hasReadableSelectionPage =
     /data-template="stock-selection"/.test(page) &&
     /多标的指标矩阵|指标矩阵|ComparisonTable|comparison\.rows/.test(page) &&
     /收益对比主图|回撤对比主图|波动对比主图|selection-main-chart|chart-label|主图/.test(page);
-  if (effectiveTemplateId === 'stock-selection' && hasReadableSelectionPage) {
+  if (effectiveTemplateId === 'stock-selection' && hasReadableSelectionPage && !hasLegacySelectionPage) {
     const cssPath = path.join(projectPath, 'app', 'globals.css');
     await upsertGeneratedCssBlock(cssPath, 'comparison-dashboard', comparisonCss());
     await upsertGeneratedCssBlock(cssPath, 'stock-selection-dashboard', stockSelectionCss());
