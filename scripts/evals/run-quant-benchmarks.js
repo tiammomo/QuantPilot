@@ -44,6 +44,8 @@ function parseArgs(argv) {
   let model = process.env.QUANTPILOT_EVAL_MODEL || 'mimo-v2.5-pro';
   let reasoningEffort = process.env.QUANTPILOT_EVAL_REASONING_EFFORT || '';
   let trigger = process.env.QUANTPILOT_EVAL_TRIGGER || 'cli';
+  let evaluatorId = process.env.QUANTPILOT_EVAL_EVALUATOR || 'rule-strict';
+  let concurrency = Number.parseInt(process.env.QUANTPILOT_EVAL_CONCURRENCY || '1', 10);
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -104,6 +106,28 @@ function parseArgs(argv) {
       trigger = arg.slice('--trigger='.length);
       continue;
     }
+    if ((arg === '--evaluator' || arg === '--evaluator-id') && argv[index + 1]) {
+      evaluatorId = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--evaluator=')) {
+      evaluatorId = arg.slice('--evaluator='.length);
+      continue;
+    }
+    if (arg.startsWith('--evaluator-id=')) {
+      evaluatorId = arg.slice('--evaluator-id='.length);
+      continue;
+    }
+    if (arg === '--concurrency' && argv[index + 1]) {
+      concurrency = Number.parseInt(argv[index + 1], 10);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--concurrency=')) {
+      concurrency = Number.parseInt(arg.slice('--concurrency='.length), 10);
+      continue;
+    }
   }
 
   return {
@@ -114,6 +138,8 @@ function parseArgs(argv) {
     model,
     reasoningEffort,
     trigger,
+    evaluatorId: evaluatorId || 'rule-strict',
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.min(16, Math.floor(concurrency)) : 1,
   };
 }
 
@@ -1191,6 +1217,54 @@ async function cleanupBenchmarkProject(result) {
   await fs.rm(result.projectPath, { recursive: true, force: true });
 }
 
+async function runBenchmarkCase(testCase) {
+  console.log(`\n[QuantBenchmark] ${testCase.id} - ${testCase.name}`);
+  const startedAt = Date.now();
+  let result;
+  try {
+    result = await runCase(testCase);
+  } catch (error) {
+    const projectId = `benchmark-${testCase.id}`;
+    result = {
+      id: testCase.id,
+      name: testCase.name,
+      question: testCase.question,
+      projectId,
+      projectPath: path.join(PROJECTS_DIR, projectId),
+      durationMs: Date.now() - startedAt,
+      passed: false,
+      failures: [formatError(error)],
+      symbols: [],
+      prefetch: null,
+      artifacts: null,
+      eventAudit: null,
+      validation: null,
+    };
+    await previewManager.stop(projectId).catch(() => {});
+  }
+  console.log(`[QuantBenchmark] ${testCase.id} ${result.passed ? 'PASS' : 'FAIL'}`);
+  if (!result.passed) {
+    result.failures.forEach((failure) => console.log(`  - ${failure}`));
+  }
+  return result;
+}
+
+async function runCasesWithConcurrency(cases, concurrency) {
+  const results = new Array(cases.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(cases.length, Math.max(1, concurrency));
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < cases.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await runBenchmarkCase(cases[currentIndex]);
+    }
+  }));
+
+  return results;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const benchmarkStartedAt = new Date().toISOString();
@@ -1208,38 +1282,8 @@ async function main() {
   }
 
   await fs.mkdir(REPORTS_DIR, { recursive: true });
-  const results = [];
-  for (const testCase of cases) {
-    console.log(`\n[QuantBenchmark] ${testCase.id} - ${testCase.name}`);
-    const startedAt = Date.now();
-    let result;
-    try {
-      result = await runCase(testCase);
-    } catch (error) {
-      const projectId = `benchmark-${testCase.id}`;
-      result = {
-        id: testCase.id,
-        name: testCase.name,
-        question: testCase.question,
-        projectId,
-        projectPath: path.join(PROJECTS_DIR, projectId),
-        durationMs: Date.now() - startedAt,
-        passed: false,
-    failures: [formatError(error)],
-    symbols: [],
-    prefetch: null,
-    artifacts: null,
-    eventAudit: null,
-    validation: null,
-  };
-      await previewManager.stop(projectId).catch(() => {});
-    }
-    results.push(result);
-    console.log(result.passed ? '  PASS' : '  FAIL');
-    if (!result.passed) {
-      result.failures.forEach((failure) => console.log(`  - ${failure}`));
-    }
-  }
+  console.log(`[QuantBenchmark] evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
+  const results = await runCasesWithConcurrency(cases, args.concurrency);
 
   if (!args.keepProjects) {
     for (const result of results) {
@@ -1256,6 +1300,10 @@ async function main() {
       startedAt: benchmarkStartedAt,
       finishedAt: new Date().toISOString(),
       command: process.argv.slice(2),
+      evaluator: {
+        id: args.evaluatorId,
+        concurrency: args.concurrency,
+      },
       runtime: {
         cli: args.cli,
         model: args.model,
@@ -1266,6 +1314,7 @@ async function main() {
         limit: args.limit,
         keepProjects: args.keepProjects,
         caseCount: cases.length,
+        concurrency: args.concurrency,
       },
       skillLockSnapshot: await readSkillLockSnapshot(),
     },
