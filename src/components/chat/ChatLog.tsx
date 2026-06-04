@@ -505,6 +505,8 @@ const stripToolPlaceholderLines = (input: string): string => {
   if (!input) return input;
 
   return input
+    .replace(/^\s*\/?<\/?tool_call>\s*$/gim, '')
+    .replace(/\/?<\/?tool_call>/gi, '')
     .replace(/^\s*\[Tool:[^\n]*\n?/gim, '')
     .replace(/^\s*Using tool:[^\n]*\n?/gim, '')
     .replace(/^\s*Tool result:[^\n]*\n?/gim, '')

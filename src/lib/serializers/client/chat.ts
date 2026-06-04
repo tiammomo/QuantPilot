@@ -19,6 +19,12 @@ const stableHash = (input: string): string => {
   return (hash >>> 0).toString(16);
 };
 
+const sanitizeChatContent = (content: string): string =>
+  content
+    .replace(/^\s*\/?<\/?tool_call>\s*$/gim, '')
+    .replace(/\/?<\/?tool_call>/gi, '')
+    .trim();
+
 const deriveMessageId = (raw: any): string => {
   const explicitIdCandidates = [
     raw?.id,
@@ -93,11 +99,11 @@ export const normalizeChatContent = (value: unknown): string => {
   }
 
   if (typeof value === 'string') {
-    return value;
+    return sanitizeChatContent(value);
   }
 
   if (Array.isArray(value)) {
-    return value
+    return sanitizeChatContent(value
       .map((entry) => {
         if (typeof entry === 'string') {
           return entry;
@@ -116,7 +122,7 @@ export const normalizeChatContent = (value: unknown): string => {
         }
         return '';
       })
-      .join('');
+      .join(''));
   }
 
   if (typeof value === 'object') {
@@ -125,7 +131,7 @@ export const normalizeChatContent = (value: unknown): string => {
     for (const key of candidateKeys) {
       const candidate = record[key];
       if (typeof candidate === 'string') {
-        return candidate;
+        return sanitizeChatContent(candidate);
       }
     }
 
@@ -135,9 +141,9 @@ export const normalizeChatContent = (value: unknown): string => {
   }
 
   try {
-    return JSON.stringify(value);
+    return sanitizeChatContent(JSON.stringify(value));
   } catch {
-    return String(value);
+    return sanitizeChatContent(String(value));
   }
 };
 
