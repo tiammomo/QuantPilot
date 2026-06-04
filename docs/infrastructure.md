@@ -4,14 +4,29 @@ QuantPilot 本地开发默认使用 PostgreSQL + TimescaleDB + Redis，并提供
 
 ## 本地启动
 
+推荐按组件顺序启动。数据库和 Redis 是基础设施；Loki/Grafana/Alloy 是可选观测组件；market-data 是独立 Python API；主前端最后启动。
+
 ```bash
 npm run db:up
 npm run db:init
-npm run db:sync-workspaces
-npm run db:migrate-platform-state
 npm run obs:up
+```
+
+另开终端启动 market-data：
+
+```bash
+cd services/market-data
+uv sync --extra baostock --extra akshare
+uv run quantpilot-market-api
+```
+
+再回到项目根目录启动主前端：
+
+```bash
 npm run dev
 ```
+
+`npm run db:sync-workspaces` 和 `npm run db:migrate-platform-state` 只在需要迁移旧本地文件状态时运行，不属于每次启动的必需步骤。
 
 默认连接信息：
 
@@ -33,6 +48,11 @@ QUANTPILOT_DEGRADATION_MODE="auto"
 QUANTPILOT_MARKET_API_REQUIRED=0
 QUANTPILOT_OBSERVABILITY_REQUIRED=0
 QUANTPILOT_REDIS_REQUIRED=0
+PORT=3000
+WEB_PORT=3000
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+PREVIEW_PORT_START=4100
+PREVIEW_PORT_END=4999
 ```
 
 ## 组件分工
@@ -45,8 +65,26 @@ QUANTPILOT_REDIS_REQUIRED=0
 | Loki | 集中存储本地运行日志、容器日志和评测队列日志 |
 | Grafana | 查询 Loki、排查运行问题和后续接指标面板 |
 | Grafana Alloy | 采集 Docker 日志与本地 `tmp/`、`.next/` 日志并写入 Loki |
+| market-data | FastAPI 市场数据服务，默认 `http://127.0.0.1:8000` |
+| Next.js 主前端 | 产品入口和 API 聚合层，默认 `http://localhost:3000` |
 | 对象存储 | 后续用于原始行情文件、回测产物和大报告 |
 | ClickHouse | 后续用于超大量 tick、盘口快照和研究分析面板 |
+
+## 主前端启动器
+
+`npm run dev` 通过 `scripts/dev/run-web.js` 启动主前端。它不是额外 bundler，而是本地启动保护层：
+
+| 环节 | 说明 |
+| --- | --- |
+| 端口管理 | 默认使用 `3000`，繁忙时扫描 `3000-3099`，并写回 `.env` / `.env.local` |
+| 预览端口池 | 默认保持 `4100-4999`，留给生成项目预览服务 |
+| 环境初始化 | 创建本地数据目录，补齐数据库、Redis、降级和应用 URL 配置 |
+| 稳定 CSS | 运行稳定 CSS 生成逻辑，输出 `public/generated/quantpilot-tailwind.css` |
+| 组件恢复 | 本次启动中探测数据库、market-data、Redis、Loki 是否已恢复，并把降级进程切回 `auto` |
+| 数据库同步 | 在非 offline 且数据库启用时做轻量 Prisma 检查，必要时 `prisma db push` |
+| Next dev 保护 | 清理过期 `.next/dev/lock` 和 `.next/dev/cache/webpack`，再启动 `npx next dev` |
+
+前端已经移除 `next-rspack`，不再支持或需要 `QUANTPILOT_BUNDLER`、`QUANTPILOT_DISABLE_RSPACK` 这类 bundler 切换配置。开发态交给 Next.js 16 默认链路，项目只维护启动前后的环境和缓存保护。
 
 ## 可观测性
 

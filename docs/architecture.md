@@ -133,14 +133,17 @@ QuantPilot 当前最重要的取舍是“本地事实库优先”。外部接口
 
 主应用通过脚本统一启动和构建：
 
-- `scripts/dev/run-web.js`：开发服务、端口管理、环境初始化、数据库检查、稳定 CSS 生成。
+- `scripts/dev/setup-env.js`：创建本地目录，补齐 `.env` / `.env.local`，选择主前端端口和生成项目预览端口池。
+- `scripts/dev/run-web.js`：开发服务入口，负责稳定 CSS、降级恢复探测、数据库检查、Next dev lock/cache 清理和 `npx next dev` 启动。
 - `scripts/build/run-build.js`：生产构建，构建前会停止根项目 `3000` 开发服务。
 
-当前主应用默认走 Rspack 接入；如果检测到 Rspack 开发缓存异常，启动脚本会自动切换到 Next Turbopack 稳定模式。需要手动诊断时可以临时设置：
+当前主应用使用 Next.js 默认开发与构建链路，不再接入 `next-rspack` 或额外 bundler 切换逻辑。日常开发直接运行：
 
 ```bash
-QUANTPILOT_BUNDLER=turbo npm run dev
+npm run dev
 ```
+
+启动器默认优先使用 `3000`，占用时扫描 `3000-3099`；生成工作空间预览使用 `4100-4999`；Loki 使用 `3100`，Grafana 使用 `3001`。这几个端口池分别服务不同组件，不要混用。
 
 `npm run build` 默认跳过服务端 route 的 per-route output tracing，避免在 `.git`、`.next`、`data/projects` 等目录上做耗时追踪。需要完整 standalone 输出时使用：
 

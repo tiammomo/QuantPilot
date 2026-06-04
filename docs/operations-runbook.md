@@ -10,7 +10,14 @@
 npm run db:up
 npm run db:init
 npm run obs:up
-cd services/market-data && uv run quantpilot-market-api
+cd services/market-data
+uv sync --extra baostock --extra akshare
+uv run quantpilot-market-api
+```
+
+另开一个终端回到项目根目录：
+
+```bash
 npm run dev
 ```
 
@@ -27,6 +34,37 @@ curl http://127.0.0.1:8000/api/v1/foundation/status
 ```bash
 QUANTPILOT_DEGRADATION_MODE=offline npm run dev
 ```
+
+## 本地后台重启
+
+开发机上需要重新启动前后端时，只处理主前端和 market-data，不要顺手重建数据库卷。推荐流程：
+
+```bash
+web_pgid="$(ps -eo pgid=,cmd= | awk '/npm run dev --port 3000/ {print $1; exit}')"
+api_pgid="$(ps -eo pgid=,cmd= | awk '/uv run quantpilot-market-api/ {print $1; exit}')"
+[ -n "$web_pgid" ] && kill -TERM -- "-$web_pgid"
+[ -n "$api_pgid" ] && kill -TERM -- "-$api_pgid"
+sleep 2
+```
+
+然后后台启动并写入本地运行日志：
+
+```bash
+mkdir -p tmp/runtime
+setsid bash -c 'cd services/market-data && exec env QUANTPILOT_MARKET_HOST=127.0.0.1 QUANTPILOT_MARKET_PORT=8000 uv run quantpilot-market-api' > tmp/runtime/market-api.log 2>&1 < /dev/null &
+setsid bash -c 'exec npm run dev -- --port 3000' > tmp/runtime/web.log 2>&1 < /dev/null &
+```
+
+确认：
+
+```bash
+curl http://127.0.0.1:8000/health
+curl -I http://127.0.0.1:3000
+tail -n 80 tmp/runtime/web.log
+tail -n 80 tmp/runtime/market-api.log
+```
+
+前端日志里应该看到 `Starting Next.js dev server on http://localhost:3000`。当前项目不再接入 `next-rspack`；如果日志里出现 Rspack 相关提示，说明依赖或启动命令不是当前模式。
 
 ## 长任务通用规则
 

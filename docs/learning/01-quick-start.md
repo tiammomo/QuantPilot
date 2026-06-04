@@ -88,13 +88,34 @@ curl "http://127.0.0.1:8000/api/v1/quotes/realtime/600519"
 npm run dev
 ```
 
+这条命令不是直接裸跑 `next dev`，而是先经过 `scripts/dev/run-web.js`。启动器会做这些事：
+
+| 步骤 | 作用 |
+| --- | --- |
+| 环境同步 | 确保 `.env`、`.env.local`、`data/` 和 `data/projects/` 存在 |
+| 端口选择 | 优先使用 `3000`，占用时在 `3000-3099` 内寻找可用端口 |
+| URL 写入 | 同步 `PORT`、`WEB_PORT` 和 `NEXT_PUBLIC_APP_URL` |
+| 样式准备 | 生成 `public/generated/quantpilot-tailwind.css` |
+| 组件恢复探测 | 数据库、market-data、Redis、Loki 恢复后，把本次进程切回 `auto` |
+| 数据库检查 | 必要时运行 Prisma schema 同步 |
+| Next 启动保护 | 清理过期 `.next/dev/lock` 和开发缓存，再启动 `npx next dev` |
+
+当前前端已经移除 `next-rspack`，也不再通过 `QUANTPILOT_BUNDLER` 在 Rspack/Turbopack/webpack 之间切换。日常只需要运行 `npm run dev`；Next.js 16 会使用自己的默认开发链路。
+
 默认访问：
 
 ```text
 http://localhost:3000
 ```
 
-如果 `3000` 被占用，先释放旧进程再启动。主前端应优先保持在 `3000`，生成项目预览会从 `4100` 往后分配端口，`3100` 留给 Loki。
+如果 `3000` 被占用，启动器会临时选择 `3000-3099` 中的可用端口。主前端仍应优先保持在 `3000`：生成项目预览从 `4100` 往后分配端口，`3100` 留给 Loki，`3001` 留给 Grafana。
+
+后台启动时建议把日志放到 `tmp/runtime/`，这样 Alloy 和运维平台都能采集：
+
+```bash
+mkdir -p tmp/runtime
+setsid bash -c 'exec npm run dev -- --port 3000' > tmp/runtime/web.log 2>&1 < /dev/null &
+```
 
 ## 5. 页面巡检
 
@@ -138,5 +159,6 @@ uv run pytest
 
 - `docker compose up` 成功不代表数据库 schema 已经齐全，仍需要 `npm run db:init`。
 - `localhost:3000` 是主前端，生成工作空间预览端口从 `4100` 开始，`3100` 留给 Loki。
+- 前端启动模式已经收敛为 Next.js 默认链路，不要再设置 `QUANTPILOT_BUNDLER` 或排查 `next-rspack`。
 - Redis 缓存可以删除重建，不能把它当作唯一数据来源。
 - 离线演示可以用 `QUANTPILOT_DEGRADATION_MODE=offline`，但正式检查应回到 `auto` 或 `strict`。

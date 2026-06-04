@@ -10,6 +10,7 @@
 | --- | --- |
 | 想建立全局学习路线 | [教学 00：项目学习地图](learning/00-project-study-map.md) |
 | 想快速跑起来 | [教学 01：本地启动与健康检查](learning/01-quick-start.md) |
+| 想确认当前前端启动模式 | [基础设施配置](infrastructure.md#主前端启动器) / [架构总览](architecture.md#构建与开发模式) |
 | 想理解生成链路 | [教学 02：AI 工作空间生成链路](learning/02-ai-workspace-generation.md) |
 | 想理解数据和策略平台 | [教学 03：市场数据与策略平台](learning/03-market-data-and-strategy-platform.md) |
 | 想优化生成页面 | [教学 04：Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md) |
@@ -70,6 +71,7 @@ flowchart TB
 - 业务规则先写到对应专题文档，再在教学文档里用步骤串起来。
 - 写文档时先讲人能理解的背景，再放命令、表格和路径。不要只堆能力名。
 - 修改代码后如果改变了使用方式、排障方式或模块边界，必须同步文档。
+- 改启动脚本、端口池、缓存策略或 bundler 相关依赖时，至少同步 README、`learning/01-quick-start.md`、`infrastructure.md`、`operations-runbook.md` 和 `troubleshooting.md`。
 - 页面截图放在 `docs/learning/assets/`，命名使用页面或流程含义，例如 `strategy-platform.png`。
 - 截图前需要确认页面没有 Next 错误覆盖层、验证失败页、明显横向溢出或加载空白。
 - 真实密钥、个人路径、未脱敏日志不要写入文档。

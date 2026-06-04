@@ -17,6 +17,8 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 
 ## 快速启动
 
+第一次启动按下面顺序来：依赖、数据库、可选观测组件、市场数据后端、主前端。主前端现在使用 Next.js 默认开发链路；`npm run dev` 会调用 `scripts/dev/run-web.js`，负责端口选择、环境文件同步、稳定 CSS 生成、数据库 schema 检查和 Next dev 缓存清理。
+
 ```bash
 npm install
 cp .env.example .env
@@ -48,7 +50,9 @@ uv run quantpilot-market-api
 npm run dev
 ```
 
-默认访问 `http://localhost:3000`。推荐启动顺序是数据库、可观测性组件、市场数据后端、主前端；不启动 Loki/Grafana 时，运维平台会自动降级到本地文件日志。
+默认访问 `http://localhost:3000`。如果 `3000` 被占用，启动器会在 `3000-3099` 内选择可用端口并同步 `.env` / `.env.local` 中的 `PORT`、`WEB_PORT` 和 `NEXT_PUBLIC_APP_URL`。生成项目预览端口池从 `4100` 开始，Loki 使用 `3100`，不要把主前端长期放到这些端口上。
+
+不启动 Loki/Grafana 时，运维平台会自动降级到本地文件日志；不启动市场数据后端时，策略平台和数据平台只能展示有限兜底信息。
 
 ## 常用入口
 
@@ -65,7 +69,8 @@ npm run dev
 
 | 场景 | 命令 |
 | --- | --- |
-| 前端开发 | `npm run dev` |
+| 主前端开发 | `npm run dev` |
+| 指定主前端端口 | `npm run dev -- --port 3000` |
 | 前端质量门 | `npm run lint && npm run type-check && npm run build` |
 | 数据库启动 | `npm run db:up && npm run db:init` |
 | 数据库检查 | `npm run db:doctor` |
@@ -129,6 +134,14 @@ npm run dev
 ## 本地可观测性
 
 `npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 默认宿主机端口是 `3100`，生成项目预览端口池从 `4100` 开始；Grafana 默认入口是 `http://localhost:3001`，默认账号密码来自 `.env`；运维平台的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
+
+## 前端启动模式
+
+主前端不再接入 `next-rspack` 或自定义 bundler 切换逻辑。`npm run dev` 直接启动 `next dev`，Next.js 16 在开发态使用自己的默认链路；项目侧只保留启动前后的工程保护：
+
+- `scripts/dev/setup-env.js`：确保 `.env`、`.env.local`、`data/projects/` 存在，并写入主前端端口、应用 URL 和预览端口池。
+- `scripts/dev/run-web.js`：生成稳定 Tailwind CSS，探测降级组件恢复情况，必要时同步 Prisma schema，清理过期 Next dev lock/cache，再启动 `npx next dev`。
+- `scripts/build/run-build.js`：生产构建入口；默认跳过耗时的 per-route output tracing，需要桌面或 standalone 产物时使用 `npm run build:standalone`。
 
 ## 降级模式
 

@@ -27,6 +27,14 @@
 rm -rf .next out tmp public/generated .ruff_cache .pytest_cache __pycache__ *.tsbuildinfo .eslintcache
 ```
 
+如果只是在排查前端启动缓存，不需要清掉整个 `.next/`，可以先删开发锁和缓存：
+
+```bash
+rm -rf .next/dev/lock .next/dev/cache/webpack
+```
+
+后台运行日志建议放在 `tmp/runtime/*.log`。Alloy 会采集这些日志写入 Loki，文件本身仍属于本地产物，不提交。
+
 如要清理 `data/`、`public/uploads/` 或 `prisma/data/`，先确认里面没有需要保留的工作空间、上传附件或历史报告。
 
 ## 需要提交

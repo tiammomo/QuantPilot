@@ -64,6 +64,7 @@ QUANTPILOT_AUTO_RESTORE_DEGRADATION=0 npm run dev
 
 ```bash
 lsof -i :3000
+ss -ltnp | grep ':3000'
 ```
 
 释放端口后重新执行：
@@ -78,6 +79,28 @@ npm run dev
 http://localhost:3000
 ```
 
+`npm run dev` 会优先尝试 `3000`，占用时在 `3000-3099` 内选择可用端口，并把 `PORT`、`WEB_PORT`、`NEXT_PUBLIC_APP_URL` 写回 `.env` / `.env.local`。如果你只是临时排障，可以让它自动换端口；如果要给别人演示或跑截图，建议先释放 `3000`。
+
+## 前端启动模式异常
+
+当前前端启动链路是：
+
+```text
+npm run dev -> scripts/dev/run-web.js -> npx next dev
+```
+
+启动器只负责环境、端口、稳定 CSS、Prisma 检查和 Next dev 缓存保护；不再接入 `next-rspack`，也不再读取 `QUANTPILOT_BUNDLER` 做 bundler 切换。
+
+如果启动日志看起来混乱，先确认依赖和缓存：
+
+```bash
+npm install
+rm -rf .next/dev/cache/webpack .next/dev/lock
+npm run dev
+```
+
+如果日志里仍出现 `next-rspack`、`QUANTPILOT_DISABLE_RSPACK` 或 Rspack panic，说明本机依赖或旧启动进程没有清干净。先停止旧进程，再确认 `package.json` 中没有 `next-rspack` 依赖。
+
 ## 8000 后端不可用
 
 ```bash
@@ -88,6 +111,7 @@ curl http://127.0.0.1:8000/health
 
 ```bash
 cd services/market-data
+uv sync --extra baostock --extra akshare
 uv run quantpilot-market-api
 ```
 
