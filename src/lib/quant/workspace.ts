@@ -98,6 +98,20 @@ const KNOWN_SYMBOLS: Array<{ keyword: string; symbol: string; name: string }> = 
   { keyword: '科创 50', symbol: '000688', name: '科创50' },
 ];
 
+const OPERATIONAL_INSTRUCTION_MARKERS = [
+  '图片附件处理要求',
+  '可见过程叙述要求',
+  '执行过程要求',
+  '平台执行要求',
+  '生成过程要求',
+  '系统附加要求',
+  '工作区文件要求',
+  '重要执行规则',
+  '重要约束',
+  'Visible process instructions',
+  'Process instructions',
+];
+
 function quantDir(projectPath: string) {
   return path.join(projectPath, '.quantpilot');
 }
@@ -114,6 +128,25 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 
 async function readManifest(projectPath: string): Promise<QuantManifest | null> {
   return readJsonFile<QuantManifest>(path.join(quantDir(projectPath), 'manifest.json'));
+}
+
+function stripOperationalInstructions(instruction: string): string {
+  let cleaned = instruction.trim();
+  for (const marker of OPERATIONAL_INSTRUCTION_MARKERS) {
+    const markerIndex = cleaned.indexOf(marker);
+    if (markerIndex > 0) {
+      cleaned = cleaned.slice(0, markerIndex).trim();
+    }
+  }
+
+  return cleaned
+    .replace(/\n*Image #\d+ path: [^\n]+/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeForIntent(instruction: string): string {
+  return stripOperationalInstructions(instruction).replace(/\s+/g, '');
 }
 
 function inferSymbols(instruction: string): string[] {
@@ -142,7 +175,7 @@ function isQuantAnalysisTask(instruction: string): boolean {
 }
 
 function shouldUseAssetComparison(instruction: string) {
-  const normalized = instruction.replace(/\s+/g, '');
+  const normalized = normalizeForIntent(instruction);
   const symbolCount = inferSymbols(instruction).length;
   const broadStockScreenerIntent = isBroadStockScreenerInstruction(instruction);
   const comparisonIntent =
@@ -164,6 +197,77 @@ function isBroadStockScreenerInstruction(instruction: string): boolean {
   return /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized);
 }
 
+function hasExplicitPortfolioIntent(instruction: string, hasImageAttachments?: boolean): boolean {
+  const normalized = normalizeForIntent(instruction);
+  const textSignals =
+    /持仓|仓位|组合持仓|我的组合|账户组合|持仓组合|调仓|盈亏|成本价|持仓成本|买入成本|成本线|成本偏离|账户|证券账户|总资产|可用资金|可用现金|浮动盈亏|持仓截图|截图持仓|账户截图|交易截图|交割单/.test(
+      normalized
+    );
+  const imageSignals =
+    hasImageAttachments === true && /持仓|仓位|账户|证券|交易|盈亏|成本价|持仓成本|买入成本|现金|总资产|调仓/.test(normalized);
+
+  return textSignals || imageSignals;
+}
+
+function uniqueSymbolList(symbols: unknown): string[] {
+  if (!Array.isArray(symbols)) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      symbols
+        .map((symbol) => (typeof symbol === 'string' ? symbol.trim() : ''))
+        .filter((symbol) => /^(?:6|0|3|5)\d{5}$/.test(symbol))
+    )
+  );
+}
+
+function isDashboardRevisionInstruction(instruction: string): boolean {
+  const normalized = normalizeForIntent(instruction);
+  if (!normalized) {
+    return false;
+  }
+
+  const revisionSignals =
+    /这个|当前|现在|刚才|上一轮|上一版|原页面|结果|看板|页面|图表|方向对|不够贴题|重构|优化|调整|修改|改成|删除|新增|补充|保留|替换|不要|必须|移动端|横向溢出|折线图|热力图|矩阵/.test(
+      normalized
+    );
+  const commandSignals =
+    /重构|优化|调整|修改|改成|删除|新增|补充|保留|替换|不要|必须|方向对|不够贴题|移动端|横向溢出|折线图|热力图|矩阵/.test(
+      normalized
+    );
+
+  return revisionSignals && commandSignals;
+}
+
+function hasExplicitVariantReselection(instruction: string): boolean {
+  return /相关性|热力图|分散|流动性|成交额|换手|强弱|累计收益|收益曲线|净值曲线|折线图|排名|排序|候选|选股/.test(
+    normalizeForIntent(instruction)
+  );
+}
+
+function shouldInheritPreviousPlanContext(params: {
+  instruction: string;
+  explicitSymbols: string[];
+  previousPlan?: QuantRunPlan | null;
+  hasImageAttachments?: boolean;
+}): boolean {
+  const previousSymbols = uniqueSymbolList(params.previousPlan?.symbols);
+  if (!params.previousPlan || params.previousPlan.status === 'needs_clarification') {
+    return false;
+  }
+  if (params.explicitSymbols.length > 0 || previousSymbols.length === 0) {
+    return false;
+  }
+  if (!isDashboardRevisionInstruction(params.instruction)) {
+    return false;
+  }
+  if (hasExplicitPortfolioIntent(params.instruction, params.hasImageAttachments) && params.previousPlan.capabilityId !== 'portfolio_risk') {
+    return false;
+  }
+  return true;
+}
+
 function inferCapabilityId(params: {
   requestedCapabilityId?: string | null;
   requestedCapabilitySource?: string | null;
@@ -180,11 +284,7 @@ function inferCapabilityId(params: {
     return params.manifestCapabilityId;
   }
 
-  const normalized = params.instruction.replace(/\s+/g, '');
-  if (
-    /持仓|仓位|组合|调仓|盈亏|成本|账户|总资产|可用资金|浮动盈亏/.test(normalized) ||
-    (params.hasImageAttachments && /截图|图片|持仓|账户|交易|证券|盈亏|成本|仓位|调仓/.test(normalized))
-  ) {
+  if (hasExplicitPortfolioIntent(params.instruction, params.hasImageAttachments)) {
     return 'portfolio_risk';
   }
 
@@ -323,16 +423,27 @@ export async function writeInitialRunPlan(params: {
   capabilityId?: string | null;
   capabilitySource?: string | null;
   hasImageAttachments?: boolean;
+  previousPlan?: QuantRunPlan | null;
 }) {
   await ensureQuantWorkspace(params.projectPath);
   const manifest = await readManifest(params.projectPath);
   const manifestQuant = manifest?.quant;
+  const planningInstruction = stripOperationalInstructions(params.instruction) || params.instruction.trim();
+  const explicitSymbols = inferSymbols(planningInstruction);
+  const inheritPreviousPlan = shouldInheritPreviousPlanContext({
+    instruction: planningInstruction,
+    explicitSymbols,
+    previousPlan: params.previousPlan,
+    hasImageAttachments: params.hasImageAttachments,
+  });
+  const inheritedSymbols = inheritPreviousPlan ? uniqueSymbolList(params.previousPlan?.symbols) : [];
+  const inheritedCapabilityId = inheritPreviousPlan ? params.previousPlan?.capabilityId : null;
   const inferredCapabilityId = inferCapabilityId({
-    requestedCapabilityId: params.capabilityId,
-    requestedCapabilitySource: params.capabilitySource,
+    requestedCapabilityId: params.capabilityId ?? inheritedCapabilityId,
+    requestedCapabilitySource: params.capabilityId ? params.capabilitySource : inheritedCapabilityId ? 'manual' : params.capabilitySource,
     manifestCapabilityId: manifestQuant?.capabilityId,
     manifestCapabilitySource: manifestQuant?.capabilitySource,
-    instruction: params.instruction,
+    instruction: planningInstruction,
     hasImageAttachments: params.hasImageAttachments,
   });
   const capability = getQuantCapability(inferredCapabilityId);
@@ -341,10 +452,10 @@ export async function writeInitialRunPlan(params: {
     : getExecutionQuantCapability(capability.id);
   const quantSettings = buildQuantProjectSettings(capability.id);
   const now = new Date().toISOString();
-  const symbols = inferSymbols(params.instruction);
-  const timeRange = inferTimeRange(params.instruction);
+  const symbols = explicitSymbols.length > 0 ? explicitSymbols : inheritedSymbols;
+  const timeRange = inferTimeRange(planningInstruction) ?? (inheritPreviousPlan ? params.previousPlan?.timeRange ?? null : null);
   const clarification = assessQuantIntentForClarification({
-    instruction: params.instruction,
+    instruction: planningInstruction,
     capabilityId: capability.id,
     symbols,
     timeRange,
@@ -374,8 +485,12 @@ export async function writeInitialRunPlan(params: {
     ])
   );
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id, {
-    instruction: params.instruction,
+    instruction: planningInstruction,
     symbolCount: symbols.length,
+    requestedVariantId:
+      inheritPreviousPlan && !hasExplicitVariantReselection(planningInstruction)
+        ? params.previousPlan?.visualization?.variantId
+        : null,
   });
 
   const plan: QuantRunPlan = {
@@ -385,7 +500,7 @@ export async function writeInitialRunPlan(params: {
     capabilityId: capability.id,
     requestedCapabilityId: capability.id,
     executionCapabilityId: executionCapability.id,
-    question: params.instruction,
+    question: planningInstruction,
     symbols,
     timeRange,
     dataRequirements,
@@ -397,12 +512,12 @@ export async function writeInitialRunPlan(params: {
         ]
       : [
           ...plannedCapabilityNotice(capability.id, executionCapability.id),
-          ...buildAnalysisSteps(capability.id, symbols.length > 0, params.instruction),
+          ...buildAnalysisSteps(capability.id, symbols.length > 0, planningInstruction),
         ],
     visualization: {
       required:
         !clarification.required &&
-        (wantsVisualization(params.instruction) || isQuantAnalysisTask(params.instruction)),
+        (wantsVisualization(planningInstruction) || isQuantAnalysisTask(planningInstruction)),
       templateId: visualizationTemplate.templateId,
       name: visualizationTemplate.name,
       scenario: visualizationTemplate.scenario,

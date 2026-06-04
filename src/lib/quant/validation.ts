@@ -1242,12 +1242,45 @@ function normalizeTextForIntent(value: unknown): string {
   return '';
 }
 
+function hasHoldingAnalysisIntent(taskText: string): boolean {
+  return /持仓|仓位|调仓|盈亏|成本价|持仓成本|买入成本|成本线|成本偏离|账户|证券账户|总资产|可用资金|可用现金|浮动盈亏|持仓截图|截图持仓|账户截图|交易截图|组合持仓|我的组合|账户组合|持仓组合|交割单/.test(
+    taskText
+  );
+}
+
+function hasComparisonAnalysisIntent(taskText: string, plannedSymbols: string[]): boolean {
+  return (
+    plannedSymbols.length >= 2 ||
+    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池|累计收益|收益曲线|相关性|分散|流动性|成交额/.test(taskText) ||
+    (
+      /(?:股票|个股|a股|全a|股票池)/i.test(taskText) &&
+      /全a|a股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/i.test(taskText)
+    )
+  );
+}
+
 function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null): string | null {
   if (!runPlan) {
     return null;
   }
 
   const capabilityId = pickString(runPlan.capabilityId ?? runPlan.capability_id);
+  const taskText = normalizeTextForIntent([
+    runPlan.question,
+    runPlan.task,
+    runPlan.instruction,
+    runPlan.clarification,
+  ]);
+  const plannedSymbols = extractPlannedSymbols(runPlan);
+  const holdingIntent = hasHoldingAnalysisIntent(taskText);
+  const comparisonIntent = hasComparisonAnalysisIntent(taskText, plannedSymbols);
+
+  if (comparisonIntent && !holdingIntent) {
+    return 'stock-selection';
+  }
+  if (holdingIntent) {
+    return 'holding-analysis';
+  }
   if (capabilityId === 'portfolio_risk') {
     return 'holding-analysis';
   }
@@ -1265,27 +1298,6 @@ function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null):
   }
   if (capabilityId === 'fundamental_analysis') {
     return 'fundamental-research';
-  }
-
-  const taskText = normalizeTextForIntent([
-    runPlan.question,
-    runPlan.task,
-    runPlan.instruction,
-    runPlan.clarification,
-  ]);
-  if (/持仓|仓位|组合|调仓|盈亏|成本|账户|总资产|可用资金|浮动盈亏|持仓截图/.test(taskText)) {
-    return 'holding-analysis';
-  }
-  const plannedSymbols = extractPlannedSymbols(runPlan);
-  if (
-    plannedSymbols.length >= 2 ||
-    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(taskText) ||
-    (
-      /(?:股票|个股|a股|全a|股票池)/i.test(taskText) &&
-      /全a|a股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/i.test(taskText)
-    )
-  ) {
-    return 'stock-selection';
   }
 
   return null;
@@ -2111,6 +2123,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         ...common,
         '生成或修复 data_file/final/dashboard-data.json。',
         '读取 .quantpilot/run_plan.json 和现有 raw/final/evidence 数据，按真实数据重组 final 文件，不要只创建空 JSON。',
+        '如果原始需求、run_plan.symbols 或 final 数据显示是多标的对比/相关性/累计收益任务，但 run_plan 被误写成 portfolio_risk 或 holding-analysis，必须先把 .quantpilot/run_plan.json 修回 asset_comparison/stock-selection，再同步 final 数据和页面。',
         '确保 final 数据包含 symbol/name/source/as_of、quote.price/change_percent/quote_time，以及 kline.bars[] 或 history.bars[]；每根 K 线至少包含 date/open/high/low/close/volume 或 amount。',
         '多标的任务必须覆盖 run_plan.symbols 中的全部代码，并写入 requestedSymbols、assets[] 与 comparison.rows[]；comparison.rows[] 必须包含 symbol/name、价格或收益、回撤/波动/成交额等可排序字段。',
         'final 数据必须包含 visualization.template_id、variant_id、required_components 和 rendered_components，并与 run_plan.visualization.templateId 对齐。',
@@ -2142,6 +2155,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         ...common,
         '让 app/page.tsx 使用 QuantPilot 标准数据绑定结构读取 data_file/final/dashboard-data.json。',
         '保留 DATA_FILE、readDashboardData()、getBars() 或 data-source-file={DATA_FILE} 等标准入口。',
+        '如果页面残留持仓矩阵、调仓优先级或 holding-analysis，但任务实际是多标的对比/相关性看板，先修 run_plan 和 final visualization.template_id，再把页面改回 stock-selection 多标的结构。',
         '不要把完整行情、K 线、财务或公告对象内联到页面代码。',
       ];
     case 'chart_presence':
@@ -2150,6 +2164,8 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         '补齐真实金融图表：K 线/OHLC、成交量、均线、财务趋势、收益/回撤/波动或风险指标。',
         '图表必须有语义染色、坐标/图例/tooltip/title 等读图辅助。',
         '多标的任务必须展示对比矩阵、收益对比、波动/回撤或相对强弱摘要。',
+        '用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”时必须绘制带日期轴、统一尺度和图例的折线图，不能用柱状图、指标卡或 sparkline 替代。',
+        '用户明确要求“相关性矩阵/热力图/分散风险图谱”时必须绘制真实矩阵或热力图，并展示标的标签、数值和颜色刻度。',
       ];
     case 'market_proxy':
       return [
@@ -2284,10 +2300,12 @@ ${repairSteps || '请重新检查验证报告并补齐缺失产物。'}
 11. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
 12. 移动端不能只在首屏展示标题、指标卡和说明；390x844 首屏内必须能看到核心图表、矩阵或表格的主体区域。
 13. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
-14. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须同步修复 .quantpilot/run_plan.json、data_file/final/dashboard-data.json 的 visualization.template_id 和 app/page.tsx 的页面结构。
-15. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
-16. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
-17. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+14. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须先根据原始用户需求、run_plan.symbols、requestedSymbols、assets[] 和 comparison 判断真实任务；多标的对比/相关性/累计收益任务应使用 asset_comparison + stock-selection，不要强行改成 holding-analysis。
+15. 如果用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”，必须绘制带日期轴、统一尺度和图例的折线图；如果要求“相关性矩阵/热力图”，必须绘制真实矩阵/热力图。
+16. 未被用户明确要求时，不得新增短线交易计划、买卖点、止损、目标价或调仓指令；可以只保留研究结论、风险和数据限制。
+17. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
+18. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
+19. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(

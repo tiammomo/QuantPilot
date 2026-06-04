@@ -1178,6 +1178,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       : finalInstruction;
     const effectiveDisplayInstruction =
       clarificationContinuation?.displayInstruction ?? displayInstruction;
+    const userVisibleInstructionForRepair =
+      effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+        ? effectiveDisplayInstruction.trim()
+        : finalInstruction;
 
     const isInitialPrompt =
       body.isInitialPrompt === true ||
@@ -1285,13 +1289,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         status: "running",
         summary: "开始生成 run plan。",
       });
+      const planningInstruction =
+        effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+          ? effectiveDisplayInstruction.trim()
+          : effectiveInstruction;
       const runPlan = await writeInitialRunPlan({
         projectPath,
-        instruction: effectiveInstruction,
+        instruction: planningInstruction,
         requestId,
         capabilityId: quantCapabilityId,
         capabilitySource: quantCapabilitySource,
         hasImageAttachments: processedImages.length > 0,
+        previousPlan: previousRunPlan,
       });
 
       if (
@@ -1653,7 +1662,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           repairExecutor: cliRuntime.applyChanges,
           projectId: project_id,
           projectPath,
-          instruction: effectiveInstruction,
+          instruction: userVisibleInstructionForRepair,
           selectedModel,
           sessionId,
           requestId,
