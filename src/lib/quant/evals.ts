@@ -8,6 +8,7 @@ type JsonRecord = Record<string, unknown>;
 
 const ROOT = process.cwd();
 const CASES_PATH = path.join(ROOT, 'benchmarks', 'quantpilot', 'cases.json');
+const EVAL_SETS_PATH = path.join(ROOT, 'benchmarks', 'quantpilot', 'eval-sets.json');
 const REPORTS_DIR = path.join(ROOT, 'tmp', 'quantpilot-benchmark-reports');
 const QUEUE_DIR = path.join(ROOT, 'tmp', 'quantpilot-eval-queue');
 const QUEUE_PATH = path.join(QUEUE_DIR, 'queue.json');
@@ -17,6 +18,9 @@ const REPAIRS_PATH = path.join(REPAIRS_DIR, 'repairs.json');
 const SCHEDULE_PATH = path.join(QUEUE_DIR, 'schedule.json');
 let queueKickoffInProgress = false;
 const runningChildren = new Map<string, ChildProcess>();
+const DEFAULT_EVALUATOR_ID = 'rule-strict';
+const DEFAULT_EVAL_CONCURRENCY = 1;
+const MAX_EVAL_CONCURRENCY = 16;
 
 const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
   {
@@ -92,6 +96,15 @@ export interface QuantEvalCase {
   visualCheck: boolean;
 }
 
+export interface QuantEvalSetDefinition {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  caseIds: string[];
+  custom: boolean;
+}
+
 export interface QuantEvalCheck {
   id: string;
   name: string;
@@ -165,6 +178,10 @@ export interface QuantEvalRun {
     startedAt: string | null;
     finishedAt: string | null;
     command: string[];
+    evaluator: {
+      id: string | null;
+      concurrency: number;
+    };
     runtime: {
       cli: string | null;
       model: string | null;
@@ -175,6 +192,7 @@ export interface QuantEvalRun {
       limit: number | null;
       keepProjects: boolean;
       caseCount: number;
+      concurrency: number;
     };
     skillLockSnapshot: {
       schemaVersion: string | number | null;
@@ -207,6 +225,7 @@ export interface QuantEvalDashboardData {
   casesPath: string;
   runtimeOptions: QuantEvalRuntimeOption[];
   cases: QuantEvalCase[];
+  customEvalSets: QuantEvalSetDefinition[];
   runs: QuantEvalRun[];
   queue: QuantEvalQueueItem[];
   repairTickets: QuantEvalRepairTicket[];
@@ -224,6 +243,30 @@ export interface QuantEvalDashboardData {
     latestFailedCount: number;
     latestTotal: number;
   };
+}
+
+export interface CreateQuantEvalCaseInput {
+  id?: string;
+  name?: string;
+  question?: string;
+  capabilityId?: string;
+  type?: string;
+  expectedSymbols?: string[];
+  expectedAssetType?: string | null;
+  expectedTemplateId?: string | null;
+  expectedDatasets?: string[];
+  expectedRawFiles?: string[];
+  expectedFinalFields?: string[];
+  expectClarification?: boolean;
+  visualCheck?: boolean;
+}
+
+export interface CreateQuantEvalSetInput {
+  id?: string;
+  name?: string;
+  description?: string;
+  category?: string;
+  caseIds?: string[];
 }
 
 export interface QuantEvalRuntimeOption {
@@ -247,6 +290,8 @@ export interface QuantEvalQueueItem {
   cli: string;
   model: string;
   reasoningEffort: string;
+  evaluatorId: string;
+  concurrency: number;
   selectedCases: string[];
   limit: number | null;
   keepProjects: boolean;
@@ -290,6 +335,8 @@ export interface StartQuantEvalOptions {
   cli?: string;
   model?: string;
   reasoningEffort?: string;
+  evaluatorId?: string;
+  concurrency?: number;
   selectedCases?: string[];
   limit?: number | null;
   keepProjects?: boolean;
@@ -311,11 +358,16 @@ export interface QuantEvalFlowSimulation {
     model: string;
     reasoningEffort: string;
   };
+  evaluator: {
+    id: string;
+    concurrency: number;
+  };
   selection: {
     selectedCases: string[];
     limit: number | null;
     keepProjects: boolean;
     caseCount: number;
+    concurrency: number;
   };
   selectedCaseIds: string[];
   command: string[];
@@ -395,6 +447,18 @@ function defaultModelForEvalCli(cli: string | null | undefined): string {
 function normalizeEvalReasoningEffort(cli: string | null | undefined, value: string | null | undefined): string {
   if (!supportsReasoningEffort(cli)) return '';
   return value || 'low';
+}
+
+function normalizeEvaluatorId(value: unknown): string {
+  const normalized = stringValue(value, DEFAULT_EVALUATOR_ID).trim();
+  return normalized || DEFAULT_EVALUATOR_ID;
+}
+
+function normalizeEvalConcurrency(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_EVAL_CONCURRENCY;
+  }
+  return Math.min(MAX_EVAL_CONCURRENCY, Math.max(1, Math.floor(value)));
 }
 
 function stringArray(value: unknown): string[] {
@@ -480,12 +544,18 @@ function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]): Quan
   const metadata = isRecord(report.metadata) ? report.metadata : {};
   const runtime = isRecord(metadata.runtime) ? metadata.runtime : {};
   const selection = isRecord(metadata.selection) ? metadata.selection : {};
+  const evaluator = isRecord(metadata.evaluator) ? metadata.evaluator : {};
+  const concurrency = normalizeEvalConcurrency(selection.concurrency ?? evaluator.concurrency);
 
   return {
     trigger: stringValue(metadata.trigger) || null,
     startedAt: stringValue(metadata.startedAt) || stringValue(report.createdAt) || null,
     finishedAt: stringValue(metadata.finishedAt) || stringValue(report.createdAt) || null,
     command: stringArray(metadata.command),
+    evaluator: {
+      id: stringValue(evaluator.id) || null,
+      concurrency,
+    },
     runtime: {
       cli: stringValue(runtime.cli) || 'benchmark',
       model: stringValue(runtime.model) || 'deterministic',
@@ -496,6 +566,7 @@ function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]): Quan
       limit: typeof selection.limit === 'number' ? selection.limit : null,
       keepProjects: booleanValue(selection.keepProjects),
       caseCount: numberValue(selection.caseCount, results.length),
+      concurrency,
     },
     skillLockSnapshot: normalizeSkillLockSnapshot(metadata.skillLockSnapshot),
   };
@@ -716,6 +787,8 @@ function mapDbQueueItem(record: {
     cli: record.cli,
     model: record.model,
     reasoningEffort: record.reasoningEffort,
+    evaluatorId: DEFAULT_EVALUATOR_ID,
+    concurrency: DEFAULT_EVAL_CONCURRENCY,
     selectedCases: stringArray(record.selectedCases),
     limit: record.limit,
     keepProjects: record.keepProjects,
@@ -998,6 +1071,8 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       cli: stringValue(item.cli, 'claude'),
       model: stringValue(item.model, defaultModelForEvalCli(stringValue(item.cli, 'claude'))),
       reasoningEffort: normalizeEvalReasoningEffort(stringValue(item.cli, 'claude'), stringValue(item.reasoningEffort)),
+      evaluatorId: normalizeEvaluatorId(item.evaluatorId),
+      concurrency: normalizeEvalConcurrency(item.concurrency),
       selectedCases: stringArray(item.selectedCases),
       limit: typeof item.limit === 'number' ? item.limit : null,
       keepProjects: booleanValue(item.keepProjects),
@@ -1011,7 +1086,15 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
     .filter((item) => item.id);
   const byId = new Map<string, QuantEvalQueueItem>();
   for (const item of fileItems) byId.set(item.id, item);
-  for (const item of dbItems) byId.set(item.id, item);
+  for (const item of dbItems) {
+    const fileItem = byId.get(item.id);
+    byId.set(item.id, {
+      ...fileItem,
+      ...item,
+      evaluatorId: fileItem?.evaluatorId ?? item.evaluatorId,
+      concurrency: fileItem?.concurrency ?? item.concurrency,
+    });
+  }
   return Array.from(byId.values())
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 50);
@@ -1083,6 +1166,8 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     cli,
     model: options.model || defaultModelForEvalCli(cli),
     reasoningEffort: normalizeEvalReasoningEffort(cli, options.reasoningEffort),
+    evaluatorId: normalizeEvaluatorId(options.evaluatorId),
+    concurrency: normalizeEvalConcurrency(options.concurrency),
     selectedCases,
     limit,
     keepProjects: Boolean(options.keepProjects),
@@ -1315,6 +1400,8 @@ function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
   const args = [
     'scripts/evals/run-quant-benchmarks.js',
     '--trigger=eval-backend',
+    `--evaluator=${item.evaluatorId}`,
+    `--concurrency=${item.concurrency}`,
     `--cli=${item.cli}`,
     `--model=${item.model}`,
   ];
@@ -1352,6 +1439,8 @@ function runBenchmarkQueueItem(item: QuantEvalQueueItem) {
       env: {
         ...process.env,
         QUANTPILOT_EVAL_TRIGGER: 'eval-backend',
+        QUANTPILOT_EVAL_EVALUATOR: item.evaluatorId,
+        QUANTPILOT_EVAL_CONCURRENCY: String(item.concurrency),
         QUANTPILOT_EVAL_CLI: item.cli,
         QUANTPILOT_EVAL_MODEL: item.model,
         ...(supportsReasoningEffort(item.cli) ? { QUANTPILOT_EVAL_REASONING_EFFORT: item.reasoningEffort || 'low' } : {}),
@@ -1498,9 +1587,134 @@ function buildSkillVersionImpact(runs: QuantEvalRun[]): QuantEvalSkillVersionImp
     .slice(0, 30);
 }
 
-export async function getQuantEvalCases(): Promise<QuantEvalCase[]> {
+function slugifyEvalId(value: string, prefix: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return slug ? `${prefix}-${slug}` : uniqueId(prefix);
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(String).map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeCustomEvalSet(value: JsonRecord): QuantEvalSetDefinition {
+  return {
+    id: stringValue(value.id, uniqueId('custom-set')),
+    name: stringValue(value.name, '未命名评测集'),
+    description: stringValue(value.description),
+    category: stringValue(value.category, '自定义'),
+    caseIds: stringArray(value.caseIds),
+    custom: true,
+  };
+}
+
+async function readRawEvalCases(): Promise<JsonRecord[]> {
   const parsed = await readJson(CASES_PATH).catch(() => []);
-  return readRecordArray(parsed).map(normalizeCase);
+  return readRecordArray(parsed);
+}
+
+async function readCustomEvalSetsRaw(): Promise<JsonRecord[]> {
+  const parsed = await readJson(EVAL_SETS_PATH).catch(() => []);
+  return readRecordArray(parsed);
+}
+
+export async function getQuantEvalCases(): Promise<QuantEvalCase[]> {
+  return (await readRawEvalCases()).map(normalizeCase);
+}
+
+export async function getQuantEvalSets(): Promise<QuantEvalSetDefinition[]> {
+  const cases = await getQuantEvalCases();
+  const caseIds = new Set(cases.map((testCase) => testCase.id));
+  return (await readCustomEvalSetsRaw())
+    .map(normalizeCustomEvalSet)
+    .map((evalSet) => ({
+      ...evalSet,
+      caseIds: evalSet.caseIds.filter((caseId) => caseIds.has(caseId)),
+    }))
+    .filter((evalSet) => evalSet.caseIds.length > 0);
+}
+
+export async function createQuantEvalCase(input: CreateQuantEvalCaseInput): Promise<QuantEvalCase> {
+  const rawCases = await readRawEvalCases();
+  const existingIds = new Set(rawCases.map((item) => stringValue(item.id)).filter(Boolean));
+  const name = stringValue(input.name).trim();
+  const question = stringValue(input.question).trim();
+  const capabilityId = stringValue(input.capabilityId, 'asset_comparison').trim();
+  const type = stringValue(input.type, 'generated_project').trim();
+  const id = stringValue(input.id).trim() || slugifyEvalId(name || capabilityId, 'case');
+
+  if (!id || !/^[\w:-]+$/u.test(id)) throw new Error('用例 ID 只能包含字母、数字、下划线、短横线和冒号。');
+  if (existingIds.has(id)) throw new Error(`用例 ID 已存在：${id}`);
+  if (!name) throw new Error('请填写用例名称。');
+  if (!question) throw new Error('请填写用户 Query。');
+
+  const expectedSymbols = normalizeStringList(input.expectedSymbols);
+  const record: JsonRecord = {
+    id,
+    name,
+    question,
+    capabilityId,
+    type,
+  };
+
+  if (expectedSymbols.length === 1) record.expectedSymbol = expectedSymbols[0];
+  if (expectedSymbols.length > 1) record.expectedSymbols = expectedSymbols;
+  if (input.expectedAssetType) record.expectedAssetType = input.expectedAssetType;
+  if (input.expectedTemplateId) record.expectedTemplateId = input.expectedTemplateId;
+  const expectedDatasets = normalizeStringList(input.expectedDatasets);
+  const expectedRawFiles = normalizeStringList(input.expectedRawFiles);
+  const expectedFinalFields = normalizeStringList(input.expectedFinalFields);
+  if (expectedDatasets.length) record.expectedDatasets = expectedDatasets;
+  if (expectedRawFiles.length) record.expectedRawFiles = expectedRawFiles;
+  if (expectedFinalFields.length) record.expectedFinalFields = expectedFinalFields;
+  if (input.expectClarification) record.expectClarification = true;
+  if (input.visualCheck) record.visualCheck = true;
+
+  await writeJson(CASES_PATH, [...rawCases, record]);
+  return normalizeCase(record);
+}
+
+export async function createQuantEvalSet(input: CreateQuantEvalSetInput): Promise<QuantEvalSetDefinition> {
+  const rawSets = await readCustomEvalSetsRaw();
+  const cases = await getQuantEvalCases();
+  const caseIds = new Set(cases.map((testCase) => testCase.id));
+  const selectedCaseIds = normalizeStringList(input.caseIds).filter((caseId) => caseIds.has(caseId));
+  const reservedIds = new Set<string>(['all']);
+  for (const testCase of cases) {
+    reservedIds.add(`capability:${testCase.capabilityId}`);
+    reservedIds.add(`type:${testCase.type}`);
+  }
+  if (cases.some((testCase) => testCase.visualCheck || testCase.hasImageAttachment)) reservedIds.add('special:visual');
+  if (cases.some((testCase) => testCase.expectClarification || testCase.type.includes('clarification'))) reservedIds.add('special:clarification');
+  const existingIds = new Set([...rawSets.map((item) => stringValue(item.id)).filter(Boolean), ...reservedIds]);
+  const name = stringValue(input.name).trim();
+  const id = stringValue(input.id).trim() || slugifyEvalId(name || 'eval-set', 'custom');
+
+  if (!id || !/^[\w:-]+$/u.test(id)) throw new Error('评测集 ID 只能包含字母、数字、下划线、短横线和冒号。');
+  if (existingIds.has(id)) throw new Error(`评测集 ID 已存在：${id}`);
+  if (!name) throw new Error('请填写评测集名称。');
+  if (!selectedCaseIds.length) throw new Error('请至少选择一个测试用例。');
+
+  const record: JsonRecord = {
+    id,
+    name,
+    description: stringValue(input.description),
+    category: stringValue(input.category, '自定义'),
+    caseIds: selectedCaseIds,
+  };
+
+  await writeJson(EVAL_SETS_PATH, [...rawSets, record]);
+  return normalizeCustomEvalSet(record);
 }
 
 export async function getQuantEvalRuns(limit = 30): Promise<QuantEvalRun[]> {
@@ -1606,16 +1820,24 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
     detail: missingCases.length ? `未找到用例：${missingCases.join(', ')}` : null,
   });
 
+  pushStep({
+    id: 'evaluator',
+    name: '评测器配置',
+    status: virtualItem.evaluatorId ? 'passed' : 'failed',
+    summary: `${virtualItem.evaluatorId} · 并发上限 ${virtualItem.concurrency}`,
+    detail: null,
+  });
+
   const runtime = EVAL_RUNTIME_OPTIONS.find((option) => option.cli === virtualItem.cli);
   const modelKnown = runtime?.models.some((model) => model.id === virtualItem.model);
   pushStep({
     id: 'runtime',
-    name: '评测器运行时',
+    name: '底层执行能力',
     status: runtime && modelKnown ? 'passed' : runtime ? 'warning' : 'failed',
     summary: runtime
-      ? `${runtime.label} / ${virtualItem.model}`
-      : `未注册运行器：${virtualItem.cli}`,
-    detail: runtime && !modelKnown ? '模型不在运行器白名单内，将按传入模型尝试执行。' : null,
+      ? '已匹配评测器所需的执行能力。'
+      : `未注册执行能力：${virtualItem.cli}`,
+    detail: runtime && !modelKnown ? '底层模型不在运行器白名单内，将按传入配置尝试执行。' : null,
   });
 
   const benchmarkScript = path.join(ROOT, 'scripts', 'evals', 'run-quant-benchmarks.js');
@@ -1676,11 +1898,16 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
       model: virtualItem.model,
       reasoningEffort: virtualItem.reasoningEffort,
     },
+    evaluator: {
+      id: virtualItem.evaluatorId,
+      concurrency: virtualItem.concurrency,
+    },
     selection: {
       selectedCases,
       limit,
       keepProjects: virtualItem.keepProjects,
       caseCount: scopedCases.length,
+      concurrency: virtualItem.concurrency,
     },
     selectedCaseIds: scopedCases.map((testCase) => testCase.id),
     command,
@@ -1786,8 +2013,9 @@ export async function getQuantEvalRun(runId: string): Promise<QuantEvalRun | nul
 }
 
 export async function getQuantEvalDashboardData(): Promise<QuantEvalDashboardData> {
-  const [cases, runs, queue, repairTickets, schedule] = await Promise.all([
+  const [cases, customEvalSets, runs, queue, repairTickets, schedule] = await Promise.all([
     getQuantEvalCases(),
+    getQuantEvalSets(),
     getQuantEvalRuns(),
     getQuantEvalQueue(),
     readRepairTickets(),
@@ -1802,6 +2030,7 @@ export async function getQuantEvalDashboardData(): Promise<QuantEvalDashboardDat
     casesPath: path.relative(ROOT, CASES_PATH),
     runtimeOptions: EVAL_RUNTIME_OPTIONS,
     cases,
+    customEvalSets,
     runs,
     queue,
     repairTickets,

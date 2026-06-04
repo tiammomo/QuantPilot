@@ -1,37 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
   Activity,
-  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Cpu,
   FolderOpen,
   Gauge,
-  Loader2,
-  Play,
-  RefreshCcw,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { EvalCasesView } from "@/components/quant/eval-cases-view";
-import { EvalEvaluatorView } from "@/components/quant/eval-evaluator-view";
+import {
+  EvalEvaluatorView,
+  getEvalEvaluatorOption,
+  type EvalEvaluatorId,
+} from "@/components/quant/eval-evaluator-view";
 import { EvalOverviewView } from "@/components/quant/eval-overview-view";
 import { EvalQueueView } from "@/components/quant/eval-queue-view";
 import { EvalSetsView } from "@/components/quant/eval-sets-view";
 import {
-  EVAL_SET_PAGE_SIZE,
-  FALLBACK_RUNTIME,
   buildEvalSets,
-  getEvalSetStats,
-  getInitialRuntime,
   getLatestRunDelta,
-  getReasoningEffort,
-  getRuntimeOption,
   hasActiveQueue,
   type EvalSet,
   type EvalView,
@@ -41,6 +36,11 @@ import { cn } from "@/lib/utils";
 
 type Props = { data: QuantEvalDashboardData };
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+const EVAL_PLATFORM_ACCENT = {
+  "--primary": "221 83% 53%",
+  "--primary-foreground": "0 0% 100%",
+  "--ring": "221 83% 53%",
+} as CSSProperties;
 
 const VIEW_TABS: { id: EvalView; label: string; icon: typeof Gauge }[] = [
   { id: "overview", label: "仪表盘", icon: Gauge },
@@ -58,25 +58,15 @@ export default function EvalsDashboardClient({ data }: Props) {
   const [evalSetKeyword, setEvalSetKeyword] = useState("");
   const [evalSetCategoryFilter, setEvalSetCategoryFilter] = useState("all");
   const [evalSetPage, setEvalSetPage] = useState(1);
-  const [selectedCase, setSelectedCase] = useState("all");
-  const [limit, setLimit] = useState("all");
-  const initialRuntime = getInitialRuntime(data);
-  const initialScheduleRuntime = getRuntimeOption(data.runtimeOptions, data.schedule.cli || initialRuntime.cli);
-  const [benchmarkCli, setBenchmarkCli] = useState(initialRuntime.cli);
-  const [benchmarkModel, setBenchmarkModel] = useState(initialRuntime.defaultModel);
-  const [benchmarkReasoningEffort, setBenchmarkReasoningEffort] = useState(getReasoningEffort(initialRuntime, "low"));
+  const [evalSetPageSize, setEvalSetPageSize] = useState(10);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
+  const limit = "all";
+  const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<EvalEvaluatorId>("rule-strict");
+  const [evaluatorConcurrency, setEvaluatorConcurrency] = useState(getEvalEvaluatorOption("rule-strict").defaultConcurrency);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [isSimulatingFlow, setIsSimulatingFlow] = useState(false);
   const [flowSimulation, setFlowSimulation] = useState<QuantEvalFlowSimulation | null>(null);
-  const [scheduleEnabled, setScheduleEnabled] = useState(data.schedule.enabled);
-  const [scheduleInterval, setScheduleInterval] = useState(String(data.schedule.intervalHours));
-  const [scheduleCli, setScheduleCli] = useState(initialScheduleRuntime.cli);
-  const [scheduleModel, setScheduleModel] = useState(data.schedule.model || initialScheduleRuntime.defaultModel);
-  const [scheduleReasoningEffort, setScheduleReasoningEffort] = useState(getReasoningEffort(initialScheduleRuntime, data.schedule.reasoningEffort || "low"));
-  const [scheduleCase, setScheduleCase] = useState(data.schedule.selectedCases[0] ?? "all");
 
   const latestRun = dashboard.latestRun;
   const delta = getLatestRunDelta(dashboard.runs);
@@ -101,28 +91,24 @@ export default function EvalsDashboardClient({ data }: Props) {
       return [es.name, es.description, es.category, ...es.caseIds].join(" ").toLowerCase().includes(kw);
     });
   }, [evalSetCategoryFilter, evalSetKeyword, evalSets]);
-  const evalSetPageCount = Math.max(1, Math.ceil(filteredEvalSets.length / EVAL_SET_PAGE_SIZE));
-  const pagedEvalSets = filteredEvalSets.slice(
-    (Math.min(evalSetPage, evalSetPageCount) - 1) * EVAL_SET_PAGE_SIZE,
-    Math.min(evalSetPage, evalSetPageCount) * EVAL_SET_PAGE_SIZE
-  );
+  const evalSetPageCount = Math.max(1, Math.ceil(filteredEvalSets.length / evalSetPageSize));
 
-  const runtimeOptions = dashboard.runtimeOptions.length ? dashboard.runtimeOptions : data.runtimeOptions.length ? data.runtimeOptions : [FALLBACK_RUNTIME];
-  const benchmarkRuntime = getRuntimeOption(runtimeOptions, benchmarkCli);
-  const benchmarkRuntimeSupportsReasoning = benchmarkRuntime.supportsReasoningEffort;
-  const scheduleRuntime = getRuntimeOption(runtimeOptions, scheduleCli);
-  const scheduleRuntimeSupportsReasoning = scheduleRuntime.supportsReasoningEffort;
+  const selectedEvaluator = useMemo(() => getEvalEvaluatorOption(selectedEvaluatorId), [selectedEvaluatorId]);
 
-  const updateBenchmarkCli = (cli: string) => {
-    const rt = getRuntimeOption(runtimeOptions, cli);
-    setBenchmarkCli(cli); setBenchmarkModel(rt.defaultModel); setBenchmarkReasoningEffort(getReasoningEffort(rt, benchmarkReasoningEffort));
+  const selectEvaluator = (id: EvalEvaluatorId) => {
+    const nextEvaluator = getEvalEvaluatorOption(id);
+    setSelectedEvaluatorId(id);
+    setEvaluatorConcurrency((current) => Math.min(nextEvaluator.maxConcurrency, Math.max(1, current || nextEvaluator.defaultConcurrency)));
   };
-  const updateScheduleCli = (cli: string) => {
-    const rt = getRuntimeOption(runtimeOptions, cli);
-    setScheduleCli(cli); setScheduleModel(rt.defaultModel); setScheduleReasoningEffort(getReasoningEffort(rt, scheduleReasoningEffort));
+  const selectEvalSet = (id: string) => { setSelectedEvalSetId(id); setSelectedCaseIds([]); };
+  const startSelectedEvalSet = () => startBenchmark(undefined, selectedEvalSet, true);
+  const startEvalSet = (id: string) => {
+    const evalSet = evalSets.find((item) => item.id === id);
+    if (!evalSet) return;
+    setSelectedEvalSetId(id);
+    setSelectedCaseIds([]);
+    void startBenchmark(undefined, evalSet, true);
   };
-  const selectEvalSet = (id: string) => { setSelectedEvalSetId(id); setSelectedCase("all"); };
-  const startSelectedEvalSet = () => startBenchmark(undefined, selectedEvalSet);
 
   const showToast = useCallback((type: "success" | "error", message: string) => {
     setToast({ type, message });
@@ -130,7 +116,6 @@ export default function EvalsDashboardClient({ data }: Props) {
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    setIsRefreshing(true);
     try {
       const r = await fetch(`${API_BASE}/api/evals`, { cache: "no-store" });
       const p = await r.json();
@@ -138,19 +123,38 @@ export default function EvalsDashboardClient({ data }: Props) {
       setDashboard(p.data);
     } catch (error) {
       showToast("error", error instanceof Error ? error.message : String(error));
-    } finally { setIsRefreshing(false); }
+    }
   }, [showToast]);
 
   useEffect(() => { if (!activeQueue) return; const t = setInterval(() => { void refreshDashboard(); }, 3000); return () => clearInterval(t); }, [activeQueue, refreshDashboard]);
   useEffect(() => { setEvalSetPage(1); }, [evalSetCategoryFilter, evalSetKeyword]);
   useEffect(() => { if (evalSetPage > evalSetPageCount) setEvalSetPage(evalSetPageCount); }, [evalSetPage, evalSetPageCount]);
+  useEffect(() => {
+    const validCaseIds = new Set(selectedEvalSetCases.map((testCase) => testCase.id));
+    setSelectedCaseIds((current) => current.filter((caseId) => validCaseIds.has(caseId)));
+  }, [selectedEvalSetCases]);
+  useEffect(() => { setFlowSimulation(null); }, [selectedEvaluatorId, evaluatorConcurrency, selectedEvalSetId]);
 
-  const startBenchmark = async (caseOverride?: string, setOverride?: EvalSet | null) => {
+  const startBenchmark = async (caseOverride?: string, setOverride?: EvalSet | null, forceAllCases = false) => {
     setIsStarting(true); setToast(null);
     const active = setOverride ?? selectedEvalSet;
-    const sc = caseOverride ? [caseOverride] : selectedCase === "all" && active.id !== "all" ? active.caseIds : selectedCase === "all" ? [] : [selectedCase];
+    const sc = forceAllCases ? active.id !== "all" ? active.caseIds : [] : caseOverride ? [caseOverride] : selectedCaseIds;
     try {
-      const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "start-benchmark", cli: benchmarkCli, model: benchmarkModel || benchmarkRuntime.defaultModel, reasoningEffort: benchmarkRuntimeSupportsReasoning ? benchmarkReasoningEffort : undefined, selectedCases: sc, limit: caseOverride || sc.length > 0 || limit === "all" ? null : Number(limit), keepProjects: false }) });
+      const r = await fetch(`${API_BASE}/api/evals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start-benchmark",
+          evaluatorId: selectedEvaluator.id,
+          cli: selectedEvaluator.cli,
+          model: selectedEvaluator.model,
+          reasoningEffort: selectedEvaluator.reasoningEffort,
+          concurrency: evaluatorConcurrency,
+          selectedCases: sc,
+          limit: caseOverride || sc.length > 0 || limit === "all" ? null : Number(limit),
+          keepProjects: false,
+        }),
+      });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "启动失败");
       showToast("success", "评测任务已进入队列。");
@@ -163,7 +167,21 @@ export default function EvalsDashboardClient({ data }: Props) {
     setIsSimulatingFlow(true); setToast(null);
     const sc = selectedEvalSet.id === "all" ? [] : selectedEvalSet.caseIds;
     try {
-      const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "simulate-flow", cli: benchmarkCli, model: benchmarkModel || benchmarkRuntime.defaultModel, reasoningEffort: benchmarkRuntimeSupportsReasoning ? benchmarkReasoningEffort : undefined, selectedCases: sc, limit: sc.length || limit === "all" ? null : Number(limit), keepProjects: false }) });
+      const r = await fetch(`${API_BASE}/api/evals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "simulate-flow",
+          evaluatorId: selectedEvaluator.id,
+          cli: selectedEvaluator.cli,
+          model: selectedEvaluator.model,
+          reasoningEffort: selectedEvaluator.reasoningEffort,
+          concurrency: evaluatorConcurrency,
+          selectedCases: sc,
+          limit: sc.length || limit === "all" ? null : Number(limit),
+          keepProjects: false,
+        }),
+      });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "模拟失败");
       setFlowSimulation(p.data);
@@ -183,27 +201,29 @@ export default function EvalsDashboardClient({ data }: Props) {
     } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
   };
 
-  const saveSchedule = async () => {
-    setIsSavingSchedule(true); setToast(null);
-    try {
-      const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update-schedule", enabled: scheduleEnabled, intervalHours: Number(scheduleInterval), cli: scheduleCli, model: scheduleModel || scheduleRuntime.defaultModel, reasoningEffort: scheduleRuntimeSupportsReasoning ? scheduleReasoningEffort : undefined, selectedCases: scheduleCase === "all" ? [] : [scheduleCase], limit: null, keepProjects: false }) });
-      const p = await r.json();
-      if (!r.ok || !p.success) throw new Error(p.error ?? "保存失败");
-      showToast("success", "定时回归配置已保存。");
-      await refreshDashboard();
-    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
-    finally { setIsSavingSchedule(false); }
+  const createEvalCase = async (payload: Record<string, unknown>) => {
+    const r = await fetch(`${API_BASE}/api/evals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create-case", ...payload }),
+    });
+    const p = await r.json();
+    if (!r.ok || !p.success) throw new Error(p.error ?? "新增测试用例失败");
+    showToast("success", "测试用例已新增。");
+    await refreshDashboard();
   };
 
-  const checkScheduleNow = async () => {
-    setToast(null);
-    try {
-      const r = await fetch(`${API_BASE}/api/evals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check-schedule" }) });
-      const p = await r.json();
-      if (!r.ok || !p.success) throw new Error(p.error ?? "检查失败");
-      showToast("success", p.data.queued ? "已加入评测队列。" : "未到触发时间。");
-      await refreshDashboard();
-    } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
+  const createEvalSet = async (payload: Record<string, unknown>) => {
+    const r = await fetch(`${API_BASE}/api/evals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create-eval-set", ...payload }),
+    });
+    const p = await r.json();
+    if (!r.ok || !p.success) throw new Error(p.error ?? "新增评测集失败");
+    showToast("success", "评测集已新增。");
+    await refreshDashboard();
+    if (p.data?.id) selectEvalSet(p.data.id);
   };
 
   const latestResultByCase = useMemo(() => {
@@ -211,7 +231,6 @@ export default function EvalsDashboardClient({ data }: Props) {
     latestRun?.results.forEach((r) => { map.set(r.id, r); map.set(r.name, r); });
     return map;
   }, [latestRun]);
-  const selectedEvalSetStats = getEvalSetStats(selectedEvalSet, latestResultByCase);
   const filteredCases = useMemo(() => {
     const kw = caseKeyword.trim().toLowerCase();
     if (!kw) return selectedEvalSetCases;
@@ -226,9 +245,9 @@ export default function EvalsDashboardClient({ data }: Props) {
   };
 
   return (
-    <div className="dark flex h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-background text-foreground" style={EVAL_PLATFORM_ACCENT}>
       {/* Sidebar */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border/30 bg-[hsl(222,30%,5%)]">
+      <aside className="flex w-60 shrink-0 flex-col border-r border-border/30 bg-card/70">
         {/* Logo */}
         <div className="flex h-14 items-center gap-3 border-b border-border/30 px-5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
@@ -236,7 +255,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           </div>
           <div>
             <h1 className="text-sm font-bold text-foreground">评测平台</h1>
-            <p className="text-[10px] text-muted-foreground">Agent 控制台</p>
+            <p className="text-[10px] text-muted-foreground">智能体控制台</p>
           </div>
         </div>
 
@@ -294,18 +313,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={refreshDashboard} disabled={isRefreshing} className="gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-              <RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
-              <span className="hidden sm:inline">刷新</span>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={checkScheduleNow} className="gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-              <CalendarClock className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">检查定时</span>
-            </Button>
-            <Button size="sm" onClick={startSelectedEvalSet} disabled={isStarting} className="gap-1.5 text-xs">
-              {isStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">启动评测</span>
-            </Button>
+            <ThemeToggle compact />
           </div>
         </header>
 
@@ -335,65 +343,61 @@ export default function EvalsDashboardClient({ data }: Props) {
 
             {activeView === "overview" && (
               <EvalOverviewView
-                dashboard={dashboard} latestRun={latestRun} delta={delta} activeQueueCount={activeQueueCount}
-                evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} limit={limit}
-                runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-                benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-                benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-                isStarting={isStarting} onSelectedEvalSetChange={selectEvalSet}
-                onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-                onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onLimitChange={setLimit}
-                onStart={startSelectedEvalSet}
+                dashboard={dashboard} delta={delta} activeQueueCount={activeQueueCount}
+                evalSets={evalSets}
               />
             )}
 
             {activeView === "cases" && (
               <EvalCasesView
-                caseKeyword={caseKeyword} selectedCase={selectedCase} totalCaseCount={dashboard.cases.length}
+                caseKeyword={caseKeyword} selectedCaseIds={selectedCaseIds} totalCaseCount={dashboard.cases.length}
                 filteredCases={filteredCases} selectedEvalSetCases={selectedEvalSetCases}
                 latestRun={latestRun} latestResultByCase={latestResultByCase} isStarting={isStarting}
-                onCaseKeywordChange={setCaseKeyword} onSelectedCaseChange={setSelectedCase}
-                onRunSelection={() => startBenchmark()} onRunCase={(caseId) => startBenchmark(caseId)}
+                onCaseKeywordChange={setCaseKeyword} onSelectedCaseIdsChange={setSelectedCaseIds}
+                onRunSelection={() => startBenchmark()}
+                onCreateCase={createEvalCase}
+                onRunCase={(caseId) => startBenchmark(caseId)}
               />
             )}
 
             {activeView === "evalSets" && (
               <EvalSetsView
-                evalSets={evalSets} filteredEvalSets={filteredEvalSets} pagedEvalSets={pagedEvalSets}
-                selectedEvalSet={selectedEvalSet} selectedEvalSetStats={selectedEvalSetStats}
-                latestResultByCase={latestResultByCase} evalSetKeyword={evalSetKeyword}
+                cases={dashboard.cases} runs={dashboard.runs} evalSets={evalSets} filteredEvalSets={filteredEvalSets}
+                selectedEvalSet={selectedEvalSet} evalSetKeyword={evalSetKeyword}
                 evalSetCategoryFilter={evalSetCategoryFilter} evalSetCategories={evalSetCategories}
-                evalSetPage={evalSetPage} evalSetPageCount={evalSetPageCount} isStarting={isStarting}
+                evalSetPage={evalSetPage} evalSetPageSize={evalSetPageSize} isStarting={isStarting}
                 onEvalSetKeywordChange={setEvalSetKeyword} onEvalSetCategoryFilterChange={setEvalSetCategoryFilter}
-                onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage} onRunSelectedEvalSet={startSelectedEvalSet}
+                onEvalSetSelect={selectEvalSet} onEvalSetPageChange={setEvalSetPage}
+                onEvalSetPageSizeChange={(pageSize) => {
+                  setEvalSetPageSize(pageSize);
+                  setEvalSetPage(1);
+                }}
+                onCreateEvalSet={createEvalSet}
+                onRunEvalSet={startEvalSet}
               />
             )}
 
             {activeView === "evaluator" && (
               <EvalEvaluatorView
-                runtimeOptions={runtimeOptions} benchmarkCli={benchmarkCli} benchmarkModel={benchmarkModel}
-                benchmarkReasoningEffort={benchmarkReasoningEffort} benchmarkRuntime={benchmarkRuntime}
-                benchmarkRuntimeSupportsReasoning={benchmarkRuntimeSupportsReasoning}
-                evalSets={evalSets} selectedEvalSetId={selectedEvalSetId} selectedEvalSet={selectedEvalSet}
+                selectedEvaluatorId={selectedEvaluatorId}
+                concurrency={evaluatorConcurrency}
+                evalSets={evalSets} selectedEvalSetId={selectedEvalSetId}
                 flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
-                onBenchmarkCliChange={updateBenchmarkCli} onBenchmarkModelChange={setBenchmarkModel}
-                onBenchmarkReasoningEffortChange={setBenchmarkReasoningEffort} onEvalSetSelect={selectEvalSet}
+                onEvaluatorSelect={selectEvaluator}
+                onConcurrencyChange={setEvaluatorConcurrency}
+                onEvalSetSelect={selectEvalSet}
                 onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
               />
             )}
 
             {activeView === "queue" && (
               <EvalQueueView
-                queue={dashboard.queue} schedule={dashboard.schedule} cases={dashboard.cases}
-                runtimeOptions={runtimeOptions} scheduleRuntime={scheduleRuntime}
-                scheduleRuntimeSupportsReasoning={scheduleRuntimeSupportsReasoning}
-                scheduleEnabled={scheduleEnabled} scheduleInterval={scheduleInterval}
-                scheduleCli={scheduleCli} scheduleModel={scheduleModel} scheduleReasoningEffort={scheduleReasoningEffort}
-                scheduleCase={scheduleCase} isSavingSchedule={isSavingSchedule}
-                onCancelBenchmark={cancelBenchmark} onScheduleEnabledChange={setScheduleEnabled}
-                onScheduleIntervalChange={setScheduleInterval} onScheduleCliChange={updateScheduleCli}
-                onScheduleModelChange={setScheduleModel} onScheduleReasoningEffortChange={setScheduleReasoningEffort}
-                onScheduleCaseChange={setScheduleCase} onSaveSchedule={saveSchedule}
+                queue={dashboard.queue}
+                runs={dashboard.runs}
+                evalSets={evalSets}
+                totalCaseCount={dashboard.cases.length}
+                onCancelBenchmark={cancelBenchmark}
+                onRefresh={refreshDashboard}
               />
             )}
 

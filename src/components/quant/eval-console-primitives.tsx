@@ -1,6 +1,15 @@
 import type { ReactNode } from 'react';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import type {
   QuantEvalDashboardData,
   QuantEvalFlowSimulation,
@@ -16,6 +25,7 @@ export type EvalSet = {
   description: string;
   category: string;
   caseIds: string[];
+  custom?: boolean;
 };
 
 export type EvalView = 'overview' | 'cases' | 'evalSets' | 'evaluator' | 'queue';
@@ -35,6 +45,174 @@ export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
 
 export const selectClassName =
   'h-9 w-full rounded-lg border border-border/40 bg-card/60 px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50';
+
+export type EvalSelectOption = {
+  value: string;
+  label: ReactNode;
+  disabled?: boolean;
+};
+
+export function EvalSelect({
+  value,
+  options,
+  onValueChange,
+  placeholder = '请选择',
+  className,
+  contentClassName,
+  disabled,
+}: {
+  value: string;
+  options: EvalSelectOption[];
+  onValueChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  contentClassName?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger className={className}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent className={contentClassName} position="popper">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function paginationItems(page: number, pageCount: number): Array<number | 'ellipsis'> {
+  if (pageCount <= 7) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
+  }
+
+  if (page <= 4) {
+    return [1, 2, 3, 4, 5, 'ellipsis', pageCount];
+  }
+
+  if (page >= pageCount - 3) {
+    return [1, 'ellipsis', pageCount - 4, pageCount - 3, pageCount - 2, pageCount - 1, pageCount];
+  }
+
+  return [1, 'ellipsis', page - 1, page, page + 1, 'ellipsis', pageCount];
+}
+
+export function EvalPagination({
+  page,
+  pageSize,
+  totalItems,
+  onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [10, 20, 50],
+}: {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  pageSizeOptions?: number[];
+}) {
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(pageCount, Math.max(1, page));
+  const start = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const end = Math.min(totalItems, currentPage * pageSize);
+  const goToPage = (nextPage: number) => onPageChange(Math.min(pageCount, Math.max(1, nextPage)));
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border/40 px-4 py-3 text-xs text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-3">
+        <span>
+          显示 {start}-{end} / 共 {totalItems} 条
+        </span>
+        <EvalSelect
+          value={String(pageSize)}
+          onValueChange={(value) => onPageSizeChange(Number(value))}
+          options={pageSizeOptions.map((option) => ({
+            value: String(option),
+            label: `${option} 条/页`,
+          }))}
+          className="h-8 w-[112px] rounded-md text-xs"
+          contentClassName="min-w-[112px]"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => goToPage(currentPage - 1)}
+          disabled={currentPage <= 1}
+          className="h-8 w-8 text-muted-foreground"
+          aria-label="上一页"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+
+        <div className="flex items-center gap-1">
+          {paginationItems(currentPage, pageCount).map((item, index) =>
+            item === 'ellipsis' ? (
+              <span key={`ellipsis-${index}`} className="flex h-8 min-w-8 items-center justify-center text-muted-foreground">
+                ...
+              </span>
+            ) : (
+              <button
+                key={item}
+                type="button"
+                onClick={() => goToPage(item)}
+                className={cn(
+                  'flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs font-medium transition-colors',
+                  item === currentPage
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-foreground hover:bg-muted',
+                )}
+              >
+                {item}
+              </button>
+            ),
+          )}
+        </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => goToPage(currentPage + 1)}
+          disabled={currentPage >= pageCount}
+          className="h-8 w-8 text-muted-foreground"
+          aria-label="下一页"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            const raw = Number(formData.get('page'));
+            if (Number.isFinite(raw)) goToPage(raw);
+          }}
+        >
+          <span>跳至</span>
+          <input
+            name="page"
+            type="number"
+            min={1}
+            max={pageCount}
+            className="h-8 w-12 rounded-md border border-border/50 bg-background px-2 text-center text-xs text-foreground outline-none transition focus:ring-2 focus:ring-primary/15"
+            aria-label="跳转页码"
+          />
+          <span>页</span>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export const EVAL_SET_PAGE_SIZE = 9;
 
@@ -60,7 +238,7 @@ export function passRateClass(rate: number) {
 export function statusPill(result?: QuantEvalResult) {
   if (!result) {
     return (
-      <Badge variant="outline" className="border-border/40 bg-muted/20 text-muted-foreground">
+      <Badge variant="outline" className="inline-flex whitespace-nowrap border-border/40 bg-muted/20 text-muted-foreground">
         未运行
       </Badge>
     );
@@ -68,7 +246,7 @@ export function statusPill(result?: QuantEvalResult) {
 
   if (result.passed) {
     return (
-      <Badge className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/10">
+      <Badge className="inline-flex whitespace-nowrap border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/10">
         <CheckCircle2 className="mr-1 h-3 w-3" />
         通过
       </Badge>
@@ -76,7 +254,7 @@ export function statusPill(result?: QuantEvalResult) {
   }
 
   return (
-    <Badge className="border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/10">
+    <Badge className="inline-flex whitespace-nowrap border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/10">
       <XCircle className="mr-1 h-3 w-3" />
       失败
     </Badge>
@@ -181,7 +359,17 @@ export function buildEvalSets(data: QuantEvalDashboardData): EvalSet[] {
     });
   }
 
-  return sets;
+  const knownCaseIds = new Set(cases.map((testCase) => testCase.id));
+  const customSets = (data.customEvalSets ?? []).map((evalSet) => ({
+    id: evalSet.id,
+    name: evalSet.name,
+    description: evalSet.description,
+    category: evalSet.category || '自定义',
+    caseIds: evalSet.caseIds.filter((caseId) => knownCaseIds.has(caseId)),
+    custom: evalSet.custom,
+  }));
+
+  return [...sets, ...customSets.filter((evalSet) => evalSet.caseIds.length > 0)];
 }
 
 export function DeltaText({ value, suffix = '' }: { value: number; suffix?: string }) {
@@ -215,7 +403,7 @@ export function StatTile({
   }[tone];
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card/80 px-5 py-4">
+    <div className="rounded-xl border border-slate-200/80 bg-card/80 px-5 py-4 dark:border-border/40">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -246,8 +434,8 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`min-w-0 rounded-xl border border-border/40 bg-card/80 ${className ?? ''}`}>
-      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border/30 px-5 py-3">
+    <section className={`min-w-0 rounded-xl border border-slate-200/80 bg-card/80 dark:border-border/40 ${className ?? ''}`}>
+      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-slate-200/70 px-5 py-3 dark:border-border/30">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {icon}
           <h2>{title}</h2>
