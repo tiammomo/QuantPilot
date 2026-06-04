@@ -3,25 +3,21 @@ import {
   BarChart3,
   ClipboardList,
   Clock,
-  Loader2,
-  Play,
   ShieldCheck,
   TrendingUp,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   CLI_LABELS,
-  ConfigField,
   DeltaText,
   Panel,
   StatTile,
   formatDuration,
   passRateClass,
   scoreClass,
-  selectClassName,
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalDashboardData, QuantEvalRun, QuantEvalRuntimeOption } from '@/lib/quant/evals';
+import type { QuantEvalDashboardData, QuantEvalRun } from '@/lib/quant/evals';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell,
@@ -33,27 +29,43 @@ type RunDelta = {
   failed: number;
 } | null;
 
+const chartGridColor = 'hsl(var(--border))';
+const chartTickColor = 'hsl(var(--muted-foreground))';
+const chartTooltipStyle = {
+  backgroundColor: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 8,
+  color: 'hsl(var(--foreground))',
+  fontSize: 12,
+};
+const chartCursor = { fill: 'hsl(var(--muted))' };
+
 type EvalOverviewViewProps = {
   dashboard: QuantEvalDashboardData;
-  latestRun: QuantEvalRun | null;
   delta: RunDelta;
   activeQueueCount: number;
   evalSets: EvalSet[];
-  selectedEvalSetId: string;
-  limit: string;
-  runtimeOptions: QuantEvalRuntimeOption[];
-  benchmarkCli: string;
-  benchmarkModel: string;
-  benchmarkReasoningEffort: string;
-  benchmarkRuntime: QuantEvalRuntimeOption;
-  benchmarkRuntimeSupportsReasoning: boolean;
-  isStarting: boolean;
-  onSelectedEvalSetChange: (evalSetId: string) => void;
-  onBenchmarkCliChange: (cli: string) => void;
-  onBenchmarkModelChange: (model: string) => void;
-  onBenchmarkReasoningEffortChange: (effort: string) => void;
-  onLimitChange: (limit: string) => void;
-  onStart: () => void;
+};
+
+type RecentEvalSetRow = {
+  run: QuantEvalRun;
+  evalSet: EvalSet | null;
+  selectedCount: number;
+};
+
+type RunTrendPoint = {
+  axisLabel: string;
+  fullTime: string;
+  runIndex: number;
+  passRate: number;
+  score: number;
+};
+
+type RunTrendTooltipPayload = {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: string | number;
+  payload?: RunTrendPoint;
 };
 
 function ScoreDistributionChart({ runs }: { runs: QuantEvalRun[] }) {
@@ -76,12 +88,12 @@ function ScoreDistributionChart({ runs }: { runs: QuantEvalRun[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={buckets} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,20%,18%)" vertical={false} />
-        <XAxis dataKey="range" tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} vertical={false} />
+        <XAxis dataKey="range" tick={{ fill: chartTickColor, fontSize: 11 }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fill: chartTickColor, fontSize: 11 }} axisLine={false} tickLine={false} />
         <Tooltip
-          contentStyle={{ backgroundColor: 'hsl(222,25%,10%)', border: '1px solid hsl(217,20%,18%)', borderRadius: 8, color: 'hsl(210,40%,95%)', fontSize: 12 }}
-          cursor={{ fill: 'hsl(217,25%,15%)' }}
+          contentStyle={chartTooltipStyle}
+          cursor={chartCursor}
         />
         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
           {buckets.map((_, index) => (
@@ -94,49 +106,191 @@ function ScoreDistributionChart({ runs }: { runs: QuantEvalRun[] }) {
 }
 
 function RunsOverTimeChart({ runs }: { runs: QuantEvalRun[] }) {
-  const chartData = [...runs].reverse().slice(-20).map((run, i) => ({
-    name: `第 ${i + 1} 次`,
-    passRate: run.passRate,
-    score: run.averageScore,
-  }));
+  const chronologicalRuns = [...runs].reverse();
+  const recentRuns = chronologicalRuns.slice(-20);
+  const runIndexOffset = chronologicalRuns.length - recentRuns.length;
+  const dayCounts = new Map<string, number>();
+  recentRuns.forEach((run) => {
+    const date = new Date(run.createdAt);
+    if (!Number.isNaN(date.getTime())) {
+      const dayKey = date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+      dayCounts.set(dayKey, (dayCounts.get(dayKey) ?? 0) + 1);
+    }
+  });
+
+  const chartData: RunTrendPoint[] = recentRuns.map((run, i) => {
+    const date = new Date(run.createdAt);
+    const isValidDate = !Number.isNaN(date.getTime());
+    const dayLabel = isValidDate ? date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '-';
+    const timeLabel = isValidDate ? date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '-';
+
+    return {
+      axisLabel: isValidDate && (dayCounts.get(dayLabel) ?? 0) > 1 ? timeLabel : dayLabel,
+      fullTime: isValidDate ? date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-',
+      runIndex: runIndexOffset + i + 1,
+      passRate: run.passRate,
+      score: run.averageScore,
+    };
+  });
 
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,20%,18%)" vertical={false} />
-        <XAxis dataKey="name" tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fill: 'hsl(217,15%,55%)', fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} vertical={false} />
+        <XAxis dataKey="axisLabel" tick={{ fill: chartTickColor, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+        <YAxis tick={{ fill: chartTickColor, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 100]} />
         <Tooltip
-          contentStyle={{ backgroundColor: 'hsl(222,25%,10%)', border: '1px solid hsl(217,20%,18%)', borderRadius: 8, color: 'hsl(210,40%,95%)', fontSize: 12 }}
+          contentStyle={chartTooltipStyle}
+          content={<RunTrendTooltip />}
         />
-        <Line type="monotone" dataKey="passRate" stroke="hsl(160,60%,45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(160,60%,45%)' }} name="通过率 %" />
+        <Line type="monotone" dataKey="passRate" stroke="hsl(160,60%,45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(160,60%,45%)' }} name="通过率" />
         <Line type="monotone" dataKey="score" stroke="hsl(217,91%,60%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(217,91%,60%)' }} name="平均分" />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
+function RunTrendTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: RunTrendTooltipPayload[];
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload as RunTrendPoint | undefined;
+  if (!point) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg shadow-black/10">
+      <div className="font-semibold text-foreground">{point.fullTime}</div>
+      <div className="mt-0.5 text-muted-foreground">第 {point.runIndex} 次运行</div>
+      <div className="mt-2 space-y-1">
+        {payload.map((item) => (
+          <div key={String(item.dataKey)} className="flex items-center justify-between gap-5">
+            <span className="text-muted-foreground">{item.name}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {item.value}
+              {item.dataKey === 'passRate' ? '%' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 60_000) return '刚刚';
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}天前`;
+  return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+}
+
+function isSameCaseSet(selectedCaseIds: string[], evalSetCaseIds: string[]) {
+  if (selectedCaseIds.length !== evalSetCaseIds.length) return false;
+  const expectedCaseIds = new Set(evalSetCaseIds);
+  return selectedCaseIds.every((caseId) => expectedCaseIds.has(caseId));
+}
+
+function resolveRunEvalSet(run: QuantEvalRun, evalSets: EvalSet[]) {
+  const selectedCaseIds = run.metadata.selection.selectedCases;
+  if (selectedCaseIds.length === 0) {
+    return evalSets.find((evalSet) => evalSet.id === 'all') ?? null;
+  }
+
+  return evalSets.find((evalSet) => isSameCaseSet(selectedCaseIds, evalSet.caseIds)) ?? null;
+}
+
+function RecentEvalSetsPanel({
+  runs,
+  evalSets,
+}: {
+  runs: QuantEvalRun[];
+  evalSets: EvalSet[];
+}) {
+  const recentRows: RecentEvalSetRow[] = runs.slice(0, 8).map((run) => {
+    const evalSet = resolveRunEvalSet(run, evalSets);
+    const selectedCount = run.metadata.selection.selectedCases.length || run.total;
+
+    return { run, evalSet, selectedCount };
+  });
+
+  return (
+    <Panel title="最近评测集" icon={<ClipboardList className="h-4 w-4 text-primary" />}>
+      {recentRows.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[940px] text-sm">
+            <thead>
+              <tr className="border-b border-border/40 bg-muted/20 text-left text-xs font-semibold text-muted-foreground">
+                <th className="px-4 py-3">评测集</th>
+                <th className="px-4 py-3">用例数</th>
+                <th className="px-4 py-3">通过率</th>
+                <th className="px-4 py-3">平均分</th>
+                <th className="px-4 py-3">运行器 / 模型</th>
+                <th className="px-4 py-3">耗时</th>
+                <th className="px-4 py-3">最近运行</th>
+                <th className="px-4 py-3 text-right">状态</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/30">
+              {recentRows.map(({ run, evalSet, selectedCount }) => {
+                const runtimeCli = run.metadata.runtime.cli ?? 'unknown';
+                const runtimeModel = run.metadata.runtime.model ?? '-';
+                const displayName = evalSet?.name ?? `自定义 ${selectedCount} 个用例`;
+
+                return (
+                  <tr key={run.id} className="transition-colors hover:bg-muted/20">
+                    <td className="px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="max-w-[260px] truncate font-semibold text-foreground">{displayName}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">{evalSet?.category ?? '临时选择'}</div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">{selectedCount}</td>
+                    <td className={passRateClass(run.passRate) + ' px-4 py-3 font-semibold tabular-nums'}>
+                      {run.passRate}%
+                    </td>
+                    <td className={scoreClass(run.averageScore) + ' px-4 py-3 font-semibold tabular-nums'}>
+                      {run.averageScore}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-foreground">{CLI_LABELS[runtimeCli] ?? runtimeCli}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{runtimeModel}</div>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">{formatDuration(run.durationMs)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{formatRelativeTime(run.createdAt)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Badge className={run.passed ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/10'}>
+                        {run.passed ? '通过' : '失败'}
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">暂无最近评测集。</div>
+      )}
+    </Panel>
+  );
+}
+
 export function EvalOverviewView({
   dashboard,
-  latestRun,
   delta,
   activeQueueCount,
   evalSets,
-  selectedEvalSetId,
-  limit,
-  runtimeOptions,
-  benchmarkCli,
-  benchmarkModel,
-  benchmarkReasoningEffort,
-  benchmarkRuntime,
-  benchmarkRuntimeSupportsReasoning,
-  isStarting,
-  onSelectedEvalSetChange,
-  onBenchmarkCliChange,
-  onBenchmarkModelChange,
-  onBenchmarkReasoningEffortChange,
-  onLimitChange,
-  onStart,
 }: EvalOverviewViewProps) {
   const queueDepth = dashboard.queue.filter((q) => q.status === 'queued').length;
 
@@ -186,57 +340,6 @@ export function EvalOverviewView({
         />
       </section>
 
-      {/* Run config */}
-      <Panel title="运行配置" icon={<Play className="h-4 w-4 text-primary" />}>
-        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.25fr)_150px_190px_160px_130px_auto]">
-          <ConfigField label="评测集">
-            <select className={selectClassName} value={selectedEvalSetId} onChange={(event) => onSelectedEvalSetChange(event.target.value)}>
-              {evalSets.map((evalSet) => (
-                <option key={evalSet.id} value={evalSet.id}>{evalSet.name} ({evalSet.caseIds.length})</option>
-              ))}
-            </select>
-          </ConfigField>
-          <ConfigField label="运行器">
-            <select className={selectClassName} value={benchmarkCli} onChange={(event) => onBenchmarkCliChange(event.target.value)}>
-              {runtimeOptions.map((runtime) => (
-                <option key={runtime.cli} value={runtime.cli}>{runtime.label}</option>
-              ))}
-            </select>
-          </ConfigField>
-          <ConfigField label="模型">
-            <select className={selectClassName} value={benchmarkModel} onChange={(event) => onBenchmarkModelChange(event.target.value)}>
-              {benchmarkRuntime.models.map((model) => (
-                <option key={model.id} value={model.id}>{model.name}</option>
-              ))}
-            </select>
-          </ConfigField>
-          <ConfigField label="推理强度">
-            {benchmarkRuntimeSupportsReasoning ? (
-              <select className={selectClassName} value={benchmarkReasoningEffort} onChange={(event) => onBenchmarkReasoningEffortChange(event.target.value)}>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-              </select>
-            ) : (
-              <div className="flex h-9 items-center rounded-lg border border-border/40 bg-muted/30 px-3 text-sm text-muted-foreground">不适用</div>
-            )}
-          </ConfigField>
-          <ConfigField label="数量">
-            <select className={selectClassName} value={limit} onChange={(event) => onLimitChange(event.target.value)}>
-              <option value="all">不限</option>
-              <option value="1">1</option>
-              <option value="3">3</option>
-              <option value="6">6</option>
-            </select>
-          </ConfigField>
-          <Button className="mt-auto xl:self-end" onClick={onStart} disabled={isStarting}>
-            {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            启动评测
-          </Button>
-        </div>
-      </Panel>
-
       {/* Charts */}
       <section className="grid gap-5 xl:grid-cols-2">
         <Panel title="运行趋势" icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}>
@@ -258,6 +361,8 @@ export function EvalOverviewView({
           </div>
         </Panel>
       </section>
+
+      <RecentEvalSetsPanel runs={dashboard.runs} evalSets={evalSets} />
     </div>
   );
 }
