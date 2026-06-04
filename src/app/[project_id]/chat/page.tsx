@@ -513,6 +513,246 @@ function TravelItineraryPreview({ data }: { data: TravelItineraryData }) {
   );
 }
 
+function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
+  const planning = data.planning_response ?? {};
+  const proposals = Array.isArray(planning.proposals) ? planning.proposals.slice(0, 3) : [];
+  const dailyItinerary = Array.isArray(planning.daily_itinerary) ? planning.daily_itinerary : [];
+  const primary = proposals[0];
+  const stops = Array.isArray(primary?.pois) ? primary.pois : [];
+  const routePatchSummary = planning.route_patch_summary;
+  const selectedReasons = Array.isArray(primary?.selection_reasons) ? primary.selection_reasons : [];
+  const agentTrace = Array.isArray(data.agent_trace) ? data.agent_trace : [];
+  const constraintJudgement =
+    (primary?.constraint_judgement as Record<string, any> | undefined) ??
+    (planning.constraint_judgement as Record<string, any> | undefined) ??
+    null;
+  const keptStops = Array.isArray(routePatchSummary?.kept) ? routePatchSummary.kept : [];
+  const removedStops = Array.isArray(routePatchSummary?.removed) ? routePatchSummary.removed : [];
+  const addedStops = Array.isArray(routePatchSummary?.added) ? routePatchSummary.added : [];
+  const hasRouteDiff = keptStops.length > 0 || removedStops.length > 0 || addedStops.length > 0 || Boolean(routePatchSummary?.reordered);
+  const reasonFor = (poiId?: string) =>
+    selectedReasons.find((item: Record<string, any>) => item.poi_id === poiId)?.reason;
+  const checkLabel = (value?: boolean) => (value ? '通过' : '需关注');
+
+  const MetricCard = ({ label, value, tone = 'light' }: { label: string; value: any; tone?: 'light' | 'dark' | 'warm' }) => (
+    <div
+      className={
+        tone === 'dark'
+          ? 'rounded-2xl bg-[#163b32] p-4 text-white shadow-sm'
+          : tone === 'warm'
+            ? 'rounded-2xl bg-[#f5c66d] p-4 text-slate-950 shadow-sm'
+            : 'rounded-2xl border border-[#ead9c5] bg-white/80 p-4 shadow-sm'
+      }
+    >
+      <p className={tone === 'dark' ? 'text-xs text-white/65' : 'text-xs text-slate-500'}>{label}</p>
+      <p className="mt-1 text-lg font-black">{value}</p>
+    </div>
+  );
+
+  const StopBadge = ({ stop }: { stop: Record<string, any> }) => {
+    if (stop.meal_slot === 'lunch') {
+      return <span className="rounded-full bg-[#f5c66d] px-2 py-0.5 text-[11px] font-bold text-slate-950">午餐</span>;
+    }
+    if (stop.meal_slot === 'snack') {
+      return <span className="rounded-full bg-[#ffe9bd] px-2 py-0.5 text-[11px] font-bold text-slate-950">下午茶</span>;
+    }
+    return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">景点</span>;
+  };
+
+  return (
+    <div className="h-full w-full overflow-y-auto bg-[#f4efe6] text-slate-950">
+      <div className="pointer-events-none fixed inset-0 opacity-80">
+        <div className="absolute left-[-12%] top-[-10%] h-80 w-80 rounded-full bg-[#f1b15d]/25 blur-3xl" />
+        <div className="absolute bottom-[-18%] right-[-12%] h-96 w-96 rounded-full bg-[#0f513f]/15 blur-3xl" />
+      </div>
+      <div className="relative mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
+        <div className="overflow-hidden rounded-[2rem] border border-[#e5d4bd] bg-white/85 shadow-[0_24px_80px_rgba(80,55,28,0.12)] backdrop-blur">
+          <div className="border-b border-[#ead9c5] bg-[#fffaf3] p-6 lg:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.34em] text-[#b75f38]">北京旅游 Agent</p>
+                <h1 className="mt-3 max-w-3xl text-3xl font-black tracking-tight text-slate-950 lg:text-5xl">
+                  {dailyItinerary.length > 1 ? '多日行程已生成' : '智能路线方案已生成'}
+                </h1>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+                  基于本地北京 POI 与 UGC 证据生成。排队、步行与转移时间为本地静态估算，不是实时导航结果。
+                </p>
+              </div>
+              <div className="grid min-w-[280px] grid-cols-3 gap-3 text-center">
+                <MetricCard label="区域" value={planning.resolved_area || '北京'} tone="dark" />
+                <MetricCard label={dailyItinerary.length > 1 ? '天数' : '方案数'} value={dailyItinerary.length > 1 ? dailyItinerary.length : proposals.length} />
+                <MetricCard label="10 秒内" value={planning.generation_metrics?.within_10s ? '通过' : '待确认'} tone="warm" />
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 lg:p-7">
+            {dailyItinerary.length > 1 ? (
+              <div className="grid gap-5">
+                {dailyItinerary.map((day: Record<string, any>, index: number) => {
+                  const proposal = day.proposal || {};
+                  const dayStops = Array.isArray(proposal.pois) ? proposal.pois : [];
+                  return (
+                    <div key={day.day ?? index} className="rounded-[1.5rem] border border-[#ead9c5] bg-white p-5 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.24em] text-[#b75f38]">第 {day.day ?? index + 1} 天</p>
+                          <h2 className="mt-1 text-2xl font-black">{day.theme || proposal.display_title || '单日路线'}</h2>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-sm font-bold">
+                          <span className="rounded-full bg-[#163b32] px-3 py-1.5 text-white">{proposal.total_route_duration_min ?? '-'} 分钟</span>
+                          <span className="rounded-full bg-[#f5c66d] px-3 py-1.5 text-slate-950">{proposal.total_budget_estimate ?? '-'} 元</span>
+                        </div>
+                      </div>
+                      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {dayStops.map((stop: Record<string, any>, stopIndex: number) => (
+                          <div key={`${stop.poi_id ?? stop.name}-${stopIndex}`} className="rounded-2xl border border-[#efe2cf] bg-[#fffaf3] p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#e77b55] text-sm font-black text-white">{stopIndex + 1}</span>
+                              <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">{stop.arrival_time} - {stop.departure_time}</span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                              <h3 className="font-black">{stop.name}</h3>
+                              <StopBadge stop={stop} />
+                            </div>
+                            <p className="mt-2 text-sm leading-5 text-slate-600">{stop.recommendation_reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {Array.isArray(proposal.risks) && proposal.risks.length > 0 ? (
+                        <p className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{proposal.risks.slice(0, 2).join('; ')}</p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : primary ? (
+              <div className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
+                <div className="rounded-[1.75rem] border border-[#ead9c5] bg-white p-5 shadow-sm lg:p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-[#b75f38]">主推方案</p>
+                      <h2 className="mt-2 text-2xl font-black">{primary.display_title || primary.title || '可执行路线'}</h2>
+                    </div>
+                    <span className="rounded-full bg-[#163b32] px-4 py-2 text-sm font-bold text-white">
+                      {primary.total_route_duration_min ?? '-'} 分钟
+                    </span>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <MetricCard label="预算估算" value={`${primary.total_budget_estimate ?? '-'} 元`} />
+                    <MetricCard label="转移时间" value={`${primary.total_transfer_minutes ?? '-'} 分钟`} />
+                    <MetricCard label="步行估算" value={`${primary.total_walking_distance_m ?? '-'} 米`} />
+                  </div>
+
+                  {hasRouteDiff ? (
+                    <div className="mt-5 rounded-2xl border border-[#f1d2bf] bg-[#fff6ed] p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-[#b75f38]">路线变更</p>
+                      <div className="mt-3 grid gap-2 text-sm text-slate-700">
+                        {keptStops.length > 0 ? <p><span className="font-bold text-slate-950">保留：</span> {keptStops.join(' / ')}</p> : null}
+                        {removedStops.length > 0 ? <p><span className="font-bold text-slate-950">删除：</span> {removedStops.join(' / ')}</p> : null}
+                        {addedStops.length > 0 ? <p><span className="font-bold text-slate-950">新增：</span> {addedStops.join(' / ')}</p> : null}
+                        {routePatchSummary?.reordered ? <p><span className="font-bold text-slate-950">调序：</span> Agent 为满足路线约束对停留顺序做了局部调整。</p> : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {constraintJudgement ? (
+                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.24em] text-slate-500">约束校验</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                        <MetricCard label="总体" value={checkLabel(constraintJudgement.passes)} />
+                        <MetricCard label="覆盖" value={checkLabel(constraintJudgement.coverage_passes)} />
+                        <MetricCard label="预算" value={checkLabel(constraintJudgement.budget_passes)} />
+                        <MetricCard label="时长" value={checkLabel(constraintJudgement.duration_passes)} />
+                      </div>
+                      {Array.isArray(constraintJudgement.notes) && constraintJudgement.notes.length > 0 ? (
+                        <p className="mt-3 text-xs leading-5 text-slate-600">{constraintJudgement.notes.join('; ')}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-6 space-y-4">
+                    {stops.map((stop: Record<string, any>, index: number) => (
+                      <div key={`${stop.poi_id ?? stop.name}-${index}`} className="relative rounded-2xl border border-[#efe2cf] bg-[#fffaf3] p-4">
+                        {index < stops.length - 1 ? <div className="absolute left-[31px] top-14 h-[calc(100%-2rem)] w-px bg-[#e5d4bd]" /> : null}
+                        <div className="flex gap-4">
+                          <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e77b55] font-black text-white shadow-sm">{index + 1}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="font-black text-slate-950">{stop.name}</h3>
+                                <StopBadge stop={stop} />
+                              </div>
+                              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                                {stop.arrival_time} - {stop.departure_time}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm leading-5 text-slate-600">{stop.recommendation_reason}</p>
+                            {stop.opening_hours_note ? <p className="mt-2 text-xs text-slate-500">{stop.opening_hours_note}</p> : null}
+                            {reasonFor(stop.poi_id) ? (
+                              <p className="mt-2 rounded-xl bg-white/75 px-3 py-2 text-xs leading-5 text-[#98502f]">
+                                入选原因：{reasonFor(stop.poi_id)}
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  {agentTrace.length > 0 ? (
+                    <div className="rounded-[1.5rem] border border-[#ead9c5] bg-white p-5 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-black">Agent 执行轨迹</h3>
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{agentTrace.length} 步</span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {agentTrace.slice(0, 6).map((entry: Record<string, any>, index: number) => (
+                          <div key={`${entry.agent_key ?? 'agent'}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">{entry.agent_key || `agent_${index + 1}`}</p>
+                              <span className="text-xs text-slate-400">{entry.elapsed_ms ?? '-'} ms</span>
+                            </div>
+                            <p className="mt-2 text-sm leading-5 text-slate-700">{entry.summary}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {proposals.map((proposal, index) => (
+                    <div key={proposal.proposal_id ?? index} className="rounded-[1.5rem] border border-[#ead9c5] bg-white p-5 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-black">{proposal.display_title || proposal.title || `方案 ${index + 1}`}</h3>
+                        <span className="rounded-full bg-[#fff6ed] px-3 py-1 text-sm font-bold text-[#b75f38]">{proposal.total_budget_estimate ?? '-'} 元</span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-slate-600">
+                        {Array.isArray(proposal.ordered_poi_names) ? proposal.ordered_poi_names.join(' -> ') : '暂无路线'}
+                      </p>
+                      {Array.isArray(proposal.risks) && proposal.risks.length > 0 ? (
+                        <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                          {proposal.risks.slice(0, 2).join('; ')}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-[2rem] border border-dashed border-[#d7c3a6] bg-white/70 p-10 text-center text-slate-600">
+                输入北京游玩目标后，这里会生成路线方案、Agent 轨迹和本地 POI 证据。
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const params = useParams<{ project_id: string }>();
   const pathname = usePathname();
@@ -3277,7 +3517,7 @@ const persistProjectPreferences = useCallback(
                     style={{ height: '100%' }}
                   >
                 {travelItinerary ? (
-                  <TravelItineraryPreview data={travelItinerary} />
+                  <TravelItineraryPreviewV2 data={travelItinerary} />
                 ) : shouldShowPreviewFrame ? (
                   <div className="relative w-full h-full bg-slate-100 flex items-center justify-center">
                     <div

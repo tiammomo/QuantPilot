@@ -88,19 +88,19 @@ function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full flex-col border-r bg-background/95",
-        isMobile ? "w-[286px]" : "w-[260px]",
+        "flex h-full flex-col border-r border-[#ead8c3] bg-[#fffaf2]/98",
+        isMobile ? "w-[310px]" : "w-[280px]",
       )}
     >
-      <div className="flex h-14 items-center justify-between border-b px-4">
+      <div className="flex h-16 items-center justify-between border-b border-[#ead8c3] px-4">
         <button
           type="button"
           onClick={onOpenTaskDrawer}
-          className="flex items-center gap-2 text-foreground hover:text-primary"
+          className="flex items-center gap-2 text-[#24140f] hover:text-[#b73522]"
           title="打开任务记录"
         >
           <Menu className="h-4 w-4" />
-          <span className="text-sm font-semibold">任务记录</span>
+          <span className="text-base font-black">任务记录</span>
         </button>
         {isMobile && (
           <Button
@@ -116,14 +116,14 @@ function Sidebar({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-4">
+      <div className="flex-1 overflow-y-auto px-3 py-5">
         <div className="mb-2 px-2">
-          <span className="text-xs font-semibold tracking-wide text-muted-foreground">
+          <span className="text-sm font-black tracking-wide text-[#7a513c]">
             北京旅游核心能力
           </span>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {ROLE_MODULES.map((role) => {
             const active = selectedCapability === role.capabilityId;
             return (
@@ -135,18 +135,18 @@ function Sidebar({
                   onCloseMobile?.();
                 }}
                 className={cn(
-                  "w-full rounded-md border px-3 py-3 text-left transition-colors",
+                  "w-full rounded-2xl border px-4 py-4 text-left transition-colors",
                   active
-                    ? "border-primary/20 bg-primary/10 text-primary"
-                    : "border-transparent text-foreground hover:border-border hover:bg-muted/60",
+                    ? "border-[#e7a6a0] bg-[#fff0ef] text-[#b73522] shadow-sm"
+                    : "border-transparent text-[#24140f] hover:border-[#ead8c3] hover:bg-white",
                 )}
                 title={role.description}
                 aria-pressed={active}
               >
-                <span className={cn("text-sm font-semibold", active ? "text-primary" : "text-foreground")}>
+                <span className={cn("text-base font-black", active ? "text-[#b73522]" : "text-[#24140f]")}>
                   {role.name}
                 </span>
-                <p className={cn("mt-1 text-xs leading-5", active ? "text-primary/80" : "text-muted-foreground")}>
+                <p className={cn("mt-2 text-sm leading-6", active ? "text-[#b73522]/85" : "text-[#385070]")}>
                   {role.description}
                 </p>
               </button>
@@ -155,7 +155,7 @@ function Sidebar({
         </div>
       </div>
 
-      <div className="border-t p-3">
+      <div className="border-t border-[#ead8c3] p-3">
         <Button type="button" onClick={() => router.push("/strategy-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
           <Route className="h-4 w-4" />
           路线方案
