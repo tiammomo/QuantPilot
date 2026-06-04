@@ -576,12 +576,12 @@ export function EvalCasesView({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex max-w-[230px] flex-wrap gap-1">
-                        <Badge variant="outline" className="border-blue-500/20 bg-blue-500/5 text-[10px] text-primary">
+                        <Badge variant="outline" className="whitespace-nowrap border-blue-500/20 bg-blue-500/5 text-[10px] text-primary">
                           {testCase.typeLabel}
                         </Badge>
                         {testCase.tags.slice(0, 1).map((tag) => (
-                          <Badge key={tag} variant="outline" className="border-border/50 text-[10px] text-muted-foreground">
-                            {tag}
+                          <Badge key={tag} variant="outline" className="max-w-[132px] whitespace-nowrap border-border/50 text-[10px] text-muted-foreground">
+                            <span className="truncate">{tag}</span>
                           </Badge>
                         ))}
                         {testCase.tags.length > 1 && (
@@ -599,7 +599,7 @@ export function EvalCasesView({
                     </td>
                     <td className="px-4 py-3">{statusPill(result)}</td>
                     <td className="px-4 py-3">
-                      <Badge className="border-primary/20 bg-primary/10 text-xs text-primary hover:bg-primary/10">
+                      <Badge className="min-w-[76px] justify-center whitespace-nowrap border-primary/20 bg-primary/10 px-2.5 text-xs text-primary hover:bg-primary/10">
                         {testCase.capabilityLabel}
                       </Badge>
                     </td>
