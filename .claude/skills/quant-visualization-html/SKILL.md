@@ -38,6 +38,11 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 17. 禁止把多个迷你 sparkline 当作主要可视化交付。Sparkline 只能作为资产卡辅助图；页面必须额外提供至少一个带坐标/日期/图例/数值标签的主图、对比图或矩阵。
 18. 如果平台自动验证失败，本 skill 必须进入自修复模式：读取 `.quantpilot/validation.json`、`.quantpilot/validation-repair-plan.json`、`.quantpilot/visual-validation.json` 和截图路径，实际修改页面、final 数据或 evidence，然后重新执行平台验证；不能只输出修复计划或解释。
 19. “最终数据文件存在，但没有通过真实数据形态检查”不是可忽略警告。必须修复 `data_file/final/dashboard-data.json` 的标准字段和页面数据绑定，让数据形态、模板 ID、标的覆盖和图表组件同时满足验证。
+20. 生成页面前必须先做金融可视化判读：识别时间字段、维度字段、指标字段、指标口径和可用图表；口径敏感指标不能错误聚合或用内部公式文案直接展示给用户。
+21. 用户明确要求“累计收益曲线”“收益曲线”“净值曲线”或“折线图”时，必须绘制真正的时间序列折线图，包含日期轴、统一收益率尺度、图例和数值提示；不能用柱状图、指标卡、排名条或 sparkline 替代。
+22. 用户明确要求“相关性矩阵”“热力图”“相关性与分散风险图谱”时，必须绘制真实矩阵/热力图或等价矩阵表，包含行列标的、相关系数、颜色刻度和缺失样本说明。
+23. 未被用户明确要求时，不得新增短线交易计划、买入区、卖出区、止损、目标价、调仓指令或交易执行建议。投研对比页默认只输出事实、风险、排序依据、数据限制和下一步研究线索。
+24. 多标的投研对比任务优先级是：标的覆盖、指标矩阵、累计收益折线、收益/回撤/波动对比、相关性矩阵或流动性矩阵、数据信源。不要用单股行情页或持仓页结构承载。
 
 ## 标准工作流
 
@@ -48,10 +53,11 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
    - 财务趋势：`quant-fundamental-financials`
    - 公告事件：`quant-announcement-events`
    - 不确定数据源：`quant-data-registry`
-3. 先读取现有 `app/page.tsx`、`app/globals.css` 和 `data_file/final/dashboard-data.json`，确认模板已有组件和数据字段。
+3. 先读取现有 `app/page.tsx`、`app/globals.css`、`data_file/final/dashboard-data.json`、`evidence/sources.json` 和 `evidence/data_quality.json`，确认模板已有组件、数据字段、来源和缺口。
 4. 读取 `.quantpilot/run_plan.json`，先按 `visualization.templateId` 选择模板族，再按 `visualization.variantId`、`layout`、`firstViewport` 和 `variantGuidance` 选择具体页面结构；模板说明见 `references/scenario_templates.md`。
-5. 做一次 UI/UX Pro Max 风格的设计决策：金融/量化页面默认使用 Data-Dense Dashboard，不使用营销 landing；确定页面模式、语义配色、图表类型、表格 fallback、响应式策略和反模式。
-6. 设计看板信息架构：先展示结论和核心指标，再展示图表、数据表、数据质量和来源。
+5. 按 `references/visual_judgement.md` 做一次可视化判读：确认时间/维度/指标字段、指标能否累加、比率/收益/回撤口径、首屏主图或矩阵，以及哪些组件必须保留空态。
+6. 做一次 UI/UX Pro Max 风格的设计决策：金融/量化页面默认使用 Data-Dense Dashboard，不使用营销 landing；确定页面模式、语义配色、图表类型、表格 fallback、响应式策略和反模式。
+7. 设计看板信息架构：先展示结论和核心指标，再展示图表、数据表、数据质量和来源。
    - 投研/量化看板不要使用营销落地页式巨型 hero。顶部应是紧凑的报告摘要栏或工具栏：小标题、核心判断、关键指标和数据状态并排展示。
    - 首屏应尽快露出核心指标、图表或持仓矩阵；`h1` 只用于页面主题，桌面端建议不超过 40px，移动端不超过 32px。
    - 结论句应放在摘要卡或状态条中，不要做成占据半屏的大字口号。
@@ -63,11 +69,11 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
    - 移动端必须没有页面级横向溢出；宽表格、长代码、长接口名只能在卡片内部滚动或截断，不得撑开 `body`。
    - `holding-analysis`、调仓建议、截图持仓和组合风控页面不要生成 `hero-band`、深色大 VaR 卡、巨型标题或模板名称区；页面应直接从账户/组合摘要指标、持仓矩阵或核心风险面板开始。
    - VaR、样本口径、刷新接口和非投资建议声明应放入指标卡、风险模块、数据质量或底部说明，不要占据首屏顶部。
-7. 实现页面文件并确保有加载、错误、空数据、刷新状态。
-8. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
-9. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
-10. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
-11. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
+8. 实现页面文件并确保有加载、错误、空数据、刷新状态。
+9. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
+10. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
+11. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
+12. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
 
 ## 自动修复模式
 
@@ -126,6 +132,7 @@ const rows: JsonRecord[] = assets.flatMap((asset) => {
 ```text
 .quantpilot/run_plan.json
 references/scenario_templates.md
+references/visual_judgement.md
 ```
 
 按 `run_plan.visualization.templateId` 选择模板族；再按 `run_plan.visualization.variantId` 选择具体页面变体。`templateId` 解决“是什么场景”，`variantId` 解决“这一页应该长成什么结构”。如果缺失，按 final 数据字段推断模板族：
@@ -172,6 +179,7 @@ references/scenario_templates.md
 - 如果平台已经预取出 `dashboard-data.json`，不要再用空对象覆盖它，也不要把 `kline.bars` 改成只有模型自己知道的字段名。
 - 页面展示实时行情字段时优先级必须正确：`quote.previous_close/open/high/low/amount/turnover/volume` 优先，只有 quote 缺失时才降级到 `kline.bars.at(-1)`；不要用最新收盘价冒充昨收，不要因为 K 线 amount/turnover 缺失而忽略 quote 中的成交额和换手率。
 - 当 K 线字段来自不同 provider 且部分字段缺失时，应在数据质量或表格中真实显示缺口；可以用实时 quote 补充“今日”指标卡，但不能把补充字段反写成历史 K 线事实。
+- 指标卡必须保留用户可读口径说明。收益、回撤、波动、胜率、仓位、ROE、换手率等比率类指标要说明时间窗口、覆盖对象和计算口径；不能裸写内部字段名、公式或“分子/分母”。
 - 缺数据不是半成品。不要把大量 `-` 直接散落在首屏；关键指标缺失时使用“待接入/待确认/等待数据写入”等明确状态，并在图表区域保留专业空态，说明已预留 OHLC、均线、成交量或矩阵渲染区域。
 - 空态也必须有设计质量：首屏仍要呈现标的、数据源、更新时间状态、指标框架、图表/矩阵占位和下一步可执行线索；不能退化成 Next.js 默认页、纯说明页或一堆灰色占位。
 
@@ -194,6 +202,8 @@ references/scenario_templates.md
 - 标的覆盖：页面显式展示 `requestedSymbols` 或 `assets[].symbol` 中的全部标的。
 - 指标矩阵：每个标的展示最新价、涨跌幅、区间收益、最大回撤、波动、成交额或成交量。
 - 对比图表：至少一个 SVG/canvas 图表比较区间收益；另一个图表或矩阵比较波动/回撤。
+- 如果用户要求累计收益曲线，主图必须是多条折线共享同一日期轴和收益率刻度，基准日统一为窗口首日或明示的起点。
+- 如果 `variantId` 是 `selection-correlation-risk-map`，或 required components 包含“相关性矩阵”，页面必须提供相关性热力图/矩阵，不能只写相关性结论文字。
 - 多标的对比图必须有统一尺度、数值标签和正负方向；收益/回撤/波动条不能只画相对宽度而没有基线或数值。资产卡内 K 线缩略图不算必备对比图。
 - 相对强弱摘要：展示收益领先、回撤较小、波动较低等结果，结果必须来自 `comparison.rows[]` 或 `assets[].computedMetrics`。
 - 数据信源渠道：逐只标的展示渠道名称、数据集类型、接口类型、行情时间和样本量，例如“东方财富实时行情接口 / 实时行情 / 行情时间 ...”。技术文件路径只放到证据附注，不要作为用户可读的来源卡片主信息。
@@ -229,6 +239,8 @@ references/scenario_templates.md
 - 多标的柱状/横向对比图必须按正负或有利/不利分色，并展示数值标签，不能只给灰色进度条。
 - 数据质量、信源、缺失字段和限制说明要有状态色：`ok`/可用为绿色，`warning`/缺失为琥珀色，`error`/失败为红色。
 - 图表必须有坐标/日期/价格标签或 tooltip/悬浮信息中的至少一种；金融主图建议同时具备坐标标签和 tooltip。
+- 时间序列图不能切换或伪装成饼图；排名图必须有统一尺度和明确排序依据；双轴图必须说明左右轴指标，避免把价格、成交额和收益率混成一个刻度。
+- tooltip 或 hover 信息要展示日期/报告期、标的、指标名称和格式化数值；不要把 `undefined`、对象字面量、内部字段名或未格式化大数暴露给用户。
 - 图表旁边必须有数值摘要或表格 fallback。K 线/OHLC 的可访问性天然较弱，必须提供最近数据表和关键数值面板。
 - 多标的页中的 K 线缩略图必须保留足够宽度，数字不要被挤压成竖排；如果卡片宽度不足，隐藏次要指标或改成横向滚动/表格，而不是让金额、MA 和百分比逐字断行。
 - 实时/大量时序图表一次可见点位要克制；蜡烛图桌面建议不超过 500 根可见，移动端优先缩短窗口或分页/切换时间范围。

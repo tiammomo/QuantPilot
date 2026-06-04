@@ -200,6 +200,7 @@ export function SourceTree({
   deletingFilePath,
   creatingFolderBasePath,
   openMenuPath,
+  showActions = true,
   onToggleDirectory,
   onSelectFile,
   onOpenActionMenu,
@@ -211,9 +212,10 @@ export function SourceTree({
   deletingFilePath: string | null;
   creatingFolderBasePath: string | null;
   openMenuPath: string | null;
+  showActions?: boolean;
   onToggleDirectory: (path: string) => void;
   onSelectFile: (file: SourceFile) => void;
-  onOpenActionMenu: (event: SyntheticEvent<HTMLButtonElement>, menu: SourceTreeActionMenuRequest) => void;
+  onOpenActionMenu?: (event: SyntheticEvent<HTMLButtonElement>, menu: SourceTreeActionMenuRequest) => void;
 }) {
   if (nodes.length === 0) {
     return <div className="px-3 py-8 text-center text-sm text-muted-foreground">没有匹配的文件</div>;
@@ -254,25 +256,27 @@ export function SourceTree({
               {fileKindLabels[node.kind]}
             </span>
             <span className="shrink-0 text-[11px] text-muted-foreground">{fileCount}</span>
-            <button
-              type="button"
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
-                openMenuPath === node.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
-              }`}
-              title={`${node.path} 操作`}
-              onClick={(event) => onOpenActionMenu(event, { type: 'directory', node })}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  onOpenActionMenu(event, { type: 'directory', node });
-                }
-              }}
-            >
-              {deletingFolderPath === node.path || creatingFolderBasePath === node.path ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <MoreVertical className="h-3.5 w-3.5" />
-              )}
-            </button>
+            {showActions && onOpenActionMenu && (
+              <button
+                type="button"
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
+                  openMenuPath === node.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                }`}
+                title={`${node.path} 操作`}
+                onClick={(event) => onOpenActionMenu(event, { type: 'directory', node })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    onOpenActionMenu(event, { type: 'directory', node });
+                  }
+                }}
+              >
+                {deletingFolderPath === node.path || creatingFolderBasePath === node.path ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <MoreVertical className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
           </div>
           {expanded && node.children.map((child) => renderNode(child, depth + 1))}
         </div>
@@ -310,25 +314,27 @@ export function SourceTree({
             {fileKindLabels[file.kind]}
           </span>
         </button>
-        <button
-          type="button"
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
-            openMenuPath === file.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
-          }`}
-          title={`${file.path} 操作`}
-          onClick={(event) => onOpenActionMenu(event, { type: 'file', file })}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              onOpenActionMenu(event, { type: 'file', file });
-            }
-          }}
-        >
-          {deletingFilePath === file.path ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <MoreVertical className="h-3.5 w-3.5" />
-          )}
-        </button>
+        {showActions && onOpenActionMenu && (
+          <button
+            type="button"
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-muted hover:text-slate-950 sm:h-6 sm:w-6 ${
+              openMenuPath === file.path ? 'opacity-100' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+            }`}
+            title={`${file.path} 操作`}
+            onClick={(event) => onOpenActionMenu(event, { type: 'file', file })}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                onOpenActionMenu(event, { type: 'file', file });
+              }
+            }}
+          >
+            {deletingFilePath === file.path ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <MoreVertical className="h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
       </div>
     );
   }

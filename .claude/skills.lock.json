@@ -3,10 +3,10 @@
   "packageFormat": "tgz",
   "skills": {
     "quant-run-planner": {
-      "version": "0.2.0",
+      "version": "0.2.1",
       "packagePath": ".claude/skill-packages/quant-run-planner.tgz",
-      "sourceSha256": "0d3a1864abb8c4fd6a1be2c279955c3a1aa73394b52cb96a2ddaa59cdb28be7f",
-      "packageSha256": "6e1e65eec10a84cd9eafa9a35889fadec685c99b4bf728a0fe55c7680967cf31",
+      "sourceSha256": "945f437a7e4ab79b94a5dc0297ded2ee0ad4740d01623099ad91d4e205ab2b60",
+      "packageSha256": "2ad7fc576b2bc8f51c4f6157e4f114bd6416f514415dc0334fda35bbb0aa9ecb",
       "fileCount": 2
     },
     "quant-data-registry": {
@@ -59,11 +59,11 @@
       "fileCount": 1
     },
     "quant-visualization-html": {
-      "version": "0.4.0",
+      "version": "0.4.2",
       "packagePath": ".claude/skill-packages/quant-visualization-html.tgz",
-      "sourceSha256": "33d6948167e955c8ad5a61e4344a3c132bd7ab345225890c070957cf1a367fba",
-      "packageSha256": "8b3a0c7f8df0b458cbc68c298130caee3accb32f4fe958a3553c90667f1a7ba2",
-      "fileCount": 2
+      "sourceSha256": "a9471f16f0e685db0df1de3e78216f3e890248c32a2046ed1a8952920ea81e3f",
+      "packageSha256": "cfddeef82028550184c0300f8e5dd6530d8db9390f2912a15a4267ed6329efcf",
+      "fileCount": 3
     },
     "quant-image-extraction": {
       "version": "0.1.0",

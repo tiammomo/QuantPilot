@@ -32,6 +32,22 @@ python .claude/skills/quant-run-planner/scripts/intent_clarifier.py --question "
 
 如果任务文本包含“承接上一轮澄清”“原始问题”“用户补充”，必须把原始问题和补充信息合并成一个完整任务来判断。补充后已经足够明确时，直接把 `run_plan.json` 改回 `status: "planned"` 并继续取数；如果仍缺少信息，只追问剩余缺口。
 
+## 二次对话上下文继承
+
+用户在同一个生成项目里继续说“这个看板方向对”“重构当前页面”“删除/新增/保留某个模块”“移动端不要横向溢出”等，且没有给出新的标的代码或名称时，必须先读取上一轮 `.quantpilot/run_plan.json` 并继承：
+
+- `symbols`
+- `timeRange`
+- `capabilityId`
+- `visualization.templateId`
+- `visualization.variantId`
+
+这类请求是对当前看板的修订，不是新任务。不要因为后续 prompt 中出现“矩阵”“相关性”“组合”“业务对象”等泛化词，就丢弃上一轮标的或把多标的对比改成持仓分析。
+
+只有用户明确上传或描述持仓、仓位、账户、成本、现金、盈亏、调仓、证券账户截图等信息时，才选择 `portfolio_risk` / `holding-analysis`。单独出现“组合”“相关性”“分散风险”“配置观察”时，如果已有多个股票/指数/ETF 标的，应优先保持 `asset_comparison` / `stock-selection`。
+
+规划时只使用用户可见需求和必要附件语义。平台附加的执行日志、过程叙述、技能使用说明、文件写入规则、图片处理规则等 operational instructions 不能参与标的、能力或模板判断。
+
 ## 必做产物
 
 在当前生成项目中更新：
