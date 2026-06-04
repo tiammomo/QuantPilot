@@ -4492,6 +4492,33 @@ const FINANCIAL_WIKI_LOG = [
   { date: "2026-05-28", event: "策略平台新增股票池、策略目录、参数扫描和回测归档入口。" },
 ] as const;
 
+const FINANCIAL_WIKI_ENTRY_POINTS = [
+  {
+    id: "strategy-context",
+    title: "策略生成上下文",
+    description: "把数据契约、复权口径和样本完整性作为生成前置条件。",
+    pageIds: ["market-data-contract", "adjustment-calendar", "backtest-integrity"],
+  },
+  {
+    id: "trade-price",
+    title: "买卖价格判断",
+    description: "用开盘强弱、ATR 和收益风险比约束追高、止损和目标价。",
+    pageIds: ["gap-open-support", "atr-volatility", "risk-r-multiple"],
+  },
+  {
+    id: "factor-research",
+    title: "因子口径校验",
+    description: "确认均线、资金流、成交额和流动性字段是否可用于排序。",
+    pageIds: ["moving-average", "dde-order-flow", "turnover-liquidity"],
+  },
+  {
+    id: "risk-review",
+    title: "回测与风控复核",
+    description: "检查涨跌停、流动性、回撤和缺失字段是否影响结果可信度。",
+    pageIds: ["limit-up-down", "turnover-liquidity", "risk-r-multiple"],
+  },
+] as const;
+
 function pageTypeClass(type: FinancialWikiPageType) {
   if (type === "indicator") return "border-blue-200 bg-blue-50 text-blue-700";
   if (type === "workflow") return "border-violet-200 bg-violet-50 text-violet-700";
@@ -4500,11 +4527,17 @@ function pageTypeClass(type: FinancialWikiPageType) {
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
+function parseWikiLinkTitle(link: string) {
+  return link.replace(/^\[\[/, "").replace(/\]\]$/, "");
+}
+
 function FinancialKnowledgeView() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>("all");
   const [selectedType, setSelectedType] = useState<FinancialWikiPageType | "all">("all");
+  const [selectedPageId, setSelectedPageId] = useState<string>(FINANCIAL_WIKI_PAGES[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const pageById = useMemo(() => new Map(FINANCIAL_WIKI_PAGES.map((page) => [page.id, page])), []);
+  const pageByTitle = useMemo(() => new Map(FINANCIAL_WIKI_PAGES.map((page) => [page.title, page])), []);
   const selectedCollection = FINANCIAL_WIKI_COLLECTIONS.find((collection) => collection.id === selectedCollectionId);
   const selectedCollectionPages = useMemo(
     () => (selectedCollection ? new Set(selectedCollection.pages) : null),
@@ -4531,74 +4564,95 @@ function FinancialKnowledgeView() {
       return collectionMatch && typeMatch && (!lower || text.includes(lower));
     });
   }, [query, selectedCollectionPages, selectedType]);
+
+  useEffect(() => {
+    if (filteredPages.length && !filteredPages.some((page) => page.id === selectedPageId)) {
+      setSelectedPageId(filteredPages[0].id);
+    }
+  }, [filteredPages, selectedPageId]);
+
   const pageTypes = Object.keys(FINANCIAL_WIKI_PAGE_TYPE_LABELS) as FinancialWikiPageType[];
   const linkGraphEdges = FINANCIAL_WIKI_PAGES.reduce((sum, page) => sum + page.links.length, 0);
   const sourceCount = new Set(FINANCIAL_WIKI_PAGES.flatMap((page) => page.sources)).size;
+  const selectedPage = pageById.get(selectedPageId) ?? filteredPages[0] ?? FINANCIAL_WIKI_PAGES[0];
+  const relatedPages = selectedPage
+    ? selectedPage.links
+        .map((link) => pageByTitle.get(parseWikiLinkTitle(link)))
+        .filter((page): page is FinancialWikiPage => Boolean(page))
+    : [];
+  const selectedCollectionName = selectedCollection?.name ?? "全部页面";
+
+  if (!selectedPage) {
+    return <EmptyState title="知识库暂无页面" description="补充页面后会出现在这里" className="border-0" />;
+  }
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-4xl">
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
+              <BookOpen className="h-5 w-5 text-blue-500" />
               <h2 className="text-lg font-semibold text-slate-950">{FINANCIAL_WIKI_PURPOSE.title}</h2>
-              <Badge variant="outline" className="bg-white text-slate-500">Wiki OS</Badge>
-              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                {FINANCIAL_WIKI_PAGES.length} 页
-              </Badge>
+              <Badge variant="outline" className="bg-white text-slate-500">LLM Wiki</Badge>
             </div>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{FINANCIAL_WIKI_PURPOSE.statement}</p>
+            <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">{FINANCIAL_WIKI_PURPOSE.statement}</p>
           </div>
-          <div className="grid min-w-[300px] grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-3 gap-2 text-right">
             {[
-              { label: "知识页面", value: FINANCIAL_WIKI_PAGES.length },
-              { label: "引用源", value: sourceCount },
-              { label: "交叉链接", value: linkGraphEdges },
+              { label: "页面", value: FINANCIAL_WIKI_PAGES.length },
+              { label: "来源", value: sourceCount },
+              { label: "链接", value: linkGraphEdges },
             ].map((item) => (
-              <div key={item.label} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <p className="text-xs text-slate-500">{item.label}</p>
-                <p className="mt-1 text-xl font-bold tabular-nums text-slate-950">{item.value}</p>
+              <div key={item.label} className="min-w-[74px] rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] text-slate-500">{item.label}</p>
+                <p className="mt-0.5 text-lg font-bold tabular-nums text-slate-950">{item.value}</p>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
-            <p className="text-sm font-semibold text-slate-950">purpose.md</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold text-slate-400">范围</p>
-                <div className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
-                  {FINANCIAL_WIKI_PURPOSE.scope.map((item) => <p key={item}>{item}</p>)}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-400">关键问题</p>
-                <div className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
-                  {FINANCIAL_WIKI_PURPOSE.questions.map((item) => <p key={item}>{item}</p>)}
-                </div>
-              </div>
-            </div>
+        <div className="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
+          <div className="relative h-11 self-start">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索：均线、ATR、资金流、回测、数据源..."
+              className="h-11 border-slate-200 bg-white pl-10 text-sm"
+            />
           </div>
-          <div className="rounded-md border border-blue-100 bg-blue-50/70 p-4">
-            <p className="text-sm font-semibold text-blue-950">schema.md</p>
-            <div className="mt-3 space-y-2">
-              {FINANCIAL_WIKI_SCHEMA_RULES.map((rule) => (
-                <p key={rule} className="rounded-md bg-white px-3 py-2 text-xs leading-5 text-blue-900">
-                  {rule}
-                </p>
-              ))}
-            </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {FINANCIAL_WIKI_ENTRY_POINTS.map((entry) => {
+              const firstPage = pageById.get(entry.pageIds[0]);
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCollectionId("all");
+                    setSelectedType("all");
+                    setQuery("");
+                    if (firstPage) setSelectedPageId(firstPage.id);
+                  }}
+                  className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50"
+                >
+                  <p className="truncate text-sm font-semibold text-slate-900">{entry.title}</p>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{entry.description}</p>
+                </button>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">index.md</p>
-            <div className="mt-3 space-y-2">
+      <section className="grid gap-4 xl:grid-cols-[280px_minmax(360px,0.92fr)_minmax(420px,1.08fr)]">
+        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-950">index.md</p>
+              <p className="mt-1 text-xs text-slate-500">{selectedCollectionName}</p>
+            </div>
+            <div className="space-y-2 p-3">
               <button
                 type="button"
                 onClick={() => setSelectedCollectionId("all")}
@@ -4635,7 +4689,7 @@ function FinancialKnowledgeView() {
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">页面类型</p>
+            <p className="text-sm font-semibold text-slate-950">页面类型</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -4663,138 +4717,183 @@ function FinancialKnowledgeView() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 shadow-sm">
-            <p className="text-sm font-semibold text-amber-900">Lint 待检查</p>
-            <div className="mt-3 space-y-2 text-xs leading-5 text-amber-800">
-              <p>待接入真实 DDE provider 后更新 [[DDE 大单金额]]。</p>
-              <p>分钟线和集合竞价口径接入后复核 [[开盘强弱与回踩承接]]。</p>
-              <p>新增页面必须补至少 2 个 wikilinks 和 1 个 source。</p>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <DatabaseZap className="h-4 w-4 text-emerald-500" />
+              <p className="text-sm font-semibold text-slate-950">sources</p>
+            </div>
+            <div className="mt-3 space-y-2 text-xs leading-5 text-slate-600">
+              {FINANCIAL_WIKI_PURPOSE.scope.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
             </div>
           </div>
         </aside>
 
-        <div className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-slate-950">pages/</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  显示 {filteredPages.length} / {FINANCIAL_WIKI_PAGES.length} 页，页面标题和链接均按 Wiki 方式维护。
-                </p>
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">pages/</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {filteredPages.length} / {FINANCIAL_WIKI_PAGES.length} 页 · {selectedCollectionName}
+              </p>
+            </div>
+            <Badge variant="outline" className="bg-white text-slate-500">
+              {selectedType === "all" ? "全部类型" : FINANCIAL_WIKI_PAGE_TYPE_LABELS[selectedType]}
+            </Badge>
+          </div>
+
+          <div className="max-h-[calc(100vh-280px)] overflow-y-auto p-3">
+            <div className="space-y-2">
+              {filteredPages.map((page) => {
+                const active = selectedPage.id === page.id;
+                return (
+                  <button
+                    key={page.id}
+                    type="button"
+                    onClick={() => setSelectedPageId(page.id)}
+                    className={cn(
+                      "w-full rounded-lg border p-4 text-left transition-colors",
+                      active
+                        ? "border-blue-300 bg-blue-50 shadow-sm shadow-blue-100"
+                        : "border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className={pageTypeClass(page.type)}>
+                            {FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]}
+                          </Badge>
+                          <span className="text-xs text-slate-400">{page.domain}</span>
+                        </div>
+                        <h3 className="mt-2 truncate text-base font-bold text-slate-950">{page.title}</h3>
+                      </div>
+                      <ArrowRight className={cn("mt-1 h-4 w-4 shrink-0", active ? "text-blue-500" : "text-slate-300")} />
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{page.summary}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                      <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">{page.sources.length} sources</span>
+                      <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">{page.links.length} wikilinks</span>
+                      <span className="rounded bg-slate-100 px-2 py-1 text-slate-500">status: maintained</span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {!filteredPages.length && (
+                <EmptyState title="没有匹配的知识页面" description="调整目录、类型或搜索关键词" className="border-0" />
+              )}
+            </div>
+          </div>
+        </div>
+
+        <article className="rounded-lg border border-slate-200 bg-white shadow-sm xl:sticky xl:top-24 xl:self-start">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={pageTypeClass(selectedPage.type)}>
+                {FINANCIAL_WIKI_PAGE_TYPE_LABELS[selectedPage.type]}
+              </Badge>
+              <Badge variant="outline" className="bg-white text-slate-500">{selectedPage.domain}</Badge>
+              <code className="rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-500">
+                {selectedPage.id}.md
+              </code>
+            </div>
+            <h3 className="mt-3 text-xl font-bold text-slate-950">{selectedPage.title}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{selectedPage.summary}</p>
+          </div>
+
+          <div className="max-h-[calc(100vh-260px)] overflow-y-auto p-5">
+            <div className="grid gap-3">
+              {selectedPage.formula && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">formula</p>
+                  <code className="mt-2 block whitespace-pre-wrap font-mono text-xs leading-6 text-slate-800">
+                    {selectedPage.formula}
+                  </code>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">decision use</p>
+                <p className="mt-2 text-sm leading-6 text-blue-950">{selectedPage.decisionUse}</p>
               </div>
-              <div className="relative min-w-[260px] flex-1 md:max-w-sm">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索公式、来源、链接、质量门..."
-                  className="h-9 border-slate-200 bg-white pl-9"
-                />
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">quality gate</p>
+                  <p className="mt-2 text-sm leading-6 text-emerald-950">{selectedPage.qualityGate}</p>
+                </div>
+                <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">caveats</p>
+                  <div className="mt-2 space-y-1 text-sm leading-6 text-amber-950">
+                    {selectedPage.caveats.map((caveat) => <p key={`${selectedPage.id}-caveat-${caveat}`}>{caveat}</p>)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">sources</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedPage.sources.map((source) => (
+                    <code key={`${selectedPage.id}-source-${source}`} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-600">
+                      {source}
+                    </code>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex items-center gap-2">
+                  <GitBranch className="h-4 w-4 text-blue-500" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">wikilinks</p>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {relatedPages.map((page) => (
+                    <button
+                      key={`${selectedPage.id}-related-${page.id}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCollectionId("all");
+                        setSelectedType("all");
+                        setQuery("");
+                        setSelectedPageId(page.id);
+                      }}
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50"
+                    >
+                      <p className="truncate text-sm font-semibold text-slate-900">{page.title}</p>
+                      <p className="mt-1 text-xs text-slate-500">{FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]} · {page.domain}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">agent context</p>
+                <div className="mt-3 rounded-md border border-slate-200 bg-white p-3 font-mono text-[11px] leading-5 text-slate-600">
+                  <p>page: {selectedPage.title}</p>
+                  <p>type: {selectedPage.type}</p>
+                  <p>qualityGate: {selectedPage.qualityGate}</p>
+                  <p>sources: {selectedPage.sources.join(", ")}</p>
+                </div>
               </div>
             </div>
           </div>
-
-          {filteredPages.map((page) => (
-            <article key={page.id} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className={pageTypeClass(page.type)}>
-                      {FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]}
-                    </Badge>
-                    <Badge variant="outline" className="bg-white text-slate-500">{page.domain}</Badge>
-                    <h3 className="text-base font-bold text-slate-950">{page.title}</h3>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{page.summary}</p>
-                </div>
-                <code className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-5 text-slate-600">
-                  type: {page.type}<br />
-                  status: maintained<br />
-                  page: {page.id}.md
-                </code>
-              </div>
-
-              {page.formula && (
-                <code className="mt-4 block rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs leading-5 text-slate-800">
-                  {page.formula}
-                </code>
-              )}
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_1fr_1fr]">
-                <div className="rounded-md bg-blue-50 p-3">
-                  <p className="text-xs font-semibold text-blue-600">决策使用</p>
-                  <p className="mt-1 text-sm leading-6 text-blue-950">{page.decisionUse}</p>
-                </div>
-                <div className="rounded-md bg-emerald-50 p-3">
-                  <p className="text-xs font-semibold text-emerald-700">质量门</p>
-                  <p className="mt-1 text-sm leading-6 text-emerald-950">{page.qualityGate}</p>
-                </div>
-                <div className="rounded-md bg-amber-50 p-3">
-                  <p className="text-xs font-semibold text-amber-700">误用边界</p>
-                  <div className="mt-1 space-y-1 text-sm leading-6 text-amber-900">
-                    {page.caveats.map((caveat) => <p key={`${page.id}-caveat-${caveat}`}>{caveat}</p>)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-xs font-semibold text-slate-500">sources[]</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {page.sources.map((source) => (
-                      <code key={`${page.id}-source-${source}`} className="rounded bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600">
-                        {source}
-                      </code>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-xs font-semibold text-slate-500">wikilinks</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {page.links.map((link) => {
-                      const targetTitle = link.replace("[[", "").replace("]]", "");
-                      const target = FINANCIAL_WIKI_PAGES.find((item) => item.title === targetTitle);
-                      return (
-                        <button
-                          key={`${page.id}-link-${link}`}
-                          type="button"
-                          onClick={() => {
-                            if (target) {
-                              setSelectedCollectionId("all");
-                              setSelectedType("all");
-                              setQuery(target.title);
-                            }
-                          }}
-                          className="rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
-                        >
-                          {link}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </article>
-          ))}
-
-          {!filteredPages.length && (
-            <EmptyState title="没有匹配的知识页面" description="调整目录、类型或搜索关键词" className="border-0" />
-          )}
-        </div>
+        </article>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Ingest / Query / Lint</h3>
-              <p className="mt-1 text-sm text-slate-500">金融知识库按固定生命周期维护，不依赖一次性人工整理。</p>
+              <p className="mt-1 text-sm text-slate-500">知识页面按摄入、查询和检查的固定生命周期维护。</p>
             </div>
-            <Badge variant="outline" className="bg-white text-slate-500">操作协议</Badge>
+            <Badge variant="outline" className="bg-white text-slate-500">protocol</Badge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
             {FINANCIAL_WIKI_OPERATIONS.map((operation) => (
-              <article key={operation.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+              <article key={operation.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-bold text-slate-950">{operation.title}</p>
                 <p className="mt-2 text-sm leading-6 text-slate-600">{operation.description}</p>
                 <div className="mt-3 space-y-1">
@@ -4820,35 +4919,6 @@ function FinancialKnowledgeView() {
               </div>
             ))}
           </div>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-950">知识图谱预览</h3>
-        <p className="mt-1 text-sm text-slate-500">按 collection 和 wikilinks 组织，后续可接入图谱可视化和自动 Lint。</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {FINANCIAL_WIKI_COLLECTIONS.map((collection) => (
-            <div key={`graph-${collection.id}`} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
-              <p className="text-sm font-bold text-slate-950">{collection.name}</p>
-              <div className="mt-3 space-y-2">
-                {collection.pages.map((pageId) => {
-                  const page = pageById.get(pageId);
-                  if (!page) return null;
-                  return (
-                    <div key={`${collection.id}-${pageId}`} className="rounded-md bg-white px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-medium text-slate-800">{page.title}</p>
-                        <Badge variant="outline" className={pageTypeClass(page.type)}>
-                          {FINANCIAL_WIKI_PAGE_TYPE_LABELS[page.type]}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-400">{page.links.length} links · {page.sources.length} sources</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
         </div>
       </section>
     </div>
