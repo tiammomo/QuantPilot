@@ -265,6 +265,9 @@ export default function ChatPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
   const [tree, setTree] = useState<Entry[]>([]);
+  const [isTreeLoading, setIsTreeLoading] = useState(false);
+  const [hasTreeLoaded, setHasTreeLoaded] = useState(false);
+  const [treeLoadError, setTreeLoadError] = useState<string | null>(null);
   const [content, setContent] = useState<string>('');
   const [editedContent, setEditedContent] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -1007,6 +1010,8 @@ const persistProjectPreferences = useCallback(
   }, [projectId]);
 
   const loadTree = useCallback(async (dir = '.') => {
+    setIsTreeLoading(true);
+    setTreeLoadError(null);
     try {
       const r = await fetch(`${API_BASE}/api/repo/${projectId}/tree?dir=${encodeURIComponent(dir)}`);
       const data = await r.json();
@@ -1014,6 +1019,7 @@ const persistProjectPreferences = useCallback(
       // Ensure data is an array
       if (Array.isArray(data)) {
         setTree(data);
+        setHasTreeLoaded(true);
 
         // Load contents for all directories in the root
         const newFolderContents = new Map();
@@ -1033,13 +1039,19 @@ const persistProjectPreferences = useCallback(
         setFolderContents(newFolderContents);
       } else {
         console.error('Tree data is not an array:', data);
+        setTreeLoadError(typeof data?.error === 'string' ? data.error : '文件树返回格式异常');
         setTree([]);
+        setHasTreeLoaded(true);
       }
 
       setCurrentPath(dir);
     } catch (error) {
       console.error('Failed to load tree:', error);
+      setTreeLoadError(error instanceof Error ? error.message : '文件树加载失败');
       setTree([]);
+      setHasTreeLoaded(true);
+    } finally {
+      setIsTreeLoading(false);
     }
   }, [projectId, loadSubdirectory]);
 
@@ -1706,6 +1718,15 @@ const persistProjectPreferences = useCallback(
     loadTreeRef.current = loadTree;
   }, [loadTree]);
 
+  useEffect(() => {
+    setTree([]);
+    setFolderContents(new Map());
+    setExpandedFolders(new Set(['']));
+    setSelectedFile('');
+    setHasTreeLoaded(false);
+    setTreeLoadError(null);
+  }, [projectId]);
+
   const loadDeployStatusRef = useRef(loadDeployStatus);
   useEffect(() => {
     loadDeployStatusRef.current = loadDeployStatus;
@@ -2273,6 +2294,15 @@ const persistProjectPreferences = useCallback(
     }
   }, [projectId]);
 
+  // Load the file tree on demand when the user opens code view.
+  useEffect(() => {
+    if (!projectId || showPreview || hasTreeLoaded || isTreeLoading) {
+      return;
+    }
+
+    void loadTree('.');
+  }, [projectId, showPreview, hasTreeLoaded, isTreeLoading, loadTree]);
+
   // Poll for file changes in code view
   useEffect(() => {
     if (!showPreview && selectedFile && !hasUnsavedChanges) {
@@ -2493,7 +2523,12 @@ const persistProjectPreferences = useCallback(
                           ? 'bg-white text-slate-900 '
                           : 'text-slate-600 hover:text-slate-900 '
                       }`}
-                      onClick={() => setShowPreview(false)}
+                      onClick={() => {
+                        setShowPreview(false);
+                        if (!hasTreeLoaded && !isTreeLoading) {
+                          void loadTree('.');
+                        }
+                      }}
                     >
                       <span className="w-4 h-4 flex items-center justify-center"><FaCode size={16} /></span>
                     </button>
@@ -3119,9 +3154,29 @@ const persistProjectPreferences = useCallback(
                 <div className="w-64 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col">
                   {/* File Tree */}
                   <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
-                    {!tree || tree.length === 0 ? (
+                    {isTreeLoading ? (
+                      <div className="px-3 py-8 text-center text-[11px] text-slate-500 select-none">
+                        Loading files...
+                      </div>
+                    ) : treeLoadError ? (
+                      <div className="space-y-3 px-3 py-8 text-center text-[11px] text-slate-600 select-none">
+                        <p>Failed to load files</p>
+                        <p className="break-words text-slate-400">{treeLoadError}</p>
+                        <button
+                          type="button"
+                          onClick={() => void loadTree('.')}
+                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : hasTreeLoaded && (!tree || tree.length === 0) ? (
                       <div className="px-3 py-8 text-center text-[11px] text-slate-600 select-none">
                         No files found
+                      </div>
+                    ) : !hasTreeLoaded ? (
+                      <div className="px-3 py-8 text-center text-[11px] text-slate-500 select-none">
+                        Loading files...
                       </div>
                     ) : (
                       <TreeView
