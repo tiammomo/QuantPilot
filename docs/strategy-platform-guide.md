@@ -60,7 +60,7 @@ A 股股票池和 ETF/指数池要拆开，原因很朴素：个股策略和 ETF
 | ETF | 行业、主题、指数跟踪或资产配置 | 没有个股财务指标，涨跌停和流动性口径也不同 |
 | 指数 | 市场基准和板块参考 | 通常不可直接交易，不能当个股回测 |
 
-拆分只应该调整 `quant.security_universe_members` 的成员关系，不应该删除 `quant.stock_bars` 里的历史 K 线。历史数据是资产，不要因为当前页面暂时不展示就清掉。
+拆分只应该调整 `quant.security_universe_members` 的成员关系，不应该删除 `quant.stock_bars` 里的历史 K 线。历史数据是资产，不要因为当前页面暂时不展示就清掉。当前可交易研究池用 active 边界维护：默认页面、覆盖率、筛选器和 ClickHouse 同步只看 `role <> 'inactive'` 且证券状态未失效的成员；需要排查历史成员时再显式查询 inactive。
 
 ## 选股策略和价格策略
 

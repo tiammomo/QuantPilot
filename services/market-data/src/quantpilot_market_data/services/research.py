@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from quantpilot_market_data.models import (
     Adjustment,
     AShareScreenerResponse,
@@ -10,6 +12,7 @@ from quantpilot_market_data.models import (
     KlinePeriod,
     LocalKlineResponse,
     MarketDataCoverageResponse,
+    ResearchUniverseHygieneResponse,
     ResearchUniverseMemberCreateRequest,
     ResearchUniverseMemberCreateResponse,
     ResearchUniverseMembersPageResponse,
@@ -23,8 +26,9 @@ from quantpilot_market_data.providers.base import ResearchUniverseProvider
 from quantpilot_market_data.repositories.research import (
     add_securities_to_universe,
     add_security_to_universe,
+    clean_research_universe_tradable_members,
     get_local_kline,
-    list_market_data_coverage,
+    get_market_data_coverage_page,
     list_research_universe_members_page,
     list_research_universe_summaries,
     list_research_universes,
@@ -99,10 +103,26 @@ async def import_etf_universe_batch(
 
 async def get_research_data_coverage(
     universe_id: str | None,
+    *,
+    page: int,
+    page_size: int,
+    include_inactive: bool = False,
 ) -> MarketDataCoverageResponse:
+    coverage_page = await get_market_data_coverage_page(
+        universe_id=universe_id,
+        page=page,
+        page_size=page_size,
+        include_inactive=include_inactive,
+    )
     return MarketDataCoverageResponse(
         universe_id=universe_id,
-        items=await list_market_data_coverage(universe_id),
+        page=page,
+        page_size=page_size,
+        include_inactive=include_inactive,
+        total=coverage_page.total,
+        total_pages=coverage_page.total_pages,
+        summary=coverage_page.summary,
+        items=coverage_page.items,
     )
 
 
@@ -135,12 +155,14 @@ async def get_research_universe_members(
     page: int,
     page_size: int,
     keyword: str | None,
+    include_inactive: bool = False,
 ) -> ResearchUniverseMembersPageResponse:
     members, total, current_page, total_pages = await list_research_universe_members_page(
         universe_id=universe_id,
         page=page,
         page_size=page_size,
         keyword=keyword,
+        include_inactive=include_inactive,
     )
     return ResearchUniverseMembersPageResponse(
         universe_id=universe_id,
@@ -149,7 +171,23 @@ async def get_research_universe_members(
         total=total,
         total_pages=total_pages,
         keyword=keyword.strip() if keyword else None,
+        include_inactive=include_inactive,
         members=members,
+    )
+
+
+async def clean_research_universe_members(
+    *,
+    universe_id: str,
+    target_trade_date: date | None,
+    dry_run: bool,
+    max_items: int,
+) -> ResearchUniverseHygieneResponse:
+    return await clean_research_universe_tradable_members(
+        universe_id=universe_id,
+        target_trade_date=target_trade_date,
+        dry_run=dry_run,
+        max_items=max_items,
     )
 
 

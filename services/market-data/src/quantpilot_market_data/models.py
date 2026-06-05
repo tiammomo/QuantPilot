@@ -162,6 +162,7 @@ class ClickHouseHealthResponse(BaseModel):
     database: str | None = None
     server_version: str | None = None
     tables: dict[str, int] = Field(default_factory=dict)
+    table_latest_trade_dates: dict[str, date | None] = Field(default_factory=dict)
     error: str | None = None
     checked_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -542,6 +543,7 @@ class ResearchUniverseMembersPageResponse(BaseModel):
     total: int = 0
     total_pages: int = 1
     keyword: str | None = None
+    include_inactive: bool = False
     members: list[ResearchUniverseMember] = Field(default_factory=list)
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -557,6 +559,31 @@ class ResearchUniverseMemberCreateResponse(BaseModel):
     member: ResearchUniverseMember
     candidates: list[SymbolResolveResult] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ResearchUniverseHygieneItem(BaseModel):
+    symbol: str
+    name: str | None = None
+    previous_role: str | None = None
+    new_role: str
+    previous_status: str | None = None
+    new_status: str
+    last_ts: datetime | None = None
+    last_trade_date: date | None = None
+    reason: str
+    action: Literal["mark_inactive", "mark_active", "keep"]
+
+
+class ResearchUniverseHygieneResponse(BaseModel):
+    universe_id: str
+    dry_run: bool = True
+    target_trade_date: date | None = None
+    inspected_count: int = 0
+    changed_count: int = 0
+    active_count: int = 0
+    inactive_count: int = 0
+    items: list[ResearchUniverseHygieneItem] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AShareUniverseBatchImportRequest(BaseModel):
@@ -607,19 +634,41 @@ class MarketDataCoverageItem(BaseModel):
     data_status: Literal["ready", "missing", "stale"] = "missing"
 
 
+class MarketDataCoverageSummary(BaseModel):
+    total: int = 0
+    ready: int = 0
+    missing: int = 0
+    stale: int = 0
+    ready_ratio: float = 0
+    latest_ts: datetime | None = None
+    total_rows: int = 0
+
+
 class MarketDataCoverageResponse(BaseModel):
     universe_id: str | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=100, ge=1)
+    total: int = 0
+    total_pages: int = 1
+    include_inactive: bool = False
+    summary: MarketDataCoverageSummary = Field(default_factory=MarketDataCoverageSummary)
     items: list[MarketDataCoverageItem]
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     data_quality: DataQuality = Field(default_factory=DataQuality)
 
     @model_validator(mode="after")
     def fill_contract_fields(self) -> Self:
-        if not self.items:
+        if self.total <= 0:
             self.data_quality = _merge_data_quality(
                 self.data_quality,
                 missing_fields=["items"],
                 warnings=["未查询到任何本地行情覆盖数据。"],
+                status="warning",
+            )
+        elif not self.items:
+            self.data_quality = _merge_data_quality(
+                self.data_quality,
+                warnings=["当前页没有覆盖数据，请检查 page 是否超过 total_pages。"],
                 status="warning",
             )
         return self
@@ -757,6 +806,17 @@ class AShareScreenerCandidate(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
 
 
+class AnalyticsExecutionMetadata(BaseModel):
+    engine: Literal["clickhouse", "timescaledb"] = "timescaledb"
+    status: Literal["hit", "fallback", "disabled", "error"] = "disabled"
+    basis: str = "timescaledb.stock_bars"
+    target_trade_date: date | None = None
+    clickhouse_trade_date: date | None = None
+    auto_sync_status: Literal["not_needed", "synced", "skipped", "error"] = "not_needed"
+    auto_sync_rows_written: int = 0
+    message: str | None = None
+
+
 class AShareScreenerResponse(BaseModel):
     universe_id: str
     mode: ScreenerMode = "short_term"
@@ -768,6 +828,7 @@ class AShareScreenerResponse(BaseModel):
     limit: int = 20
     candidates: list[AShareScreenerCandidate] = Field(default_factory=list)
     data_basis: str = "timescaledb.stock_bars"
+    analytics: AnalyticsExecutionMetadata = Field(default_factory=AnalyticsExecutionMetadata)
     source: str = "quantpilot-market-api"
     notes: list[str] = Field(default_factory=list)
     cache_status: CacheStatus = "bypass"

@@ -8,16 +8,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache, ttl_from_env
-from quantpilot_market_data.database import (
+from quantpilot_market_data.database_core import (
     DatabaseError,
-    create_ingestion_job,
-    finish_ingestion_job,
-    get_history_ingestion_preflight,
-    get_universe_fetch_targets,
     normalize_fetch_symbol,
-    update_ingestion_job_progress,
-    upsert_kline_response,
-    upsert_realtime_quote_snapshot,
 )
 from quantpilot_market_data.models import (
     AutoFillIngestionStartResponse,
@@ -31,6 +24,17 @@ from quantpilot_market_data.models import (
 from quantpilot_market_data.providers.akshare import AkShareClient, AkShareError
 from quantpilot_market_data.providers.baostock import BaoStockClient, BaoStockError
 from quantpilot_market_data.providers.eastmoney import EastMoneyClient, EastMoneyError
+from quantpilot_market_data.repositories.ingestion import (
+    create_ingestion_job,
+    finish_ingestion_job,
+    get_history_ingestion_preflight,
+    update_ingestion_job_progress,
+)
+from quantpilot_market_data.repositories.universes import get_universe_fetch_targets
+from quantpilot_market_data.repositories.upserts import (
+    upsert_kline_response,
+    upsert_realtime_quote_snapshot,
+)
 from quantpilot_market_data.routers.analytics import router as analytics_router
 from quantpilot_market_data.routers.backtests import create_backtest_router
 from quantpilot_market_data.routers.events import create_events_router

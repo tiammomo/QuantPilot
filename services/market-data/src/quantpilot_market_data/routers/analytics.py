@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from quantpilot_market_data.clickhouse import ClickHouseError
-from quantpilot_market_data.database import DatabaseError
+from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.models import (
     ClickHouseHealthResponse,
     ClickHouseSyncRequest,

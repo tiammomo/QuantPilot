@@ -151,15 +151,15 @@ symbol + timeframe + adjustment + ts
 
 ### `quant.security_universe_members`
 
-池成员关系表。拆分股票池和 ETF/指数池时只改这张表的成员关系，不删除 `stock_bars` 历史。
+池成员关系表。拆分股票池和 ETF/指数池时只改这张表的成员关系，不删除 `stock_bars` 历史。当前可交易研究池以 `role <> 'inactive'` 且 `quant.securities.status` 不是 `inactive`/`delisted` 为默认边界。
 
 | 字段 | 口径 |
 | --- | --- |
 | `universe_id` | 股票池 ID |
 | `symbol` | 证券代码 |
-| `role` | `member`、`benchmark` 等 |
+| `role` | `member`、`benchmark`、`inactive` 等；`inactive` 表示保留历史但默认业务入口不再扫描 |
 | `weight` | 可选权重 |
-| `metadata` | 加入原因、来源 |
+| `metadata` | 加入原因、来源；自动清洗会写入 `metadata.hygiene`，记录原因、目标交易日、原 role/status 和新状态 |
 | `added_at` | 加入时间 |
 
 ## 补数、覆盖和回测表
@@ -167,8 +167,8 @@ symbol + timeframe + adjustment + ts
 | 表/视图 | 责任 |
 | --- | --- |
 | `quant.market_data_ingestion_jobs` | 市场数据补数任务，记录 provider、范围、状态、进度、错误和统计 |
-| `quant.market_data_sync_state` | 单标的同步水位，记录 first/last ts、行数、最近成功和错误 |
-| `quant.market_data_coverage` | 基于 `stock_bars` 聚合的数据覆盖视图 |
+| `quant.market_data_sync_state` | 单标的同步水位，记录 first/last ts、行数、最近成功和错误；在线覆盖接口优先读取这张表 |
+| `quant.market_data_coverage` | 基于 `stock_bars` 聚合的数据覆盖视图，适合离线核对，不作为页面首屏默认读模型 |
 | `quant.backtest_runs` | 回测任务和指标摘要 |
 | `quant.backtest_orders` | 回测成交明细 |
 

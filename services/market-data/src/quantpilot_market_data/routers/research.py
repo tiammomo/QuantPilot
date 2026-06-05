@@ -4,7 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
-from quantpilot_market_data.database import DatabaseError
+from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.models import (
     Adjustment,
     AShareScreenerResponse,
@@ -15,6 +15,7 @@ from quantpilot_market_data.models import (
     KlinePeriod,
     LocalKlineResponse,
     MarketDataCoverageResponse,
+    ResearchUniverseHygieneResponse,
     ResearchUniverseMemberCreateRequest,
     ResearchUniverseMemberCreateResponse,
     ResearchUniverseMembersPageResponse,
@@ -27,6 +28,7 @@ from quantpilot_market_data.providers.base import ResearchUniverseProvider
 from quantpilot_market_data.providers.eastmoney import EastMoneyError
 from quantpilot_market_data.services.research import (
     add_research_universe_member,
+    clean_research_universe_members,
     get_a_share_short_term_candidates,
     get_research_data_coverage,
     get_research_local_bars,
@@ -81,9 +83,17 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
     @router.get("/data-coverage", response_model=MarketDataCoverageResponse)
     async def get_research_data_coverage_endpoint(
         universe_id: str | None = "a-share-sample-research-pool",
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=100, ge=1, le=500),
+        include_inactive: bool = Query(default=False),
     ) -> MarketDataCoverageResponse:
         try:
-            return await get_research_data_coverage(universe_id)
+            return await get_research_data_coverage(
+                universe_id,
+                page=page,
+                page_size=page_size,
+                include_inactive=include_inactive,
+            )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -113,6 +123,7 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=10, ge=1, le=100),
         keyword: str | None = Query(default=None, max_length=80),
+        include_inactive: bool = Query(default=False),
     ) -> ResearchUniverseMembersPageResponse:
         try:
             return await get_research_universe_members(
@@ -120,6 +131,27 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
                 page=page,
                 page_size=page_size,
                 keyword=keyword,
+                include_inactive=include_inactive,
+            )
+        except DatabaseError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @router.post(
+        "/universes/{universe_id}/hygiene",
+        response_model=ResearchUniverseHygieneResponse,
+    )
+    async def clean_research_universe_members_endpoint(
+        universe_id: str,
+        target_trade_date: date | None = None,
+        dry_run: bool = Query(default=True),
+        max_items: int = Query(default=500, ge=1, le=2_000),
+    ) -> ResearchUniverseHygieneResponse:
+        try:
+            return await clean_research_universe_members(
+                universe_id=universe_id,
+                target_trade_date=target_trade_date,
+                dry_run=dry_run,
+                max_items=max_items,
             )
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error

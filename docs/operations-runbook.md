@@ -154,6 +154,7 @@ WHERE timeframe = 'daily' AND adjustment = 'qfq';
 - A 股股票池只放 `asset_type=stock`。
 - ETF/指数池放 `asset_type=etf` 或 `asset_type=index`。
 - 拆分只修改 `quant.security_universe_members`，不删除 `quant.stock_bars`。
+- 默认研究入口只扫描 active 成员。无最新交易日数据、退市或数据源不再返回的成员应标记为 `role='inactive'` 和 `securities.status='inactive'`，保留历史 K 线和成员关系。
 
 检查：
 
@@ -167,6 +168,13 @@ SELECT universe_id, count(*)
 FROM quant.security_universe_members
 GROUP BY universe_id
 ORDER BY count(*) DESC;
+```
+
+清洗 A 股当前可交易池：
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/research/universes/a-share-sample-research-pool/hygiene?dry_run=true'
+curl -X POST 'http://127.0.0.1:8000/api/v1/research/universes/a-share-sample-research-pool/hygiene?dry_run=false'
 ```
 
 如果页面股票池加载慢，优先确认是否服务端分页和 Redis 缓存可用，不要把前端改回全量加载。

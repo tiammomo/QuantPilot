@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from quantpilot_market_data.database import DatabaseError
+from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.models import (
     DataQualityScanRequest,
     DataQualityScanResponse,

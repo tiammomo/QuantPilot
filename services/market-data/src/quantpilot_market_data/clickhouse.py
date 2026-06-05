@@ -200,6 +200,20 @@ async def get_clickhouse_health() -> ClickHouseHealthResponse:
             """,
             {"database": config.database},
         )
+        table_names = {str(row["name"]) for row in table_rows}
+        latest_trade_dates: dict[str, date | None] = {}
+        if DAILY_BARS_TABLE in table_names:
+            latest_rows = await asyncio.to_thread(
+                _query_rows,
+                f"""
+                SELECT max(trade_date) AS latest_trade_date
+                FROM {_table_name(DAILY_BARS_TABLE)}
+                """,
+            )
+            latest_value = latest_rows[0]["latest_trade_date"] if latest_rows else None
+            latest_trade_dates[DAILY_BARS_TABLE] = (
+                _date_value(latest_value) if latest_value else None
+            )
         return ClickHouseHealthResponse(
             enabled=True,
             status="ok",
@@ -208,6 +222,7 @@ async def get_clickhouse_health() -> ClickHouseHealthResponse:
             database=config.database,
             server_version=str(rows[0]["server_version"]) if rows else None,
             tables={str(row["name"]): int(row["total_rows"] or 0) for row in table_rows},
+            table_latest_trade_dates=latest_trade_dates,
         )
     except Exception as error:
         return ClickHouseHealthResponse(
@@ -426,6 +441,17 @@ def _resolve_screener_trade_date_sync(
     return _date_value(value) if value else None
 
 
+def _average(values: list[Any]) -> Decimal | None:
+    present = [Decimal(str(value)) for value in values if value is not None]
+    if not present:
+        return None
+    return sum(present, Decimal("0")) / Decimal(len(present))
+
+
+def _truthy(value: Any) -> bool:
+    return bool(value) if value is not None else False
+
+
 def _query_screener_feature_rows_sync(
     *,
     universe_id: str,
@@ -439,66 +465,38 @@ def _query_screener_feature_rows_sync(
           {trade_date:Date} AS target_date,
           target_date - 260 AS start_date
         SELECT
-          features.*,
-          target_date AS requested_trade_date,
-          count() OVER () AS scanned_symbols
-        FROM
-        (
-          SELECT
-            symbol,
-            anyIf(code, rn = 1) AS code,
-            anyIf(name, rn = 1) AS name,
-            anyIf(exchange, rn = 1) AS exchange,
-            anyIf(security_metadata, rn = 1) AS security_metadata,
-            count() AS sample_count,
-            anyIf(trade_date, rn = 1) AS latest_trade_date,
-            anyIf(provider, rn = 1) AS latest_provider,
-            anyIf(open, rn = 1) AS latest_open,
-            anyIf(high, rn = 1) AS latest_high,
-            anyIf(low, rn = 1) AS latest_low,
-            anyIf(close, rn = 1) AS latest_close,
-            anyIf(previous_close, rn = 1) AS previous_close,
-            anyIf(amount, rn = 1) AS latest_amount,
-            anyIf(turnover, rn = 1) AS latest_turnover,
-            anyIf(change_percent, rn = 1) AS latest_change_percent,
-            anyIf(change_percent, rn = 2) AS previous_change_percent,
-            maxIf(toUInt8(coalesce(limit_up, false)), rn = 1) AS latest_limit_up,
-            maxIf(toUInt8(coalesce(is_st, false)), rn = 1) AS latest_is_st,
-            avgIf(close, rn <= 5) AS ma5,
-            avgIf(close, rn <= 10) AS ma10,
-            avgIf(close, rn <= 20) AS ma20,
-            avgIf(close, rn <= 30) AS ma30,
-            avgIf(close, rn <= 60) AS ma60,
-            avgIf(amount, rn <= 20 AND amount IS NOT NULL) AS avg_amount_20d,
-            anyIf(close, rn = 21) AS close_20d,
-            countIf(rn <= 4 AND coalesce(limit_up, false)) AS limit_up_count_4d,
-            countIf(rn <= 10 AND coalesce(limit_up, false)) AS limit_up_count_10d,
-            maxIf(trade_date, rn <= 10 AND coalesce(limit_up, false)) AS latest_limit_up_date
-          FROM
-          (
-            SELECT
-              *,
-              row_number() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS rn
-            FROM quant_bars_daily
-            WHERE universe_id = {universe_id:String}
-              AND timeframe = {timeframe:String}
-              AND adjustment = {adjustment:String}
-              AND asset_type = 'stock'
-              AND exchange != 'BJ'
-              AND NOT startsWith(code, '688')
-              AND NOT startsWith(code, '8')
-              AND NOT startsWith(code, '4')
-              AND positionCaseInsensitiveUTF8(coalesce(name, ''), 'ST') = 0
-              AND trade_date >= start_date
-              AND trade_date <= target_date
-          ) recent_bars
-          GROUP BY symbol
-        ) features
-        WHERE latest_trade_date = target_date
-          AND latest_is_st = 0
-          AND latest_limit_up = 0
-          AND latest_close IS NOT NULL
-          AND sample_count >= 20
+          symbol,
+          code,
+          name,
+          exchange,
+          security_metadata,
+          trade_date,
+          provider,
+          open,
+          high,
+          low,
+          close,
+          previous_close,
+          amount,
+          turnover,
+          change_percent,
+          limit_up,
+          is_st,
+          synced_at
+        FROM quant_bars_daily
+        WHERE universe_id = {universe_id:String}
+          AND timeframe = {timeframe:String}
+          AND adjustment = {adjustment:String}
+          AND asset_type = 'stock'
+          AND exchange != 'BJ'
+          AND NOT startsWith(code, '688')
+          AND NOT startsWith(code, '8')
+          AND NOT startsWith(code, '4')
+          AND positionCaseInsensitiveUTF8(coalesce(name, ''), 'ST') = 0
+          AND trade_date >= start_date
+          AND trade_date <= target_date
+        ORDER BY symbol ASC, trade_date DESC, synced_at DESC
+        LIMIT 80 BY symbol
         """,
         {
             "universe_id": universe_id,
@@ -507,7 +505,78 @@ def _query_screener_feature_rows_sync(
             "adjustment": adjustment,
         },
     )
-    return [_parse_metadata(row) for row in rows]
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        symbol = str(row["symbol"])
+        group = grouped.setdefault(symbol, [])
+        if any(existing["trade_date"] == row["trade_date"] for existing in group):
+            continue
+        if len(group) < 60:
+            group.append(row)
+
+    features: list[dict[str, Any]] = []
+    for symbol, bars in grouped.items():
+        if not bars:
+            continue
+        latest = bars[0]
+        latest_trade_date = _date_value(latest["trade_date"])
+        if (
+            latest_trade_date != trade_date
+            or _truthy(latest.get("is_st"))
+            or _truthy(latest.get("limit_up"))
+            or latest.get("close") is None
+            or len(bars) < 20
+        ):
+            continue
+        recent_4 = bars[:4]
+        recent_10 = bars[:10]
+        latest_limit_up_date = max(
+            (_date_value(row["trade_date"]) for row in recent_10 if _truthy(row.get("limit_up"))),
+            default=None,
+        )
+        features.append(
+            _parse_metadata(
+                {
+                    "symbol": symbol,
+                    "code": latest["code"],
+                    "name": latest["name"],
+                    "exchange": latest["exchange"],
+                    "security_metadata": latest["security_metadata"],
+                    "sample_count": len(bars),
+                    "latest_trade_date": latest_trade_date,
+                    "latest_provider": latest["provider"],
+                    "latest_open": latest["open"],
+                    "latest_high": latest["high"],
+                    "latest_low": latest["low"],
+                    "latest_close": latest["close"],
+                    "previous_close": latest["previous_close"],
+                    "latest_amount": latest["amount"],
+                    "latest_turnover": latest["turnover"],
+                    "latest_change_percent": latest["change_percent"],
+                    "previous_change_percent": bars[1]["change_percent"] if len(bars) > 1 else None,
+                    "latest_limit_up": _truthy(latest["limit_up"]),
+                    "latest_is_st": _truthy(latest["is_st"]),
+                    "ma5": _average([row["close"] for row in bars[:5]]),
+                    "ma10": _average([row["close"] for row in bars[:10]]),
+                    "ma20": _average([row["close"] for row in bars[:20]]),
+                    "ma30": _average([row["close"] for row in bars[:30]]),
+                    "ma60": _average([row["close"] for row in bars[:60]]),
+                    "avg_amount_20d": _average([row["amount"] for row in bars[:20]]),
+                    "close_20d": bars[20]["close"] if len(bars) > 20 else None,
+                    "limit_up_count_4d": sum(1 for row in recent_4 if _truthy(row.get("limit_up"))),
+                    "limit_up_count_10d": sum(
+                        1 for row in recent_10 if _truthy(row.get("limit_up"))
+                    ),
+                    "latest_limit_up_date": latest_limit_up_date,
+                }
+            )
+        )
+
+    scanned_symbols = len(features)
+    for row in features:
+        row["requested_trade_date"] = trade_date
+        row["scanned_symbols"] = scanned_symbols
+    return features
 
 
 async def query_screener_feature_rows(

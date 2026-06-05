@@ -104,7 +104,7 @@ curl http://127.0.0.1:8000/api/v1/registry
 
 ### ClickHouse 分析加速层
 
-ClickHouse 是可选旁路，只承载全市场筛选、因子宽表和批量分析，不替代 TimescaleDB。
+ClickHouse 是可选旁路，只承载全市场筛选、因子宽表和批量分析，不替代 TimescaleDB。启用后，短线筛选会优先读取 ClickHouse；如果分析表落后于 TimescaleDB 目标交易日，会先同步缺口日期并重试，仍不可用时再回退 TimescaleDB。
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/analytics/clickhouse/health
@@ -114,7 +114,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/analytics/clickhouse/sync \
   -d '{"universe_id":"a-share-sample-research-pool","timeframe":"daily","adjustment":"qfq","limit":300000}'
 ```
 
-同步完成后，A 股短线筛选器会优先读取 `clickhouse.quant_bars_daily`；未启用、未同步或查询失败时自动回退 `timescaledb.stock_bars`。
+同步完成后，A 股短线筛选器会优先读取 `clickhouse.quant_bars_daily`；响应中的 `data_basis` 和 `analytics` 会标明本次命中 ClickHouse、自动同步后命中、还是回退 TimescaleDB。健康接口会返回 `table_latest_trade_dates.quant_bars_daily`，用于判断分析层是否追平事实主库。
 
 ### 候选免费信源池
 
