@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -190,14 +190,14 @@ export function EvalQueueView({
   const completedCount = queue.filter((item) => item.status === 'passed' || item.status === 'failed').length;
   const cancelledCount = queue.filter((item) => item.status === 'cancelled').length;
 
-  const runRefresh = async () => {
+  const runRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
       await onRefresh();
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [onRefresh]);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -205,7 +205,7 @@ export function EvalQueueView({
       void runRefresh();
     }, 5000);
     return () => clearInterval(timer);
-  }, [autoRefresh]);
+  }, [autoRefresh, runRefresh]);
 
   const filteredQueue = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();

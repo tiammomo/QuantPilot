@@ -10,7 +10,7 @@ interface RouteContext {
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
+  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
 
 function contentType(filePath: string) {
   const extension = path.extname(filePath).toLowerCase();
@@ -24,7 +24,7 @@ function contentType(filePath: string) {
 
 function resolveProjectPath(projectId: string, repoPath?: string | null) {
   if (repoPath) {
-    return path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
+    return path.isAbsolute(repoPath) ? repoPath : path.resolve(/*turbopackIgnore: true*/ process.cwd(), repoPath);
   }
   return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
 }

@@ -2,11 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getAllProjects } from '@/lib/services/project';
 import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/quant/workspace';
-import {
-  readQuantValidationRepairPlan,
-  readQuantValidationReport,
-  type QuantValidationReport,
-} from '@/lib/quant/validation';
+import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
 import {
   QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
   QUANT_GENERATION_QUEUE_RELATIVE_PATH,
@@ -119,11 +115,13 @@ export interface WorkspaceHealthDashboard {
   projects: WorkspaceHealthItem[];
 }
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(ROOT, PROJECTS_DIR);
+  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
+const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
 
 const REQUIRED_ARTIFACTS = [
   { id: 'run_plan', label: 'Run Plan', path: '.quantpilot/run_plan.json' },
@@ -166,6 +164,16 @@ async function readJson(filePath: string): Promise<unknown> {
 async function readJsonRecord(filePath: string): Promise<JsonRecord | null> {
   const parsed = await readJson(filePath).catch(() => null);
   return isRecord(parsed) ? parsed : null;
+}
+
+async function readValidationReport(projectPath: string): Promise<QuantValidationReport | null> {
+  const parsed = await readJson(path.join(projectPath, VALIDATION_REPORT_RELATIVE_PATH)).catch(() => null);
+  return isRecord(parsed) ? (parsed as unknown as QuantValidationReport) : null;
+}
+
+async function readValidationRepairPlan(projectPath: string): Promise<QuantValidationRepairPlan | null> {
+  const parsed = await readJson(path.join(projectPath, VALIDATION_REPAIR_PLAN_RELATIVE_PATH)).catch(() => null);
+  return isRecord(parsed) ? (parsed as unknown as QuantValidationRepairPlan) : null;
 }
 
 async function statFile(filePath: string) {
@@ -305,11 +313,11 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
   const projectPath = project.repoPath
     ? path.isAbsolute(project.repoPath)
       ? project.repoPath
-      : path.resolve(ROOT, project.repoPath)
+      : path.resolve(/*turbopackIgnore: true*/ process.cwd(), project.repoPath)
     : path.join(PROJECTS_DIR_ABSOLUTE, project.id);
   const [validationReport, repairPlan, runPlan, events, dataQuality, sources, generationQueue, artifactContractReport, visualValidationReport] = await Promise.all([
-    readQuantValidationReport(projectPath),
-    readQuantValidationRepairPlan(projectPath),
+    readValidationReport(projectPath),
+    readValidationRepairPlan(projectPath),
     readQuantRunPlan(projectPath),
     readEvents(projectPath),
     readJsonRecord(path.join(projectPath, 'evidence', 'data_quality.json')),

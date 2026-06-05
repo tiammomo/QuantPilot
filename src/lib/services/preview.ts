@@ -34,6 +34,15 @@ const LOG_LIMIT = PREVIEW_CONFIG.LOG_LIMIT;
 const PREVIEW_FALLBACK_PORT_START = PREVIEW_CONFIG.FALLBACK_PORT_START;
 const PREVIEW_FALLBACK_PORT_END = PREVIEW_CONFIG.FALLBACK_PORT_END;
 const PREVIEW_MAX_PORT = 65_535;
+function resolvePreviewProjectPath(projectId: string, repoPath?: string | null): string {
+  if (repoPath) {
+    return path.isAbsolute(repoPath)
+      ? repoPath
+      : path.resolve(/*turbopackIgnore: true*/ process.cwd(), repoPath);
+  }
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'projects', projectId);
+}
+
 const ROOT_ALLOWED_FILES = new Set([
   '.DS_Store',
   '.editorconfig',
@@ -840,9 +849,7 @@ class PreviewManager {
       throw new Error('Project not found');
     }
 
-    const projectPath = project.repoPath
-      ? path.resolve(project.repoPath)
-      : path.join(process.cwd(), 'projects', projectId);
+    const projectPath = resolvePreviewProjectPath(projectId, project.repoPath);
 
     await fs.mkdir(projectPath, { recursive: true });
 
@@ -918,9 +925,7 @@ class PreviewManager {
       return;
     }
 
-    const projectPath = project.repoPath
-      ? path.resolve(project.repoPath)
-      : path.join(process.cwd(), 'projects', projectId);
+    const projectPath = resolvePreviewProjectPath(projectId, project.repoPath);
 
     const processInfo = this.processes.get(projectId);
     if (processInfo) {
@@ -951,9 +956,7 @@ class PreviewManager {
       throw new Error('Project not found');
     }
 
-    const projectPath = project.repoPath
-      ? path.resolve(project.repoPath)
-      : path.join(process.cwd(), 'projects', projectId);
+    const projectPath = resolvePreviewProjectPath(projectId, project.repoPath);
 
     const existing = this.processes.get(projectId);
     if (existing && existing.status !== 'error') {
@@ -1245,7 +1248,7 @@ class PreviewManager {
     if (!processInfo) {
       const project = await getProjectById(projectId);
       const previewPort = project?.previewPort ?? null;
-      const projectPath = project?.repoPath ? path.resolve(project.repoPath) : null;
+      const projectPath = project ? resolvePreviewProjectPath(projectId, project.repoPath) : null;
       if (project) {
         await updateProject(projectId, {
           previewUrl: null,

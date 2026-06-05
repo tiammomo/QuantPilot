@@ -327,7 +327,7 @@ async function directoryExists(dirPath: string): Promise<boolean> {
 
 async function ensureSharedNodeModules(projectPath: string) {
   const projectNodeModules = path.join(projectPath, 'node_modules');
-  const sharedNodeModules = path.join(process.cwd(), 'node_modules');
+  const sharedNodeModules = path.join(/*turbopackIgnore: true*/ process.cwd(), 'node_modules');
 
   if (path.resolve(projectNodeModules) === path.resolve(sharedNodeModules)) {
     return;
@@ -393,6 +393,31 @@ async function upsertGeneratedCssBlock(cssPath: string, marker: string, block: s
   }
 
   await fs.writeFile(cssPath, `${raw.trimEnd()}\n${blockWithNewline}`, 'utf8');
+}
+
+async function scrubLegacyTradingPlanCss(cssPath: string) {
+  const raw = await fs.readFile(cssPath, 'utf8').catch(() => '');
+  if (!raw) return;
+
+  const patterns = [
+    /\.trading-plan-grid\s*\{[\s\S]*?\}\n?/g,
+    /\.trading-plan-panel\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-card\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-title\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-title\s+strong,\s*\.trade-title\s+small,\s*\.trade-title\s+em\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-title\s+small\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-title\s+em\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-card\s+dl\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-card\s+dt\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-card\s+dd\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-card\s+dl\s+div:nth-child\(2\),\s*\.trade-card\s+dl\s+div:nth-child\(4\)\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-rationale,\s*\.trade-abandon\s*\{[\s\S]*?\}\n?/g,
+    /\.trade-abandon\s+strong\s*\{[\s\S]*?\}\n?/g,
+  ];
+  const next = patterns.reduce((content, pattern) => content.replace(pattern, ''), raw);
+  if (next !== raw) {
+    await fs.writeFile(cssPath, `${next.trimEnd()}\n`, 'utf8');
+  }
 }
 
 function comparisonPageTemplate() {
@@ -462,7 +487,10 @@ function sourceDisplayName(source: unknown, datasetType?: unknown): string {
 
 async function readDashboardData(): Promise<JsonRecord | null> {
   try {
-    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    const content = await fs.readFile(
+      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
+      'utf8'
+    );
     return asRecord(JSON.parse(content));
   } catch {
     return null;
@@ -1025,7 +1053,10 @@ function tone(value: unknown): 'up' | 'down' | 'neutral' {
 
 async function readDashboardData(): Promise<JsonRecord | null> {
   try {
-    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    const content = await fs.readFile(
+      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
+      'utf8'
+    );
     return asRecord(JSON.parse(content));
   } catch {
     return null;
@@ -2178,7 +2209,10 @@ function tone(value: unknown): 'up' | 'down' | 'neutral' {
 
 async function readDashboardData(): Promise<JsonRecord | null> {
   try {
-    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    const content = await fs.readFile(
+      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
+      'utf8'
+    );
     return asRecord(JSON.parse(content));
   } catch {
     return null;
@@ -2959,6 +2993,7 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
     const cssPath = path.join(projectPath, 'app', 'globals.css');
     await upsertGeneratedCssBlock(cssPath, 'comparison-dashboard', comparisonCss());
     await upsertGeneratedCssBlock(cssPath, 'stock-selection-dashboard', stockSelectionCss());
+    await scrubLegacyTradingPlanCss(cssPath);
     return;
   }
   if (
@@ -2981,6 +3016,7 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
   await upsertGeneratedCssBlock(cssPath, 'comparison-dashboard', comparisonCss());
   if (effectiveTemplateId === 'stock-selection') {
     await upsertGeneratedCssBlock(cssPath, 'stock-selection-dashboard', stockSelectionCss());
+    await scrubLegacyTradingPlanCss(cssPath);
   }
 }
 
@@ -3196,7 +3232,10 @@ function displayPercent(value: unknown, empty = '待接入'): string {
 
 async function readDashboardData(): Promise<JsonRecord | null> {
   try {
-    const content = await fs.readFile(path.join(process.cwd(), DATA_FILE), 'utf8');
+    const content = await fs.readFile(
+      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
+      'utf8'
+    );
     const parsed = JSON.parse(content);
     return asRecord(parsed);
   } catch {
@@ -3206,7 +3245,10 @@ async function readDashboardData(): Promise<JsonRecord | null> {
 
 async function readSourcesEvidence(): Promise<JsonRecord[]> {
   try {
-    const content = await fs.readFile(path.join(process.cwd(), SOURCES_FILE), 'utf8');
+    const content = await fs.readFile(
+      path.join(/*turbopackIgnore: true*/ process.cwd(), SOURCES_FILE),
+      'utf8'
+    );
     const parsed = asRecord(JSON.parse(content));
     return asArray(parsed?.sources)
       .map(asRecord)

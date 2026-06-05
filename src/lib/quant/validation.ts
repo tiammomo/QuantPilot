@@ -3,7 +3,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { serializeMessage } from '@/lib/serializers/chat';
 import { createMessage } from '@/lib/services/message';
-import { previewManager } from '@/lib/services/preview';
 import { streamManager } from '@/lib/services/stream';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
@@ -144,6 +143,16 @@ const SENSITIVE_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   },
   { label: 'AWS access key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
 ];
+
+async function startPreviewForValidation(projectId: string) {
+  const { previewManager } = await import('@/lib/services/preview');
+  return previewManager.start(projectId);
+}
+
+async function stopPreviewForValidation(projectId: string) {
+  const { previewManager } = await import('@/lib/services/preview');
+  return previewManager.stop(projectId);
+}
 const MOCK_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   {
     label: 'mock/sample 静态数据变量',
@@ -226,7 +235,7 @@ function buildGeneratedProjectEnv(projectPath: string): NodeJS.ProcessEnv {
     'ComSpec',
     'PATHEXT',
   ];
-  const platformRoot = process.cwd();
+  const platformRoot = path.resolve(/*turbopackIgnore: true*/ process.cwd());
   const workspaceRoot = pathContains(platformRoot, projectPath) ? platformRoot : projectPath;
   const env: NodeJS.ProcessEnv = {
     CI: '1',
@@ -677,7 +686,7 @@ const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
 async function checkPreviewHttp(
   projectId: string
 ): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
-  const preview = await previewManager.start(projectId);
+  const preview = await startPreviewForValidation(projectId);
   if (!preview.url) {
     return {
       status: 'failed',
@@ -703,7 +712,7 @@ async function checkVisualPresentation(
   projectId: string,
   requestId?: string | null
 ): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
-  const preview = await previewManager.start(projectId);
+  const preview = await startPreviewForValidation(projectId);
   if (!preview.url) {
     return {
       status: 'failed',
@@ -1241,7 +1250,9 @@ async function checkArtifactPolicy(
 }
 
 export async function checkQuantArtifactPolicy(projectPath: string): Promise<QuantValidationCheck> {
-  return safeRunCheck('artifact_policy', '生成产物策略', () => checkArtifactPolicy(path.resolve(projectPath)));
+  return safeRunCheck('artifact_policy', '生成产物策略', () =>
+    checkArtifactPolicy(path.resolve(/*turbopackIgnore: true*/ projectPath))
+  );
 }
 
 function normalizeTextForIntent(value: unknown): string {
@@ -2040,7 +2051,7 @@ async function checkMarketProxy(
     };
   }
 
-  const preview = await previewManager.start(projectId);
+  const preview = await startPreviewForValidation(projectId);
   if (!preview.url) {
     return {
       status: 'failed',
@@ -2433,7 +2444,7 @@ async function withProjectValidationLock<T>(
 }
 
 async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams): Promise<QuantValidationReport> {
-  const projectPath = path.resolve(params.projectPath);
+  const projectPath = path.resolve(/*turbopackIgnore: true*/ params.projectPath);
   const now = new Date().toISOString();
 
   await ensureQuantWorkspace(projectPath);
@@ -2441,7 +2452,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
   await ensurePrefetchedFinalData(projectPath);
   await scaffoldBasicNextApp(projectPath, params.projectId);
   await waitForValidationArtifactsToSettle(projectPath);
-  await previewManager.stop(params.projectId).catch((error) => {
+  await stopPreviewForValidation(params.projectId).catch((error) => {
     console.warn(
       '[QuantValidation] Failed to stop preview before validation build:',
       error
@@ -2478,7 +2489,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
     checks.push(await safeRunCheck('chart_presence', '金融图表存在性', () => checkChartPresence(projectPath)));
     checks.push(await safeRunCheck('market_proxy', '/api/market 代理', () => checkMarketProxy(projectPath, params.projectId)));
   } finally {
-    await previewManager.stop(params.projectId).catch((error) => {
+    await stopPreviewForValidation(params.projectId).catch((error) => {
       console.warn(
         '[QuantValidation] Failed to stop temporary preview after validation:',
         error
@@ -2547,7 +2558,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
 }
 
 export async function readQuantValidationReport(projectPath: string): Promise<QuantValidationReport | null> {
-  const resolvedProjectPath = path.resolve(projectPath);
+  const resolvedProjectPath = path.resolve(/*turbopackIgnore: true*/ projectPath);
   const reportPath = validationReportPath(resolvedProjectPath);
   const report = await readTextFile(reportPath);
   if (!report) {
@@ -2598,7 +2609,9 @@ export async function readQuantValidationReport(projectPath: string): Promise<Qu
 }
 
 export async function readQuantValidationRepairPlan(projectPath: string): Promise<QuantValidationRepairPlan | null> {
-  const report = await readTextFile(validationRepairPlanPath(path.resolve(projectPath)));
+  const report = await readTextFile(
+    validationRepairPlanPath(path.resolve(/*turbopackIgnore: true*/ projectPath))
+  );
   if (!report) {
     return null;
   }

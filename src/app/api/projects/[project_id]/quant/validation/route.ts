@@ -1,11 +1,6 @@
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjectById } from '@/lib/services/project';
-import {
-  readQuantValidationRepairPlan,
-  readQuantValidationReport,
-  validateQuantProject,
-} from '@/lib/quant/validation';
 import { updateQuantGenerationStep } from '@/lib/quant/generation-state';
 
 interface RouteContext {
@@ -15,13 +10,17 @@ interface RouteContext {
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
+  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
 
 function resolveProjectPath(projectId: string, repoPath?: string | null): string {
   if (repoPath) {
-    return path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
+    return path.isAbsolute(repoPath) ? repoPath : path.resolve(/*turbopackIgnore: true*/ process.cwd(), repoPath);
   }
   return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
+}
+
+async function loadQuantValidation() {
+  return import('@/lib/quant/validation');
 }
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
@@ -33,8 +32,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     }
 
     const projectPath = resolveProjectPath(project_id, project.repoPath);
-    const report = await readQuantValidationReport(projectPath);
-    const repairPlan = await readQuantValidationRepairPlan(projectPath);
+    const quantValidation = await loadQuantValidation();
+    const report = await quantValidation.readQuantValidationReport(projectPath);
+    const repairPlan = await quantValidation.readQuantValidationRepairPlan(projectPath);
     return NextResponse.json({
       success: true,
       data: report,
@@ -75,14 +75,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         summary: '手动触发自动验证。',
       });
     }
-    const report = await validateQuantProject({
+    const quantValidation = await loadQuantValidation();
+    const report = await quantValidation.validateQuantProject({
       projectId: project_id,
       projectPath,
       requestId,
       conversationId,
       cliSource: 'validator',
     });
-    const repairPlan = await readQuantValidationRepairPlan(projectPath);
+    const repairPlan = await quantValidation.readQuantValidationRepairPlan(projectPath);
     if (requestId) {
       await updateQuantGenerationStep({
         projectPath,

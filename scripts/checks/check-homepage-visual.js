@@ -100,13 +100,23 @@ async function main() {
     );
 
     const checks = await Promise.all([
-      assertVisible(page, 'h1:has-text("QuantPilot"), h2:has-text("QuantPilot")', 'QuantPilot 标识'),
-      assertVisible(page, 'text=选择角色模块，描述真实需求', '首页说明文案'),
-      assertVisible(page, 'textarea[placeholder*="输入股票名称"]', '任务输入框'),
-      assertAnyVisible(page, ['button[title="打开任务记录"]', 'text=任务记录'], '任务记录入口'),
-      assertVisible(page, 'text=角色模块', '左侧角色模块区'),
-      assertVisible(page, 'text=持仓分析', '持仓分析角色'),
-      assertVisible(page, 'text=Skills 管理', 'Skills 管理入口'),
+      assertVisible(page, 'text=QuantPilot', 'QuantPilot 标识'),
+      assertVisible(page, 'text=量化分析', '首页主标题'),
+      assertVisible(page, 'textarea[placeholder*="贵州茅台"]', '任务输入框'),
+      assertVisible(page, 'button[aria-label="提交任务"]', '任务提交按钮'),
+      assertVisible(page, 'button:has-text("最近任务")', '最近任务入口'),
+      assertVisible(page, 'button:has-text("策略")', '策略平台入口'),
+      assertVisible(page, 'button:has-text("运维")', '运维平台入口'),
+      assertVisible(page, 'button:has-text("数据")', '数据平台入口'),
+      assertVisible(page, 'button:has-text("评测")', '评测平台入口'),
+      assertAnyVisible(page, ['button[title="亮色"]', 'button:has-text("亮色")'], '亮色模式入口'),
+      assertAnyVisible(page, ['button[title="暗色"]', 'button:has-text("暗色")'], '暗色模式入口'),
+      assertVisible(page, 'button:has-text("Claude Code")', 'CLI 选择入口'),
+      assertVisible(page, 'button:has-text("Mimo V2.5 Pro")', '模型选择入口'),
+      assertVisible(page, 'button:has-text("个股诊断")', '个股诊断能力卡'),
+      assertVisible(page, 'button:has-text("技术分析")', '技术分析能力卡'),
+      assertVisible(page, 'button:has-text("基本面分析")', '基本面分析能力卡'),
+      assertVisible(page, 'button:has-text("持仓分析")', '持仓分析能力卡'),
     ]);
 
     const visibleFailures = checks.filter((result) => result !== true);

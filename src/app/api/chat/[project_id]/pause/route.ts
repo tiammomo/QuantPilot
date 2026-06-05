@@ -32,8 +32,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const projectPath = project.repoPath
           ? path.isAbsolute(project.repoPath)
             ? project.repoPath
-            : path.resolve(process.cwd(), project.repoPath)
-          : path.resolve(process.cwd(), projectsDir, project_id);
+            : path.resolve(/*turbopackIgnore: true*/ process.cwd(), project.repoPath)
+          : path.resolve(/*turbopackIgnore: true*/ process.cwd(), projectsDir, project_id);
         await markQuantGenerationQueueCancelled({
           projectPath,
           projectId: project_id,

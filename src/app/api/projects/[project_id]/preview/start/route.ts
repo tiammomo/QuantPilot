@@ -4,7 +4,6 @@
  */
 
 import { NextResponse } from 'next/server';
-import { previewManager } from '@/lib/services/preview';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -16,6 +15,7 @@ export async function POST(
 ) {
   const { project_id } = await params;
   try {
+    const { previewManager } = await import('@/lib/services/preview');
     const preview = await previewManager.start(project_id);
 
     return NextResponse.json({
@@ -29,6 +29,7 @@ export async function POST(
     );
 
     try {
+      const { previewManager } = await import('@/lib/services/preview');
       await previewManager.cleanup(project_id);
       const preview = await previewManager.start(project_id);
 

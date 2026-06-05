@@ -792,8 +792,10 @@ export interface StrategyDashboardData {
   factorCatalog: StrategyFactorCatalogState;
 }
 
-const ROOT = process.cwd();
-const DATA_DIR = process.env.STRATEGY_SCANS_DIR || path.join(ROOT, 'data', 'strategy-scans');
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
+const DATA_DIR = process.env.STRATEGY_SCANS_DIR
+  ? path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.STRATEGY_SCANS_DIR)
+  : path.join(ROOT, 'data', 'strategy-scans');
 const RUNS_DIR = path.join(DATA_DIR, 'runs');
 const JOBS_DIR = path.join(DATA_DIR, 'jobs');
 const MARKET_API_BASE_URL =

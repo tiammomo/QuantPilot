@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Boxes,
@@ -21,6 +21,7 @@ import {
   Layers,
   Target,
   Zap,
+  Loader2,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -100,6 +101,13 @@ const CAPABILITY_ICON_COLORS: Record<string, string> = {
   portfolio_risk: "text-indigo-600 bg-indigo-100",
 };
 
+const PLATFORM_NAV_ITEMS = [
+  { href: "/strategy-platform", label: "策略", icon: BarChart3 },
+  { href: "/ops-platform", label: "运维", icon: ShieldCheck },
+  { href: "/data-platform", label: "数据", icon: Boxes },
+  { href: "/eval-platform", label: "评测", icon: Gauge },
+];
+
 export default function HomePage() {
   // --- State ---
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -177,8 +185,11 @@ export default function HomePage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [navigatingPath, setNavigatingPath] = useState<string | null>(null);
+  const [isRoutePending, startRouteTransition] = useTransition();
 
   const router = useRouter();
+  const pathname = usePathname();
   const prefetchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { settings: globalSettings } = useGlobalSettings();
 
@@ -318,6 +329,34 @@ export default function HomePage() {
       timers.clear();
     };
   }, [load]);
+
+  useEffect(() => {
+    for (const item of PLATFORM_NAV_ITEMS) {
+      router.prefetch(item.href);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    setNavigatingPath(null);
+  }, [pathname]);
+
+  const prefetchPlatformRoute = useCallback((href: string) => {
+    const timers = prefetchTimers.current;
+    if (timers.has(href)) return;
+    const timer = setTimeout(() => {
+      router.prefetch(href);
+      timers.delete(href);
+    }, 80);
+    timers.set(href, timer);
+  }, [router]);
+
+  const navigateToPlatform = useCallback((href: string) => {
+    if (navigatingPath === href) return;
+    setNavigatingPath(href);
+    startRouteTransition(() => {
+      router.push(href);
+    });
+  }, [navigatingPath, router]);
 
   // --- Format helpers ---
   const formatTime = (dateString: string | null) => {
@@ -558,6 +597,7 @@ export default function HomePage() {
     ...group,
     capabilities: QUANT_CAPABILITIES.filter((c) => c.groupId === group.id),
   }));
+  const navigatingItem = PLATFORM_NAV_ITEMS.find((item) => item.href === navigatingPath) ?? null;
 
   // --- Render ---
   return (
@@ -596,46 +636,26 @@ export default function HomePage() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            onClick={() => router.push("/strategy-platform")}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 px-2 text-xs sm:px-3"
-          >
-            <BarChart3 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">策略</span>
-          </Button>
-          <Button
-            type="button"
-            onClick={() => router.push("/ops-platform")}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 px-2 text-xs sm:px-3"
-          >
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">运维</span>
-          </Button>
-          <Button
-            type="button"
-            onClick={() => router.push("/data-platform")}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 px-2 text-xs sm:px-3"
-          >
-            <Boxes className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">数据</span>
-          </Button>
-          <Button
-            type="button"
-            onClick={() => router.push("/eval-platform")}
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 px-2 text-xs sm:px-3"
-          >
-            <Gauge className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">评测</span>
-          </Button>
+          {PLATFORM_NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isLoading = navigatingPath === item.href || (isRoutePending && navigatingPath === item.href);
+            return (
+              <Button
+                key={item.href}
+                type="button"
+                onClick={() => navigateToPlatform(item.href)}
+                onPointerEnter={() => prefetchPlatformRoute(item.href)}
+                onFocus={() => prefetchPlatformRoute(item.href)}
+                variant="ghost"
+                size="sm"
+                aria-busy={isLoading}
+                className="gap-1.5 px-2 text-xs sm:px-3"
+              >
+                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{item.label}</span>
+              </Button>
+            );
+          })}
 
           <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
 
@@ -654,6 +674,31 @@ export default function HomePage() {
           </Button>
         </div>
       </header>
+
+      <AnimatePresence>
+        {navigatingItem && (
+          <motion.div
+            key={navigatingItem.href}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="fixed left-0 right-0 top-14 z-40 border-b border-primary/10 bg-background/90 px-4 py-2 shadow-sm backdrop-blur"
+          >
+            <div className="mx-auto flex max-w-6xl items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-primary/10">
+                <motion.span
+                  className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                  initial={{ width: "18%" }}
+                  animate={{ width: "82%" }}
+                  transition={{ duration: 1.1, ease: "easeOut" }}
+                />
+              </span>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              正在进入{navigatingItem.label}平台
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main content */}
       <main className="flex flex-1 flex-col items-center px-4 pt-12 pb-16 md:pt-20 md:pb-24">

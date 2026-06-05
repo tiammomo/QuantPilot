@@ -59,7 +59,7 @@ function isQuantAnalysisPlan(plan: QuantRunPlan): boolean {
   ].includes(plan.capabilityId);
 }
 
-function hasExplicitTradingPlanIntent(instruction: string): boolean {
+export function hasExplicitTradingPlanIntent(instruction: string): boolean {
   const normalized = instruction.replace(/\s+/g, '');
   return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(normalized);
 }
@@ -351,7 +351,7 @@ async function fetchScreenerSeedSymbols(params: {
   return { symbols, screener };
 }
 
-function inferHistoryLimit(plan: QuantRunPlan): number {
+export function inferHistoryLimit(plan: QuantRunPlan): number {
   const source = `${plan.timeRange ?? ''} ${plan.question}`.replace(/\s+/g, '');
   const dayMatch = source.match(/最近(\d+)(?:个)?(?:交易日|日|天)/);
   let rawDays = dayMatch?.[1] ? Number.parseInt(dayMatch[1], 10) : 120;
@@ -1056,7 +1056,7 @@ async function buildImageExtractionEvidence(
   const now = new Date().toISOString();
   const payload = {
     schemaVersion: 1,
-    tool: 'quant-image-extraction',
+    tool: 'image-extraction',
     status: 'metadata_ready',
     createdAt: now,
     runId,

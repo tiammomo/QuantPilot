@@ -17,7 +17,6 @@ import {
 import { streamManager } from "@/lib/services/stream";
 import type { ChatActRequest } from "@/types/backend";
 import { generateProjectId } from "@/lib/utils";
-import { previewManager } from "@/lib/services/preview";
 import path from "path";
 import fs from "fs/promises";
 import { randomUUID } from "crypto";
@@ -32,14 +31,9 @@ import {
 import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/quant/workspace";
 import { prefetchQuantDataForRunPlan } from "@/lib/quant/data-prefetch";
 import {
-  buildQuantValidationRepairInstruction,
-  validateQuantProject,
-} from "@/lib/quant/validation";
-import {
   buildClarificationContinuation,
   buildQuantClarificationMessage,
 } from "@/lib/quant/intent";
-import { ensureQuantDashboardTemplate } from "@/lib/utils/scaffold";
 import {
   incrementQuantGenerationRepairAttempt,
   readQuantGenerationState,
@@ -88,6 +82,15 @@ async function loadCliRuntime(cliPreference: string): Promise<CliRuntime> {
     default:
       return import("@/lib/services/cli/claude");
   }
+}
+
+async function loadQuantValidation() {
+  return import("@/lib/quant/validation");
+}
+
+async function ensureQuantDashboardTemplateForAct(projectPath: string) {
+  const { ensureQuantDashboardTemplate } = await import("@/lib/utils/scaffold");
+  return ensureQuantDashboardTemplate(projectPath);
 }
 
 function coerceString(value: unknown): string | null {
@@ -286,7 +289,8 @@ function runValidationAfterExecution(params: {
       status: "running",
       summary: "开始自动验证生成产物。",
     });
-    const firstReport = await validateQuantProject({
+    const quantValidation = await loadQuantValidation();
+    const firstReport = await quantValidation.validateQuantProject({
       projectId: params.projectId,
       projectPath: params.projectPath,
       requestId: params.requestId,
@@ -390,7 +394,7 @@ function runValidationAfterExecution(params: {
         repairAttempt === 1
           ? baseRepairRequestId
           : `${baseRepairRequestId}-${repairAttempt}`;
-      const repairInstruction = buildQuantValidationRepairInstruction(
+      const repairInstruction = quantValidation.buildQuantValidationRepairInstruction(
         latestReport,
         {
           originalInstruction: params.instruction,
@@ -561,7 +565,7 @@ function runValidationAfterExecution(params: {
         status: "running",
         summary: `开始第 ${repairAttempt}/${maxRepairAttempts} 次修复后自动验证。`,
       });
-      const finalReport = await validateQuantProject({
+      const finalReport = await quantValidation.validateQuantProject({
         projectId: params.projectId,
         projectPath: params.projectPath,
         requestId: repairRequestId,
@@ -965,7 +969,7 @@ async function writeAttachmentContext(params: {
       size: image.size ?? null,
     })),
     extractionContract: {
-      requiredSkill: "quant-image-extraction",
+      requiredSkill: "image-extraction",
       requiredTool: "mcp__QuantPilotImage__quant_extract_uploaded_image",
       optionalVisionTool: "mcp__MiniMax__understand_image",
       portfolioScreenshotFields: [
@@ -1016,7 +1020,7 @@ function buildImageAttachmentInstruction(params: {
 
 图片附件处理要求：
 - 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".quantpilot/attachments.json"}，再检查图片内容，不要忽略附件。
-- 先使用 \`quant-image-extraction\` skill，并调用 \`mcp__QuantPilotImage__quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
+- 先使用 \`image-extraction\` skill，并调用 \`mcp__QuantPilotImage__quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
 - 如果 MiniMax MCP 的 \`mcp__MiniMax__understand_image\` 可用，再用它识别截图中的股票名称、数量、成本价、现价、市值、盈亏、仓位、现金和总资产；识别不确定的字段写 null 并在证据文件中说明。
 - 对识别出的股票名称必须使用 quant-symbol-resolver 或 /api/v1/symbols/resolve 解析代码，再获取真实行情、K 线、指标和必要的基本面数据。
 - 必须把图片提取结果写入 evidence/image_extraction.json；没有 OCR/视觉结果时也要写明 visualRecognition.status 和 needs_manual_confirmation。
@@ -1386,7 +1390,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         requestId,
         conversationId,
         cliSource: cliPreference,
-        toolName: "quant-run-planner",
+        toolName: "run-planner",
         target: ".quantpilot/run_plan.json",
         summary: `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
         input: {
@@ -1434,7 +1438,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         },
       });
       if (!prefetch.skipped) {
-        await ensureQuantDashboardTemplate(projectPath);
+        await ensureQuantDashboardTemplateForAct(projectPath);
       }
       if (prefetch.skipped) {
         await publishQuantPipelineToolMessage({
@@ -1513,7 +1517,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             requestId,
             conversationId,
             cliSource: cliPreference,
-            toolName: "quant-visualization-html",
+            toolName: "dashboard-visualization",
             target: "app/page.tsx",
             summary:
               "平台已基于本地选股数据生成标准选股看板，后续直接进入自动验证。",
@@ -1578,6 +1582,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     try {
+      const { previewManager } = await import("@/lib/services/preview");
       const status = previewManager.getStatus(project_id);
       if (!status.url) {
         previewManager.start(project_id).catch((error) => {

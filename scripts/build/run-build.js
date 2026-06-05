@@ -106,10 +106,12 @@ function parseBuildArgs(argv) {
 }
 
 async function runNextBuild(args, { standalone } = {}) {
+  const hasBundlerFlag = args.some((arg) => arg === '--webpack' || arg === '--turbo' || arg === '--turbopack');
+  const buildArgs = ['build', ...(hasBundlerFlag ? args : ['--webpack', ...args])];
   await new Promise((resolve, reject) => {
     const child = spawn(
       path.join(rootDir, 'node_modules', '.bin', isWindows ? 'next.cmd' : 'next'),
-      ['build', ...args],
+      buildArgs,
       {
         cwd: rootDir,
         stdio: 'inherit',

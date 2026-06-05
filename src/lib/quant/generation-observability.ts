@@ -2,12 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '@/lib/db/client';
 import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/quant/workspace';
-import {
-  readQuantValidationRepairPlan,
-  readQuantValidationReport,
-  type QuantValidationRepairPlan,
-  type QuantValidationReport,
-} from '@/lib/quant/validation';
+import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
 import {
   QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
   QUANT_GENERATION_QUEUE_RELATIVE_PATH,
@@ -219,14 +214,16 @@ export interface GenerationObservabilityDashboard {
   projects: GenerationTraceProject[];
 }
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(ROOT, PROJECTS_DIR);
+  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
 const MAX_TIMELINE_EVENTS = 220;
 const MAX_WORKSPACE_EVENTS = 160;
 const FALLBACK_EVENT_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
 
 const STAGES: Array<{ id: GenerationStageId; label: string }> = [
   { id: 'request', label: '请求' },
@@ -389,9 +386,41 @@ async function readWorkspaceEvents(projectPath: string): Promise<Array<QuantWork
     .filter((event): event is QuantWorkspaceEvent & JsonRecord => Boolean(event));
 }
 
+async function readValidationReportForObservability(
+  projectPath: string
+): Promise<QuantValidationReport | null> {
+  const content = await fs
+    .readFile(path.join(projectPath, VALIDATION_REPORT_RELATIVE_PATH), 'utf8')
+    .catch(() => null);
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content);
+    return isRecord(parsed) ? (parsed as unknown as QuantValidationReport) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readValidationRepairPlanForObservability(
+  projectPath: string
+): Promise<QuantValidationRepairPlan | null> {
+  const content = await fs
+    .readFile(path.join(projectPath, VALIDATION_REPAIR_PLAN_RELATIVE_PATH), 'utf8')
+    .catch(() => null);
+  if (!content) return null;
+  try {
+    const parsed = JSON.parse(content);
+    return isRecord(parsed) ? (parsed as unknown as QuantValidationRepairPlan) : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveProjectPath(project: Pick<ProjectWithTraceSources, 'id' | 'repoPath'>) {
   if (project.repoPath) {
-    return path.isAbsolute(project.repoPath) ? project.repoPath : path.resolve(ROOT, project.repoPath);
+    return path.isAbsolute(project.repoPath)
+      ? project.repoPath
+      : path.resolve(/*turbopackIgnore: true*/ process.cwd(), project.repoPath);
   }
   return path.join(PROJECTS_DIR_ABSOLUTE, project.id);
 }
@@ -888,8 +917,8 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
   const [workspaceEvents, runPlan, validationReport, repairPlan, generationState, generationQueue, artifactContracts, visualValidation] = await Promise.all([
     readWorkspaceEvents(projectPath),
     readQuantRunPlan(projectPath),
-    readQuantValidationReport(projectPath),
-    readQuantValidationRepairPlan(projectPath),
+    readValidationReportForObservability(projectPath),
+    readValidationRepairPlanForObservability(projectPath),
     readQuantGenerationState(projectPath),
     readQuantGenerationQueue(projectPath, project.id),
     readQuantArtifactContractReport(projectPath),
