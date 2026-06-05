@@ -2,18 +2,11 @@
   "schemaVersion": 1,
   "packageFormat": "tgz",
   "skills": {
-    "quant-run-planner": {
-      "version": "0.2.1",
-      "packagePath": ".claude/skill-packages/quant-run-planner.tgz",
-      "sourceSha256": "945f437a7e4ab79b94a5dc0297ded2ee0ad4740d01623099ad91d4e205ab2b60",
-      "packageSha256": "2ad7fc576b2bc8f51c4f6157e4f114bd6416f514415dc0334fda35bbb0aa9ecb",
-      "fileCount": 2
-    },
     "quant-data-registry": {
       "version": "0.3.0",
       "packagePath": ".claude/skill-packages/quant-data-registry.tgz",
-      "sourceSha256": "d0c0ff2c5a188add6b1c1d6823821b58b8f8349e255a6c97313cd6e66eaf9dce",
-      "packageSha256": "b56d9e6ba757a3961c871e51c8b6abc2c229434794c2bf3d8617c4a49fbfc0f0",
+      "sourceSha256": "81008380ac1213e03c5898f426bc819232dfd05b395e269110c612e2250cbd00",
+      "packageSha256": "87a6ff147a8d026d0cac3daddfefc8dfa277a49b6837c9cfe4b2a8d4be3f1635",
       "fileCount": 1
     },
     "quant-symbol-resolver": {
@@ -26,22 +19,22 @@
     "quant-market-data": {
       "version": "0.4.0",
       "packagePath": ".claude/skill-packages/quant-market-data.tgz",
-      "sourceSha256": "ed045d8479628c7c891efcee5ffed02a12fa0f25f358b77f076cd2d56f145df7",
-      "packageSha256": "13d557bec5b7e68b74f478f8ff18e7ce92ef355d5ee573cda700acbec74869d3",
+      "sourceSha256": "6409f8511d20a4c04ac13d902af165eedb3ba2088c06931feaf9b53b56e7620c",
+      "packageSha256": "31ba437e212293c5b0ee153cda8f4d3df512971179ce17a3ce204fc35afb1ffe",
       "fileCount": 1
     },
     "quant-fundamentals": {
       "version": "0.1.0",
       "packagePath": ".claude/skill-packages/quant-fundamentals.tgz",
-      "sourceSha256": "a8eec34aa8ab0799cb46abe4267f367b3066a34c9dce6d78b187e8ca82d52a66",
-      "packageSha256": "39ac5f31d90bf56aceb6d89887e808c19236fa763d9ccf92db9be52552a15412",
+      "sourceSha256": "3da6e604813650c696279fb63d99a3af92c46cf02e6aa32a49f405f1be547c74",
+      "packageSha256": "66210d815cf10768337f8e0dbf4fbd2240ea69dd165dd07e1c544d290cd1d7f0",
       "fileCount": 2
     },
     "quant-indicators": {
       "version": "0.1.0",
       "packagePath": ".claude/skill-packages/quant-indicators.tgz",
-      "sourceSha256": "d5de0df6791c01166c81be9c5f596a721bc1fdce9bfd973aa7a0f5b12f85c72f",
-      "packageSha256": "bad4e9dfe283f7669e19052c47bcb3e6a963d00b9e7b5d77c544cf981b1452a7",
+      "sourceSha256": "e86fd36cd311ac9f1efce88646354a66f7bc6e0101a19557f4a7b287c30d4138",
+      "packageSha256": "cec13181524ba1bd291f44d2c59b2d8e7e1ba668a9066e4b8f50a501f472c2b2",
       "fileCount": 4
     },
     "quant-backtest": {
@@ -51,32 +44,39 @@
       "packageSha256": "2ae74b065e446c1528d5c3f4292f1ee1f02eacd5cc1612313c591d39baced3f1",
       "fileCount": 1
     },
-    "quant-data-quality": {
-      "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quant-data-quality.tgz",
-      "sourceSha256": "f442b4e98fa7e4ecbb98cbe376226e2c7d7629fc903bbcfb113cae2dc06edfaa",
-      "packageSha256": "bbc6f8bbd85a0c66feb59d911f8d60ec17ab9f6f664947ea77a8f82cbebe3997",
+    "run-planner": {
+      "version": "0.2.1",
+      "packagePath": ".claude/skill-packages/run-planner.tgz",
+      "sourceSha256": "a9fdd08844efb642cd755389baeb953fd0dc2b4843ef7345b87c61ba56fbd4d9",
+      "packageSha256": "73ecf8013d144ec706b702b4af6129e290c49e48e7a979a8be8f7c2079b58e41",
+      "fileCount": 2
+    },
+    "image-extraction": {
+      "version": "0.1.0",
+      "packagePath": ".claude/skill-packages/image-extraction.tgz",
+      "sourceSha256": "e7b0501169de4a2b0c36674eeec0a0575863bde1cf6d4d93284c7836e05722c2",
+      "packageSha256": "4b780aa63657ebeb85caabe400f09056bd49c6a0b83dea462da81e8184df1145",
       "fileCount": 1
     },
-    "quant-visualization-html": {
+    "data-quality": {
+      "version": "0.2.0",
+      "packagePath": ".claude/skill-packages/data-quality.tgz",
+      "sourceSha256": "51aea046f88f04711c3bd14bbbcba43754e7819396ca47c1f20da92c960290c0",
+      "packageSha256": "b76a616f28f83b87b929190ca36d902cc4e82ca3885d3d6b273e50a2bace5af3",
+      "fileCount": 1
+    },
+    "dashboard-visualization": {
       "version": "0.4.2",
-      "packagePath": ".claude/skill-packages/quant-visualization-html.tgz",
-      "sourceSha256": "a9471f16f0e685db0df1de3e78216f3e890248c32a2046ed1a8952920ea81e3f",
-      "packageSha256": "cfddeef82028550184c0300f8e5dd6530d8db9390f2912a15a4267ed6329efcf",
+      "packagePath": ".claude/skill-packages/dashboard-visualization.tgz",
+      "sourceSha256": "0fb5341cca15e879a4205b517916a830d432f2f3d27a7517cee04eecdcfebb15",
+      "packageSha256": "ff52a053f473eeffdfebc21bda8eb571f52bd61737e23f4d5fcba1fab3144d90",
       "fileCount": 3
     },
-    "quant-image-extraction": {
-      "version": "0.1.0",
-      "packagePath": ".claude/skill-packages/quant-image-extraction.tgz",
-      "sourceSha256": "f1377762fdc9f8cfeb59e64fc22862e455845bc8b87722fa0ddf8f9825cd215e",
-      "packageSha256": "224833f5a363bf4f8d5d048fc4ccd6003a13fb431251c077a5c67abb03075805",
-      "fileCount": 1
-    },
-    "quantpilot-ui-product-design": {
+    "platform-ui-product-design": {
       "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quantpilot-ui-product-design.tgz",
-      "sourceSha256": "b5662876b9b462a99208379bc7910a4669606acc9d0fc2d5b16cd9b4b3053738",
-      "packageSha256": "b788e3b97187fc790ff1c93567fd515122c49633c731784d7958f7b750b7d3fb",
+      "packagePath": ".claude/skill-packages/platform-ui-product-design.tgz",
+      "sourceSha256": "ae0a0720f8274aedbd28e6d54f96cedeebd5d2bcdb518d616def7ede9fc4f8a8",
+      "packageSha256": "58a5da9bd0f44fdffe17b9d8bd2128b71ba4ba8238d9d28b0ec0eec837e76160",
       "fileCount": 2
     }
   }

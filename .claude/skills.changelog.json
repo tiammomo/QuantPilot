@@ -6,7 +6,7 @@
     "description": "每个核心 skill 的版本变更必须记录在这里；修改 SKILL.md、references、scripts 或输出契约时必须同步升级 registry 版本并新增 release。"
   },
   "skills": {
-    "quant-run-planner": {
+    "run-planner": {
       "releases": [
         {
           "version": "0.2.1",
@@ -74,7 +74,7 @@
         }
       ]
     },
-    "quant-image-extraction": {
+    "image-extraction": {
       "releases": [
         {
           "version": "0.1.0",
@@ -169,7 +169,7 @@
         }
       ]
     },
-    "quant-data-quality": {
+    "data-quality": {
       "releases": [
         {
           "version": "0.2.0",
@@ -182,7 +182,7 @@
         }
       ]
     },
-    "quantpilot-ui-product-design": {
+    "platform-ui-product-design": {
       "releases": [
         {
           "version": "0.2.0",
@@ -206,7 +206,7 @@
         }
       ]
     },
-    "quant-visualization-html": {
+    "dashboard-visualization": {
       "releases": [
         {
           "version": "0.4.2",

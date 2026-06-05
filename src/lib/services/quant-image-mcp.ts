@@ -164,7 +164,7 @@ function buildExtractionPayload(params: {
 }) {
   return {
     schemaVersion: 1,
-    tool: 'quant-image-extraction',
+    tool: 'image-extraction',
     status: 'metadata_ready',
     createdAt: new Date().toISOString(),
     projectPath: params.projectPath,
@@ -237,7 +237,7 @@ export function buildQuantPilotMcpServers(projectPath: string): Record<string, u
             if (attachments.length === 0) {
               const payload = {
                 schemaVersion: 1,
-                tool: 'quant-image-extraction',
+                tool: 'image-extraction',
                 status: 'no_attachments',
                 message: '未找到上传图片附件，请确认 .quantpilot/attachments.json 是否存在且包含 attachments。',
               };

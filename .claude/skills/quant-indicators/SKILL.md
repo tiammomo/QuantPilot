@@ -35,7 +35,7 @@ description: Use this skill for deterministic technical, return, volatility, dra
 4. 如果是多标的、组合、对比或风控问题，必须计算相关性矩阵和流动性摘要。
 5. 如果用户询问走势、调仓、持有/减仓或趋势确认，运行趋势模板脚本生成 `trendTemplate`。
 6. 将指标写入 `data_file/final/dashboard-data.json`。
-7. 使用 `quant-data-quality` 记录样本长度、缺失字段和计算限制。
+7. 使用 `data-quality` 记录样本长度、缺失字段和计算限制。
 
 ## Python 脚本原则
 

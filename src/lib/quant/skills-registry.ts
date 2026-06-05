@@ -2,12 +2,14 @@ import fs from 'fs/promises';
 import path from 'path';
 
 export type QuantSkillStatus = 'stable' | 'planned' | 'deprecated';
+export type QuantSkillScope = 'workflow' | 'quant' | 'input' | 'evidence' | 'platform' | 'visualization';
 
 export interface QuantCoreSkill {
   id: string;
   name: string;
   version: string;
   status: QuantSkillStatus;
+  scope?: QuantSkillScope;
   boundary: string;
   inputs?: string[];
   outputs?: string[];
@@ -35,10 +37,11 @@ const REGISTRY_PATH = path.join(process.cwd(), '.claude', 'skills.registry.json'
 
 const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
   {
-    id: 'quant-run-planner',
+    id: 'run-planner',
     name: '运行规划',
     version: '0.1.0',
     status: 'stable',
+    scope: 'workflow',
     boundary: '意图澄清、任务拆解和 run_plan 生成。',
   },
   {
@@ -46,6 +49,7 @@ const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
     name: '数据注册与信源选择',
     version: '0.1.0',
     status: 'stable',
+    scope: 'quant',
     boundary: '查询后端数据能力和信源选择。',
   },
   {
@@ -53,6 +57,7 @@ const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
     name: '标的解析',
     version: '0.1.0',
     status: 'stable',
+    scope: 'quant',
     boundary: '把名称和代码解析为标准证券标识。',
   },
   {
@@ -60,20 +65,23 @@ const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
     name: '行情数据',
     version: '0.1.0',
     status: 'stable',
+    scope: 'quant',
     boundary: '实时行情、K 线和指数/ETF 数据。',
   },
   {
-    id: 'quant-data-quality',
+    id: 'data-quality',
     name: '数据质量',
     version: '0.1.0',
     status: 'stable',
+    scope: 'evidence',
     boundary: '生成来源、质量和限制证据。',
   },
   {
-    id: 'quant-visualization-html',
+    id: 'dashboard-visualization',
     name: '可视化看板',
     version: '0.1.0',
     status: 'stable',
+    scope: 'visualization',
     boundary: '基于 final 数据生成 Next.js 看板。',
   },
 ];

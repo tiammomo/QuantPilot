@@ -20,13 +20,13 @@ Skills 是 Agent 的本地能力包，位于 `.claude/skills/`。它们不只是
 
 | Skill | 用途 |
 | --- | --- |
-| `quant-run-planner` | 把自然语言问题拆成 run plan |
+| `run-planner` | 把自然语言问题拆成 run plan |
 | `quant-data-registry` | 选择数据源和字段口径 |
 | `quant-market-data` | 行情、K 线、实时数据和 provider 规则 |
 | `quant-fundamentals` | 财务、估值和公告事件 |
 | `quant-indicators` | MA、收益率、回撤、波动率等指标 |
-| `quant-visualization-html` | 生成可视化看板和自动修复布局 |
-| `quant-data-quality` | 检查缺失字段、来源和数据质量 |
+| `dashboard-visualization` | 生成可视化看板和自动修复布局 |
+| `data-quality` | 检查缺失字段、来源和数据质量 |
 
 ## 管理和发布
 
@@ -76,7 +76,7 @@ npm run package:skills
 
 ## 自动修复能力
 
-生成页面失败时，平台会把验证报告、视觉报告和 repair plan 交给 Agent。`quant-visualization-html` 应优先修复：
+生成页面失败时，平台会把验证报告、视觉报告和 repair plan 交给 Agent。`dashboard-visualization` 应优先修复：
 
 - `npm run build` 失败。
 - 最终数据文件存在但结构没有被页面正确消费。

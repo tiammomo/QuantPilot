@@ -1,5 +1,5 @@
 ---
-name: quant-image-extraction
+name: image-extraction
 description: Use this skill whenever a QuantPilot task includes uploaded images or .quantpilot/attachments.json, especially portfolio/account screenshots that need holdings, cost, cash, PnL, and position fields extracted before market data and visualization.
 ---
 
@@ -48,17 +48,17 @@ data_file/final/dashboard-data.json -> imageExtraction
 
 - 如果识别到股票名称或代码，下一步使用 `quant-symbol-resolver` 标准化标的。
 - 如果识别到持仓数量、成本和现金，后续 `quant-market-data` 应获取实时行情和 K 线。
-- `quant-data-quality` 必须把截图识别、行情补全和人工确认字段分开说明。
-- `quant-visualization-html` 生成持仓/调仓看板时，必须展示图片字段来源和缺失项。
+- `data-quality` 必须把截图识别、行情补全和人工确认字段分开说明。
+- `dashboard-visualization` 生成持仓/调仓看板时，必须展示图片字段来源和缺失项。
 
 ## 可见过程叙述要求
 
 推荐输出：
 
 ```markdown
-现在使用 `quant-image-extraction` 读取上传截图，先确认图片文件和可提取字段。
+现在使用 `image-extraction` 读取上传截图，先确认图片文件和可提取字段。
 
-• Skill `quant-image-extraction` executing...
+• Skill `image-extraction` executing...
 
 已确认图片文件存在，下一步识别持仓字段；无法确认的字段会写入 evidence/image_extraction.json。
 ```

@@ -6,14 +6,15 @@
     "installLegacyByDefault": false,
     "packageFormat": "tgz",
     "packageDir": ".claude/skill-packages",
-    "description": "QuantPilot skills 以少量核心能力为主，旧目录先作为兼容别名保留。新增能力优先并入核心 skill。"
+    "description": "QuantPilot skills 以少量核心能力为主；非量化强相关能力不使用 quant 前缀，旧 ID 仅作为兼容别名保留。新增能力优先并入核心 skill。"
   },
   "coreSkills": [
     {
-      "id": "quant-run-planner",
+      "id": "run-planner",
       "name": "运行规划",
       "version": "0.2.1",
       "status": "stable",
+      "scope": "workflow",
       "boundary": "意图澄清、澄清承接、二次对话上下文继承、任务拆解、run_plan 生成和执行顺序控制。",
       "inputs": ["用户问题", ".quantpilot/manifest.json", "上一轮 run_plan"],
       "outputs": [".quantpilot/run_plan.json", ".quantpilot/events.jsonl"],
@@ -25,6 +26,7 @@
       "name": "数据注册与信源选择",
       "version": "0.3.0",
       "status": "stable",
+      "scope": "quant",
       "boundary": "查询后端数据能力、本地 TimescaleDB 覆盖、候选信源、缓存、主备源、字段补数和降级规则。",
       "inputs": [
         "run_plan",
@@ -47,22 +49,24 @@
       "name": "标的解析",
       "version": "0.1.0",
       "status": "stable",
+      "scope": "quant",
       "boundary": "把中文简称、代码、指数、ETF 转为标准证券代码、市场和资产类型。",
       "inputs": ["用户问题", "候选标的文本"],
       "outputs": ["symbols", "resolvedSymbols"],
       "validation": ["run_plan.symbols 必须是代码字符串数组"]
     },
     {
-      "id": "quant-image-extraction",
+      "id": "image-extraction",
       "name": "图片提取",
       "version": "0.1.0",
       "status": "stable",
+      "scope": "input",
       "boundary": "读取用户上传的图片附件清单，校验图片文件，抽取或标注持仓截图中的资产、股票、成本、盈亏、现金和仓位字段。",
       "inputs": [".quantpilot/attachments.json", "uploaded images", "用户问题"],
       "outputs": ["evidence/image_extraction.json", "dashboard-data.json.imageExtraction"],
       "endpoints": ["mcp__QuantPilotImage__quant_extract_uploaded_image", "mcp__MiniMax__understand_image"],
       "validation": [
-        "图片任务必须先调用 quant-image-extraction",
+        "图片任务必须先调用 image-extraction",
         "无法识别的截图字段必须写 null 并列入 needs_manual_confirmation",
         "不得编造截图中的持仓、成本、现金或盈亏"
       ]
@@ -72,6 +76,7 @@
       "name": "行情数据",
       "version": "0.4.0",
       "status": "stable",
+      "scope": "quant",
       "boundary": "本地 TimescaleDB K 线、实时行情、指数/ETF、批量行情、多源 fallback 和本地字段补数。",
       "inputs": ["symbols", "timeRange", "period", "adjustment"],
       "outputs": ["local_coverage", "quote", "kline.bars", "assets[]", "field_enrichment"],
@@ -99,6 +104,7 @@
       "name": "基本面与事件",
       "version": "0.1.0",
       "status": "planned",
+      "scope": "quant",
       "boundary": "财务报表、财务衍生指标、公告和事件上下文。",
       "inputs": ["symbols", "reportPeriods"],
       "endpoints": [
@@ -120,6 +126,7 @@
       "name": "指标计算",
       "version": "0.1.0",
       "status": "planned",
+      "scope": "quant",
       "boundary": "技术指标、收益、波动、最大回撤、成交量、相关性、流动性和风险指标计算。",
       "inputs": ["kline.bars", "assets[]"],
       "outputs": ["technicalIndicators", "computedMetrics", "riskMetrics", "correlation", "liquidity", "trendTemplate"],
@@ -133,6 +140,7 @@
       "name": "回测复盘",
       "version": "0.2.0",
       "status": "stable",
+      "scope": "quant",
       "boundary": "基于本地 TimescaleDB K 线的策略参数、回测执行、净值曲线、回撤、交易明细和限制说明。",
       "inputs": ["symbols", "strategyParams", "local kline.bars"],
       "outputs": ["backtest", "trades", "equityCurve", "localBarsCoverage"],
@@ -143,30 +151,33 @@
       "validation": ["必须先确认本地 bars 覆盖", "必须说明费用、样本、滑点和策略限制"]
     },
     {
-      "id": "quant-data-quality",
+      "id": "data-quality",
       "name": "数据质量",
       "version": "0.2.0",
       "status": "stable",
+      "scope": "evidence",
       "boundary": "证据文件、来源、时效、缺失字段、异常值和限制说明。",
       "inputs": ["raw data", "dashboard-data.json", "run_plan"],
       "outputs": ["evidence/sources.json", "evidence/data_quality.json"],
       "validation": ["每个展示数据必须可追溯到 source"]
     },
     {
-      "id": "quantpilot-ui-product-design",
+      "id": "platform-ui-product-design",
       "name": "平台 UI 产品设计",
       "version": "0.2.0",
       "status": "stable",
+      "scope": "platform",
       "boundary": "QuantPilot 主平台页面、组件、控制台、设置、列表、导航、状态和响应式体验设计，不负责生成工作空间金融看板。",
       "inputs": ["src/app 页面", "src/components 组件", "docs/ui-shadcn-migration.md", "现有设计 token"],
       "outputs": ["平台 React/Tailwind UI", "可复用组件", "页面状态和响应式布局"],
       "validation": ["必须复用现有 UI/quant primitives", "必须覆盖 loading/empty/error/disabled/long text 状态", "必须通过 lint 和 type-check"]
     },
     {
-      "id": "quant-visualization-html",
+      "id": "dashboard-visualization",
       "name": "可视化看板",
       "version": "0.4.2",
       "status": "stable",
+      "scope": "visualization",
       "boundary": "基于已验证 final 数据、模板族、自动匹配变体和金融指标判读生成 Next.js 金融分析看板，并在验证失败时自修复页面、数据契约和 evidence。",
       "inputs": ["data_file/final/dashboard-data.json", "evidence", "run_plan", ".quantpilot/validation.json", ".quantpilot/validation-repair-plan.json", ".quantpilot/visual-validation.json"],
       "outputs": ["app/page.tsx", "app/globals.css", "visualization.template_id", "visualization.variant_id"],
@@ -174,6 +185,11 @@
     }
   ],
   "legacyAliases": {
+    "quant-run-planner": "run-planner",
+    "quant-image-extraction": "image-extraction",
+    "quant-data-quality": "data-quality",
+    "quant-visualization-html": "dashboard-visualization",
+    "quantpilot-ui-product-design": "platform-ui-product-design",
     "quant-a-share-history": "quant-market-data",
     "quant-index-etf-market": "quant-market-data",
     "quant-comparison": "quant-market-data",

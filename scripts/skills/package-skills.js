@@ -110,7 +110,21 @@ const includeLegacy = rawArgs.includes('--include-legacy');
 const requested = rawArgs.filter((arg) => arg !== '--include-legacy');
 const coreIds = registry.coreSkills.map((skill) => skill.id);
 const aliasIds = Object.keys(registry.legacyAliases || {});
-const skillIds = requested.length ? requested : [...coreIds, ...(includeLegacy ? aliasIds : [])];
+function resolvePackageSkillId(skillId) {
+  const sourceDir = path.join(skillsDir, skillId);
+  if (fs.existsSync(sourceDir)) {
+    return skillId;
+  }
+  const target = registry.legacyAliases?.[skillId];
+  if (target && fs.existsSync(path.join(skillsDir, target))) {
+    console.log(`[package-skills] alias ${skillId} -> ${target}`);
+    return target;
+  }
+  return skillId;
+}
+
+const rawSkillIds = requested.length ? requested : [...coreIds, ...(includeLegacy ? aliasIds : [])];
+const skillIds = Array.from(new Set(rawSkillIds.map(resolvePackageSkillId)));
 const lock = readLockFile();
 lock.schemaVersion = 1;
 lock.packageFormat = registry.policy.packageFormat || 'tgz';

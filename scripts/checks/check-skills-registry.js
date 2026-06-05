@@ -73,6 +73,29 @@ function isSemver(version) {
   return /^\d+\.\d+\.\d+$/.test(version);
 }
 
+const validScopes = new Set(['workflow', 'quant', 'input', 'evidence', 'platform', 'visualization']);
+
+function validateSkillNaming(skill) {
+  if (!validScopes.has(skill.scope)) {
+    fail(`core skill ${skill.id} must declare a valid scope: ${Array.from(validScopes).join(', ')}`);
+  }
+  if (skill.id.startsWith('quantpilot-')) {
+    fail(`core skill ${skill.id} should not use quantpilot- prefix; use a scope-based name instead`);
+  }
+  if (skill.scope === 'quant' && !skill.id.startsWith('quant-')) {
+    fail(`quant scoped core skill ${skill.id} must use quant- prefix`);
+  }
+  if (skill.scope !== 'quant' && skill.id.startsWith('quant-')) {
+    fail(`non-quant core skill ${skill.id} must not use quant- prefix`);
+  }
+  if (skill.scope === 'platform' && !skill.id.startsWith('platform-')) {
+    fail(`platform scoped core skill ${skill.id} must use platform- prefix`);
+  }
+  if (skill.scope !== 'platform' && skill.id.startsWith('platform-')) {
+    fail(`non-platform core skill ${skill.id} must not use platform- prefix`);
+  }
+}
+
 const changelog = parseJsonFile(changelogPath, { schemaVersion: 1, skills: {} });
 const lock = parseJsonFile(lockPath, { schemaVersion: 1, skills: {} });
 if (registry.schemaVersion !== 1) {
@@ -85,9 +108,10 @@ if (!Array.isArray(registry.coreSkills) || registry.coreSkills.length === 0) {
 
 const ids = new Set();
 for (const skill of registry.coreSkills) {
-  if (!skill.id || !skill.name || !skill.version || !skill.status || !skill.boundary) {
+  if (!skill.id || !skill.name || !skill.version || !skill.status || !skill.scope || !skill.boundary) {
     fail(`core skill is missing required fields: ${JSON.stringify(skill)}`);
   }
+  validateSkillNaming(skill);
   if (!isSemver(skill.version)) {
     fail(`core skill ${skill.id} version must be semver x.y.z, got: ${skill.version}`);
   }
@@ -150,13 +174,19 @@ for (const [alias, target] of Object.entries(aliases)) {
   }
 
   const aliasSkillFile = path.join(skillsDir, alias, 'SKILL.md');
-  if (!fs.existsSync(aliasSkillFile)) {
-    fail(`legacy alias SKILL.md not found: ${alias}`);
-  }
+  const aliasSourceExists = fs.existsSync(aliasSkillFile);
 
   const packagePath = path.join(packageDir, `${alias}.tgz`);
-  if (checkLegacyPackages && fs.existsSync(packageDir) && !fs.existsSync(packagePath)) {
+  if (checkLegacyPackages && aliasSourceExists && fs.existsSync(packageDir) && !fs.existsSync(packagePath)) {
     fail(`legacy alias package not found: ${path.relative(root, packagePath)}`);
+  }
+}
+
+for (const skill of registry.coreSkills) {
+  for (const alias of skill.legacyAliases || []) {
+    if (aliases[alias] !== skill.id) {
+      fail(`core skill ${skill.id} legacyAliases includes ${alias}, but registry.legacyAliases does not map it back`);
+    }
   }
 }
 

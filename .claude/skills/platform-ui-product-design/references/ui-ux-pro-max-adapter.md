@@ -69,7 +69,7 @@ Do not copy UI/UX Pro Max suggested Google Font imports into generated pages or 
 
 ## Generated Financial Dashboard Patterns
 
-Generated workspace pages should still be built by `quant-visualization-html`, but use this checklist:
+Generated workspace pages should still be built by `dashboard-visualization`, but use this checklist:
 
 - First viewport shows actual financial content: account summary, holdings matrix, K-line, comparison grid, backtest equity, evaluation result, or data quality status.
 - Avoid marketing hero, template-name banners, giant slogan text, empty dark cards, and single-hue gradients.

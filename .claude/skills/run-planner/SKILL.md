@@ -1,5 +1,5 @@
 ---
-name: quant-run-planner
+name: run-planner
 description: Use this skill at the beginning of every QuantPilot quantitative analysis task to create or update .quantpilot/run_plan.json before fetching data or generating dashboards.
 ---
 
@@ -12,7 +12,7 @@ description: Use this skill at the beginning of every QuantPilot quantitative an
 规划前先判断用户问题是否已经具备执行所需的关键输入。可以运行辅助脚本：
 
 ```bash
-python .claude/skills/quant-run-planner/scripts/intent_clarifier.py --question "<用户问题>" --capability "<capabilityId>"
+python .claude/skills/run-planner/scripts/intent_clarifier.py --question "<用户问题>" --capability "<capabilityId>"
 ```
 
 如果脚本或人工判断发现缺少关键输入，必须先写入 `status: "needs_clarification"` 的 `run_plan.json`，再向用户追问，停止后续取数和页面生成。
@@ -111,7 +111,7 @@ python .claude/skills/quant-run-planner/scripts/intent_clarifier.py --question "
    - 指数/ETF：`quant-index-etf-market`
    - 基本面：`quant-fundamental-financials`
    - 公告事件：`quant-announcement-events`
-   - 看板生成：`quant-visualization-html`
+   - 看板生成：`dashboard-visualization`
 
 ## 可见过程叙述要求
 
@@ -120,7 +120,7 @@ python .claude/skills/quant-run-planner/scripts/intent_clarifier.py --question "
 推荐格式：
 
 ```markdown
-现在使用 `quant-run-planner` 建立本次分析计划：先确认标的、时间范围、所需数据和验收规则。
+现在使用 `run-planner` 建立本次分析计划：先确认标的、时间范围、所需数据和验收规则。
 
 • Todo List (0/5 completed)
 1. ⏳ 解析标的和时间范围

@@ -1,11 +1,11 @@
 ---
-name: quantpilot-ui-product-design
+name: platform-ui-product-design
 description: Use this skill when designing, refactoring, reviewing, or polishing QuantPilot platform pages, generated-page templates, React components, layouts, dashboards, settings panels, navigation, tables, modals, charts, and UI states to make the frontend more beautiful, consistent, responsive, accessible, and production-ready using the QuantPilot-adapted UI/UX Pro Max design workflow.
 ---
 
 # QuantPilot 平台 UI 产品设计
 
-这个 skill 面向 QuantPilot 主平台前端：`src/app` 页面、`src/components` 组件、控制台、设置、列表、详情、弹窗、导航和响应式体验。生成工作空间里的金融分析看板继续使用 `quant-visualization-html`；本 skill 只负责平台自身的页面开发质量。
+这个 skill 面向 QuantPilot 主平台前端：`src/app` 页面、`src/components` 组件、控制台、设置、列表、详情、弹窗、导航和响应式体验。生成工作空间里的金融分析看板继续使用 `dashboard-visualization`；本 skill 只负责平台自身的页面开发质量。
 
 本 skill 参考 `nextlevelbuilder/ui-ux-pro-max-skill` 的设计智能思路：先判断产品类型，再选择页面模式、视觉风格、配色、字体、动效、UX 规则、技术栈规则和图表规则。QuantPilot 的落地版见 `references/ui-ux-pro-max-adapter.md`。
 
@@ -14,7 +14,7 @@ description: Use this skill when designing, refactoring, reviewing, or polishing
 - 用户要求“页面更好看”“UI 优化”“前端重构”“布局调整”“补页面入口”“控制台/设置/列表/表格/弹窗更专业”。
 - 修改 `src/app/**`、`src/components/**`、`src/app/globals.css`、`tailwind.config.ts` 或 shadcn 风格基础组件。
 - 为技能管理、评测链路、运维平台、数据平台、策略平台、工作空间、设置、首页和聊天页新增或调整界面。
-- 生成工作空间页面“不好看”时，本 skill 作为审美和 UX 规则来源；实际生成文件仍由 `quant-visualization-html` 执行。
+- 生成工作空间页面“不好看”时，本 skill 作为审美和 UX 规则来源；实际生成文件仍由 `dashboard-visualization` 执行。
 
 ## 标准工作流
 

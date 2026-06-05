@@ -1,5 +1,5 @@
 ---
-name: quant-visualization-html
+name: dashboard-visualization
 description: Use this skill to generate a real visual Next.js/HTML quantitative dashboard after market data has been fetched or whenever the user asks for a visualization page.
 ---
 
@@ -7,7 +7,7 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 
 这个 skill 负责把已获取的行情、财务、公告和分析结果转换为真正可运行的可视化页面。它不是“写分析说明”的 skill；触发后必须产出或更新页面文件。
 
-视觉和交互质量必须同时参考 `quantpilot-ui-product-design` 的 UI/UX Pro Max 适配层，尤其是 Data-Dense Dashboard、Real-Time Operations、可访问性、响应式、图表可读性和反模式约束。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
+视觉和交互质量必须同时参考 `platform-ui-product-design` 的 UI/UX Pro Max 适配层，尤其是 Data-Dense Dashboard、Real-Time Operations、可访问性、响应式、图表可读性和反模式约束。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
 
 ## 何时必须使用
 
@@ -71,7 +71,7 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
    - VaR、样本口径、刷新接口和非投资建议声明应放入指标卡、风险模块、数据质量或底部说明，不要占据首屏顶部。
 8. 实现页面文件并确保有加载、错误、空数据、刷新状态。
 9. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
-10. 使用 `quant-data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
+10. 使用 `data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
 11. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
 12. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
 

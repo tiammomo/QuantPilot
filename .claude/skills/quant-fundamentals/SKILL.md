@@ -36,9 +36,9 @@ description: Use this skill for financial statements, derived fundamental indica
    - `/api/v1/indicators/fundamental/{symbol}`
    - `/api/v1/events/announcements/{symbol}`
 3. 如果用户询问估值、贵不贵、调仓、持有/减仓依据，运行估值情景脚本生成 `valuation`。
-4. 使用 `quant-data-quality` 记录来源、报告期、缺失字段和限制。
+4. 使用 `data-quality` 记录来源、报告期、缺失字段和限制。
 5. 将结果写入 `data_file/final/dashboard-data.json` 的标准字段。
-6. 交给 `quant-visualization-html` 生成基本面或综合看板。
+6. 交给 `dashboard-visualization` 生成基本面或综合看板。
 
 ## Python 脚本原则
 

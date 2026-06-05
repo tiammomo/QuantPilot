@@ -1,6 +1,6 @@
 # QuantPilot 可视化判读清单
 
-本文件用于 `quant-visualization-html` 在动手写页面前做数据和图表判读。它不是通用数据可视化 pipeline，也不要求额外生成 judgement 文件；目标是在 QuantPilot 的 `run_plan`、final 数据和 evidence 已存在的前提下，先确认“该画什么、哪些指标能怎么算、哪些图表不能乱用”。
+本文件用于 `dashboard-visualization` 在动手写页面前做数据和图表判读。它不是通用数据可视化 pipeline，也不要求额外生成 judgement 文件；目标是在 QuantPilot 的 `run_plan`、final 数据和 evidence 已存在的前提下，先确认“该画什么、哪些指标能怎么算、哪些图表不能乱用”。
 
 ## 判读顺序
 

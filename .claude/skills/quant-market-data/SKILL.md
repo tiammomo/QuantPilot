@@ -18,7 +18,7 @@ description: Use this skill when the task needs stock, index, ETF, or A-share ma
 - 涉及历史 K 线、策略筛选、回测、均线、成交额、换手率、涨跌停、分红标记或本地股票池分析。
 - 需要先获取数据再做可视化、HTML 看板或分析的任务。
 
-本 skill 只负责“取数和数据理解”。可视化页面生成必须交给 `quant-visualization-html` skill。
+本 skill 只负责“取数和数据理解”。可视化页面生成必须交给 `dashboard-visualization` skill。
 
 ## 本地数据库优先原则
 
@@ -129,7 +129,7 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/quotes/realtime' \
 5. 实时价格或今日快照再调用 `/api/v1/quotes/realtime/{symbol}` 或批量实时接口。
 6. 如果接口失败，先展示真实错误，不要编造数据。
 7. 明确记录返回数据中的 `symbol`、`name`、`asset_type`、`provider/source`、`summary.first_ts`、`summary.last_ts`、`summary.row_count`、`fetched_at`、关键字段缺失情况；实时行情还要记录 `price`、`change_percent`、`amount`、`quote_time` 和 `fetch.cache_status`。
-8. 如果后续需要页面或看板，必须把已获取的数据作为输入交给 `quant-visualization-html` skill。
+8. 如果后续需要页面或看板，必须把已获取的数据作为输入交给 `dashboard-visualization` skill。
 9. 如果用户请求海外股票或 ETF，先查询 `/api/v1/provider-candidates` 说明当前可测试的免费源；如果后端主接口尚未支持该市场，要把能力边界写进数据质量，不要编造行情。
 10. 如果历史 K 线缺少成交额、换手率、振幅，优先检查 `docs/market-data-source-knowledge.md` 和后端 registry，再决定是否触发 Baostock 或 AKShare 补数。
 

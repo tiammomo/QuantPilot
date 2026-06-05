@@ -1,5 +1,5 @@
 ---
-name: quant-data-quality
+name: data-quality
 description: Use this skill after fetching quantitative data and before visualization to assess data quality, write evidence files, and expose source/time/limitation details.
 ---
 
@@ -92,7 +92,7 @@ evidence/data_quality.json
 4. 写入 `evidence/sources.json`，记录每个数据集的来源、接口、时间戳和本地文件路径。
 5. 写入 `evidence/data_quality.json`，记录状态、检查项、缺失字段、警告和限制说明。
 6. 向 `.quantpilot/events.jsonl` 追加一条 `data_quality_checked` 事件。
-7. 然后再交给 `quant-visualization-html` 生成页面。
+7. 然后再交给 `dashboard-visualization` 生成页面。
 
 ## 状态规则
 

@@ -115,36 +115,56 @@ const FILTER_CHIPS: { id: SkillHealthStatus | "all"; label: string; icon?: typeo
   { id: "error", label: "异常", icon: XCircle },
 ];
 
+type SkillScope = NonNullable<SkillsPayload["skills"][number]["scope"]>;
+const SCOPE_LABELS: Record<SkillScope, string> = {
+  workflow: "工作流",
+  quant: "量化",
+  input: "输入",
+  evidence: "证据",
+  platform: "平台",
+  visualization: "可视化",
+};
+
+const SCOPE_CHIPS: Array<{ id: SkillScope | "all"; label: string }> = [
+  { id: "all", label: "全部域" },
+  { id: "workflow", label: "工作流" },
+  { id: "quant", label: "量化" },
+  { id: "input", label: "输入" },
+  { id: "evidence", label: "证据" },
+  { id: "platform", label: "平台" },
+  { id: "visualization", label: "可视化" },
+];
+
 const SKILL_LIST_DEFAULT_WIDTH = 300;
 const SKILL_LIST_MIN_WIDTH = 240;
 const SKILL_LIST_MAX_WIDTH = 400;
 
 const SKILL_ICONS: Record<string, typeof Package> = {
-  "quant-run-planner": Target,
+  "run-planner": Target,
   "quant-data-registry": Database,
   "quant-symbol-resolver": Search,
-  "quant-image-extraction": ImageIcon,
+  "image-extraction": ImageIcon,
   "quant-market-data": BarChart3,
   "quant-fundamentals": BookOpen,
   "quant-indicators": BarChart3,
   "quant-backtest": Workflow,
-  "quant-data-quality": Shield,
-  "quantpilot-ui-product-design": LayoutGrid,
-  "quant-visualization-html": Sparkles,
+  "data-quality": Shield,
+  "platform-ui-product-design": LayoutGrid,
+  "dashboard-visualization": Sparkles,
 };
 
 const SKILL_COLORS: Record<string, { bg: string; ring: string; text: string }> = {
-  "quant-run-planner": { bg: "bg-blue-50", ring: "ring-blue-100", text: "text-blue-600" },
+  "run-planner": { bg: "bg-blue-50", ring: "ring-blue-100", text: "text-blue-600" },
   "quant-data-registry": { bg: "bg-emerald-50", ring: "ring-emerald-100", text: "text-emerald-600" },
   "quant-symbol-resolver": { bg: "bg-violet-50", ring: "ring-violet-100", text: "text-violet-600" },
-  "quant-image-extraction": { bg: "bg-pink-50", ring: "ring-pink-100", text: "text-pink-600" },
+  "image-extraction": { bg: "bg-pink-50", ring: "ring-pink-100", text: "text-pink-600" },
   "quant-market-data": { bg: "bg-cyan-50", ring: "ring-cyan-100", text: "text-cyan-600" },
   "quant-fundamentals": { bg: "bg-amber-50", ring: "ring-amber-100", text: "text-amber-600" },
   "quant-indicators": { bg: "bg-indigo-50", ring: "ring-indigo-100", text: "text-indigo-600" },
   "quant-backtest": { bg: "bg-orange-50", ring: "ring-orange-100", text: "text-orange-600" },
-  "quant-data-quality": { bg: "bg-teal-50", ring: "ring-teal-100", text: "text-teal-600" },
-  "quantpilot-ui-product-design": { bg: "bg-rose-50", ring: "ring-rose-100", text: "text-rose-600" },
-  "quant-visualization-html": { bg: "bg-lime-50", ring: "ring-lime-100", text: "text-lime-600" },
+  "data-quality": { bg: "bg-teal-50", ring: "ring-teal-100", text: "text-teal-600" },
+  "platform-ui-product-design": { bg: "bg-rose-50", ring: "ring-rose-100", text: "text-rose-600" },
+  "dashboard-visualization": { bg: "bg-lime-50", ring: "ring-lime-100", text: "text-lime-600" },
 };
 
 type CatalogSkillItem = SkillsPayload["skills"][number];
@@ -165,8 +185,25 @@ function joinSkillItems(values: string[], fallback = "未配置") {
   return values.filter(Boolean).join("、") || fallback;
 }
 
+function SkillScopeBadge({ scope }: { scope: SkillScope }) {
+  const classes: Record<SkillScope, string> = {
+    workflow: "border-blue-100 bg-blue-50 text-blue-700",
+    quant: "border-cyan-100 bg-cyan-50 text-cyan-700",
+    input: "border-pink-100 bg-pink-50 text-pink-700",
+    evidence: "border-teal-100 bg-teal-50 text-teal-700",
+    platform: "border-rose-100 bg-rose-50 text-rose-700",
+    visualization: "border-lime-100 bg-lime-50 text-lime-700",
+  };
+  return (
+    <span className={cn("inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold", classes[scope])}>
+      {SCOPE_LABELS[scope]}
+    </span>
+  );
+}
+
 function buildFeatureRows(skill: CatalogSkillItem) {
   return [
+    { category: "能力域", capability: SCOPE_LABELS[skill.scope] },
     { category: "任务定位", capability: skill.boundary },
     { category: "输入范围", capability: joinSkillItems(skill.inputs) },
     { category: "输出产物", capability: joinSkillItems(skill.outputs) },
@@ -223,6 +260,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   const [isVersionManagerOpen, setIsVersionManagerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SkillHealthStatus>("all");
+  const [scopeFilter, setScopeFilter] = useState<"all" | SkillScope>("all");
   const [source, setSource] = useState<SourceState | null>(null);
   const [sourceDraft, setSourceDraft] = useState("");
   const [selectedFilePath, setSelectedFilePath] = useState("SKILL.md");
@@ -257,11 +295,12 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     const kw = query.trim().toLowerCase();
     return payload.skills.filter((skill) => {
       if (filter !== "all" && skill.health.status !== filter) return false;
+      if (scopeFilter !== "all" && skill.scope !== scopeFilter) return false;
       if (!kw) return true;
-      return [skill.id, skill.name, skill.version, skill.status, skill.boundary, ...skill.inputs, ...skill.outputs, ...skill.scripts, ...skill.legacyAliases]
+      return [skill.id, skill.name, skill.version, skill.status, skill.scope, SCOPE_LABELS[skill.scope], skill.boundary, ...skill.inputs, ...skill.outputs, ...skill.scripts, ...skill.legacyAliases]
         .join(" ").toLowerCase().includes(kw);
     });
-  }, [payload.skills, query, filter]);
+  }, [payload.skills, query, filter, scopeFilter]);
 
   const selectedSkill =
     filteredSkills.find((s) => s.id === selectedId) ??
@@ -751,7 +790,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
           <div className="flex-1 overflow-y-auto transition-all duration-300">
             <div className="p-6">
               {/* Search + Filter */}
-              <div className="mb-5 flex items-center gap-3">
+              <div className="mb-5 flex flex-wrap items-center gap-3">
                 <div className="relative w-72">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -777,6 +816,26 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                         )}
                       >
                         {chip.icon && <chip.icon className="h-3 w-3" />}
+                        {chip.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {SCOPE_CHIPS.map((chip) => {
+                    const isActive = scopeFilter === chip.id;
+                    return (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => setScopeFilter(chip.id)}
+                        className={cn(
+                          "rounded-md px-2.5 py-1.5 text-xs font-medium transition-all",
+                          isActive
+                            ? "bg-primary/10 text-primary ring-1 ring-primary/20"
+                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        )}
+                      >
                         {chip.label}
                       </button>
                     );
@@ -816,7 +875,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                           {statusLabels[skill.health.status]}
                         </span>
                       </div>
-                      <h3 className="mt-3 text-sm font-bold text-foreground">{skill.name}</h3>
+                      <div className="mt-3 flex items-center gap-2">
+                        <h3 className="min-w-0 truncate text-sm font-bold text-foreground">{skill.name}</h3>
+                        <SkillScopeBadge scope={skill.scope} />
+                      </div>
                       <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{skill.boundary}</p>
                       <div className="mt-auto flex items-center gap-2 pt-3 text-[11px] text-muted-foreground">
                         <span className="flex items-center gap-1">
@@ -911,6 +973,26 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                 );
               })}
             </div>
+            <div className="flex flex-wrap gap-1">
+              {SCOPE_CHIPS.map((chip) => {
+                const isActive = scopeFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setScopeFilter(chip.id)}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-xs font-medium transition-all",
+                      isActive
+                        ? "bg-primary/10 text-primary ring-1 ring-primary/20"
+                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                    )}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Skill cards */}
@@ -936,7 +1018,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                       <p className={cn("truncate text-sm font-semibold", active ? "text-primary" : "text-foreground")}>
                         {skill.name}
                       </p>
-                      <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{skill.id}</p>
+                      <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                        <p className="truncate font-mono text-[11px] text-muted-foreground">{skill.id}</p>
+                        <SkillScopeBadge scope={skill.scope} />
+                      </div>
                     </div>
                     <span className={cn("shrink-0 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold", config.bg, config.text, config.border)}>
                       <StatusIcon className="h-2.5 w-2.5" />
@@ -1018,6 +1103,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                   <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     v{selectedSkill.version}
                   </span>
+                  <SkillScopeBadge scope={selectedSkill.scope} />
                 </div>
                 {selectedSkill.health.missing.length > 0 && (
                   <span className="flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">

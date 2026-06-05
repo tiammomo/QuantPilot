@@ -4,9 +4,9 @@ import { NextResponse } from 'next/server';
 
 type JsonRecord = Record<string, unknown>;
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
-const LOCK_PATH = path.join(ROOT, '.claude', 'skills.lock.json');
+const PACKAGE_DIR = path.join(ROOT, '.claude', 'skill-packages');
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -31,24 +31,15 @@ async function readJson(filePath: string): Promise<JsonRecord> {
 
 async function resolvePackagePath(skillId: string) {
   assertSafeSkillId(skillId);
-  const [registry, lockRaw] = await Promise.all([
-    readJson(REGISTRY_PATH),
-    readJson(LOCK_PATH).catch(() => ({})),
-  ]);
-  const lock = isRecord(lockRaw) ? lockRaw : {};
+  const registry = await readJson(REGISTRY_PATH);
   const coreSkills = Array.isArray(registry.coreSkills) ? registry.coreSkills : [];
   const exists = coreSkills.some((skill) => isRecord(skill) && skill.id === skillId);
   if (!exists) {
     throw new Error(`未找到核心 skill：${skillId}`);
   }
 
-  const lockSkills = isRecord(lock.skills) ? lock.skills : {};
-  const lockEntry = isRecord(lockSkills[skillId]) ? lockSkills[skillId] : {};
-  const packagePath = path.resolve(
-    ROOT,
-    String(lockEntry.packagePath ?? `.claude/skill-packages/${skillId}.tgz`)
-  );
-  if (!isInside(ROOT, packagePath)) {
+  const packagePath = path.join(PACKAGE_DIR, `${skillId}.tgz`);
+  if (!isInside(PACKAGE_DIR, packagePath)) {
     throw new Error('压缩包路径不安全。');
   }
   return packagePath;

@@ -73,7 +73,7 @@ export interface SkillDiffData {
   };
 }
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const SKILLS_DIR = path.join(ROOT, '.claude', 'skills');
 const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
 const CHANGELOG_PATH = path.join(ROOT, '.claude', 'skills.changelog.json');
@@ -149,9 +149,7 @@ async function getSkillMdPath(skillId: string) {
 }
 
 async function getPackageDir() {
-  const registry = await readJson(REGISTRY_PATH);
-  const policy = isRecord(registry.policy) ? registry.policy : {};
-  return path.join(ROOT, String(policy.packageDir ?? '.claude/skill-packages'));
+  return path.join(ROOT, '.claude', 'skill-packages');
 }
 
 async function getSkillVersion(skillId: string) {
@@ -364,8 +362,7 @@ export async function publishSkillVersion(params: PublishSkillVersionParams): Pr
   const release = normalizeRelease(params);
   const resolved = await resolveCoreSkill(params.skillId);
   const previousVersion = typeof resolved.skill.version === 'string' ? resolved.skill.version : null;
-  const policy = isRecord(resolved.registry.policy) ? resolved.registry.policy : {};
-  const packageDir = path.join(ROOT, String(policy.packageDir ?? '.claude/skill-packages'));
+  const packageDir = path.join(ROOT, '.claude', 'skill-packages');
   const packagePath = path.join(packageDir, `${params.skillId}.tgz`);
   const [registryBackup, changelogBackup, lockBackup, packageBackup] = await Promise.all([
     fs.readFile(REGISTRY_PATH, 'utf8'),

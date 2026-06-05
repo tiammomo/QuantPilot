@@ -199,7 +199,7 @@ evidence/data_quality.json
 
 ## 可视化页面只有静态文案
 
-通常说明取数、final 数据文件或 `quant-visualization-html` 没有完整执行。优先查看：
+通常说明取数、final 数据文件或 `dashboard-visualization` 没有完整执行。优先查看：
 
 - 聊天页执行过程。
 - `/ops-platform` 工作空间健康。

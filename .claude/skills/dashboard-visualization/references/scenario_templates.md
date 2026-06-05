@@ -1,6 +1,6 @@
 # QuantPilot 场景化可视化模板矩阵
 
-本文件用于给 `quant-visualization-html` 选择页面模板。每次生成看板前，先读取 `.quantpilot/run_plan.json` 的 `visualization.templateId` 选择模板族，再读取 `visualization.variantId` 选择具体页面变体；如果没有该字段，再按用户问题和 final 数据字段推断模板和变体。
+本文件用于给 `dashboard-visualization` 选择页面模板。每次生成看板前，先读取 `.quantpilot/run_plan.json` 的 `visualization.templateId` 选择模板族，再读取 `visualization.variantId` 选择具体页面变体；如果没有该字段，再按用户问题和 final 数据字段推断模板和变体。
 
 ## 选择顺序
 

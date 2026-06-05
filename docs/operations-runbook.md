@@ -207,7 +207,7 @@ evidence/data_quality.json
 | --- | --- |
 | build 失败 | 修当前工作空间代码，不改平台源码 |
 | final data 存在但页面没消费 | 修页面数据绑定和模板选择 |
-| 多股票被单股模板展示 | 更新 `quant-visualization-html` 或模板匹配规则 |
+| 多股票被单股模板展示 | 更新 `dashboard-visualization` 或模板匹配规则 |
 | 页面只有验证失败页 | 先看 validation，再触发自动修复 |
 | 出现 mock/static 样例 | 清理页面假数据，引用真实 final data |
 

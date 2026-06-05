@@ -40,8 +40,8 @@ curl 'http://127.0.0.1:8000/api/v1/indicators/technical/000300?period=daily&adju
 3. 历史趋势、均线、波动率、回撤和成交额优先调用 `/api/v1/research/bars/{symbol}` 读取本地库。
 4. 只有最新价格、今日快照或本地缺口补充时，再调用实时行情或外部历史接口。
 5. 写入 `data_file/raw/<run_id>/` 与 `data_file/final/dashboard-data.json`。
-6. 用 `quant-data-quality` 记录来源、缓存状态、样本长度和限制。
-7. 需要页面时交给 `quant-visualization-html`，重点展示指数趋势、成交量、均线、波动率和回撤。
+6. 用 `data-quality` 记录来源、缓存状态、样本长度和限制。
+7. 需要页面时交给 `dashboard-visualization`，重点展示指数趋势、成交量、均线、波动率和回撤。
 
 ## 禁止事项
 

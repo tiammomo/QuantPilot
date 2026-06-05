@@ -42,7 +42,7 @@ data_file/final/dashboard-data.json
 
 ## 可视化交付
 
-调用 `quant-visualization-html` 生成页面时，多标的看板至少包含：
+调用 `dashboard-visualization` 生成页面时，多标的看板至少包含：
 
 - 顶部：全部标的、样本区间、数据更新时间。
 - 指标矩阵：最新价、当日涨跌幅、区间收益、最大回撤、波动、成交额。

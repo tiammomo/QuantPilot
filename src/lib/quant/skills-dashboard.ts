@@ -5,6 +5,7 @@ import path from 'path';
 type JsonRecord = Record<string, unknown>;
 
 export type SkillHealthStatus = 'ok' | 'warning' | 'error';
+export type SkillScope = 'workflow' | 'quant' | 'input' | 'evidence' | 'platform' | 'visualization';
 
 export interface SkillRelease {
   version: string;
@@ -22,6 +23,7 @@ interface RegistrySkill {
   name: string;
   version: string;
   status: 'stable' | 'planned' | 'deprecated';
+  scope?: SkillScope;
   boundary: string;
   inputs?: string[];
   outputs?: string[];
@@ -50,6 +52,7 @@ export interface SkillItem {
   name: string;
   version: string;
   status: 'stable' | 'planned' | 'deprecated';
+  scope: SkillScope;
   boundary: string;
   inputs: string[];
   outputs: string[];
@@ -115,6 +118,7 @@ export interface SkillsDashboardData {
     error: number;
     stable: number;
     planned: number;
+    scopes: Record<SkillScope, number>;
   };
   skills: SkillItem[];
   legacyAliases: Record<string, string>;
@@ -145,7 +149,7 @@ export interface SkillSourceDirectory {
   updatedAt: string | null;
 }
 
-const ROOT = process.cwd();
+const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const SKILLS_DIR = path.join(ROOT, '.claude', 'skills');
 const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
 const CHANGELOG_PATH = path.join(ROOT, '.claude', 'skills.changelog.json');
@@ -337,6 +341,20 @@ function compactHash(value?: string | null): string | null {
   return value ? `${value.slice(0, 10)}...${value.slice(-8)}` : null;
 }
 
+function normalizeSkillScope(value: RegistrySkill['scope']): SkillScope {
+  if (
+    value === 'workflow' ||
+    value === 'quant' ||
+    value === 'input' ||
+    value === 'evidence' ||
+    value === 'platform' ||
+    value === 'visualization'
+  ) {
+    return value;
+  }
+  return 'workflow';
+}
+
 export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const [registry, changelog, lock] = await Promise.all([
     readJson(REGISTRY_PATH),
@@ -347,7 +365,7 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const policy = registry.policy && typeof registry.policy === 'object'
     ? (registry.policy as JsonRecord)
     : {};
-  const packageDir = path.join(ROOT, String(policy.packageDir ?? '.claude/skill-packages'));
+  const packageDir = path.join(ROOT, '.claude', 'skill-packages');
   const coreSkills = Array.isArray(registry.coreSkills) ? registry.coreSkills as RegistrySkill[] : [];
   const changelogSkills = changelog.skills && typeof changelog.skills === 'object'
     ? changelog.skills as Record<string, { releases?: SkillRelease[] }>
@@ -368,9 +386,7 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       listSkillSourceDirectories(skill.id),
     ]);
     const lockEntry = lockSkills[skill.id] ?? null;
-    const packagePath = lockEntry?.packagePath
-      ? path.join(ROOT, lockEntry.packagePath)
-      : path.join(packageDir, `${skill.id}.tgz`);
+    const packagePath = path.join(packageDir, `${skill.id}.tgz`);
     const packageExists = await pathExists(packagePath);
     const packageBuffer = packageExists ? await fs.readFile(packagePath) : null;
     const packageStat = packageExists ? await fs.stat(packagePath) : null;
@@ -412,6 +428,7 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
 
     return {
       ...skill,
+      scope: normalizeSkillScope(skill.scope),
       inputs: asStringArray(skill.inputs),
       outputs: asStringArray(skill.outputs),
       scripts: asStringArray(skill.scripts),
@@ -478,9 +495,25 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       acc[skill.health.status as SkillHealthStatus] += 1;
       if (skill.status === 'stable') acc.stable += 1;
       if (skill.status === 'planned') acc.planned += 1;
+      acc.scopes[skill.scope] += 1;
       return acc;
     },
-    { total: 0, ok: 0, warning: 0, error: 0, stable: 0, planned: 0 }
+    {
+      total: 0,
+      ok: 0,
+      warning: 0,
+      error: 0,
+      stable: 0,
+      planned: 0,
+      scopes: {
+        workflow: 0,
+        quant: 0,
+        input: 0,
+        evidence: 0,
+        platform: 0,
+        visualization: 0,
+      },
+    }
   );
 
   return {
