@@ -66,7 +66,7 @@ async function acquireNextArtifactLock(rootDir, options = {}) {
   );
   const label = options.label || 'next artifacts';
   const lockDir = path.join(rootDir, '.next');
-  const lockFile = path.join(lockDir, 'quantpilot-next-artifact.lock');
+  const lockFile = path.join(lockDir, 'travel-agent-next-artifact.lock');
   const startedAt = Date.now();
   let announcedWait = false;
 

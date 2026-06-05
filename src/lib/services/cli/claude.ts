@@ -20,7 +20,6 @@ import {
   ensureClaudeSkillsForProject,
   readQuantPilotManifest,
 } from '@/lib/services/claude-skills';
-import { buildQuantPilotMcpServers } from '@/lib/services/quant-image-mcp';
 import {
   markUserRequestAsRunning,
   markUserRequestAsCompleted,
@@ -447,46 +446,34 @@ const extractPathFromToolText = (value: unknown): string | undefined => {
 const describeCurlCommand = (command: string): string | undefined => {
   const lower = command.toLowerCase();
   if (!lower.includes('curl')) return undefined;
-  if (lower.includes('/api/v1/symbols/resolve')) return '解析股票名称或代码，确认后续取数标的。';
-  if (lower.includes('/api/v1/quotes/realtime')) return '获取实时行情数据，确认最新价、涨跌幅和成交信息。';
-  if (lower.includes('/api/v1/quotes/history')) return '获取历史 K 线和成交量数据，用于趋势、均线和量价分析。';
-  if (lower.includes('/api/v1/indicators')) return '计算技术指标，补充均线、收益、回撤、波动率等分析字段。';
-  if (lower.includes('/api/v1/fundamentals/financials')) return '获取财务报表数据，补充营收、利润、现金流和成长性。';
-  if (lower.includes('/api/v1/fundamentals/indicators')) return '获取基本面指标，补充 ROE、毛利率、净利率和估值质量。';
-  if (lower.includes('/api/v1/announcements')) return '获取公告和事件数据，补充行情变化的事件背景。';
-  if (lower.includes('/api/market')) return '检查生成页面的同源行情代理是否可用。';
-  return '调用本地行情后端获取真实数据。';
+  if (lower.includes('/api/v1/travel/')) return '调用本地旅游接口获取路线、POI、餐厅或通勤数据。';
+  return '调用本地接口获取任务数据。';
 };
 
 const describeFileTarget = (target: string, action?: ToolAction): string | undefined => {
   const normalized = target.replaceAll('\\', '/');
   if (!normalized) return undefined;
-  if (normalized.endsWith('.quantpilot/run_plan.json')) return '记录本次分析计划、标的、数据需求和验收项。';
-  if (normalized.endsWith('.quantpilot/events.jsonl')) return '追加可见执行事件，便于复盘每个阶段。';
+  if (normalized.endsWith('.travelpilot/run_plan.json')) return '记录本次旅游规划的区域、偏好、数据需求和验收项。';
+  if (normalized.endsWith('.travelpilot/events.jsonl')) return '追加可见执行事件，便于复盘每个阶段。';
   if (normalized.endsWith('evidence/sources.json')) return '记录数据来源、接口、抓取时间和来源说明。';
   if (normalized.endsWith('evidence/data_quality.json')) return '记录数据质量、缺失字段、异常和限制。';
-  if (normalized.endsWith('data_file/final/dashboard-data.json')) return '写入最终看板数据，页面将基于它渲染图表。';
-  if (normalized.endsWith('app/page.tsx')) return action === 'Read' ? '读取看板页面代码，确认当前渲染结构。' : '生成或更新量化可视化看板页面。';
-  if (normalized.endsWith('app/globals.css')) return action === 'Read' ? '读取页面样式，确认图表和布局基础。' : '更新看板样式，保证布局、图表和响应式体验。';
+  if (normalized.endsWith('data_file/final/itinerary-data.json')) return '写入最终路线数据，页面将基于它渲染方案。';
+  if (normalized.endsWith('app/page.tsx')) return action === 'Read' ? '读取页面代码，确认当前渲染结构。' : '生成或更新旅游路线可视化页面。';
+  if (normalized.endsWith('app/globals.css')) return action === 'Read' ? '读取页面样式，确认布局基础。' : '更新页面样式，保证布局和响应式体验。';
   if (normalized.endsWith('next.config.js')) return '检查 Next.js 配置，确保预览和构建链路可用。';
   if (normalized.endsWith('package.json')) return '检查项目依赖和脚本，确保 build/dev 可执行。';
   return undefined;
 };
 
 const describeSkill = (toolName?: string): string | undefined => {
-  if (!toolName || !/^quant-[a-z0-9-]+$/i.test(toolName)) return undefined;
+  if (!toolName || !toolName.toLowerCase().includes('travel')) return undefined;
   const lower = toolName.toLowerCase();
-  if (lower.includes('run-planner')) return '建立分析计划，明确标的、数据需求、看板模块和验证规则。';
-  if (lower.includes('symbol-resolver')) return '解析股票名称或代码，确保后续接口使用正确标的。';
-  if (lower.includes('market-data')) return '获取实时行情，补充最新价、涨跌幅、成交额和行情时间。';
-  if (lower.includes('a-share-history')) return '获取历史 K 线和成交量数据，为趋势与均线分析做准备。';
-  if (lower.includes('technical-indicators')) return '计算技术指标，形成均线、回撤、波动率和量价信号。';
-  if (lower.includes('fundamental')) return '获取财务和基本面数据，补充经营质量分析。';
-  if (lower.includes('announcement')) return '获取公告和事件信息，补充行情背景。';
-  if (lower.includes('data-quality')) return '检查数据覆盖率、缺失字段、来源和可用性。';
-  if (lower.includes('visualization')) return '基于最终数据生成可视化看板页面。';
-  if (lower.includes('comparison')) return '组织多标的对比数据，生成横向研究视角。';
-  return '执行量化分析 skill，推进当前阶段。';
+  if (lower.includes('run-planner')) return '建立旅游规划执行计划，明确区域、偏好、数据需求和验证规则。';
+  if (lower.includes('poi')) return '检索景点、餐厅和区域候选数据。';
+  if (lower.includes('route')) return '优化路线顺序、通勤和时间安排。';
+  if (lower.includes('data-quality')) return '检查旅游数据覆盖率、缺失字段、来源和可用性。';
+  if (lower.includes('visualization')) return '基于最终路线数据生成可视化页面。';
+  return '执行旅游规划工具，推进当前阶段。';
 };
 
 const buildToolMetadata = (block: Record<string, unknown>): Record<string, unknown> => {
@@ -1107,13 +1094,10 @@ export async function executeClaude(
     : 32;
   const idleTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
   const totalTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
-  const quantArtifactCheckIntervalMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_CHECK_INTERVAL_MS', 12 * 1000);
-  const quantArtifactStableMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_STABLE_MS', 45 * 1000);
   const abortController = new AbortController();
   let response: ReturnType<typeof query> | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let totalTimer: NodeJS.Timeout | null = null;
-  let artifactCompletionTimer: NodeJS.Timeout | null = null;
   let abortReason: string | null = null;
   let gracefulAbortReason: string | null = null;
 
@@ -1171,10 +1155,7 @@ export async function executeClaude(
       clearTimeout(totalTimer);
       totalTimer = null;
     }
-    if (artifactCompletionTimer) {
-      clearInterval(artifactCompletionTimer);
-      artifactCompletionTimer = null;
-    }
+
   };
 
   const abortClaudeExecution = (message: string) => {
@@ -1182,22 +1163,6 @@ export async function executeClaude(
     abortReason = message;
     console.warn(`[ClaudeService] ${message}`);
     publishStatus('agent_timeout', message);
-    try {
-      abortController.abort(new Error(message));
-    } catch {
-      abortController.abort();
-    }
-    response?.close();
-  };
-
-  const completeClaudeExecutionFromArtifacts = async (message: string) => {
-    if (abortReason) return;
-    abortReason = message;
-    gracefulAbortReason = message;
-    emittedCompletedStatus = true;
-    console.warn(`[ClaudeService] ${message}`);
-    await safeMarkCompleted();
-    publishStatus('completed', message);
     try {
       abortController.abort(new Error(message));
     } catch {
@@ -1215,52 +1180,6 @@ export async function executeClaude(
       abortClaudeExecution(`Claude Code 超过 ${Math.round(idleTimeoutMs / 1000)} 秒没有返回执行事件，已自动终止本次执行。`);
     }, idleTimeoutMs);
     idleTimer.unref?.();
-  };
-
-  const startQuantArtifactCompletionWatch = (absoluteProjectPath: string) => {
-    if (artifactCompletionTimer || quantArtifactCheckIntervalMs <= 0 || quantArtifactStableMs <= 0) {
-      return;
-    }
-
-    let firstCompleteAt: number | null = null;
-    let lastSignature = '';
-
-    artifactCompletionTimer = setInterval(() => {
-      void (async () => {
-        if (abortReason || hasMarkedTerminalStatus) {
-          return;
-        }
-
-        const snapshot = await inspectQuantDashboardArtifacts(absoluteProjectPath);
-        if (!snapshot.complete) {
-          firstCompleteAt = null;
-          lastSignature = '';
-          return;
-        }
-
-        const now = Date.now();
-        if (snapshot.signature !== lastSignature) {
-          firstCompleteAt = now;
-          lastSignature = snapshot.signature;
-          return;
-        }
-
-        if (firstCompleteAt && now - firstCompleteAt >= quantArtifactStableMs) {
-          const message = 'QuantPilot 已检测到量化看板关键产物完成并稳定，自动结束 Agent 执行并进入验证。';
-          await appendQuantExecutionEvent(absoluteProjectPath, {
-            event_type: 'agent_auto_completed',
-            stage: 'execution',
-            status: 'success',
-            run_id: requestId,
-            summary: `${snapshot.summary}。${message}`,
-          });
-          await completeClaudeExecutionFromArtifacts(message);
-        }
-      })().catch((error) => {
-        console.warn('[ClaudeService] Quant artifact completion check failed:', error);
-      });
-    }, quantArtifactCheckIntervalMs);
-    artifactCompletionTimer.unref?.();
   };
 
   // Send start notification via SSE
@@ -1361,7 +1280,6 @@ export async function executeClaude(
       totalTimer.unref?.();
     }
     refreshIdleTimer();
-    startQuantArtifactCompletionWatch(absoluteProjectPath);
 
     const taskPrompt = await buildQuantPilotTaskPrompt(
       instruction,
@@ -1369,7 +1287,6 @@ export async function executeClaude(
       quantManifest
     );
     const promptInput = await buildClaudePromptInput(taskPrompt, resolvedModel, images);
-    const mcpServers = buildQuantPilotMcpServers(absoluteProjectPath);
 
     response = query({
       prompt: promptInput,
@@ -1383,7 +1300,6 @@ export async function executeClaude(
         canUseTool: guardClaudeToolUse,
         settingSources: ['project'],
         skills: availableSkills,
-        mcpServers: mcpServers as any,
         systemPrompt: buildQuantPilotSystemPrompt(),
         maxOutputTokens,
         maxTurns,

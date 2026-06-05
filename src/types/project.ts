@@ -40,7 +40,7 @@ export interface Project {
   selectedModel?: string | null;
   fallbackEnabled?: boolean;
   travelCapabilityId?: TravelCapabilityId | null;
-  /** @deprecated Legacy QuantPilot compatibility only; new code must use travelCapabilityId. */
+  /** @deprecated Legacy compatibility only; new code must use travelCapabilityId. */
   quantCapabilityId?: TravelCapabilityId | null;
 }
 
@@ -49,6 +49,6 @@ export interface ProjectSettings {
   fallbackEnabled: boolean;
   selectedModel?: string | null;
   travelCapabilityId?: TravelCapabilityId | null;
-  /** @deprecated Legacy QuantPilot compatibility only; new code must use travelCapabilityId. */
+  /** @deprecated Legacy compatibility only; new code must use travelCapabilityId. */
   quantCapabilityId?: TravelCapabilityId | null;
 }

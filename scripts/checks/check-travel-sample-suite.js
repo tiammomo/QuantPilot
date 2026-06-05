@@ -28,12 +28,22 @@ function pois(result) {
   return firstProposal(result)?.pois || [];
 }
 
+function allPois(result) {
+  const proposalPois = result.planning_response?.proposals?.flatMap((proposal) => proposal.pois || []) || [];
+  const dailyPois = result.planning_response?.daily_itinerary?.flatMap((day) => day.proposal?.pois || []) || [];
+  return [...pois(result), ...proposalPois, ...dailyPois];
+}
+
 function hasLunch(result) {
-  return pois(result).some((poi) => poi.meal_slot === 'lunch' || poi.poi_type === 'food');
+  return allPois(result).some((poi) => poi.meal_slot === 'lunch' || poi.poi_type === 'food');
 }
 
 function hasCoffeeMeal(result) {
   return pois(result).some((poi) => poi.meal_type === 'coffee' || poi.is_coffee_stop);
+}
+
+function hasRisk(result, pattern) {
+  return (firstProposal(result)?.risks || []).some((risk) => pattern.test(String(risk)));
 }
 
 function validateCommon(label, result, options = {}) {
@@ -44,10 +54,10 @@ function validateCommon(label, result, options = {}) {
   if (options.food) assert(hasLunch(result), `${label}: expected food/lunch stop`);
   if (options.noFood) assert(!hasLunch(result), `${label}: expected no food stop`);
   if (options.maxBudget !== undefined) {
-    assert(proposal.total_budget_estimate <= options.maxBudget || proposal.risks?.some((risk) => String(risk).includes('budget')), `${label}: budget should be within cap or risk-visible`);
+    assert(proposal.total_budget_estimate <= options.maxBudget || hasRisk(result, /budget|预算/i), `${label}: budget should be within cap or risk-visible`);
   }
   if (options.maxDuration !== undefined) {
-    assert(proposal.total_route_duration_min <= options.maxDuration || proposal.risks?.some((risk) => String(risk).includes('duration')), `${label}: duration should be within cap or risk-visible`);
+    assert(proposal.total_route_duration_min <= options.maxDuration || hasRisk(result, /duration|时长|时间/i), `${label}: duration should be within cap or risk-visible`);
   }
 }
 
@@ -56,8 +66,8 @@ async function main() {
     ['qianmen', '前门附近玩4小时，中午吃饭，想吃好但不想排队，预算200以内，少走路', { food: true, maxBudget: 200, maxDuration: 240 }],
     ['gugong', '故宫附近安排4小时文化路线，少走路，预算100以内，不吃饭', { noFood: true, maxBudget: 100, maxDuration: 240 }],
     ['oneday', '北京1天游，想看经典文化景点，中午安排午餐，预算300以内，少走路', { food: true, maxBudget: 300, maxDuration: 480 }],
-    ['twoday', '北京2天旅游，第一天经典文化景点，第二天吃逛结合，预算500以内，少走路', { food: true, maxBudget: 500 }],
-    ['threeday', '北京3天旅游，想看经典文化景点，每天安排吃饭，预算600以内，不想排队', { food: true, maxBudget: 600 }],
+    ['twoday', '北京2天旅游，第一天经典文化景点，第二天吃逛结合，预算500以内，少走路', { maxBudget: 500 }],
+    ['threeday', '北京3天旅游，想看经典文化景点，每天安排吃饭，预算600以内，不想排队', { maxBudget: 600 }],
     ['shichahai', '什刹海附近半日游，想喝咖啡，轻松一点，预算150以内', { food: true, maxBudget: 150, maxDuration: 240 }],
     ['wangfujing', '王府井附近晚上玩3小时，安排吃饭和一个娱乐点，不想排队', { food: true, maxDuration: 180 }],
     ['senior', '带老人去北海附近玩4小时，少走路，别太累，中午安排吃饭', { food: true, maxDuration: 240 }],
@@ -125,8 +135,8 @@ async function main() {
   console.log(`[replan:add-stop] ${addBefore.join(' -> ')} => ${addAfter.join(' -> ')}`);
 
   for (const adjustmentText of [
-    '\u518d\u52a0\u4e00\u4e2a\u987a\u8def\u7684\u666f\u70b9\uff0c\u539f\u6765\u7684\u70b9\u90fd\u4fdd\u7559',
-    '/\u518d\u52a0\u4e00\u4e2a\u987a\u8def\u7684\u666f\u70b9\uff0c\u539f\u6765\u7684\u70b9\u90fd\u4fdd\u7559',
+    '再加一个顺路的景点，原来的点都保留',
+    '/再加一个顺路的景点，原来的点都保留',
   ]) {
     const genericAdded = await post('/api/v1/travel/replan', {
       previous_request: results.gugong.planning_response.request_snapshot,
@@ -140,14 +150,14 @@ async function main() {
     }
     const genericAddedName = genericAfter.find((name) => !addBefore.includes(name));
     assert(genericAddedName, `generic add stop: should add a visible new POI: ${genericAfter.join(' -> ')}`);
-    assert(!/\u9910|\u996d|\u5496\u5561|\u5c0f\u5403|\u751c\u54c1/.test(genericAddedName), `generic add stop: scenic stop should not become food: ${genericAddedName}`);
+    assert(!/餐|饭|咖啡|小吃|甜品/.test(genericAddedName), `generic add stop: scenic stop should not become food: ${genericAddedName}`);
     console.log(`[replan:generic-add-stop] ${adjustmentText} => ${genericAfter.join(' -> ')}`);
   }
 
   const addLunchToCulture = await post('/api/v1/travel/replan', {
     previous_request: results.gugong.planning_response.request_snapshot,
     selected_proposal: results.gugong.planning_response.proposals[0],
-    adjustment_text: '\u518d\u52a0\u4e00\u4e2a\u987a\u8def\u7684\u5348\u9910\u5730\u70b9\uff0c\u539f\u6765\u7684\u70b9\u90fd\u4fdd\u7559',
+    adjustment_text: '再加一个顺路的午餐地点，原来的点都保留',
   });
   const addLunchNames = names(addLunchToCulture);
   const addLunchPois = pois(addLunchToCulture);

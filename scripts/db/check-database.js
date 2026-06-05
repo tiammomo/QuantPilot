@@ -18,20 +18,22 @@ async function main() {
 
   const [{ current_database: database, current_user: user }] =
     await prisma.$queryRaw`SELECT current_database(), current_user`;
-  const extensionRows =
-    await prisma.$queryRaw`SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'`;
-  const tables =
-    await prisma.$queryRaw`SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema = 'quant' ORDER BY table_name`;
+  const travelTables =
+    await prisma.$queryRaw`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN (
+          'travel_commute_edges',
+          'travel_wiki_documents',
+          'travel_wiki_chunks'
+        )
+      ORDER BY table_name
+    `;
 
   console.log(`Connected database: ${database}`);
   console.log(`Connected user: ${user}`);
-
-  if (!Array.isArray(extensionRows) || extensionRows.length === 0) {
-    throw new Error('TimescaleDB extension is not installed in this database.');
-  }
-
-  console.log(`TimescaleDB extension: ${extensionRows[0].extversion}`);
-  console.log(`Quant schema tables: ${tables.map((row) => `${row.table_schema}.${row.table_name}`).join(', ') || '-'}`);
+  console.log(`Travel tables: ${travelTables.map((row) => row.table_name).join(', ') || '-'}`);
 
   await prisma.project.findFirst({ select: { id: true } });
   console.log('Prisma application tables: reachable');

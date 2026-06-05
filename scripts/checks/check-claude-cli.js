@@ -108,7 +108,7 @@ console.log(`   ✅ Codex Base URL：${codexBaseUrl}`);
 console.log(`   ✅ Codex reasoning effort：${codexReasoningEffort}`);
 console.log(hasCodexApiKey() ? '   ✅ Codex API Key=已设置' : '   ⚠️  Codex API Key 未设置');
 
-console.log('\n✨ QuantPilot 已准备好使用 Claude Code 运行时。\n');
+console.log('\n✨ 北京旅游 Agent 已准备好使用 Claude Code 运行时。\n');
 console.log('   下一步：');
 console.log('   1. 确认 .env/.env.local 或 ~/.claude/settings.json 中已配置 MiniMax Token');
 console.log('   2. 如需使用 Codex，确认 .env.local 或 ~/.codex/auth.json 中已配置 OpenAI-compatible API Key');

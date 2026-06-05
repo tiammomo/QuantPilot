@@ -10,20 +10,12 @@ export default function Header() {
   // 从路径中提取项目 ID
   const projectId = pathname.match(/^\/([^\/]+)\/(chat|page)?$/)?.[1];
 
-  // 聊天页、首页和控制台页面有自己的布局，这里隐藏通用头部
+  // 聊天页、首页和数据平台有自己的布局，这里隐藏通用头部
   const isChatPage = pathname.includes('/chat');
   const isMainPage = pathname === '/';
-  const isSkillsPage = pathname === '/skills';
   const isCapabilitiesPage = pathname === '/data-platform' || pathname === '/capabilities';
-  const isStrategiesPage = pathname === '/strategy-platform' || pathname === '/strategies';
-  const isEvalsPage =
-    pathname === '/eval-platform' ||
-    pathname.startsWith('/eval-platform/') ||
-    pathname === '/evals' ||
-    pathname.startsWith('/evals/');
-  const isWorkspacesPage = pathname === '/ops-platform' || pathname === '/workspaces';
 
-  if (isChatPage || isMainPage || isSkillsPage || isCapabilitiesPage || isStrategiesPage || isEvalsPage || isWorkspacesPage) {
+  if (isChatPage || isMainPage || isCapabilitiesPage) {
     return null;
   }
 

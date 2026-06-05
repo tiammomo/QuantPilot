@@ -1,5 +1,16 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { prisma } from '@/lib/db/client';
+import { buildTravelQueryPlan, executeTravelQueryPlan } from '@/lib/travel/sql-query';
+import {
+  intentToPlannerLikeRequest,
+  parseTravelQueryIntentMiniMaxPreferred,
+  type TravelQueryIntent,
+} from '@/lib/travel/semantic-intent';
+import { rerankTravelProposals } from '@/lib/travel/llm-rerank';
+import { retrieveTravelWiki } from '@/lib/travel/wiki-retrieval';
+import { applyTravelPlanningAdvice, getTravelPlanningAdvice, type TravelPlanningAdvice } from '@/lib/travel/llm-planning-advice';
+import { generateTravelRouteDraft, type TravelRouteDraft, type TravelRouteDraftValidation } from '@/lib/travel/llm-route-draft';
 
 type JsonRecord = Record<string, any>;
 type RouteMode = 'culture' | 'mixed';
@@ -7,6 +18,36 @@ type WalkPreference = 'low' | 'medium' | 'high';
 type Pace = 'relaxed' | 'balanced' | 'compact';
 type Strategy = 'balanced' | 'budget' | 'efficient';
 type MealType = 'meal' | 'snack' | 'coffee' | 'dessert' | 'hotel_dining' | 'invalid' | 'non_food';
+type TransferSource = 'commute_edge' | 'coordinate_estimate';
+
+interface CommuteEdge {
+  origin_poi_id: string;
+  destination_poi_id: string;
+  mode: string;
+  provider: string;
+  distance_m: number | null;
+  duration_s: number;
+  walking_distance_m: number | null;
+  transfer_count: number | null;
+}
+
+interface CommuteEdgeIndex {
+  edgesByPair: Map<string, CommuteEdge[]>;
+  loaded: boolean;
+  edge_count: number;
+  loaded_at: string | null;
+  error: string | null;
+}
+
+interface TransferEstimate {
+  minutes: number;
+  meters: number;
+  source: TransferSource;
+  mode: string | null;
+  provider: string | null;
+  duration_s: number | null;
+  transfer_count: number | null;
+}
 
 export interface TravelPlanningRequest {
   goal?: string;
@@ -98,6 +139,9 @@ const DATA_ROOT = process.env.TRAVELPILOT_DATA_ROOT || DEFAULT_DATA_ROOT;
 let dataCache: Promise<TravelData> | null = null;
 let dataLoadedAt: string | null = null;
 let dataLoadElapsedMs: number | null = null;
+let commuteEdgeCache: Promise<CommuteEdgeIndex> | null = null;
+let commuteEdgeLoadedAt: string | null = null;
+let commuteEdgeLoadElapsedMs: number | null = null;
 
 async function readJsonArray<T>(fileName: string): Promise<T[]> {
   const content = await fs.readFile(path.join(DATA_ROOT, fileName), 'utf8');
@@ -217,6 +261,77 @@ async function loadTravelData(): Promise<TravelData> {
     });
   }
   return dataCache;
+}
+
+function commutePairKey(originPoiId: string, destinationPoiId: string): string {
+  return `${originPoiId}->${destinationPoiId}`;
+}
+
+function commuteModeRank(mode: string): number {
+  if (mode === 'walking') return 0;
+  if (mode === 'driving') return 1;
+  if (mode === 'transit') return 2;
+  return 9;
+}
+
+async function loadCommuteEdges(): Promise<CommuteEdgeIndex> {
+  if (process.env.TRAVELPILOT_COMMUTE_ENABLED === '0' || process.env.SKIP_DB_SYNC === '1') {
+    return { edgesByPair: new Map(), loaded: false, edge_count: 0, loaded_at: null, error: null };
+  }
+  if (!commuteEdgeCache) {
+    const started = performance.now();
+    commuteEdgeCache = prisma.$queryRaw<CommuteEdge[]>`
+      SELECT
+        origin_poi_id,
+        destination_poi_id,
+        mode,
+        provider,
+        distance_m,
+        duration_s,
+        walking_distance_m,
+        transfer_count
+      FROM travel_commute_edges
+      WHERE status = 'ok'
+        AND duration_s IS NOT NULL
+        AND duration_s > 0
+      ORDER BY origin_poi_id, destination_poi_id, mode
+    `.then((rows) => {
+      const edgesByPair = new Map<string, CommuteEdge[]>();
+      for (const row of rows) {
+        const edge: CommuteEdge = {
+          origin_poi_id: String(row.origin_poi_id),
+          destination_poi_id: String(row.destination_poi_id),
+          mode: String(row.mode || 'unknown'),
+          provider: String(row.provider || 'unknown'),
+          distance_m: row.distance_m === null || row.distance_m === undefined ? null : Number(row.distance_m),
+          duration_s: Number(row.duration_s),
+          walking_distance_m: row.walking_distance_m === null || row.walking_distance_m === undefined ? null : Number(row.walking_distance_m),
+          transfer_count: row.transfer_count === null || row.transfer_count === undefined ? null : Number(row.transfer_count),
+        };
+        const key = commutePairKey(edge.origin_poi_id, edge.destination_poi_id);
+        const group = edgesByPair.get(key) || [];
+        group.push(edge);
+        edgesByPair.set(key, group);
+      }
+      for (const group of edgesByPair.values()) {
+        group.sort((a, b) => commuteModeRank(a.mode) - commuteModeRank(b.mode) || a.duration_s - b.duration_s);
+      }
+      commuteEdgeLoadedAt = new Date().toISOString();
+      commuteEdgeLoadElapsedMs = Number((performance.now() - started).toFixed(2));
+      return { edgesByPair, loaded: true, edge_count: rows.length, loaded_at: commuteEdgeLoadedAt, error: null };
+    }).catch((error) => {
+      commuteEdgeLoadedAt = null;
+      commuteEdgeLoadElapsedMs = Number((performance.now() - started).toFixed(2));
+      return {
+        edgesByPair: new Map(),
+        loaded: false,
+        edge_count: 0,
+        loaded_at: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    });
+  }
+  return commuteEdgeCache;
 }
 
 export async function warmTravelData() {
@@ -571,6 +686,55 @@ function transferMinutes(distanceMeters: number): number {
   return Math.max(4, Math.round(distanceMeters / 70));
 }
 
+function estimateCoordinateFallback(distanceMeters: number) {
+  if (distanceMeters <= 800) {
+    return {
+      minutes: transferMinutes(distanceMeters),
+      mode: 'walking_estimate',
+    };
+  }
+  if (distanceMeters <= 3000) {
+    // Shared-bike style local fallback: includes unlock/parking buffer.
+    return {
+      minutes: Math.max(6, Math.round(distanceMeters / 180) + 4),
+      mode: 'bike_estimate',
+    };
+  }
+  return {
+    minutes: Math.max(10, Math.round(distanceMeters / 260) + 8),
+    mode: 'driving_estimate',
+  };
+}
+
+function estimateTransfer(a: Poi, b: Poi, commuteEdges?: CommuteEdgeIndex): TransferEstimate {
+  const edge =
+    commuteEdges?.edgesByPair.get(commutePairKey(a.poi_id, b.poi_id))?.[0]
+    ?? commuteEdges?.edgesByPair.get(commutePairKey(b.poi_id, a.poi_id))?.[0];
+  if (edge && Number.isFinite(edge.duration_s) && edge.duration_s > 0) {
+    const metersValue = edge.walking_distance_m ?? edge.distance_m ?? meters(a, b);
+    return {
+      minutes: Math.max(1, Math.round(edge.duration_s / 60)),
+      meters: Math.round(Number(metersValue || 0)),
+      source: 'commute_edge',
+      mode: edge.mode,
+      provider: edge.provider,
+      duration_s: edge.duration_s,
+      transfer_count: edge.transfer_count,
+    };
+  }
+  const distance = meters(a, b);
+  const fallback = estimateCoordinateFallback(distance);
+  return {
+    minutes: fallback.minutes,
+    meters: Math.round(distance),
+    source: 'coordinate_estimate',
+    mode: fallback.mode,
+    provider: null,
+    duration_s: null,
+    transfer_count: null,
+  };
+}
+
 function parseMinutes(value?: string): number | null {
   if (!value) return null;
   const match = String(value).match(/(\d{1,2}):?(\d{2})?/);
@@ -715,18 +879,19 @@ function selectPopularAreas(candidates: Poi[], limit: number): string[] {
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([area]) => area).slice(0, Math.max(1, limit));
 }
 
-function orderNearest(items: Poi[]): Poi[] {
+function orderNearest(items: Poi[], commuteEdges?: CommuteEdgeIndex): Poi[] {
   if (items.length <= 2) return items;
   const remaining = [...items];
   const ordered = [remaining.shift()!];
   while (remaining.length) {
     const last = ordered[ordered.length - 1];
     let bestIndex = 0;
-    let bestDistance = Infinity;
+    let bestScore = Infinity;
     remaining.forEach((item, index) => {
-      const distance = meters(last, item);
-      if (distance < bestDistance) {
-        bestDistance = distance;
+      const estimate = estimateTransfer(last, item, commuteEdges);
+      const score = estimate.source === 'commute_edge' ? estimate.meters * 0.6 : estimate.meters;
+      if (score < bestScore) {
+        bestScore = score;
         bestIndex = index;
       }
     });
@@ -789,6 +954,82 @@ function translateRisk(risk: unknown): string {
   return text;
 }
 
+function summarizeProposalTransfers(proposals: Array<{ transfer_source_summary?: { commute_edges_used?: number; coordinate_estimates_used?: number } }>) {
+  const commuteEdgesUsed = proposals.reduce((sum, proposal) => sum + Number(proposal.transfer_source_summary?.commute_edges_used || 0), 0);
+  const coordinateEstimatesUsed = proposals.reduce((sum, proposal) => sum + Number(proposal.transfer_source_summary?.coordinate_estimates_used || 0), 0);
+  const totalTransfers = commuteEdgesUsed + coordinateEstimatesUsed;
+  return {
+    commute_edges_used: commuteEdgesUsed,
+    coordinate_estimates_used: coordinateEstimatesUsed,
+    commute_edge_hit_rate: totalTransfers > 0 ? Number((commuteEdgesUsed / totalTransfers).toFixed(3)) : 0,
+  };
+}
+
+function countGroundedStops(stops: Array<Record<string, any>>): number {
+  return stops.filter((stop) => {
+    const evidence = stop.evidence_summary || {};
+    return Number(evidence.evidence_review_count || 0) > 0
+      || (Array.isArray(evidence.top_evidence) && evidence.top_evidence.length > 0)
+      || Boolean(evidence.signals && Object.keys(evidence.signals).length > 0);
+  }).length;
+}
+
+function buildQualitySummary(params: {
+  request: TravelPlanningRequest;
+  stops: Array<Record<string, any>>;
+  totalBudget: number;
+  totalDuration: number;
+  transferSummary: { commute_edges_used: number; coordinate_estimates_used: number; commute_edge_hit_rate: number };
+  categorySatisfied: boolean;
+}) {
+  const { request, stops, totalBudget, totalDuration, transferSummary, categorySatisfied } = params;
+  const budgetSatisfied = request.max_budget === null || request.max_budget === undefined || totalBudget <= Number(request.max_budget);
+  const durationSatisfied = request.max_duration_min === null || request.max_duration_min === undefined || totalDuration <= Number(request.max_duration_min);
+  const timelineReady = stops.every((stop) => /^\d{2}:\d{2}$/.test(String(stop.arrival_time || '')) && /^\d{2}:\d{2}$/.test(String(stop.departure_time || '')));
+  const transferReady = stops.every((stop, index) => index === 0 || ['commute_edge', 'coordinate_estimate'].includes(String(stop.transfer_source)));
+  const groundedStops = countGroundedStops(stops);
+  const activeSignals = Object.entries(request.preference_signals || {})
+    .filter(([, enabled]) => Boolean(enabled))
+    .map(([key]) => key);
+  const readinessChecks = [
+    stops.length >= 3,
+    timelineReady,
+    transferReady,
+    budgetSatisfied,
+    durationSatisfied,
+    categorySatisfied,
+    groundedStops >= Math.min(2, stops.length),
+    stops.every((stop) => String(stop.recommendation_reason || '').length > 0),
+  ];
+  const passedChecks = readinessChecks.filter(Boolean).length;
+  return {
+    route_generation_ready: stops.length >= 3 && timelineReady && transferReady,
+    executable_route: timelineReady && transferReady,
+    competition_readiness_score: Number((passedChecks / readinessChecks.length).toFixed(3)),
+    constraints: {
+      budget_satisfied: budgetSatisfied,
+      duration_satisfied: durationSatisfied,
+      category_coverage_satisfied: categorySatisfied,
+    },
+    personalization: {
+      persona_id: request.persona_id || 'classic_first_timer',
+      walk_preference: request.walk_preference || 'medium',
+      active_preference_signals: activeSignals,
+      applied: Boolean(request.persona_id && request.persona_id !== 'classic_first_timer') || activeSignals.length > 0,
+    },
+    data_grounding: {
+      stops_with_recommendation_reason: stops.filter((stop) => String(stop.recommendation_reason || '').length > 0).length,
+      stops_with_evidence_summary: stops.filter((stop) => Boolean(stop.evidence_summary)).length,
+      stops_with_ugc_or_feature_evidence: groundedStops,
+      evidence_coverage_rate: stops.length ? Number((groundedStops / stops.length).toFixed(3)) : 0,
+    },
+    commute: {
+      uses_commute_edges: transferSummary.commute_edges_used > 0,
+      ...transferSummary,
+    },
+  };
+}
+
 function candidatePool(data: TravelData, request: TravelPlanningRequest): Poi[] {
   const source = request.route_mode === 'culture' ? data.culturePois : data.plannerEntities.length ? data.plannerEntities : data.mixedPois;
   return source.filter((item) => Number.isFinite(item.lng) && Number.isFinite(item.lat));
@@ -800,8 +1041,9 @@ function buildProposal(params: {
   selectedArea: string;
   candidates: Poi[];
   data: TravelData;
+  commuteEdges?: CommuteEdgeIndex;
 }) {
-  const { request, strategy, selectedArea, candidates, data } = params;
+  const { request, strategy, selectedArea, candidates, data, commuteEdges } = params;
   const targetCount = Math.max(3, request.max_total_pois || 4);
   const sameArea = candidates.filter((item) => item.area === selectedArea || item.district === selectedArea);
   const sameAreaDiversified = uniqueByAttractionGroup(uniqueByName(sameArea));
@@ -890,7 +1132,7 @@ function buildProposal(params: {
   const selectedUnique = uniqueByName(selected);
   const mustSelected = selectedUnique.filter((item) => mustIds.has(item.poi_id) || mustNames.has(item.name));
   const optionalSelected = selectedUnique.filter((item) => !mustIds.has(item.poi_id) && !mustNames.has(item.name));
-  let ordered = orderNearest([...mustSelected, ...optionalSelected].slice(0, targetCount));
+  let ordered = orderNearest([...mustSelected, ...optionalSelected].slice(0, targetCount), commuteEdges);
   if (request.route_order_poi_ids?.length) {
     const byId = new Map(ordered.map((item) => [item.poi_id, item]));
     const remaining = ordered.filter((item) => !request.route_order_poi_ids?.includes(item.poi_id));
@@ -924,14 +1166,29 @@ function buildProposal(params: {
   let cursor = start;
   let totalTransfer = 0;
   let totalDistance = 0;
+  let commuteEdgesUsed = 0;
+  let coordinateEstimatesUsed = 0;
   let unknownHours = 0;
   let hasOpeningConflict = false;
   const stops = ordered.map((item, index) => {
     let transfer = 0;
     let distance = 0;
+    let transferSource: TransferSource = 'coordinate_estimate';
+    let transferMode: string | null = null;
+    let transferProvider: string | null = null;
+    let transferDurationSeconds: number | null = null;
+    let transferCount: number | null = null;
     if (index > 0) {
-      distance = meters(ordered[index - 1], item);
-      transfer = transferMinutes(distance);
+      const estimate = estimateTransfer(ordered[index - 1], item, commuteEdges);
+      distance = estimate.meters;
+      transfer = estimate.minutes;
+      transferSource = estimate.source;
+      transferMode = estimate.mode;
+      transferProvider = estimate.provider;
+      transferDurationSeconds = estimate.duration_s;
+      transferCount = estimate.transfer_count;
+      if (estimate.source === 'commute_edge') commuteEdgesUsed += 1;
+      else coordinateEstimatesUsed += 1;
       totalTransfer += transfer;
       totalDistance += distance;
       cursor += transfer;
@@ -975,6 +1232,11 @@ function buildProposal(params: {
       stay_minutes: stay,
       transfer_from_previous_minutes: transfer,
       transfer_from_previous_meters: Math.round(distance),
+      transfer_source: index > 0 ? transferSource : null,
+      transfer_mode: transferMode,
+      transfer_provider: transferProvider,
+      transfer_duration_s: transferDurationSeconds,
+      transfer_count: transferCount,
       estimated_cost: Number(item.avg_cost || 0),
       meal_slot: isSnackStop ? 'snack' : request.preference_signals?.lunch && isFoodStop ? 'lunch' : null,
       rating: Number(item.rating || 0),
@@ -990,12 +1252,20 @@ function buildProposal(params: {
   const totalDuration = cursor - start;
   const foodCount = stops.filter((item) => item.poi_type === 'food').length;
   const cultureCount = stops.length - foodCount;
+  const categorySatisfied = request.route_mode === 'mixed' ? foodCount >= 1 && cultureCount >= 2 : cultureCount >= 3;
+  const transferSummary = {
+    commute_edges_used: commuteEdgesUsed,
+    coordinate_estimates_used: coordinateEstimatesUsed,
+    commute_edge_hit_rate: ordered.length > 1 ? Number((commuteEdgesUsed / (ordered.length - 1)).toFixed(3)) : 0,
+  };
   const risks = [
     request.max_budget !== null && request.max_budget !== undefined && totalBudget > Number(request.max_budget) ? `Estimated budget ${totalBudget} exceeds requested ${request.max_budget}.` : null,
     request.max_duration_min !== null && request.max_duration_min !== undefined && totalDuration > Number(request.max_duration_min) ? `Estimated route duration is ${totalDuration} minutes, above requested ${request.max_duration_min}.` : null,
     hasOpeningConflict ? 'One or more stops may conflict with local opening-hours data.' : null,
     unknownHours ? `${unknownHours} stop(s) do not have complete opening-hours coverage in the local dataset.` : null,
-    'Walking distance and transfer time are local estimates, not real-time navigation.',
+    commuteEdgesUsed > 0
+      ? 'Walking distance and transfer time use local commute-edge data when available, not real-time navigation.'
+      : 'Walking distance and transfer time are local coordinate estimates, not real-time navigation.',
   ].filter(Boolean).map(translateRisk);
   const title = strategy === 'balanced' ? '均衡体验方案' : strategy === 'budget' ? '预算优先方案' : '效率优先方案';
   return {
@@ -1010,6 +1280,7 @@ function buildProposal(params: {
     total_budget_estimate: totalBudget,
     total_transfer_minutes: totalTransfer,
     total_walking_distance_m: Math.round(totalDistance),
+    transfer_source_summary: transferSummary,
     total_visit_duration_min: totalVisit,
     total_route_duration_min: totalDuration,
     travel_time_confidence: 'estimated',
@@ -1021,8 +1292,9 @@ function buildProposal(params: {
       culture_or_entertainment_count: cultureCount,
       required_food_count: request.route_mode === 'mixed' ? 1 : 0,
       required_culture_or_entertainment_count: request.route_mode === 'mixed' ? 2 : 3,
-      satisfies_coverage: request.route_mode === 'mixed' ? foodCount >= 1 && cultureCount >= 2 : cultureCount >= 3,
+      satisfies_coverage: categorySatisfied,
     },
+    quality_summary: buildQualitySummary({ request, stops, totalBudget, totalDuration, transferSummary, categorySatisfied }),
     opening_hours_check: { has_conflict: hasOpeningConflict, unknown_hours_count: unknownHours },
     risks,
   };
@@ -1030,6 +1302,7 @@ function buildProposal(params: {
 
 export async function travelHealth() {
   const data = await loadTravelData();
+  const commuteEdges = await loadCommuteEdges();
   const databaseSkipped = process.env.SKIP_DB_SYNC === '1';
   return {
     status: 'ok',
@@ -1051,6 +1324,16 @@ export async function travelHealth() {
     cache: {
       poi_index_ready: data.poiById.size > 0,
       review_index_ready: data.reviewAggregatesByPoiId.size > 0,
+      commute_edge_index_ready: commuteEdges.loaded && commuteEdges.edge_count > 0,
+    },
+    commute: {
+      enabled: process.env.TRAVELPILOT_COMMUTE_ENABLED !== '0',
+      loaded: commuteEdges.loaded,
+      edge_count: commuteEdges.edge_count,
+      loaded_at: commuteEdges.loaded_at,
+      load_elapsed_ms: commuteEdgeLoadElapsedMs,
+      error: commuteEdges.error,
+      source_table: 'travel_commute_edges',
     },
     counts: {
       culture_pois: data.culturePois.length,
@@ -1061,8 +1344,8 @@ export async function travelHealth() {
     },
     limitations: [
       'No realtime map, realtime queue, or external review API is used.',
-      'Distance and transfer time are local coordinate estimates.',
-      'Postgres is not required for POI/UGC route planning.',
+      'Transfer time prefers local travel_commute_edges when available, then falls back to coordinate estimates.',
+      'Postgres is required only for commute-edge and query-plan knowledge-base enhancements; JSON planner fallback remains available.',
     ],
   };
 }
@@ -1152,13 +1435,108 @@ export async function parseGoalToTravelRequest(goal: string, defaults?: Partial<
   };
 }
 
+async function executeDatabaseRecall(intent: TravelQueryIntent | null) {
+  if (!intent || intent.missing_fields.length > 0) {
+    return {
+      query_plan: intent ? buildTravelQueryPlan(intent) : null,
+      results: [],
+      used: false,
+    };
+  }
+  const queryPlan = buildTravelQueryPlan(intent);
+  const results = await executeTravelQueryPlan(queryPlan);
+  return {
+    query_plan: queryPlan,
+    results,
+    used: true,
+  };
+}
+
+function reorderProposalsByIds(proposals: Array<Record<string, any>>, rankedIds: string[]) {
+  const byId = new Map(proposals.map((proposal) => [String(proposal.proposal_id), proposal]));
+  const ordered = rankedIds.map((id) => byId.get(String(id))).filter(Boolean) as Array<Record<string, any>>;
+  const leftovers = proposals.filter((proposal) => !rankedIds.includes(String(proposal.proposal_id)));
+  return [...ordered, ...leftovers];
+}
+
+async function enrichPlanningResponseWithLlm(params: {
+  rawText: string | null;
+  planningResponse: Record<string, any>;
+  plannerRequest: TravelPlanningRequest;
+  intent?: TravelQueryIntent | null;
+  planningAdvice?: TravelPlanningAdvice | null;
+  routeDraft?: TravelRouteDraft | null;
+  routeDraftValidation?: TravelRouteDraftValidation | null;
+  parsedMeta?: { parser_confidence?: number; parser_notes?: string[]; parser_correction_hints?: string[] } | null;
+}) {
+  const intent =
+    params.intent
+    ?? (params.rawText
+      ? await parseTravelQueryIntentMiniMaxPreferred(params.rawText).catch(() => null)
+      : null);
+
+  const wikiRetrieval = params.rawText
+    ? await retrieveTravelWiki({ rawText: params.rawText, intent, limit: 8 }).catch(() => null)
+    : null;
+  const databaseRecall = await executeDatabaseRecall(intent);
+  const proposals = Array.isArray(params.planningResponse.proposals) ? params.planningResponse.proposals : [];
+  const llmRerank = intent ? await rerankTravelProposals({ intent, proposals, wikiRetrieval }) : null;
+  const reorderedProposals = llmRerank ? reorderProposalsByIds(proposals, llmRerank.ranked_proposal_ids) : proposals;
+  const finalSelectedProposalId = llmRerank?.primary_proposal_id || reorderedProposals[0]?.proposal_id || null;
+
+  return {
+    parsed_request: params.plannerRequest,
+    parser_confidence: params.parsedMeta?.parser_confidence ?? intent?.confidence ?? 0.86,
+    parser_notes: params.parsedMeta?.parser_notes ?? intent?.notes ?? ['MiniMax-first intent parsing completed.'],
+    parser_correction_hints: params.parsedMeta?.parser_correction_hints ?? (intent?.missing_fields.length ? [`Please clarify ${intent.missing_fields.join(', ')}.`] : []),
+    intent,
+    planning_response: {
+      ...params.planningResponse,
+      proposals: reorderedProposals,
+      query_plan: databaseRecall.query_plan,
+      query_results: databaseRecall.results,
+      wiki_retrieval: wikiRetrieval,
+      planning_advice: params.planningAdvice || null,
+      route_draft: params.routeDraft || null,
+      validator_result: params.routeDraftValidation || null,
+      repair_actions: params.routeDraftValidation?.repair_actions || [],
+      llm_rerank: llmRerank,
+      final_selected_proposal_id: finalSelectedProposalId,
+      natural_language_explanation: llmRerank?.final_user_explanation || reorderedProposals[0]?.summary || '',
+      generation_metrics: {
+        ...(params.planningResponse.generation_metrics || {}),
+        wiki_retrieval_used: Boolean(wikiRetrieval),
+        wiki_retrieval_elapsed_ms: wikiRetrieval?.elapsed_ms || 0,
+        database_recall_used: databaseRecall.used,
+        llm_rerank_used: Boolean(llmRerank?.llm_used),
+        llm_rerank_elapsed_ms: llmRerank?.elapsed_ms || 0,
+        llm_rerank_fallback_reason: llmRerank?.fallback_reason || null,
+        planning_advice_used: Boolean(params.planningAdvice),
+        planning_advice_source: params.planningAdvice?.source || null,
+        planning_advice_llm_used: Boolean(params.planningAdvice?.llm_used),
+        planning_advice_elapsed_ms: params.planningAdvice?.elapsed_ms || 0,
+        planning_advice_fallback_reason: params.planningAdvice?.fallback_reason || null,
+        route_draft_used: Boolean(params.routeDraft),
+        draft_source: params.routeDraft?.draft_source || null,
+        draft_llm_used: Boolean(params.routeDraft?.llm_used),
+        draft_llm_attempted: Boolean(params.routeDraft?.llm_attempted),
+        draft_llm_error: params.routeDraft?.llm_error || null,
+        draft_elapsed_ms: params.routeDraft?.elapsed_ms || 0,
+        draft_fallback_reason: params.routeDraft?.fallback_reason || null,
+        validator_status: params.routeDraftValidation?.status || null,
+      },
+    },
+  };
+}
+
 export async function planTravelRoute(payload: Partial<TravelPlanningRequest>) {
   const started = performance.now();
   const data = await loadTravelData();
+  const commuteEdges = await loadCommuteEdges();
   const request = normalizeRequest(payload);
   const pool = candidatePool(data, request);
   const selectedArea = selectArea(request, pool);
-  const proposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data }));
+  const proposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
   const dayCount = Math.max(1, Math.min(5, Number(request.day_count || 1)));
   const dayAreas = request.area ? [selectedArea] : selectPopularAreas(pool, dayCount);
   const dailyItinerary = Array.from({ length: dayCount }, (_, index) => {
@@ -1169,10 +1547,11 @@ export async function planTravelRoute(payload: Partial<TravelPlanningRequest>) {
       max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
       exclude_poi_ids: [...(request.exclude_poi_ids || []), ...proposals[0].ordered_poi_ids.slice(0, index * 2)],
     });
-    const dayProposal = buildProposal({ request: dayRequest, strategy: index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget', selectedArea: dayArea, candidates: pool, data });
+    const dayProposal = buildProposal({ request: dayRequest, strategy: index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget', selectedArea: dayArea, candidates: pool, data, commuteEdges });
     return { day: index + 1, title: `Day ${index + 1}`, area: dayArea, theme: index === 0 ? 'Classic area' : index === 1 ? 'Food and culture mix' : 'Budget-friendly culture', proposal: dayProposal };
   });
-  return {
+  const transferSummary = summarizeProposalTransfers(proposals);
+  const baseResponse = {
     request_id: `travel-${Math.random().toString(16).slice(2, 12)}`,
     city_id: 'beijing',
     route_mode: request.route_mode,
@@ -1189,15 +1568,84 @@ export async function planTravelRoute(payload: Partial<TravelPlanningRequest>) {
     day_count: dayCount,
     daily_itinerary: dailyItinerary,
     proposals,
-    generation_metrics: { elapsed_ms: Number((performance.now() - started).toFixed(2)), within_10s: performance.now() - started < 10000 },
+    generation_metrics: {
+      elapsed_ms: Number((performance.now() - started).toFixed(2)),
+      within_10s: performance.now() - started < 10000,
+      commute_edges_loaded: commuteEdges.loaded,
+      commute_edge_count: commuteEdges.edge_count,
+      commute_edge_loaded_at: commuteEdges.loaded_at,
+      commute_edge_load_elapsed_ms: commuteEdgeLoadElapsedMs,
+      commute_edge_error: commuteEdges.error,
+      ...transferSummary,
+    },
     replan_metadata: null,
   };
+  if (payload.goal) {
+    const enriched = await enrichPlanningResponseWithLlm({
+      rawText: String(payload.goal || ''),
+      planningResponse: baseResponse,
+      plannerRequest: request,
+    });
+    return enriched.planning_response;
+  }
+  return baseResponse;
 }
 
-export async function parseAndPlanTravel(payload: { goal?: string; defaults?: Partial<TravelPlanningRequest> }) {
-  const parsed = await parseGoalToTravelRequest(String(payload.goal || ''), payload.defaults);
-  const planning_response = await planTravelRoute(parsed.parsed_request);
-  return { ...parsed, planning_response };
+export async function parseAndPlanTravel(payload: { goal?: string; defaults?: Partial<TravelPlanningRequest>; debug_route_draft_mock?: string }) {
+  const rawGoal = String(payload.goal || '');
+  const intent = await parseTravelQueryIntentMiniMaxPreferred(rawGoal).catch(() => null);
+  const preWikiRetrieval = rawGoal
+    ? await retrieveTravelWiki({ rawText: rawGoal, intent, limit: 8 }).catch(() => null)
+    : null;
+  const parsed = intent
+    ? {
+        parsed_request: normalizeRequest({
+          ...payload.defaults,
+          ...intentToPlannerLikeRequest(intent),
+          goal: rawGoal,
+        }),
+        parser_confidence: intent.confidence,
+        parser_notes: intent.notes,
+        parser_correction_hints: intent.missing_fields.length ? [`Please clarify ${intent.missing_fields.join(', ')}.`] : [],
+      }
+    : await parseGoalToTravelRequest(rawGoal, payload.defaults);
+  const planningAdvice = intent
+    ? await getTravelPlanningAdvice({ intent, request: parsed.parsed_request, wikiRetrieval: preWikiRetrieval }).catch(() => null)
+    : null;
+  const advisedRequest = applyTravelPlanningAdvice(parsed.parsed_request, planningAdvice);
+  const draftResult = intent
+    ? await getTravelCandidateBuckets(advisedRequest)
+      .then((buckets) => generateTravelRouteDraft({
+        intent,
+        request: advisedRequest,
+        buckets,
+        wikiRetrieval: preWikiRetrieval,
+        mockResponse: payload.debug_route_draft_mock,
+      }))
+      .catch(() => null)
+    : null;
+  const draftOrderedIds = draftResult?.validation.status === 'rejected' ? [] : draftResult?.validation.valid_ordered_poi_ids || [];
+  const draftConstrainedRequest = draftOrderedIds.length >= 3
+    ? normalizeRequest({
+        ...advisedRequest,
+        must_include_poi_ids: Array.from(new Set([...(advisedRequest.must_include_poi_ids || []), ...draftOrderedIds])),
+        route_order_poi_ids: draftOrderedIds,
+        max_total_pois: Math.max(Number(advisedRequest.max_total_pois || 3), draftOrderedIds.length),
+      })
+    : advisedRequest;
+  const planningRequest = { ...draftConstrainedRequest };
+  delete planningRequest.goal;
+  const planningResponse = await planTravelRoute(planningRequest);
+  return await enrichPlanningResponseWithLlm({
+    rawText: rawGoal,
+    planningResponse,
+    plannerRequest: draftConstrainedRequest,
+    intent,
+    planningAdvice,
+    routeDraft: draftResult?.draft || null,
+    routeDraftValidation: draftResult?.validation || null,
+    parsedMeta: parsed,
+  });
 }
 
 async function stableReplanTravelRoute(payload: {

@@ -42,7 +42,7 @@ const normalizeToolName = (toolName: string | undefined, action: ToolAction) => 
   const raw = (toolName || toolNameFromAction[action] || 'Tool').trim();
   const lower = raw.toLowerCase();
 
-  if (/^quant-[a-z0-9-]+$/i.test(raw) || /^data-[a-z0-9-]+$/i.test(raw)) return raw;
+  if (/^data-[a-z0-9-]+$/i.test(raw)) return raw;
   if (lower === 'skill' || lower === 'tool' || lower === 'tool_use') return 'Skill';
   if (lower.includes('glob')) return 'Glob';
   if (lower.includes('grep')) return 'Grep';
@@ -63,7 +63,7 @@ const getToolIcon = (toolName: string, action: ToolAction) => {
   const lower = toolName.toLowerCase();
   const className = 'h-3.5 w-3.5 text-slate-500';
 
-  if (lower.includes('skill') || /^quant-[a-z0-9-]+$/i.test(toolName)) return <Wrench className={className} />;
+  if (lower.includes('skill')) return <Wrench className={className} />;
   if (lower.includes('glob') || lower.includes('grep') || action === 'Searched') return <Search className={className} />;
   if (lower.includes('bash') || action === 'Executed') return <Terminal className={className} />;
   if (lower.includes('read') || action === 'Read') return <BookOpen className={className} />;
@@ -113,30 +113,22 @@ const extractSkillNameFromJson = (value: unknown): string => {
 const describeCurlCommand = (command: string) => {
   const lower = command.toLowerCase();
   if (!lower.includes('curl')) return '';
-  if (lower.includes('/api/v1/symbols/resolve')) return '解析股票名称或代码，确认后续取数标的。';
-  if (lower.includes('/api/v1/quotes/realtime')) return '获取实时行情数据，确认最新价、涨跌幅和成交信息。';
-  if (lower.includes('/api/v1/quotes/history')) return '获取历史 K 线和成交量数据，用于趋势、均线和量价分析。';
-  if (lower.includes('/api/v1/indicators')) return '计算技术指标，补充均线、收益、回撤、波动率等分析字段。';
-  if (lower.includes('/api/v1/fundamentals/financials')) return '获取财务报表数据，补充营收、利润、现金流和成长性。';
-  if (lower.includes('/api/v1/fundamentals/indicators')) return '获取基本面指标，补充 ROE、毛利率、净利率和估值质量。';
-  if (lower.includes('/api/v1/announcements')) return '获取公告和事件数据，补充行情变化的事件背景。';
-  if (lower.includes('/api/market')) return '检查生成页面的同源行情代理是否可用。';
-  return '调用本地行情后端获取真实数据。';
+  if (lower.includes('/api/v1/travel/')) return '调用本地旅游接口获取路线、POI、餐厅或通勤数据。';
+  return '调用本地接口获取任务数据。';
 };
 
 const describeFileTarget = (target: string, action: ToolAction) => {
   const normalized = target.replaceAll('\\', '/');
   if (!normalized) return '';
-  if (normalized.endsWith('.quantpilot/run_plan.json')) return '记录本次分析计划、标的、数据需求和验收项。';
-  if (normalized.endsWith('.quantpilot/events.jsonl')) return '追加可见执行事件，便于复盘每个阶段。';
+  if (normalized.endsWith('.travelpilot/run_plan.json')) return '记录本次旅游规划的区域、偏好、数据需求和验收项。';
+  if (normalized.endsWith('.travelpilot/events.jsonl')) return '追加可见执行事件，便于复盘每个阶段。';
   if (normalized.endsWith('evidence/sources.json')) return '记录数据来源、接口、抓取时间和来源说明。';
   if (normalized.endsWith('evidence/data_quality.json')) return '记录数据质量、缺失字段、异常和限制。';
-  if (normalized.endsWith('data_file/final/dashboard-data.json')) return '写入最终看板数据，页面将基于它渲染图表。';
-  if (normalized.endsWith('app/page.tsx')) return action === 'Read' ? '读取看板页面代码，确认当前渲染结构。' : '生成或更新量化可视化看板页面。';
-  if (normalized.endsWith('app/globals.css')) return action === 'Read' ? '读取页面样式，确认图表和布局基础。' : '更新看板样式，保证布局、图表和响应式体验。';
+  if (normalized.endsWith('data_file/final/itinerary-data.json')) return '写入最终路线数据，页面将基于它渲染方案。';
+  if (normalized.endsWith('app/page.tsx')) return action === 'Read' ? '读取页面代码，确认当前渲染结构。' : '生成或更新旅游路线可视化页面。';
+  if (normalized.endsWith('app/globals.css')) return action === 'Read' ? '读取页面样式，确认布局基础。' : '更新页面样式，保证布局和响应式体验。';
   if (normalized.endsWith('next.config.js')) return '检查 Next.js 配置，确保预览和构建链路可用。';
   if (normalized.endsWith('package.json')) return '检查项目依赖和脚本，确保 build/dev 可执行。';
-  if (normalized.includes('/api/market')) return '检查生成项目的行情代理接口。';
   return '';
 };
 
@@ -172,7 +164,7 @@ const countArrayValue = (value: unknown): number => {
   if (Array.isArray(value)) return value.length;
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    const keys = ['items', 'data', 'rows', 'klines', 'history', 'reports', 'points', 'announcements'];
+  const keys = ['items', 'data', 'rows', 'pois', 'restaurants', 'plans', 'routes', 'edges'];
     for (const key of keys) {
       if (Array.isArray(record[key])) return record[key].length;
     }
@@ -183,34 +175,10 @@ const countArrayValue = (value: unknown): number => {
 const summarizeJsonOutput = (value: unknown): string => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
   const record = value as Record<string, unknown>;
-  const name = pickRecordString(record, ['name', 'symbol_name']);
-  const symbol = pickRecordString(record, ['symbol', 'code', 'secid']);
-  const label = [name, symbol].filter(Boolean).join(' ');
-
-  if ('price' in record || 'last_price' in record) {
-    const price = pickRecordString(record, ['price', 'last_price', 'latest_price']);
-    const change = pickRecordString(record, ['pct_chg', 'change_pct', 'change_percent', 'percent']);
-    return `行情接口返回${label ? ` ${label}` : ''} 数据${price ? `，最新价 ${price}` : ''}${change ? `，涨跌幅 ${change}` : ''}。`;
-  }
-
-  const historyCount = countArrayValue(record.history ?? record.klines ?? record.items ?? record.data);
-  if (historyCount > 0 && ('period' in record || 'adjustment' in record || 'klines' in record || 'history' in record)) {
-    return `历史行情接口返回${label ? ` ${label}` : ''} ${historyCount} 条 K 线/成交量记录。`;
-  }
-
-  const reportCount = countArrayValue(record.reports);
-  if (reportCount > 0) {
-    return `财务接口返回${label ? ` ${label}` : ''} ${reportCount} 期报表数据。`;
-  }
-
-  const indicatorCount = countArrayValue(record.points);
-  if (indicatorCount > 0) {
-    return `指标接口返回${label ? ` ${label}` : ''} ${indicatorCount} 条指标数据。`;
-  }
-
-  const announcementCount = countArrayValue(record.announcements);
-  if (announcementCount > 0) {
-    return `公告接口返回${label ? ` ${label}` : ''} ${announcementCount} 条公告事件。`;
+  const label = pickRecordString(record, ['name', 'title', 'area', 'city']);
+  const itemCount = countArrayValue(record.items ?? record.data ?? record.rows ?? record.pois ?? record.restaurants ?? record.plans ?? record.routes);
+  if (itemCount > 0) {
+    return `接口返回${label ? ` ${label}` : ''} ${itemCount} 条数据。`;
   }
 
   const status = pickRecordString(record, ['status']);
@@ -250,19 +218,7 @@ const buildToolSummary = ({
   const effectiveToolName = /^skill$/i.test(displayToolName) && skillName ? skillName : displayToolName;
   const lowerTool = effectiveToolName.toLowerCase();
 
-  if (/^quant-[a-z0-9-]+$/i.test(effectiveToolName)) {
-    if (lowerTool.includes('run-planner')) return '建立分析计划，明确标的、数据需求、看板模块和验证规则。';
-    if (lowerTool.includes('symbol-resolver')) return '解析股票名称或代码，确保后续接口使用正确标的。';
-    if (lowerTool.includes('market-data')) return '获取实时行情，补充最新价、涨跌幅、成交额和行情时间。';
-    if (lowerTool.includes('a-share-history')) return '获取历史 K 线和成交量数据，为趋势与均线分析做准备。';
-    if (lowerTool.includes('technical-indicators')) return '计算技术指标，形成均线、回撤、波动率和量价信号。';
-    if (lowerTool.includes('fundamental')) return '获取财务和基本面数据，补充经营质量分析。';
-    if (lowerTool.includes('announcement')) return '获取公告和事件信息，补充行情背景。';
-    if (lowerTool.includes('data-quality')) return '检查数据覆盖率、缺失字段、来源和可用性。';
-    if (lowerTool.includes('visualization')) return '基于最终数据生成可视化看板页面。';
-    if (lowerTool.includes('comparison')) return '组织多标的对比数据，生成横向研究视角。';
-    return '执行量化分析 skill，推进当前阶段。';
-  }
+  if (lowerTool.includes('travel')) return '执行旅游规划工具，推进路线、POI 或通勤数据处理。';
 
   const curlSummary = describeCurlCommand(target);
   if (curlSummary) return curlSummary;

@@ -8,8 +8,7 @@ export interface InfrastructureHealth {
   provider: string;
   databaseUrl: string;
   connected: boolean;
-  timescale: { enabled: boolean; version: string | null };
-  quantSchema: { tables: string[] };
+  travelTables: string[];
   docker: {
     available: boolean;
     running: boolean;
@@ -41,8 +40,8 @@ async function getDockerComposeStatus(): Promise<InfrastructureHealth['docker']>
   try {
     const { stdout } = await execFileAsync(
       'docker',
-      ['compose', 'ps', 'timescaledb', '--format', 'json'],
-      { cwd: process.cwd(), timeout: 3000 }
+      ['compose', 'ps', 'postgres', '--format', 'json'],
+      { cwd: process.cwd(), timeout: 3000 },
     );
 
     const rows: Array<Record<string, unknown>> = [];
@@ -85,13 +84,7 @@ function baseHealth(databaseUrl: string, docker: InfrastructureHealth['docker'])
     provider,
     databaseUrl: databaseUrl ? maskDatabaseUrl(databaseUrl) : '',
     connected: false,
-    timescale: {
-      enabled: false,
-      version: null,
-    },
-    quantSchema: {
-      tables: [],
-    },
+    travelTables: [],
     docker,
     commands: DEFAULT_COMMANDS,
   };
@@ -108,18 +101,17 @@ export async function getInfrastructureHealth(): Promise<InfrastructureHealthRes
   try {
     await prisma.project.findFirst({ select: { id: true } });
 
-    const extension =
-      provider === 'postgresql'
-        ? await prisma.$queryRaw<Array<{ extversion: string }>>`
-            SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'
-          `
-        : [];
-    const quantTables =
+    const travelTables =
       provider === 'postgresql'
         ? await prisma.$queryRaw<Array<{ table_name: string }>>`
             SELECT table_name
             FROM information_schema.tables
-            WHERE table_schema = 'quant'
+            WHERE table_schema = 'public'
+              AND table_name IN (
+                'travel_commute_edges',
+                'travel_wiki_documents',
+                'travel_wiki_chunks'
+              )
             ORDER BY table_name
           `
         : [];
@@ -131,13 +123,7 @@ export async function getInfrastructureHealth(): Promise<InfrastructureHealthRes
         ...baseHealth(databaseUrl, docker),
         provider,
         connected: true,
-        timescale: {
-          enabled: extension.length > 0,
-          version: extension[0]?.extversion ?? null,
-        },
-        quantSchema: {
-          tables: quantTables.map((row) => row.table_name),
-        },
+        travelTables: travelTables.map((row) => row.table_name),
       },
     };
   } catch (error) {

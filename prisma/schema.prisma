@@ -1,5 +1,5 @@
-// QuantPilot - Prisma Schema (PostgreSQL)
-// 本地开发默认使用 Docker 中的 TimescaleDB/PostgreSQL
+// Beijing Travel Agent - Prisma Schema (PostgreSQL)
+// 本地开发默认使用普通 PostgreSQL，旅游数据 SQL 位于 sqls/008-009。
 
 generator client {
   provider = "prisma-client-js"

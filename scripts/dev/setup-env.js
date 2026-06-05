@@ -18,14 +18,14 @@ const envLocalFile = path.join(rootDir, '.env.local');
 const rootDataDir = path.join(rootDir, 'data');
 const projectsDir = path.join(rootDataDir, 'projects');
 const defaultDatabaseUrl =
-  '"postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:5432/quantpilot?schema=public"';
+  '"postgresql://travelpilot:travelpilot_dev_password@127.0.0.1:5432/travelpilot?schema=public"';
 
 const MAX_PORT = 65_535;
 // Preview servers (per-project) dynamic pool
 const FALLBACK_PORT_START = 4_100;
 const FALLBACK_PORT_END = 4_999;
 const DEFAULT_RANGE_SPAN = FALLBACK_PORT_END - FALLBACK_PORT_START;
-// QuantPilot 主应用默认端口，扫描范围避开生成项目预览端口池
+// 北京旅游 Agent 主应用默认端口，扫描范围避开生成项目预览端口池
 const DEFAULT_WEB_PORT = 3_000;
 const DEFAULT_WEB_SCAN_SPAN = 99; // scan up to 3099 at most
 const DEFAULT_WEB_MAX = DEFAULT_WEB_PORT + DEFAULT_WEB_SCAN_SPAN;
@@ -199,65 +199,32 @@ async function ensureEnvironment(options = {}) {
   if (shouldSetPostgresDatabaseUrl(envContents)) {
     envDefaults.DATABASE_URL = defaultDatabaseUrl;
   }
-  if (!hasEnvKey(envContents, 'TIMESCALEDB_IMAGE')) {
-    envDefaults.TIMESCALEDB_IMAGE = '"timescale/timescaledb:2.27.1-pg18"';
-  }
   if (!hasEnvKey(envContents, 'POSTGRES_DB')) {
-    envDefaults.POSTGRES_DB = '"quantpilot"';
+    envDefaults.POSTGRES_DB = '"travelpilot"';
   }
   if (!hasEnvKey(envContents, 'POSTGRES_USER')) {
-    envDefaults.POSTGRES_USER = '"quantpilot"';
+    envDefaults.POSTGRES_USER = '"travelpilot"';
   }
   if (!hasEnvKey(envContents, 'POSTGRES_PASSWORD')) {
-    envDefaults.POSTGRES_PASSWORD = '"quantpilot_dev_password"';
+    envDefaults.POSTGRES_PASSWORD = '"travelpilot_dev_password"';
   }
   if (!hasEnvKey(envContents, 'POSTGRES_PORT')) {
     envDefaults.POSTGRES_PORT = '5432';
   }
-  if (!hasEnvKey(envContents, 'REDIS_URL')) {
-    envDefaults.REDIS_URL = '"redis://127.0.0.1:6379/0"';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_IMAGE')) {
-    envDefaults.REDIS_IMAGE = '"redis:8-alpine"';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_PORT')) {
-    envDefaults.REDIS_PORT = '6379';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_NAMESPACE')) {
-    envDefaults.REDIS_NAMESPACE = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_CACHE_ENABLED')) {
-    envDefaults.QUANTPILOT_REDIS_CACHE_ENABLED = '1';
-  }
   if (!hasEnvKey(envContents, 'PROJECTS_DIR')) {
     envDefaults.PROJECTS_DIR = '"./data/projects"';
   }
+  if (!hasEnvKey(envContents, 'TRAVELPILOT_DATA_ROOT')) {
+    envDefaults.TRAVELPILOT_DATA_ROOT = '"./travel-data/processed"';
+  }
+  if (!hasEnvKey(envContents, 'TRAVELPILOT_WIKI_ROOT')) {
+    envDefaults.TRAVELPILOT_WIKI_ROOT = '"./travel-data/wiki"';
+  }
+  if (!hasEnvKey(envContents, 'AMAP_API_KEY')) {
+    envDefaults.AMAP_API_KEY = '"replace-with-your-amap-key"';
+  }
   if (!hasEnvKey(envContents, 'ENCRYPTION_KEY')) {
     envDefaults.ENCRYPTION_KEY = `"${crypto.randomBytes(32).toString('hex')}"`;
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_DEGRADATION_MODE')) {
-    envDefaults.QUANTPILOT_DEGRADATION_MODE = '"auto"';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_DATABASE_ENABLED')) {
-    envDefaults.QUANTPILOT_DATABASE_ENABLED = '1';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_DATABASE_REQUIRED')) {
-    envDefaults.QUANTPILOT_DATABASE_REQUIRED = '1';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_MARKET_API_ENABLED')) {
-    envDefaults.QUANTPILOT_MARKET_API_ENABLED = '1';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_MARKET_API_REQUIRED')) {
-    envDefaults.QUANTPILOT_MARKET_API_REQUIRED = '0';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_OBSERVABILITY_ENABLED')) {
-    envDefaults.QUANTPILOT_OBSERVABILITY_ENABLED = '1';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_OBSERVABILITY_REQUIRED')) {
-    envDefaults.QUANTPILOT_OBSERVABILITY_REQUIRED = '0';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_REQUIRED')) {
-    envDefaults.QUANTPILOT_REDIS_REQUIRED = '0';
   }
 
   const portStartCandidates = [

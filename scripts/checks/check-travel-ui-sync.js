@@ -71,8 +71,13 @@ async function main() {
   const responseDiff = responseItinerary?.planning_response?.route_patch_summary;
   assert(responseProposal?.constraint_judgement, 'chat response should include constraint_judgement');
   assert(Array.isArray(responseProposal?.selection_reasons) && responseProposal.selection_reasons.length > 0, 'chat response should include selection_reasons');
+  assert(responseItinerary?.planning_response?.llm_rerank, 'chat response should include llm_rerank');
+  assert(typeof responseItinerary?.planning_response?.natural_language_explanation === 'string', 'chat response should include natural language explanation');
+  assert(typeof responseItinerary?.planning_response?.generation_metrics?.database_recall_used === 'boolean', 'chat response should include database recall metric');
   assert(responseDiff?.removed?.includes(before[1]), 'chat response should include removed stop in route diff');
-  assert(Array.isArray(changed.agentTrace) && changed.agentTrace.some((entry) => entry.agent_key === 'route_composition_agent'), 'chat response should include agent trace');
+  assert(Array.isArray(changed.agentTrace) && changed.agentTrace.some((entry) => entry.agent_key === 'route_composition_agent'), 'chat response should include route_composition_agent trace');
+  assert(Array.isArray(changed.agentTrace) && changed.agentTrace.some((entry) => entry.agent_key === 'database_recall_agent'), 'chat response should include database_recall_agent trace');
+  assert(Array.isArray(changed.agentTrace) && changed.agentTrace.some((entry) => entry.agent_key === 'minimax_rerank_agent'), 'chat response should include minimax_rerank_agent trace');
 
   const artifactItinerary = await getJson(`/api/projects/${projectId}/artifact?path=${encodeURIComponent('data_file/final/itinerary-data.json')}`);
   const artifactTrace = await getJson(`/api/projects/${projectId}/artifact?path=${encodeURIComponent('.travelpilot/agent-trace.json')}`);
@@ -85,7 +90,12 @@ async function main() {
   assert(JSON.stringify(artifactItinerary.planning_response.route_patch_summary) === JSON.stringify(responseDiff), 'artifact route diff should match chat response');
   assert(artifactItinerary.planning_response.proposals[0].constraint_judgement, 'artifact itinerary should include constraint_judgement');
   assert(Array.isArray(artifactItinerary.planning_response.proposals[0].selection_reasons), 'artifact itinerary should include selection_reasons');
+  assert(artifactItinerary.planning_response.llm_rerank, 'artifact itinerary should include llm_rerank');
+  assert(typeof artifactItinerary.planning_response.natural_language_explanation === 'string', 'artifact itinerary should include natural language explanation');
+  assert(typeof artifactItinerary.planning_response.generation_metrics?.database_recall_used === 'boolean', 'artifact itinerary should include database recall metric');
   assert(Array.isArray(artifactTrace) && artifactTrace.length >= 6, 'artifact agent trace should include agent entries');
+  assert(Array.isArray(artifactTrace) && artifactTrace.some((entry) => entry.agent_key === 'database_recall_agent'), 'artifact trace should include database recall agent');
+  assert(Array.isArray(artifactTrace) && artifactTrace.some((entry) => entry.agent_key === 'minimax_rerank_agent'), 'artifact trace should include minimax rerank agent');
   assert(Array.isArray(diskTrace) && diskTrace.length === artifactTrace.length, 'disk agent trace should match artifact API trace length');
   assert(artifactState?.final_selected_proposals?.[0]?.constraint_judgement, 'session state should include judged proposal');
 

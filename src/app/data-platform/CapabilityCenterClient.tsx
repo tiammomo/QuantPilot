@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
-  Building2,
   CheckCircle2,
   Database,
   Layers3,
@@ -25,10 +24,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
-import { formatCompactDate as formatDate } from "@/components/quant/console-primitives";
 import { cn } from "@/lib/utils";
 
 type CapabilityCenterSkillRef = {
@@ -98,9 +95,20 @@ type CapabilityCenterData = {
 };
 
 type Props = { initialData: CapabilityCenterData };
-type TabId = "capabilities" | "sources" | "lakehouse" | "doris";
+type TabId = "capabilities" | "sources";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 // ─── Status helpers ────────────────────────────────────────────
 function readinessLabel(s: CapabilityCenterItem["readiness"]["status"]) {
@@ -133,27 +141,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   "poi-data": "POI 数据",
   "ugc-evidence": "UGC 证据",
   "route-planning": "路线规划",
-  "market-data": "行情数据",
-  symbol: "证券搜索",
-  indicator: "技术指标",
-  backtest: "策略回测",
-  fundamental: "基本面",
-  event: "公告事件",
-  "index-etf": "指数/ETF",
-  ingestion: "数据入库",
-  "research-config": "研究配置",
-  "fallback-provider": "可采集兜底源",
-  "candidate-provider": "候选数据源",
-  "planned-provider": "计划接入",
-  "licensed-provider": "授权数据源",
 };
 
 // ─── Sub‑nav definition ────────────────────────────────────────
 const SUB_NAV_ITEMS: SubNavItem[] = [
   { id: "capabilities", label: "能力矩阵", icon: <Sparkles className="h-4 w-4" /> },
   { id: "sources", label: "数据源", icon: <Database className="h-4 w-4" /> },
-  { id: "lakehouse", label: "湖仓", icon: <Building2 className="h-4 w-4" />, disabled: true, tooltip: "即将推出" },
-  { id: "doris", label: "Doris", icon: <Server className="h-4 w-4" />, disabled: true, tooltip: "即将推出" },
 ];
 
 // ─── Status Bar ────────────────────────────────────────────────
@@ -181,9 +174,9 @@ function StatusBar({ data }: { data: CapabilityCenterData }) {
       warn: data.summary.degradedProviders > 0,
     },
     {
-      label: "Skills",
+      label: "规划模块",
       value: data.summary.skills,
-      sub: data.summary.skillErrors > 0 ? `${data.summary.skillErrors} 异常` : "全部正常",
+      sub: data.summary.skillErrors > 0 ? `${data.summary.skillErrors} 异常` : "全部就绪",
       icon: <Layers3 className="h-3.5 w-3.5" />,
       warn: data.summary.skillErrors > 0,
     },
@@ -464,10 +457,7 @@ export default function CapabilityCenterClient({ initialData }: Props) {
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{toast}</div>
         )}
 
-        {/* Status Bar (shown on active tabs) */}
-        {activeTab !== "lakehouse" && activeTab !== "doris" && (
-          <StatusBar data={data} />
-        )}
+        <StatusBar data={data} />
 
         {/* ── Tab: Capabilities ──────────────────────────── */}
         {activeTab === "capabilities" && (
@@ -491,7 +481,7 @@ export default function CapabilityCenterClient({ initialData }: Props) {
             {filteredCapabilities.length === 0 ? (
               <EmptyState
                 title="没有匹配的能力模块"
-                description={keyword ? "尝试其他关键词" : "请检查 Skills registry 和数据端点配置"}
+                description={keyword ? "尝试其他关键词" : "请检查旅游能力和数据端点配置"}
                 action={keyword ? { label: "清除搜索", onClick: () => setKeyword("") } : { label: "刷新状态", onClick: refresh }}
               />
             ) : (
@@ -546,24 +536,6 @@ export default function CapabilityCenterClient({ initialData }: Props) {
               </div>
             )}
           </section>
-        )}
-
-        {/* ── Tab: 湖仓 (placeholder) ────────────────────── */}
-        {activeTab === "lakehouse" && (
-          <ComingSoonTab
-            title="湖仓接入"
-            description="支持 Delta Lake、Iceberg、Hudi 等开放湖仓格式的元数据检索与数据预览。功能开发中，敬请期待。"
-            icon={<Building2 className="h-8 w-8" />}
-          />
-        )}
-
-        {/* ── Tab: Doris (placeholder) ───────────────────── */}
-        {activeTab === "doris" && (
-          <ComingSoonTab
-            title="Apache Doris"
-            description="高性能实时 OLAP 查询引擎接入，支持大规模金融数据的交互式分析。功能开发中，敬请期待。"
-            icon={<Server className="h-8 w-8" />}
-          />
         )}
 
         {/* Capability detail sheet */}

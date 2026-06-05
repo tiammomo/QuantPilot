@@ -2,12 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import {
-  BarChart3,
   Database,
-  Gauge,
   Map,
   Menu,
-  Route,
   Settings,
   X,
 } from "lucide-react";
@@ -156,21 +153,9 @@ function Sidebar({
       </div>
 
       <div className="border-t border-[#ead8c3] p-3">
-        <Button type="button" onClick={() => router.push("/strategy-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
-          <Route className="h-4 w-4" />
-          路线方案
-        </Button>
         <Button type="button" onClick={() => router.push("/data-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
           <Database className="h-4 w-4" />
           POI/UGC 数据
-        </Button>
-        <Button type="button" onClick={() => router.push("/eval-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
-          <Gauge className="h-4 w-4" />
-          路线评测
-        </Button>
-        <Button type="button" onClick={() => router.push("/ops-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
-          <BarChart3 className="h-4 w-4" />
-          运行观测
         </Button>
         <Button type="button" onClick={() => router.push("/")} variant="ghost" className="mb-0.5 w-full justify-start">
           <Map className="h-4 w-4" />

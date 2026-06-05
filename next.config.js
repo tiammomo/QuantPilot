@@ -10,7 +10,6 @@ const tracingExcludes = [
   './.ruff_cache/**',
   './data/**',
   './tmp/**',
-  './services/market-data/.venv/**',
   './services/**/.venv/**',
   './services/**/.ruff_cache/**',
   './coverage/**',
@@ -26,7 +25,6 @@ const tracePluginIgnores = [
   '**/.ruff_cache/**',
   '**/data/**',
   '**/tmp/**',
-  '**/services/market-data/.venv/**',
   '**/services/**/.venv/**',
   '**/services/**/.ruff_cache/**',
 ];

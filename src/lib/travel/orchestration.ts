@@ -11,10 +11,15 @@ import {
 export type TravelAgentKey =
   | 'intent_agent'
   | 'clarification_agent'
+  | 'wiki_retrieval_agent'
+  | 'database_recall_agent'
   | 'poi_retrieval_agent'
   | 'ugc_evidence_agent'
+  | 'minimax_route_draft_agent'
+  | 'route_draft_validator_agent'
   | 'route_composition_agent'
-  | 'constraint_judge_agent';
+  | 'constraint_judge_agent'
+  | 'minimax_rerank_agent';
 
 export type TravelPatchActionType =
   | 'add_stop'
@@ -540,7 +545,7 @@ export async function executeTravelPlanningSession(params: {
   });
 
   const routeStarted = performance.now();
-  const planningResponse = operation === 'replan'
+  const planningResponse = (operation === 'replan'
     ? await replanTravelRoute({
         previous_request: previousRequestSnapshot || undefined,
         selected_proposal: Array.isArray(params.existingItinerary?.planning_response?.proposals)
@@ -548,9 +553,109 @@ export async function executeTravelPlanningSession(params: {
           : undefined,
         adjustment_text: params.text,
       })
-    : (await parseAndPlanTravel({ goal: params.text, defaults: previousRequestSnapshot || undefined })).planning_response;
+    : (await parseAndPlanTravel({ goal: params.text, defaults: previousRequestSnapshot || undefined })).planning_response) as Record<string, any>;
+  const wikiRetrieval = planningResponse.wiki_retrieval || null;
+  markTrace(state, {
+    agent_key: 'wiki_retrieval_agent',
+    status: 'completed',
+    elapsed_ms: Number(wikiRetrieval?.elapsed_ms || planningResponse.generation_metrics?.wiki_retrieval_elapsed_ms || 0),
+    summary: Array.isArray(wikiRetrieval?.hits) && wikiRetrieval.hits.length > 0
+      ? '已从 Obsidian LLM-Wiki 检索路线知识证据。'
+      : 'Obsidian LLM-Wiki 未命中可用证据。',
+    input_summary: {
+      vault_path: wikiRetrieval?.vault_path || 'travel-data/wiki',
+      query: params.text,
+    },
+    output_summary: {
+      hit_count: Array.isArray(wikiRetrieval?.hits) ? wikiRetrieval.hits.length : 0,
+      citation_count: Array.isArray(wikiRetrieval?.citations) ? wikiRetrieval.citations.length : 0,
+      wiki_retrieval_used: Boolean(planningResponse.generation_metrics?.wiki_retrieval_used),
+    },
+    payload_preview: {
+      hits: Array.isArray(wikiRetrieval?.hits) ? wikiRetrieval.hits.slice(0, 5) : [],
+      citations: Array.isArray(wikiRetrieval?.citations) ? wikiRetrieval.citations.slice(0, 5) : [],
+    },
+  });
+  const databaseRecallResults = Array.isArray(planningResponse.query_results) ? planningResponse.query_results : [];
+  markTrace(state, {
+    agent_key: 'database_recall_agent',
+    status: 'completed',
+    elapsed_ms: Number(planningResponse.generation_metrics?.sql_elapsed_ms || 0),
+    summary: databaseRecallResults.length > 0 ? '已通过白名单 SQL 召回 POI / UGC / 区域画像候选。' : '当前请求缺少关键字段或未执行数据库召回。',
+    input_summary: {
+      query_plan_steps: Array.isArray(planningResponse.query_plan?.steps) ? planningResponse.query_plan.steps.length : 0,
+    },
+    output_summary: {
+      template_count: databaseRecallResults.length,
+      database_recall_used: Boolean(planningResponse.generation_metrics?.database_recall_used),
+    },
+    payload_preview: {
+      query_plan: planningResponse.query_plan || null,
+      results: databaseRecallResults.slice(0, 4),
+    },
+  });
+  const routeDraft = planningResponse.route_draft || null;
+  markTrace(state, {
+    agent_key: 'minimax_route_draft_agent',
+    status: 'completed',
+    elapsed_ms: Number(routeDraft?.elapsed_ms || planningResponse.generation_metrics?.draft_elapsed_ms || 0),
+    summary: routeDraft?.draft_source === 'minimax'
+      ? 'MiniMax selected and ordered POIs from the backend candidate pool.'
+      : 'MiniMax RouteDraft was unavailable; the system used a safe rule fallback draft.',
+    input_summary: {
+      candidate_pool_locked: true,
+      model: routeDraft?.model || null,
+      llm_attempted: Boolean(routeDraft?.llm_attempted || routeDraft?.llm_used),
+    },
+    output_summary: {
+      draft_source: routeDraft?.draft_source || null,
+      llm_used: Boolean(routeDraft?.llm_used),
+      ordered_poi_count: Array.isArray(routeDraft?.ordered_poi_ids) ? routeDraft.ordered_poi_ids.length : 0,
+      fallback_reason: routeDraft?.fallback_reason || planningResponse.generation_metrics?.draft_fallback_reason || null,
+    },
+    payload_preview: {
+      ordered_poi_ids: Array.isArray(routeDraft?.ordered_poi_ids) ? routeDraft.ordered_poi_ids : [],
+      meal_stop_id: routeDraft?.meal_stop_id || null,
+      preference_reasoning: routeDraft?.preference_reasoning || null,
+      known_risks: Array.isArray(routeDraft?.known_risks) ? routeDraft.known_risks.slice(0, 4) : [],
+    },
+  });
+  const validatorResult = planningResponse.validator_result || null;
+  const repairActions = Array.isArray(planningResponse.repair_actions) ? planningResponse.repair_actions : [];
+  markTrace(state, {
+    agent_key: 'route_draft_validator_agent',
+    status: 'completed',
+    elapsed_ms: 0,
+    summary: validatorResult?.status === 'valid'
+      ? 'RouteDraft passed backend safety validation.'
+      : validatorResult?.status === 'repaired'
+        ? 'RouteDraft was repaired before executable timeline generation.'
+        : 'RouteDraft validation required fallback or rejection handling.',
+    input_summary: {
+      route_draft_present: Boolean(routeDraft),
+      requested_meal: Boolean(
+        parsed.parsed_request.preference_signals?.lunch ||
+          parsed.parsed_request.preference_signals?.formal_meal ||
+          parsed.parsed_request.preference_signals?.snack,
+      ),
+      max_budget: parsed.parsed_request.max_budget ?? null,
+      max_duration_min: parsed.parsed_request.max_duration_min ?? null,
+    },
+    output_summary: {
+      validator_status: validatorResult?.status || null,
+      valid_poi_count: Array.isArray(validatorResult?.validated_poi_ids) ? validatorResult.validated_poi_ids.length : 0,
+      repair_action_count: repairActions.length,
+    },
+    payload_preview: {
+      validator_result: validatorResult,
+      repair_actions: repairActions.slice(0, 6),
+    },
+  });
   state.draft_proposals = Array.isArray(planningResponse.proposals) ? planningResponse.proposals : [];
   const routePatchSummary = buildRouteDiff(previousRouteNames, state.draft_proposals[0] || null);
+  const primaryTransferSummary = state.draft_proposals[0]?.transfer_source_summary || state.draft_proposals[0]?.quality_summary?.commute || {};
+  const commuteEdgesUsed = Number(primaryTransferSummary.commute_edges_used || 0);
+  const coordinateEstimatesUsed = Number(primaryTransferSummary.coordinate_estimates_used || 0);
   markTrace(state, {
     agent_key: 'route_composition_agent',
     status: 'completed',
@@ -564,6 +669,8 @@ export async function executeTravelPlanningSession(params: {
     output_summary: {
       proposal_count: state.draft_proposals.length,
       route_patch_summary: routePatchSummary,
+      commute_edges_used: commuteEdgesUsed,
+      coordinate_estimates_used: coordinateEstimatesUsed,
     },
     payload_preview: {
       top_proposal: state.draft_proposals[0]
@@ -573,6 +680,7 @@ export async function executeTravelPlanningSession(params: {
           }
         : null,
       route_patch_summary: routePatchSummary,
+      transfer_source_summary: primaryTransferSummary,
     },
   });
 
@@ -598,11 +706,37 @@ export async function executeTravelPlanningSession(params: {
     },
   });
 
+  const llmRerank = planningResponse.llm_rerank || null;
+  markTrace(state, {
+    agent_key: 'minimax_rerank_agent',
+    status: 'completed',
+    elapsed_ms: Number(llmRerank?.elapsed_ms || 0),
+    summary: llmRerank?.llm_used
+      ? 'MiniMax 已对 3 个候选方案做偏好重排，并生成自然语言解释。'
+      : llmRerank?.rerank_source === 'wiki_local'
+        ? 'MiniMax 未返回合规结果，已由 Obsidian Wiki 证据接管本地重排。'
+        : 'MiniMax 偏好重排未生效，保留规则 planner 原始排序。',
+    input_summary: {
+      proposal_count: state.judged_proposals.length,
+      model: llmRerank?.model || null,
+    },
+    output_summary: {
+      llm_rerank_used: Boolean(llmRerank?.llm_used),
+      rerank_source: llmRerank?.rerank_source || null,
+      primary_proposal_id: llmRerank?.primary_proposal_id || planningResponse.final_selected_proposal_id || null,
+      fallback_reason: llmRerank?.fallback_reason || null,
+    },
+    payload_preview: {
+      llm_rerank: llmRerank,
+      natural_language_explanation: planningResponse.natural_language_explanation || null,
+    },
+  });
+
   const finalPlanning = {
     ...planningResponse,
     proposals: state.judged_proposals,
     route_patch_summary: routePatchSummary,
-  };
+  } as Record<string, any>;
 
   return {
     status: operation === 'replan' ? 'travel_replan_completed' : 'travel_plan_completed',

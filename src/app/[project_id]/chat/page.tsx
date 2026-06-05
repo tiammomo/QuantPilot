@@ -45,16 +45,17 @@ const VISIBLE_PROCESS_INSTRUCTIONS = `
 ### 任务拆解
 | 维度 | 初步识别 | 状态 |
 | --- | --- | --- |
-| 分析对象 | 需要分析的股票、指数、ETF、组合或业务对象 | 明确/需确认 |
-| 时间范围 | 默认或用户指定的分析周期 | 明确/需确认 |
-| 数据需求 | 行情、K 线、财务、公告、指标、回测或风控数据 | 明确/需确认 |
-| 输出形式 | 可视化看板、结论摘要、数据文件或验证结果 | 明确/需确认 |
+| 出行区域 | 北京城区、商圈、景区或用户指定范围 | 明确/需确认 |
+| 时间预算 | 半日/一日/多日、开始时间、用餐时间 | 明确/需确认 |
+| 人群偏好 | 亲子、老人、低步行、低排队、拍照、美食等 | 明确/需确认 |
+| 数据需求 | POI、餐厅、UGC 证据、通勤边、预算和风险提示 | 明确/需确认 |
+| 输出形式 | 路线方案、时间轴、地图/卡片页面、数据文件或验证结果 | 明确/需确认 |
 
 ### 执行计划
 1. 确认可直接推断的条件和需要补充的信息。
-2. 按 run_plan 规划取数路径，并说明数据来源或接口。
-3. 获取真实数据后进行质量检查，再生成分析或可视化页面。
-4. 做 build、HTTP、数据文件和图表存在性检查。
+2. 按 .travelpilot/run_plan.json 规划 POI、餐厅、通勤和 UGC 数据路径。
+3. 获取本地旅游数据后进行质量检查，再生成路线方案或可视化页面。
+4. 做 build、HTTP、数据文件和核心路线字段检查。
 
 ### 当前状态
 - 已明确：
@@ -62,18 +63,17 @@ const VISIBLE_PROCESS_INSTRUCTIONS = `
 - 下一步：
 
 后续执行过程中，请把工具调用组织成“阶段化执行日志”，不要只连续输出工具名：
-- 每次调用 skill 前先写一句：现在使用 \`skill-name\` 做什么、为什么需要它。
 - 每组 Bash/Read/Write/Edit 前后都用 1-2 句中文说明：本步目标、输入数据、得到的结果或下一步。
-- 数据请求完成后说明接口、标的、时间范围、记录数、关键字段和数据质量；不要只展示命令。
-- 写入文件后说明文件用途，例如 run_plan、sources、data_quality、dashboard-data、页面代码分别解决什么问题。
-- 验证阶段必须逐项说明 build、HTTP 200、数据文件、图表存在性和 /api/market 代理检查结果。
-- Todo List 要持续更新，已完成项用 ✅，失败或待处理项用 ❌/⏳ 并写明原因。
+- 数据请求完成后说明接口、区域、记录数、关键字段和数据质量；不要只展示命令。
+- 写入文件后说明文件用途，例如 run_plan、sources、data_quality、itinerary-data、页面代码分别解决什么问题。
+- 验证阶段逐项说明 build、HTTP 200、数据文件和路线字段检查结果。
+- Todo List 要持续更新，失败或待处理项写明原因。
 - 最终可视化页面和数据都准备完成后，再呈现或说明预览结果。`;
 
 const appendVisibleProcessInstructions = (message: string) => {
   const travelProcessInstructions = `
 
-Please handle this as a Beijing travel route planning task. Identify area, duration, budget, meal, low-queue, low-walk, elderly/family, and replan constraints, then use local POI/UGC data to generate an executable itinerary. Do not output stock, quant, market, K-line, backtest, or portfolio content.
+Please handle this as a Beijing travel route planning task. Identify area, duration, budget, meal, low-queue, low-walk, elderly/family, and replan constraints, then use local POI/UGC data to generate an executable itinerary.
 
 Focus on route options, timeline, lunch/coffee/entertainment labels, budget, total duration, estimated walking/transfer, UGC evidence, and risk notes. Distance and queue are static local estimates, not realtime navigation.`;
   if (message.includes('Beijing travel route planning task')) {
@@ -259,6 +259,14 @@ type TravelItineraryData = {
     proposals?: Array<Record<string, any>>;
     route_patch_summary?: Record<string, any>;
     constraint_judgement?: Record<string, any>;
+    llm_rerank?: Record<string, any>;
+    final_selected_proposal_id?: string;
+    natural_language_explanation?: string;
+    planning_advice?: Record<string, any>;
+    wiki_retrieval?: Record<string, any>;
+    route_draft?: Record<string, any>;
+    validator_result?: Record<string, any>;
+    repair_actions?: string[];
   };
 };
 
@@ -268,6 +276,8 @@ function TravelItineraryPreview({ data }: { data: TravelItineraryData }) {
   const dailyItinerary = Array.isArray(planning.daily_itinerary) ? planning.daily_itinerary : [];
   const primary = proposals[0];
   const stops = Array.isArray(primary?.pois) ? primary.pois : [];
+  const naturalLanguageExplanation = String(planning.natural_language_explanation || '');
+  const wikiHits = Array.isArray(planning.wiki_retrieval?.hits) ? planning.wiki_retrieval.hits.slice(0, 5) : [];
   const routePatchSummary = planning.route_patch_summary;
   const selectedReasons = Array.isArray(primary?.selection_reasons) ? primary.selection_reasons : [];
   const agentTrace = Array.isArray(data.agent_trace) ? data.agent_trace : [];
@@ -477,9 +487,34 @@ function TravelItineraryPreview({ data }: { data: TravelItineraryData }) {
                 <div className="rounded-[1.5rem] border border-[#e3d5bf] bg-white p-5 shadow-sm">
                   <h3 className="font-black">Agent Trace</h3>
                   <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    {agentTrace.slice(0, 6).map((entry: Record<string, any>, index: number) => (
+                    {agentTrace.slice(0, 8).map((entry: Record<string, any>, index: number) => (
                       <p key={`${entry.agent_key ?? 'agent'}-${index}`}>
                         {entry.agent_key}: {entry.summary}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {planning.llm_rerank ? (
+                <div className="rounded-[1.5rem] border border-[#e3d5bf] bg-white p-5 shadow-sm">
+                  <h3 className="font-black">MiniMax Rerank</h3>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    <p>主推方案: {planning.final_selected_proposal_id || planning.llm_rerank.primary_proposal_id || '-'}</p>
+                    <p>是否生效: {planning.llm_rerank.llm_used || planning.llm_rerank.rerank_source === 'wiki_local' ? '是' : '否'}</p>
+                    <p>重排来源: {planning.llm_rerank.rerank_source || (planning.llm_rerank.llm_used ? 'minimax' : 'planner_fallback')}</p>
+                    <p>数据库召回: {planning.generation_metrics?.database_recall_used ? '已启用' : '未启用'}</p>
+                    <p>耗时: {planning.llm_rerank.elapsed_ms ?? 0} ms</p>
+                  </div>
+                </div>
+              ) : null}
+              {wikiHits.length > 0 ? (
+                <div className="rounded-[1.5rem] border border-[#e3d5bf] bg-white p-5 shadow-sm">
+                  <h3 className="font-black">Obsidian Wiki 证据</h3>
+                  <p className="mt-2 text-xs text-slate-500">{planning.wiki_retrieval?.vault_path || 'travel-data/wiki'}</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-600">
+                    {wikiHits.map((hit: Record<string, any>, index: number) => (
+                      <p key={`${hit.path ?? hit.title}-${index}`}>
+                        {hit.title} · {hit.type} · score {hit.score}
                       </p>
                     ))}
                   </div>
@@ -519,6 +554,12 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
   const dailyItinerary = Array.isArray(planning.daily_itinerary) ? planning.daily_itinerary : [];
   const primary = proposals[0];
   const stops = Array.isArray(primary?.pois) ? primary.pois : [];
+  const naturalLanguageExplanation = String(planning.natural_language_explanation || '');
+  const planningAdvice = planning.planning_advice as Record<string, any> | undefined;
+  const routeDraft = planning.route_draft as Record<string, any> | undefined;
+  const validatorResult = planning.validator_result as Record<string, any> | undefined;
+  const repairActions = Array.isArray(planning.repair_actions) ? planning.repair_actions : [];
+  const wikiHits = Array.isArray(planning.wiki_retrieval?.hits) ? planning.wiki_retrieval.hits.slice(0, 5) : [];
   const routePatchSummary = planning.route_patch_summary;
   const selectedReasons = Array.isArray(primary?.selection_reasons) ? primary.selection_reasons : [];
   const agentTrace = Array.isArray(data.agent_trace) ? data.agent_trace : [];
@@ -533,6 +574,39 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
   const reasonFor = (poiId?: string) =>
     selectedReasons.find((item: Record<string, any>) => item.poi_id === poiId)?.reason;
   const checkLabel = (value?: boolean) => (value ? '通过' : '需关注');
+
+  const transferSummary = primary?.transfer_source_summary || primary?.quality_summary?.commute || {};
+  const commuteEdgesUsed = Number(transferSummary.commute_edges_used || 0);
+  const coordinateEstimatesUsed = Number(transferSummary.coordinate_estimates_used || 0);
+  const commuteHitRate = Number(transferSummary.commute_edge_hit_rate || 0);
+  const commuteSegments = stops
+    .slice(1)
+    .map((stop: Record<string, any>, index: number) => ({
+      from: stops[index]?.name || `第 ${index + 1} 站`,
+      to: stop.name || `第 ${index + 2} 站`,
+      minutes: stop.transfer_from_previous_minutes,
+      meters: stop.transfer_from_previous_meters,
+      source: stop.transfer_source,
+      mode: stop.transfer_mode,
+      provider: stop.transfer_provider,
+    }));
+  const transferSourceLabel = (stop: Record<string, any>) => {
+    if (stop.transfer_source === 'commute_edge') {
+      const provider = stop.transfer_provider || 'commute_db';
+      const mode = stop.transfer_mode ? ` / ${stop.transfer_mode}` : '';
+      return `${provider}${mode}`;
+    }
+    if (stop.transfer_source === 'coordinate_estimate') {
+      if (stop.transfer_mode === 'bike_estimate') return '骑行估算回退';
+      if (stop.transfer_mode === 'driving_estimate') return '驾车估算回退';
+      return '步行估算回退';
+    }
+    return '起点';
+  };
+  const transferSourceTone = (stop: Record<string, any>) =>
+    stop.transfer_source === 'commute_edge'
+      ? 'border-emerald-100 bg-emerald-50 text-emerald-700'
+      : 'border-amber-100 bg-amber-50 text-amber-700';
 
   const MetricCard = ({ label, value, tone = 'light' }: { label: string; value: any; tone?: 'light' | 'dark' | 'warm' }) => (
     <div
@@ -575,7 +649,7 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
                   {dailyItinerary.length > 1 ? '多日行程已生成' : '智能路线方案已生成'}
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                  基于本地北京 POI 与 UGC 证据生成。排队、步行与转移时间为本地静态估算，不是实时导航结果。
+                  基于本地北京 POI 与 UGC 证据生成。转移时间优先使用 travel_commute_edges 通勤库，缺失路段回退坐标估算；排队风险不是实时导航结果。
                 </p>
               </div>
               <div className="grid min-w-[280px] grid-cols-3 gap-3 text-center">
@@ -641,9 +715,111 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-3">
                     <MetricCard label="预算估算" value={`${primary.total_budget_estimate ?? '-'} 元`} />
-                    <MetricCard label="转移时间" value={`${primary.total_transfer_minutes ?? '-'} 分钟`} />
+                    <MetricCard label="通勤/转移时间" value={`${primary.total_transfer_minutes ?? '-'} 分钟`} />
                     <MetricCard label="步行估算" value={`${primary.total_walking_distance_m ?? '-'} 米`} />
                   </div>
+
+                  <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">通勤数据</p>
+                        <p className="mt-1 text-sm leading-5 text-emerald-800">
+                          已接入 travel_commute_edges：{commuteEdgesUsed} 段使用通勤库，{coordinateEstimatesUsed} 段坐标回退。
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1.5 text-sm font-black text-emerald-700">
+                        命中率 {Math.round(commuteHitRate * 100)}%
+                      </span>
+                    </div>
+                    {commuteSegments.length > 0 ? (
+                      <div className="mt-3 grid gap-2">
+                        {commuteSegments.map((segment: Record<string, any>, index: number) => (
+                          <div key={`${segment.from}-${segment.to}-${index}`} className="rounded-xl bg-white/80 px-3 py-2 text-xs leading-5 text-emerald-800">
+                            <span className="font-black">第 {index + 1} 段通勤：</span>
+                            {segment.from} → {segment.to} · {segment.minutes ?? '-'} 分钟 · {segment.meters ?? '-'} 米 ·
+                            {segment.source === 'commute_edge'
+                              ? ` 通勤库${segment.provider ? ` / ${segment.provider}` : ''}${segment.mode ? ` / ${segment.mode}` : ''}`
+                              : ' 坐标估算回退'}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {naturalLanguageExplanation ? (
+                    <div className="mt-4 rounded-2xl border border-[#ead9c5] bg-[#fffaf3] p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#b75f38]">MiniMax 解释</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">{naturalLanguageExplanation}</p>
+                    </div>
+                  ) : null}
+
+                  {planningAdvice ? (
+                    <div className="mt-4 rounded-2xl border border-[#d7e7f7] bg-[#f3f8ff] p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">规划调度建议</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-700">{planningAdvice.user_facing_reason}</p>
+                        </div>
+                        <span className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-blue-700">
+                          {planningAdvice.source === 'minimax' ? 'MiniMax 生效' : 'Wiki-local 兜底'}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-blue-800">
+                        {planningAdvice.max_total_pois ? <span className="rounded-full bg-white px-3 py-1">POI 上限 {planningAdvice.max_total_pois}</span> : null}
+                        {planningAdvice.pace ? <span className="rounded-full bg-white px-3 py-1">节奏 {planningAdvice.pace}</span> : null}
+                        {planningAdvice.walk_preference ? <span className="rounded-full bg-white px-3 py-1">步行 {planningAdvice.walk_preference}</span> : null}
+                        {planningAdvice.route_mode ? <span className="rounded-full bg-white px-3 py-1">模式 {planningAdvice.route_mode}</span> : null}
+                      </div>
+                      {Array.isArray(planningAdvice.candidate_strategy_notes) && planningAdvice.candidate_strategy_notes.length > 0 ? (
+                        <p className="mt-3 text-xs leading-5 text-slate-600">{planningAdvice.candidate_strategy_notes.slice(0, 3).join('；')}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {routeDraft ? (
+                    <div className="mt-4 rounded-2xl border border-[#d8d4ff] bg-[#f7f5ff] p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">MiniMax RouteDraft</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-700">{routeDraft.preference_reasoning || '模型从候选 POI 中生成结构化路线草案，后端负责校验与修复。'}</p>
+                        </div>
+                        <span className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-indigo-700">
+                          {routeDraft.draft_source === 'minimax' ? 'MiniMax 选点' : '规则兜底选点'}
+                        </span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-indigo-800">
+                        <span className="rounded-full bg-white px-3 py-1">Validator {validatorResult?.status || '-'}</span>
+                        <span className="rounded-full bg-white px-3 py-1">POI {Array.isArray(routeDraft.ordered_poi_ids) ? routeDraft.ordered_poi_ids.length : 0}</span>
+                        <span className="rounded-full bg-white px-3 py-1">Fit {routeDraft.estimated_fit ?? '-'}</span>
+                        <span className="rounded-full bg-white px-3 py-1">{routeDraft.llm_used ? 'LLM used' : routeDraft.llm_attempted ? 'LLM attempted' : 'LLM fallback'}</span>
+                      </div>
+                      {routeDraft.fallback_reason ? (
+                        <p className="mt-3 text-xs leading-5 text-indigo-700">Fallback reason: {routeDraft.fallback_reason}</p>
+                      ) : null}
+                      {repairActions.length > 0 ? (
+                        <p className="mt-3 text-xs leading-5 text-slate-600">修复动作：{repairActions.slice(0, 3).join('；')}</p>
+                      ) : null}
+                      {Array.isArray(routeDraft.known_risks) && routeDraft.known_risks.length > 0 ? (
+                        <p className="mt-2 text-xs leading-5 text-amber-700">Draft 风险：{routeDraft.known_risks.slice(0, 2).join('；')}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {wikiHits.length > 0 ? (
+                    <div className="mt-4 rounded-2xl border border-[#d9eadf] bg-[#f3fbf5] p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Obsidian Wiki 证据</p>
+                      <p className="mt-1 text-xs text-emerald-700">{planning.wiki_retrieval?.vault_path || 'travel-data/wiki'}</p>
+                      <div className="mt-3 space-y-2">
+                        {wikiHits.map((hit: Record<string, any>, index: number) => (
+                          <div key={`${hit.path ?? hit.title}-${index}`} className="rounded-xl bg-white/80 px-3 py-2 text-xs text-slate-700">
+                            <span className="font-black">{hit.title}</span>
+                            <span className="ml-2 text-slate-500">{hit.type} · score {hit.score}</span>
+                            <p className="mt-1 line-clamp-2">{hit.snippet}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {hasRouteDiff ? (
                     <div className="mt-5 rounded-2xl border border-[#f1d2bf] bg-[#fff6ed] p-4">
@@ -673,32 +849,50 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
                   ) : null}
 
                   <div className="mt-6 space-y-4">
-                    {stops.map((stop: Record<string, any>, index: number) => (
-                      <div key={`${stop.poi_id ?? stop.name}-${index}`} className="relative rounded-2xl border border-[#efe2cf] bg-[#fffaf3] p-4">
-                        {index < stops.length - 1 ? <div className="absolute left-[31px] top-14 h-[calc(100%-2rem)] w-px bg-[#e5d4bd]" /> : null}
-                        <div className="flex gap-4">
-                          <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e77b55] font-black text-white shadow-sm">{index + 1}</div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="font-black text-slate-950">{stop.name}</h3>
-                                <StopBadge stop={stop} />
+                    {stops.map((stop: Record<string, any>, index: number) => {
+                      const nextStop = stops[index + 1] as Record<string, any> | undefined;
+                      return (
+                        <div key={`${stop.poi_id ?? stop.name}-${index}`}>
+                          <div className="relative rounded-2xl border border-[#efe2cf] bg-[#fffaf3] p-4">
+                            {index < stops.length - 1 ? <div className="absolute left-[31px] top-14 h-[calc(100%+2rem)] w-px bg-[#e5d4bd]" /> : null}
+                            <div className="flex gap-4">
+                              <div className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e77b55] font-black text-white shadow-sm">{index + 1}</div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="font-black text-slate-950">{stop.name}</h3>
+                                    <StopBadge stop={stop} />
+                                  </div>
+                                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                                    {stop.arrival_time} - {stop.departure_time}
+                                  </span>
+                                </div>
+                                <p className="mt-2 text-sm leading-5 text-slate-600">{stop.recommendation_reason}</p>
+                                {stop.opening_hours_note ? <p className="mt-2 text-xs text-slate-500">{stop.opening_hours_note}</p> : null}
+                                {reasonFor(stop.poi_id) ? (
+                                  <p className="mt-2 rounded-xl bg-white/75 px-3 py-2 text-xs leading-5 text-[#98502f]">
+                                    入选原因：{reasonFor(stop.poi_id)}
+                                  </p>
+                                ) : null}
                               </div>
-                              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                                {stop.arrival_time} - {stop.departure_time}
-                              </span>
                             </div>
-                            <p className="mt-2 text-sm leading-5 text-slate-600">{stop.recommendation_reason}</p>
-                            {stop.opening_hours_note ? <p className="mt-2 text-xs text-slate-500">{stop.opening_hours_note}</p> : null}
-                            {reasonFor(stop.poi_id) ? (
-                              <p className="mt-2 rounded-xl bg-white/75 px-3 py-2 text-xs leading-5 text-[#98502f]">
-                                入选原因：{reasonFor(stop.poi_id)}
-                              </p>
-                            ) : null}
                           </div>
+
+                          {nextStop ? (
+                            <div className="relative my-3 ml-[20px] flex items-center gap-3 pl-10">
+                              <div className="absolute left-[11px] top-1/2 h-px w-7 bg-[#e5d4bd]" />
+                              <div className={`relative z-10 inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm ${transferSourceTone(nextStop)}`}>
+                                <span>通勤</span>
+                                <span>{stop.name} → {nextStop.name}</span>
+                                <span>· {nextStop.transfer_from_previous_minutes ?? '-'} 分钟</span>
+                                <span>· {nextStop.transfer_from_previous_meters ?? '-'} 米</span>
+                                <span>· {transferSourceLabel(nextStop)}</span>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -710,7 +904,7 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">{agentTrace.length} 步</span>
                       </div>
                       <div className="mt-4 space-y-3">
-                        {agentTrace.slice(0, 6).map((entry: Record<string, any>, index: number) => (
+                        {agentTrace.slice(0, 8).map((entry: Record<string, any>, index: number) => (
                           <div key={`${entry.agent_key ?? 'agent'}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">{entry.agent_key || `agent_${index + 1}`}</p>

@@ -139,14 +139,45 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
     lines.push('');
   }
 
+  if (planning.natural_language_explanation) {
+    lines.push('## MiniMax 解释', String(planning.natural_language_explanation), '');
+  }
+
+  if (planning.llm_rerank) {
+    lines.push(
+      '## MiniMax 重排',
+      `- 是否生效：${planning.llm_rerank.llm_used ? '是' : '否'}`,
+      `- 主推方案：${planning.final_selected_proposal_id ?? planning.llm_rerank.primary_proposal_id ?? '-'}`,
+      `- 模型：${planning.llm_rerank.model ?? '-'}`,
+      `- 耗时：${planning.llm_rerank.elapsed_ms ?? 0} ms`,
+      planning.llm_rerank.fallback_reason ? `- 降级原因：${planning.llm_rerank.fallback_reason}` : '- 降级原因：无',
+      '',
+    );
+  }
+
+  if (planning.wiki_retrieval) {
+    const hits = Array.isArray(planning.wiki_retrieval.hits) ? planning.wiki_retrieval.hits.slice(0, 5) : [];
+    lines.push(
+      '## 知识库证据',
+      `- Obsidian Vault：${planning.wiki_retrieval.vault_path || 'travel-data/wiki'}`,
+      `- 命中页面数：${hits.length}`,
+      ...hits.map((hit: Record<string, any>) => `- ${hit.title || '-'}（${hit.type || '-'}，score=${hit.score ?? '-'}，${hit.path || '-'}）`),
+      '',
+    );
+  }
+
   proposals.forEach((proposal: Record<string, any>, index: number) => {
     const names = Array.isArray(proposal.ordered_poi_names) ? proposal.ordered_poi_names.join(' -> ') : '暂无候选 POI';
     const risks = Array.isArray(proposal.risks) && proposal.risks.length > 0 ? proposal.risks.slice(0, 2).join('；') : '未发现硬约束风险';
+    const transferSummary = proposal.transfer_source_summary || proposal.quality_summary?.commute || {};
+    const commuteEdgesUsed = Number(transferSummary.commute_edges_used || 0);
+    const coordinateEstimatesUsed = Number(transferSummary.coordinate_estimates_used || 0);
     lines.push(
       `## 方案 ${index + 1}：${proposal.display_title || proposal.title || proposal.strategy || '路线方案'}`,
       `- 预计总时长：${proposal.total_route_duration_min ?? '-'} 分钟`,
       `- 预计预算：${proposal.total_budget_estimate ?? '-'} 元`,
       `- 预计转移/步行：${proposal.total_transfer_minutes ?? '-'} 分钟，${proposal.total_walking_distance_m ?? '-'} 米`,
+      `- 通勤来源：${commuteEdgesUsed} 段通勤库，${coordinateEstimatesUsed} 段坐标回退`,
       `- 路线：${names}`,
       `- 风险：${risks}`,
       '',
@@ -157,7 +188,8 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
     '结果文件：data_file/final/itinerary-data.json',
     '证据文件：evidence/sources.json、evidence/data_quality.json',
     'Trace 文件：.travelpilot/agent-trace.json、.travelpilot/session-state.json',
-    '说明：排队、距离和转移时间均来自本地 POI/UGC 静态数据估算，不是实时导航结果。',
+    `数据库召回：${planning.generation_metrics?.database_recall_used ? '已执行白名单 SQL 召回' : '未执行数据库召回'}`,
+    '说明：转移时间优先来自 travel_commute_edges 通勤库，缺失路段回退坐标估算；排队风险来自本地 UGC 静态信号，不是实时导航结果。',
   );
   return lines.join('\n');
 }
@@ -242,7 +274,7 @@ async function writeTravelPlanArtifacts(params: {
           generationMetrics: planning.generation_metrics || null,
           limitations: [
             '未接入实时地图、实时排队或外部点评 API。',
-            '距离、转移时间、排队风险均为本地静态数据估算。',
+            '转移时间优先来自 travel_commute_edges 通勤库，缺失路段回退坐标估算；排队风险为本地静态信号。',
           ],
         },
         null,
@@ -338,7 +370,7 @@ async function saveTravelMessages(params: {
 
 function buildImagePreferenceText(images: unknown[]): string {
   if (images.length === 0) return '';
-  return `\n\n用户上传了 ${images.length} 张图片附件；当前旅游 Agent 只把图片作为偏好补充线索，不做股票持仓截图识别。`;
+  return `\n\n用户上传了 ${images.length} 张图片附件；当前旅游 Agent 会把图片作为出行偏好、目的地或风格线索。`;
 }
 
 export async function POST(request: NextRequest, { params }: RouteContext) {

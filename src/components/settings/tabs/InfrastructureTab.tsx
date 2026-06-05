@@ -6,8 +6,7 @@ interface InfrastructureHealth {
   provider: string;
   databaseUrl: string;
   connected: boolean;
-  timescale: { enabled: boolean; version: string | null };
-  quantSchema: { tables: string[] };
+  travelTables: string[];
   docker: {
     available: boolean;
     running: boolean;
@@ -19,19 +18,19 @@ interface InfrastructureHealth {
 
 const INFRASTRUCTURE_RECOMMENDATIONS = [
   {
-    name: "Redis",
-    stage: "建议下一阶段",
-    description: "承载评测、策略扫描、生成任务的队列、缓存和分布式锁，替代内存状态。",
-  },
-  {
     name: "对象存储",
     stage: "产物规模上来后",
-    description: "保存截图、回测报告、原始行情文件和大 JSON，数据库只保留索引与摘要。",
+    description: "保存截图、导出文件、大 JSON 和采集日志，数据库只保留索引与摘要。",
   },
   {
-    name: "ClickHouse",
-    stage: "暂不引入",
-    description: "只有 tick、盘口快照和多维研究分析达到很大规模时再接入。",
+    name: "任务队列",
+    stage: "多用户并发后",
+    description: "承载高德补全、Wiki 构建、路线批量评估等耗时任务。",
+  },
+  {
+    name: "缓存层",
+    stage: "性能优化阶段",
+    description: "缓存常用 POI、区域选项、路线候选和 UGC 聚合结果。",
   },
 ];
 
@@ -63,7 +62,7 @@ function InfrastructureTab({
         <div>
           <h3 className="text-lg font-medium text-slate-900">基础组件配置</h3>
           <p className="mt-1 text-sm text-slate-600">
-            管理 QuantPilot 本地开发依赖的数据库、时序扩展和后续基础设施入口。
+            管理北京旅游 Agent 本地开发依赖的 PostgreSQL、旅游数据表和后续基础设施入口。
           </p>
         </div>
         <button
@@ -94,15 +93,13 @@ function InfrastructureTab({
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
             <FaServer className="text-slate-400" />
-            时序扩展
+            旅游数据表
           </div>
           <p className="mt-2 text-lg font-semibold text-slate-900">
-            {infrastructure?.timescale.enabled ? "TimescaleDB" : "未启用"}
+            {infrastructure?.travelTables.length ?? 0} 张
           </p>
           <p className="mt-1 text-sm text-slate-600">
-            {infrastructure?.timescale.version
-              ? `版本 ${infrastructure.timescale.version}`
-              : "用于股票 K 线、因子和信号"}
+            通勤边、Wiki 文档和检索分块
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -111,7 +108,7 @@ function InfrastructureTab({
             {infrastructure?.docker.running ? "运行中" : "未运行"}
           </p>
           <p className="mt-1 text-sm text-slate-600">
-            {infrastructure?.docker.service?.status ?? "timescaledb compose 服务"}
+            {infrastructure?.docker.service?.status ?? "postgres compose 服务"}
           </p>
         </div>
       </div>
@@ -132,10 +129,10 @@ function InfrastructureTab({
             </p>
           </div>
           <div className="rounded-lg bg-slate-50 p-3">
-            <p className="text-xs font-medium text-slate-500">量化时序表</p>
+            <p className="text-xs font-medium text-slate-500">旅游数据表</p>
             <p className="mt-1 text-sm text-slate-700">
-              {infrastructure?.quantSchema.tables.length
-                ? infrastructure.quantSchema.tables.map((t) => `quant.${t}`).join("、")
+              {infrastructure?.travelTables.length
+                ? infrastructure.travelTables.join("、")
                 : "尚未初始化"}
             </p>
           </div>

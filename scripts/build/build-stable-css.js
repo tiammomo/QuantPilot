@@ -16,7 +16,7 @@ const autoprefixer = require('autoprefixer');
 
 const rootDir = path.join(__dirname, '..', '..');
 const inputPath = path.join(rootDir, 'src', 'app', 'globals.css');
-const outputPath = path.join(rootDir, 'public', 'generated', 'quantpilot-tailwind.css');
+const outputPath = path.join(rootDir, 'public', 'generated', 'travel-agent-tailwind.css');
 
 async function inlineLocalCssImports(css, fromFile) {
   const localImportPattern = /^@import\s+['"](\.{1,2}\/[^'"]+\.css)['"];\s*$/gm;
