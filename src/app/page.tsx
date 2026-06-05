@@ -3,17 +3,15 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import {
-  Boxes,
+  ArrowUp,
+  Bot,
   CheckCircle2,
-  Clock3,
   Compass,
-  MapPin,
-  Menu,
+  Edit3,
   ShieldCheck,
   Sparkles,
   XCircle,
 } from "lucide-react";
-import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
 import { getDefaultModelForCli, getModelDisplayName } from "@/lib/constants/cliModels";
 import {
@@ -27,15 +25,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Sidebar, ROLE_MODULES } from "@/components/layout/Sidebar";
-import { TaskDrawer } from "@/components/task/TaskDrawer";
-import { CreateTaskForm } from "@/components/task/CreateTaskForm";
+import { ROLE_MODULES } from "@/components/layout/Sidebar";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
 import type { Project as ProjectSummary } from "@/types/project";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 import {
-  ACTIVE_CLI_BRAND_COLORS,
   ACTIVE_CLI_MODEL_OPTIONS,
   ACTIVE_CLI_OPTIONS,
   ACTIVE_CLI_OPTIONS_MAP,
@@ -54,13 +49,11 @@ const fetchAPI = globalThis.fetch || fetch;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name }) => ({ id, name }));
-const assistantBrandColors = ACTIVE_CLI_BRAND_COLORS;
 const MODEL_OPTIONS_BY_ASSISTANT = ACTIVE_CLI_MODEL_OPTIONS;
 
 export default function HomePage() {
   // --- State ---
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectSummary | null>(null);
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
@@ -127,15 +120,13 @@ export default function HomePage() {
   const [selectedCapability, setSelectedCapability] =
     useState<TravelCapabilityId>(DEFAULT_TRAVEL_CAPABILITY_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [cliStatus, setCLIStatus] = useState<CLIStatus>(() =>
     createCliStatusFallback()
   );
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [homeInputMode, setHomeInputMode] = useState<"chat" | "form">("form");
+  const [homeInputMode, setHomeInputMode] = useState<"chat" | "form">("chat");
   const [tripForm, setTripForm] = useState({
     area: "前门",
     duration: "4小时",
@@ -151,47 +142,17 @@ export default function HomePage() {
 
   const availableModels =
     MODEL_OPTIONS_BY_ASSISTANT[selectedAssistant] || [];
-  const selectedModelLabel =
-    availableModels.find((m) => m.id === selectedModel)?.name ??
-    getModelDisplayName(selectedAssistant, selectedModel);
   const selectedRoleModule =
     ROLE_MODULES.find((r) => r.capabilityId === selectedCapability) ??
     ROLE_MODULES[0];
-  const runningProjects = projects.filter(
-    (p) => p.previewUrl || p.status === "running"
-  ).length;
-  const isNightMode = false;
-  const homeTheme = {
-    header: isNightMode
-      ? "border-[#3a261d] bg-[#120b08]/92 text-[#fff7ea]"
-      : "border-[#ead8c3] bg-[#fffaf2]/95 text-[#24140f]",
-    headerTitle: isNightMode ? "text-[#fff7ea]" : "text-[#24140f]",
-    headerMeta: isNightMode ? "text-[#f6d8b6]/80" : "text-muted-foreground",
-    main: isNightMode
-      ? "bg-[#120b08]"
-      : "bg-[#f7efe3]",
-    heroCard: isNightMode
-      ? "border-[#f3c178]/28 bg-[#fff8ec]/96 shadow-[0_36px_120px_rgba(0,0,0,0.58)]"
-      : "border-[#e0c39d] bg-[#fffdf8]/96 shadow-[0_32px_90px_rgba(123,77,35,0.18)]",
-    eyebrow: isNightMode
-      ? "border-[#f0c06f] bg-[#28150f] text-[#ffe8bd]"
-      : "border-[#d9b27d] bg-[#fff2dc] text-[#8d2e1d]",
-    title: "text-[#24140f]",
-    subtitle: "text-[#3c2a20]",
-    chip: isNightMode
-      ? "border-[#e9c48b] bg-[#fffaf2] text-[#3b261a]"
-      : "border-[#e3ccb2] bg-white text-[#4e3729]",
-    card: isNightMode
-      ? "border-[#e9c48b] bg-[#fffaf2] text-[#3b261a]"
-      : "border-[#e3ccb2] bg-white text-[#4e3729]",
-    recentButton: isNightMode
-      ? "border-[#e9c48b] bg-[#fffaf2] text-[#3b261a] hover:border-[#b73522]/50 hover:bg-[#fff4e6] hover:text-[#b73522]"
-      : "border-[#e3ccb2] bg-white text-[#4e3729] hover:border-[#b73522]/40 hover:bg-[#fff4e6] hover:text-[#b73522]",
-    inputWrap: isNightMode
-      ? "border-[#f2bf72] bg-[#6f2418] shadow-[0_28px_90px_rgba(111,36,24,0.36)]"
-      : "border-[#c99863] bg-[#b73522] shadow-[0_28px_80px_rgba(141,46,29,0.22)]",
-  };
-  const planningModes = ["自由对话", "约束规划", "多轮重排", "本地证据"];
+  const scenicImages = [
+    "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?auto=format&fit=crop&w=1600&q=80",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/1/17/Beijing_China_Forbidden-City-01.jpg/1280px-Beijing_China_Forbidden-City-01.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/20200110_Temple_of_Heaven-13.jpg/1280px-20200110_Temple_of_Heaven-13.jpg",
+    "https://images.unsplash.com/photo-1510332981392-36692ea3a195?auto=format&fit=crop&w=1200&q=90",
+  ];
+  const formFieldClass =
+    "h-12 w-full rounded-[1.35rem] border border-white/60 bg-white/40 px-4 text-sm font-semibold text-neutral-800 outline-none transition focus:border-white focus:bg-white/65 focus:ring-2 focus:ring-white/70";
   const areaOptions = [
     "前门",
     "故宫",
@@ -206,31 +167,11 @@ export default function HomePage() {
     "三里屯",
     "798",
   ];
-  const quickPrompts = [
-    "前门附近玩4小时，中午吃饭，预算200以内，少走路",
-    "故宫附近安排4小时文化路线，少走路，不吃饭",
-    "带老人去北海附近玩4小时，中午安排吃饭",
-    "情侣在故宫附近玩4小时，想浪漫一点",
-  ];
-  const trustBadges = [
-    { value: "本地 POI", label: "不依赖外部地图 API" },
-    { value: "UGC 证据", label: "排队/性价比/环境可解释" },
-    { value: "6 Agent", label: "意图、检索、证据、规划、校验" },
-    { value: "多轮调整", label: "新增、删除、替换地点" },
-  ];
-  const featureCards = [
-    {
-      title: "一句话生成路线",
-      text: "输入区域、时长、预算和偏好，自动串联多个北京 POI。",
-    },
-    {
-      title: "像聊天一样重规划",
-      text: "支持保留原路线，只局部新增、删除或替换目标地点。",
-    },
-    {
-      title: "证据驱动推荐",
-      text: "展示 UGC 排队、性价比、餐饮适配和风险提示。",
-    },
+  const preferenceOptions = ["少走路", "不想排队", "经典文化", "亲子友好", "室内优先"];
+  const quickSamples = [
+    "前门附近4小时，中午吃饭，预算200以内",
+    "故宫附近文化路线，少走路，不吃饭",
+    "带老人去北海附近，中午安排吃饭",
   ];
 
   const toggleTripPreference = (preference: string) => {
@@ -247,7 +188,7 @@ export default function HomePage() {
       tripForm.preferences.length > 0
         ? `，偏好${tripForm.preferences.join("、")}`
         : "";
-    return `${tripForm.area || "北京"}附近游玩${tripForm.duration || "4小时"}，${tripForm.meal}，预算${tripForm.budget || "200"}以内，同行人群${tripForm.persona}${preferenceText}`;
+    return `${tripForm.area || "北京"}附近游玩${tripForm.duration || "4小时"}，${tripForm.meal}，预算${tripForm.budget || "200"}以内，同行人群${tripForm.persona}，采用${selectedRoleModule.name}能力${preferenceText}`;
   };
 
   // --- Session persistence ---
@@ -596,168 +537,96 @@ export default function HomePage() {
 
   // --- Render ---
   return (
-    <div className="relative flex h-screen overflow-hidden bg-background text-foreground">
-      <div className="relative z-10 flex h-full w-full">
-        {/* Desktop sidebar */}
-        <div className="hidden lg:block">
-          <Sidebar
-            selectedCapability={selectedCapability}
-            onSelectCapability={setSelectedCapability}
-            onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
-            onShowSettings={() => setShowGlobalSettings(true)}
-          />
-        </div>
-
-        {/* Mobile sidebar overlay */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/20 lg:hidden"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <div className="h-full" onClick={(e) => e.stopPropagation()}>
-              <Sidebar
-                selectedCapability={selectedCapability}
-                onSelectCapability={setSelectedCapability}
-                onOpenTaskDrawer={() => setTaskDrawerOpen(true)}
-                onShowSettings={() => setShowGlobalSettings(true)}
-                isMobile
-                onCloseMobile={() => setSidebarOpen(false)}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Main content */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* Top bar */}
-          <header className={`flex h-16 shrink-0 items-center justify-between border-b px-4 backdrop-blur md:px-6 ${homeTheme.header}`}>
-            <div className="flex min-w-0 items-center gap-3">
-              <Button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                size="icon"
-                variant="ghost"
-                className="lg:hidden"
-                aria-label="打开任务记录"
+    <div className="relative min-h-screen overflow-hidden bg-slate-50 text-foreground">
+      <main className="relative flex min-h-screen flex-col overflow-y-auto">
+            <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-slate-50">
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-100 to-white opacity-50" />
+              <div
+                className="travel-photo-left absolute -left-28 top-64 h-[720px] w-[900px] overflow-hidden border-[7px] border-white bg-white shadow-2xl"
+                style={{ transform: "rotate(-8.5deg) translateY(58px)" }}
               >
-                <Menu className="h-5 w-5" />
-              </Button>
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#b73522] text-base font-black text-white shadow-[0_10px_24px_rgba(183,53,34,0.28)]">
-                京
+                <img
+                  src={scenicImages[0]}
+                  alt=""
+                  className="h-full w-full object-cover saturate-150 contrast-115 brightness-105"
+                />
               </div>
-              <div className="min-w-0">
-                <h1 className={`truncate text-base font-black tracking-tight md:text-lg ${homeTheme.headerTitle}`}>
-                  北京旅游 Agent
-                </h1>
-                <div className={`mt-0.5 hidden items-center gap-2 text-xs md:flex ${homeTheme.headerMeta}`}>
-                  <span>任务 {projects.length}</span>
-                  <span className="text-[#c9ad8f]">/</span>
-                  <span>运行中 {runningProjects}</span>
-                  <span className="text-[#c9ad8f]">/</span>
-                  <span>{selectedModelLabel}</span>
-                </div>
+              <div
+                className="travel-photo-right absolute right-12 top-12 h-[410px] w-[520px] overflow-hidden border-[7px] border-white bg-white shadow-2xl"
+                style={{ transform: "rotate(10deg) translateY(20px)" }}
+              >
+                <img
+                  src={scenicImages[1]}
+                  alt=""
+                  className="h-full w-full object-cover saturate-150 contrast-115 brightness-105"
+                />
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                onClick={() => router.push("/data-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
+              <div
+                className="travel-photo-temple absolute -right-28 bottom-10 h-[330px] w-[500px] overflow-hidden border-[7px] border-white bg-white shadow-2xl"
+                style={{ transform: "rotate(-4deg)" }}
               >
-                <Clock3 className="h-4 w-4" />
-                路线方案
-              </Button>
-              <Button
-                type="button"
-                onClick={() => router.push("/data-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
+                <img
+                  src={scenicImages[2]}
+                  alt=""
+                  className="h-full w-full object-cover saturate-150 contrast-115 brightness-105"
+                />
+              </div>
+              <div
+                className="travel-photo-small absolute left-[38%] top-40 h-[250px] w-[380px] overflow-hidden border-[6px] border-white bg-white shadow-xl"
+                style={{ transform: "rotate(-6deg)" }}
               >
-                <ShieldCheck className="h-4 w-4" />
-                运行观测
-              </Button>
-              <Button
-                type="button"
-                onClick={() => router.push("/data-platform")}
-                variant="ghost"
-                className="inline-flex gap-1.5 px-2 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm"
-              >
-                <Boxes className="h-4 w-4" />
-                POI 数据
-              </Button>
-            </div>
-          </header>
-
-          {/* Main area */}
-          <main className="relative flex flex-1 flex-col items-center overflow-y-auto bg-[linear-gradient(135deg,#7c3aed_0%,#a855f7_45%,#ec4899_100%)] px-4 py-10 md:justify-center md:py-8">
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_16%,rgba(255,255,255,0.28),transparent_28%),radial-gradient(circle_at_78%_22%,rgba(255,255,255,0.18),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0))]" />
-              <div className="absolute -left-24 top-20 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
-              <div className="absolute bottom-8 right-10 h-96 w-96 rounded-full bg-[#ffccf2]/20 blur-3xl" />
-              <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-white/12 to-transparent" />
+                <img
+                  src={scenicImages[3]}
+                  alt=""
+                  className="h-full w-full object-cover saturate-150 contrast-115 brightness-105"
+                />
+              </div>
+              <div className="absolute inset-0 bg-white/5 mix-blend-overlay" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),rgba(248,250,252,0.36)_54%,rgba(248,250,252,0.72)_100%)]" />
             </div>
 
-            <section className="relative z-10 flex w-full max-w-5xl flex-col items-center px-2 text-center">
-              <div className="text-white">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-4 py-2 text-sm font-black text-white shadow-sm backdrop-blur">
-                  <Compass className="h-4 w-4" />
-                  北京本地 POI / UGC 智能路线规划
-                </div>
-                <h2 className="mt-7 text-4xl font-black leading-tight tracking-tight md:text-6xl">
-                  30 秒生成你的北京旅行计划
+            <section className="relative z-10 pt-20 pb-6 lg:pt-28 lg:pb-8">
+              <div className="mx-auto flex w-full max-w-3xl flex-col items-center px-4 text-center">
+                <h2 className="mb-4 text-4xl font-black leading-[0.98] tracking-tight text-neutral-900 drop-shadow-sm sm:text-5xl lg:text-6xl">
+                  把北京的一天，排成想出发的路线
                 </h2>
-                <p className="mx-auto mt-4 max-w-2xl text-base font-semibold leading-8 text-white/82 md:text-lg">
-                  输入区域、时长、预算、餐饮和排队偏好，自动生成可执行路线，并支持多轮动态调整。
+                <p className="mb-8 max-w-2xl text-lg font-semibold leading-8 text-neutral-700 drop-shadow-sm">
+                  从红墙金瓦到胡同烟火，按你的时间、预算和脚力，拼出一条真正走得动、吃得好、少踩坑的北京计划。
                 </p>
-                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <div className="mx-auto flex w-fit items-center justify-center rounded-full border border-white/50 bg-white/40 p-1.5 text-xs font-black uppercase tracking-[0.15em] shadow-sm backdrop-blur-md">
                   {[
-                    { icon: MapPin, label: "本地 POI" },
-                    { icon: Sparkles, label: "多 Agent" },
-                    { icon: ShieldCheck, label: "约束校验" },
-                  ].map(({ icon: Icon, label }) => (
-                    <div
-                      key={label}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-4 py-2 text-sm font-black text-white backdrop-blur"
-                    >
-                      <Icon className="h-4 w-4" />
-                      {label}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-9 w-full max-w-4xl rounded-[2rem] border border-white/70 bg-[#f7efff]/95 p-7 shadow-[0_34px_100px_rgba(73,20,130,0.2)] backdrop-blur-xl">
-                <div className="mb-5 flex flex-wrap justify-center gap-2 rounded-2xl bg-white/40 p-2 text-sm font-black">
-                  {[
-                    { label: "自由对话", value: "chat" as const },
-                    { label: "表单模式", value: "form" as const },
-                    { label: "多轮调整", value: "chat" as const },
+                    { label: "AI 对话", value: "chat" as const, icon: Bot },
+                    { label: "表单填写", value: "form" as const, icon: Edit3 },
                   ].map((mode) => {
                     const active = homeInputMode === mode.value;
+                    const Icon = mode.icon;
                     return (
                       <button
                         key={mode.label}
                         type="button"
                         onClick={() => setHomeInputMode(mode.value)}
-                        className={`rounded-xl px-5 py-2.5 transition ${
+                        style={active ? { backgroundColor: "#211e1a" } : undefined}
+                        className={`relative z-10 flex items-center gap-2 rounded-full px-6 py-2.5 transition-all duration-300 ${
                           active
-                            ? "bg-white text-[#6d28d9] shadow-[0_8px_22px_rgba(109,40,217,0.14)]"
-                            : "text-[#8f859d] hover:bg-white/60 hover:text-[#6d28d9]"
+                            ? "bg-neutral-900 text-white shadow-md"
+                            : "text-neutral-700 hover:bg-white/50 hover:text-neutral-950"
                         }`}
                       >
+                        <Icon className="h-4 w-4" />
                         {mode.label}
                       </button>
                     );
                   })}
                 </div>
+              </div>
+            </section>
+
+            <section className="relative z-10 pb-24">
+              <div className="mx-auto w-full max-w-6xl px-4">
+              <div className="travel-glass-panel w-full rounded-[3rem] border border-white/40 bg-white/60 p-6 shadow-2xl shadow-black/5 backdrop-blur-xl md:p-10">
                 {homeInputMode === "form" && (
-                <div className="mb-4 rounded-[1.5rem] border border-[#dfe5ee] bg-white p-5 text-left shadow-[0_12px_30px_rgba(38,30,77,0.08)]">
-                  <div className="mb-4 flex items-center gap-2 text-lg font-black text-[#252033]">
-                    <Sparkles className="h-4 w-4 text-[#8b5cf6]" />
-                    快速填写旅行需求
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-4">
+                <div className="text-left">
+                  <div className="mb-10 grid gap-6 md:grid-cols-2">
                     <label className="space-y-2 text-sm font-semibold text-[#4b5563]">
                       目标游玩区域
                       <select
@@ -768,7 +637,7 @@ export default function HomePage() {
                             area: event.target.value,
                           }))
                         }
-                        className="h-12 w-full rounded-xl border border-[#d9e1ec] bg-white px-4 text-sm font-semibold text-[#334155] outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15"
+                        className={formFieldClass}
                       >
                         {areaOptions.map((item) => (
                           <option key={item} value={item}>
@@ -777,60 +646,6 @@ export default function HomePage() {
                         ))}
                       </select>
                     </label>
-                    <label className="space-y-2 text-sm font-semibold text-[#4b5563]">
-                      游玩时长
-                      <select
-                        value={tripForm.duration}
-                        onChange={(event) =>
-                          setTripForm((current) => ({
-                            ...current,
-                            duration: event.target.value,
-                          }))
-                        }
-                        className="h-12 w-full rounded-xl border border-[#d9e1ec] bg-white px-4 text-sm font-semibold text-[#334155] outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15"
-                      >
-                        {["3小时", "4小时", "半日", "1天", "2天", "3天"].map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-2 text-sm font-semibold text-[#4b5563]">
-                      预算
-                      <input
-                        value={tripForm.budget}
-                        onChange={(event) =>
-                          setTripForm((current) => ({
-                            ...current,
-                            budget: event.target.value,
-                          }))
-                        }
-                        className="h-12 w-full rounded-xl border border-[#d9e1ec] bg-white px-4 text-sm font-semibold text-[#334155] outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15"
-                        placeholder="如：200"
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm font-semibold text-[#4b5563]">
-                      同行人群
-                      <select
-                        value={tripForm.persona}
-                        onChange={(event) =>
-                          setTripForm((current) => ({
-                            ...current,
-                            persona: event.target.value,
-                          }))
-                        }
-                        className="h-12 w-full rounded-xl border border-[#d9e1ec] bg-white px-4 text-sm font-semibold text-[#334155] outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15"
-                      >
-                        {["朋友/情侣", "老人", "亲子", "独自出行"].map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="mt-3 grid gap-3">
                     <label className="space-y-2 text-sm font-semibold text-[#4b5563]">
                       餐饮需求
                       <select
@@ -841,7 +656,7 @@ export default function HomePage() {
                             meal: event.target.value,
                           }))
                         }
-                        className="h-12 w-full rounded-xl border border-[#d9e1ec] bg-white px-4 text-sm font-semibold text-[#334155] outline-none transition focus:border-[#8b5cf6] focus:ring-2 focus:ring-[#8b5cf6]/15"
+                        className={formFieldClass}
                       >
                         {["中午吃饭", "不吃饭", "想喝咖啡", "安排下午茶", "晚上吃饭"].map((item) => (
                           <option key={item} value={item}>
@@ -851,367 +666,253 @@ export default function HomePage() {
                       </select>
                     </label>
                   </div>
-                  <div className="mt-4 grid gap-3 border-t border-[#edf1f7] pt-4 md:grid-cols-[1fr_auto]">
+
+                  <div className="mb-10">
+                    <div className="mb-5 flex items-center justify-between">
+                      <label className="text-sm font-black uppercase tracking-[0.1em] text-neutral-900">
+                        游玩时长
+                      </label>
+                      <span className="rounded-full bg-neutral-900 px-3 py-1 text-xs font-black uppercase tracking-wider text-white shadow-md">
+                        {tripForm.duration}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 md:grid-cols-6">
+                      {["3小时", "4小时", "半日", "1天", "2天", "3天"].map((item) => {
+                        const active = tripForm.duration === item;
+                        return (
+                          <button
+                            key={item}
+                            type="button"
+                            style={
+                              active
+                                ? {
+                                    backgroundColor: "#211e1a",
+                                    borderColor: "#211e1a",
+                                    color: "#ffffff",
+                                  }
+                                : undefined
+                            }
+                            onClick={() =>
+                              setTripForm((current) => ({
+                                ...current,
+                                duration: item,
+                              }))
+                            }
+                            className={`rounded-full border px-4 py-2.5 text-sm font-black transition ${
+                              active
+                                ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                : "border-white/70 bg-white/65 text-neutral-950 hover:bg-white"
+                            }`}
+                          >
+                            {item}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mb-10 grid gap-6 md:grid-cols-2">
                     <div>
-                      <div className="mb-2 text-sm font-semibold text-[#4b5563]">
-                        兴趣偏好
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          { label: "少走路", icon: "🚶" },
-                          { label: "不想排队", icon: "⏱️" },
-                          { label: "经典文化", icon: "🏛️" },
-                          { label: "亲子友好", icon: "👨‍👩‍👧" },
-                          { label: "室内优先", icon: "🏠" },
-                        ].map((item) => {
-                          const label = item.label;
-                          const active = tripForm.preferences.includes(label);
+                      <label className="mb-4 block text-sm font-black uppercase tracking-[0.1em] text-neutral-900">
+                        同行人群
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {["朋友/情侣", "老人", "亲子", "独自出行"].map((item) => {
+                          const active = tripForm.persona === item;
                           return (
                             <button
-                              key={label}
+                              key={item}
                               type="button"
-                              onClick={() => toggleTripPreference(label)}
-                              aria-pressed={active}
-                              className={`rounded-full border px-4 py-2.5 text-sm font-bold transition ${
+                              style={
                                 active
-                                  ? "border-[#8ea2ff] bg-[#eef3ff] text-[#4f65d9] shadow-sm"
-                                  : "border-[#d9e1ec] bg-white text-[#475569] hover:border-[#b8c4d8] hover:bg-[#f8fbff]"
+                                  ? {
+                                      backgroundColor: "#211e1a",
+                                      borderColor: "#211e1a",
+                                      color: "#ffffff",
+                                    }
+                                  : undefined
+                              }
+                              onClick={() =>
+                                setTripForm((current) => ({
+                                  ...current,
+                                  persona: item,
+                                }))
+                              }
+                              className={`rounded-full border px-4 py-2.5 text-sm font-black transition ${
+                                active
+                                  ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                  : "border-white/70 bg-white/65 text-neutral-950 hover:bg-white"
                               }`}
                             >
-                              <span className="mr-1.5">{item.icon}</span>
-                              {label}
+                              {item}
                             </button>
                           );
                         })}
                       </div>
                     </div>
-                    <button
+
+                    <label className="space-y-4 text-sm font-black uppercase tracking-[0.1em] text-neutral-900">
+                      预算
+                      <input
+                        value={tripForm.budget}
+                        onChange={(event) =>
+                          setTripForm((current) => ({
+                            ...current,
+                            budget: event.target.value,
+                          }))
+                        }
+                        className={formFieldClass}
+                        placeholder="如：200"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mb-10">
+                    <label className="mb-4 block text-sm font-black uppercase tracking-[0.1em] text-neutral-900">
+                      北京旅游核心能力
+                    </label>
+                    <div className="flex flex-wrap gap-2.5">
+                      {ROLE_MODULES.map((role) => {
+                        const active = selectedCapability === role.capabilityId;
+                        return (
+                          <button
+                            key={role.id}
+                            type="button"
+                            style={
+                              active
+                                ? {
+                                    backgroundColor: "#211e1a",
+                                    borderColor: "#211e1a",
+                                    color: "#ffffff",
+                                  }
+                                : undefined
+                            }
+                            onClick={() => setSelectedCapability(role.capabilityId)}
+                            aria-pressed={active}
+                            className={`rounded-full border px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                              active
+                                ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                : "border-white/70 bg-white/65 text-neutral-950 hover:bg-white"
+                            }`}
+                          >
+                            {role.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mb-10">
+                    <label className="mb-4 block text-sm font-black uppercase tracking-[0.1em] text-neutral-900">
+                      兴趣偏好
+                    </label>
+                    <div className="flex flex-wrap gap-2.5">
+                      {preferenceOptions.map((label) => {
+                        const active = tripForm.preferences.includes(label);
+                        return (
+                          <button
+                            key={label}
+                            type="button"
+                            style={
+                              active
+                                ? {
+                                    backgroundColor: "#211e1a",
+                                    borderColor: "#211e1a",
+                                    color: "#ffffff",
+                                  }
+                                : undefined
+                            }
+                            onClick={() => toggleTripPreference(label)}
+                            aria-pressed={active}
+                            className={`rounded-full border px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                              active
+                                ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                : "border-white/70 bg-white/65 text-neutral-950 hover:bg-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <Button
                       type="button"
-                      onClick={() => {
-                        setPrompt(buildTripFormPrompt());
-                        setHomeInputMode("chat");
-                      }}
-                      className="self-end rounded-lg bg-[#8eacf6] px-8 py-3.5 text-sm font-black text-white shadow-[0_12px_28px_rgba(96,137,236,0.28)] transition hover:bg-[#7d9df1]"
+                      style={{ backgroundColor: "#211e1a", color: "#ffffff" }}
+                      onClick={() => handleSubmit(buildTripFormPrompt())}
+                      disabled={isCreatingProject}
+                      className="h-16 rounded-full bg-neutral-900 px-12 text-xl font-black text-white shadow-lg shadow-black/30 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      ✨ 开始规划
-                    </button>
+                      {isCreatingProject ? "规划中..." : "开启我的规划"}
+                    </Button>
                   </div>
                 </div>
                 )}
                 {homeInputMode === "chat" && (
-                <div className="rounded-[1.5rem] border border-[#dfe5ee] bg-white p-3 shadow-[0_12px_30px_rgba(38,30,77,0.08)]">
-                  <CreateTaskForm
-                    prompt={prompt}
-                    onPromptChange={setPrompt}
-                    isCreating={isCreatingProject}
-                    onSubmit={handleSubmit}
-                    uploadedImages={uploadedImages}
-                    onImagesChange={setUploadedImages}
-                    selectedAssistant={selectedAssistant}
-                    onAssistantChange={handleAssistantChange}
-                    assistantOptions={ASSISTANT_OPTIONS}
-                    isAssistantSelectable={isAssistantSelectable}
-                    selectedModel={selectedModel}
-                    onModelChange={handleModelChange}
-                    modelOptions={availableModels}
-                    selectedRole={selectedRoleModule}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSubmit()}
-                    disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreatingProject}
-                    className="mt-3 w-full rounded-xl bg-[#8eacf6] px-7 py-3.5 text-sm font-black text-white shadow-[0_12px_30px_rgba(96,137,236,0.26)] transition hover:bg-[#7d9df1] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isCreatingProject ? "规划中..." : "开始规划"}
-                  </button>
-                </div>
-                )}
-                {homeInputMode === "chat" && (
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  <span className="w-full text-center text-xs font-bold text-[#7c6f8d]">
-                    快捷测试案例，点击自动填入输入框
-                  </span>
-                  {[
-                    "前门附近4小时，中午吃饭，预算200以内",
-                    "故宫附近文化路线，少走路，不吃饭",
-                    "带老人去北海附近，中午安排吃饭",
-                  ].map((sample) => (
-                    <button
-                      key={sample}
-                      type="button"
-                      onClick={() => setPrompt(sample)}
-                      className="rounded-full border border-white/70 bg-white/85 px-4 py-2 text-sm font-bold text-[#5d3f76] transition hover:bg-white"
-                    >
-                      {sample}
-                    </button>
-                  ))}
-                </div>
-                )}
-              </div>
-            </section>
-
-            <section className="hidden">
-              <div className="text-left">
-                <div className="inline-flex items-center gap-2 rounded-full border border-[#d9b27d] bg-[#fff2dc] px-4 py-2 text-sm font-black text-[#8d2e1d]">
-                  <Compass className="h-4 w-4" />
-                  本地 POI / UGC 驱动
-                </div>
-                <h2 className="mt-6 text-4xl font-black leading-tight tracking-tight text-[#24140f] md:text-6xl">
-                  30 秒生成
-                  <span className="block text-[#b73522]">北京可执行路线</span>
-                </h2>
-                <p className="mt-5 max-w-xl text-base font-semibold leading-8 text-[#4c3729] md:text-lg">
-                  输入想去的区域、时间、预算和偏好，系统会自动串联 POI、补充 UGC 证据，并支持后续新增、删除、替换地点。
-                </p>
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  {[
-                    { icon: MapPin, label: "串联 POI" },
-                    { icon: Sparkles, label: "多轮重规划" },
-                    { icon: ShieldCheck, label: "约束校验" },
-                  ].map(({ icon: Icon, label }) => (
-                    <div
-                      key={label}
-                      className="rounded-2xl border border-[#e3ccb2] bg-white px-4 py-3 text-sm font-black text-[#4e3729] shadow-sm"
-                    >
-                      <Icon className="mb-2 h-4 w-4 text-[#b73522]" />
-                      {label}
+                <div className="flex min-h-[280px] flex-col font-sans">
+                  <div className="mb-4 max-h-[420px] flex-1 space-y-6 overflow-y-auto pr-2">
+                    <div className="flex justify-start">
+                      <div className="max-w-[95%] rounded-3xl rounded-bl-[2px] bg-white/80 px-5 py-4 text-[15px] leading-relaxed text-neutral-800 shadow-sm backdrop-blur-md">
+                        你好，今天想把北京怎么逛？
+                        <br />
+                        比如：想看红墙古建、找地道吃的，还是带家人轻松走一圈？
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
 
-              <div className="rounded-[2rem] border border-[#d6b98f] bg-[#fff8ed] p-3 shadow-[0_24px_60px_rgba(141,46,29,0.16)]">
-                <div className="rounded-[1.5rem] border border-[#f2d9ab] bg-white p-3 shadow-inner">
-                  <CreateTaskForm
-                    prompt={prompt}
-                    onPromptChange={setPrompt}
-                    isCreating={isCreatingProject}
-                    onSubmit={handleSubmit}
-                    uploadedImages={uploadedImages}
-                    onImagesChange={setUploadedImages}
-                    selectedAssistant={selectedAssistant}
-                    onAssistantChange={handleAssistantChange}
-                    assistantOptions={ASSISTANT_OPTIONS}
-                    isAssistantSelectable={isAssistantSelectable}
-                    selectedModel={selectedModel}
-                    onModelChange={handleModelChange}
-                    modelOptions={availableModels}
-                    selectedRole={selectedRoleModule}
-                  />
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {[
-                    "前门附近玩4小时，中午吃饭，预算200以内，少走路",
-                    "故宫附近安排4小时文化路线，少走路，不吃饭",
-                    "带老人去北海附近玩4小时，中午安排吃饭",
-                  ].map((sample) => (
-                    <button
-                      key={sample}
-                      type="button"
-                      onClick={() => setPrompt(sample)}
-                      className="rounded-full border border-[#dfc6a4] bg-white px-4 py-2 text-sm font-bold text-[#5c3a27] transition hover:border-[#b73522]/40 hover:bg-[#fff5e8]"
-                    >
-                      {sample}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <div className={`hidden`}>
-              <div className={`mb-5 inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-black shadow-sm ${homeTheme.eyebrow}`}>
-                <Compass className="h-3.5 w-3.5" />
-                本地 POI / UGC 驱动的北京路线规划
-              </div>
-
-              <div className="mb-6 text-center">
-                <h2 className={`text-4xl font-black tracking-tight md:text-6xl ${homeTheme.title}`}>
-                  把想去的北京
-                  <span className="mx-2 inline-block rounded-[1.4rem] bg-[#f1c36c] px-4 py-1 text-[#2c160d] shadow-[0_18px_55px_rgba(241,195,108,0.38)]">
-                    串成路线
-                  </span>
-                </h2>
-                <p className={`mx-auto mt-5 max-w-2xl text-base font-semibold leading-8 md:text-lg ${homeTheme.subtitle}`}>
-                  输入区域、时长、预算、餐饮和排队偏好，系统会调用多 Agent 从本地数据里筛 POI、读 UGC 证据、生成可执行路线，并支持继续添加、删除、替换地点。
-                </p>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                  {[
-                    { icon: MapPin, label: "本地 POI 检索" },
-                    { icon: Sparkles, label: "多 Agent 编排" },
-                    { icon: ShieldCheck, label: "UGC 证据校验" },
-                  ].map(({ icon: Icon, label }) => (
-                    <span
-                      key={label}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-bold shadow-sm ${homeTheme.chip}`}
-                    >
-                      <Icon className="h-3.5 w-3.5 text-[#b73522]" />
-                      {label}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                  {planningModes.map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      className={`rounded-full border px-4 py-2 text-sm font-black transition ${
-                        isNightMode
-                          ? "border-[#efd39d] bg-[#3a1b12] text-[#ffe9bf] hover:bg-[#4a2418]"
-                          : "border-[#dec5a3] bg-[#fff8ec] text-[#6b3424] hover:bg-[#ffefd5]"
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Dashboard summary cards */}
-              {projects.length > 0 && (
-                <div className="hidden">
-                  {[
-                    {
-                      label: "全部任务",
-                      value: projects.length,
-                      color: "text-[#24140f]",
-                    },
-                    {
-                      label: "运行中",
-                      value: runningProjects,
-                      color: "text-[#0b7a4b]",
-                    },
-                    {
-                      label: "当前模型",
-                      value: selectedModelLabel,
-                      color: "text-[#b73522]",
-                      isText: true,
-                    },
-                  ].map((card) => (
-                    <div
-                      key={card.label}
-                      className={`flex flex-col items-center gap-1 rounded-2xl border px-3 py-3 shadow-sm ${homeTheme.card}`}
-                    >
-                      <span
-                        className={`text-lg font-bold ${card.color} ${card.isText ? "text-xs font-semibold" : ""}`}
+                  <div className="group relative mt-2 w-full">
+                    <div className="absolute -inset-1 rounded-[2rem] bg-[#173f35]/18 opacity-80 blur-lg" />
+                    <div className="relative flex flex-col rounded-[2rem] border border-[#173f35]/35 bg-white p-2 shadow-xl shadow-[#173f35]/15 backdrop-blur-xl transition-all duration-300 focus-within:border-[#173f35] focus-within:ring-4 focus-within:ring-[#173f35]/10">
+                    <textarea
+                      value={prompt}
+                      onChange={(event) => setPrompt(event.target.value)}
+                      placeholder="写下你的北京想法，例如：周六下午想从故宫开始，吃点地道的，别走太累..."
+                      disabled={isCreatingProject}
+                        className="min-h-[56px] w-full resize-none bg-white px-4 pb-1 pt-3 text-[15px] font-semibold leading-6 text-neutral-950 outline-none transition-all placeholder:text-neutral-500"
+                      maxLength={500}
+                    />
+                    <div className="mt-1 flex items-center justify-between px-3 pb-1 pt-1">
+                      <div className="flex items-center gap-3">
+                        <span className="px-1 text-[11px] font-medium text-neutral-600">
+                          {prompt.length}/500
+                        </span>
+                        <span className="hidden rounded-full bg-white/50 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-neutral-700 sm:inline-flex">
+                          {selectedRoleModule.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSubmit()}
+                        disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreatingProject}
+                          className="flex h-12 w-12 items-center justify-center rounded-full bg-[#173f35] text-white shadow-lg shadow-[#173f35]/30 transition hover:bg-[#205447] disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500 disabled:shadow-none"
+                        aria-label="开始规划"
                       >
-                        {card.value}
-                      </span>
-                      <span className="text-xs font-medium text-[#7a6351]">
-                        {card.label}
-                      </span>
+                        <ArrowUp className="h-5 w-5" />
+                      </button>
                     </div>
-                  ))}
+                    </div>
+                  </div>
                 </div>
-              )}
-
-              {/* Recent projects */}
-              {projects.length > 0 && (
-                <div className="hidden">
-                  <Clock3 className="h-4 w-4 text-[#8d2e1d]" />
-                  <span className="text-sm font-bold text-[#4e3729]">最近任务</span>
-                  {projects.slice(0, 4).map((p) => (
+                )}
+                <div className="mt-7 flex flex-wrap justify-center gap-x-8 gap-y-3 px-4">
+                  {quickSamples.map((sample) => (
                     <button
-                      key={p.id}
+                      key={sample}
                       type="button"
-                      onClick={() => openProject(p)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-bold transition-colors ${homeTheme.recentButton}`}
+                      onClick={() => setPrompt(sample)}
+                      className="rounded-full px-2 text-sm font-black text-[#6c4a7a] transition hover:text-[#b73522]"
                     >
-                      {p.name || p.initialPrompt?.slice(0, 20) || "未命名任务"}
+                      {sample}
                     </button>
                   ))}
                 </div>
-              )}
+              </div>
+              </div>
+            </section>
 
-              <div className={`w-full max-w-3xl rounded-[2rem] border p-2 ${homeTheme.inputWrap}`}>
-                <div className="rounded-[1.6rem] border border-[#f4d49a] bg-white p-3 shadow-inner">
-                  <CreateTaskForm
-                    prompt={prompt}
-                    onPromptChange={setPrompt}
-                    isCreating={isCreatingProject}
-                    onSubmit={handleSubmit}
-                    uploadedImages={uploadedImages}
-                    onImagesChange={setUploadedImages}
-                    selectedAssistant={selectedAssistant}
-                    onAssistantChange={handleAssistantChange}
-                    assistantOptions={ASSISTANT_OPTIONS}
-                    isAssistantSelectable={isAssistantSelectable}
-                    selectedModel={selectedModel}
-                    onModelChange={handleModelChange}
-                    modelOptions={availableModels}
-                    selectedRole={selectedRoleModule}
-                  />
-                </div>
-              </div>
-              <div className="mt-5 flex w-full max-w-3xl flex-wrap justify-center gap-2">
-                {quickPrompts.map((sample) => (
-                  <button
-                    key={sample}
-                    type="button"
-                    onClick={() => setPrompt(sample)}
-                    className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
-                      isNightMode
-                        ? "border-[#e8c68a] bg-[#fffaf2] text-[#4b261a] hover:bg-[#fff0d0]"
-                        : "border-[#dfc6a4] bg-white text-[#5c3a27] hover:border-[#b73522]/40 hover:bg-[#fff5e8]"
-                    }`}
-                  >
-                    {sample}
-                  </button>
-                ))}
-              </div>
-              <div className="hidden">
-                {trustBadges.map((badge) => (
-                  <div
-                    key={badge.value}
-                    className={`rounded-3xl border p-4 text-center shadow-sm ${homeTheme.card}`}
-                  >
-                    <div className="text-lg font-black text-[#8d2e1d]">
-                      {badge.value}
-                    </div>
-                    <div className="mt-1 text-xs font-bold leading-5 text-[#6b5546]">
-                      {badge.label}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 grid w-full gap-3 md:grid-cols-3">
-                {featureCards.map((feature) => (
-                  <div
-                    key={feature.title}
-                    className={`rounded-[1.7rem] border p-5 text-left shadow-sm ${homeTheme.card}`}
-                  >
-                    <div className="text-base font-black text-[#24140f]">
-                      {feature.title}
-                    </div>
-                    <div className="mt-2 text-sm font-semibold leading-6 text-[#6b5546]">
-                      {feature.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </main>
-        </div>
-
-        {/* Task drawer */}
-        <TaskDrawer
-          open={taskDrawerOpen}
-          onOpenChange={setTaskDrawerOpen}
-          projects={projects}
-          editingProject={editingProject}
-          onEditProject={setEditingProject}
-          onUpdateProject={updateProject}
-          onOpenProject={openProject}
-          onDeleteProject={openDeleteModal}
-          formatTime={formatTime}
-          formatCliInfo={formatCliInfo}
-          getCapabilityShortName={getCapabilityShortName}
-        />
-
-        {/* Global settings */}
-        <GlobalSettings
-          isOpen={showGlobalSettings}
-          onClose={() => setShowGlobalSettings(false)}
-        />
 
         {/* Delete confirmation */}
         <AlertDialog
@@ -1268,7 +969,6 @@ export default function HomePage() {
             </motion.div>
           </div>
         )}
-      </div>
     </div>
   );
 }

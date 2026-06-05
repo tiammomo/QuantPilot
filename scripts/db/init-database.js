@@ -39,7 +39,7 @@ function run(command, args, options = {}) {
 async function listSqlFiles() {
   const entries = await fs.readdir(sqlDir, { withFileTypes: true });
   return entries
-    .filter((entry) => entry.isFile() && /^00[89]-travel-.+\.sql$/.test(entry.name))
+    .filter((entry) => entry.isFile() && /^0(0[89]|10)-travel-.+\.sql$/.test(entry.name))
     .map((entry) => path.join(sqlDir, entry.name))
     .sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
 }

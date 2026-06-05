@@ -1,6 +1,5 @@
 /**
- * AI Assistant Settings Component
- * Display current AI CLI and model (read-only)
+ * Fixed runtime settings component.
  */
 import React from 'react';
 import { useCLI } from '@/hooks/useCLI';
@@ -34,7 +33,7 @@ export function AIAssistantSettings({ projectId }: AIAssistantSettingsProps) {
     <div className="p-6 space-y-6">
       <div>
         <h3 className="text-lg font-medium text-slate-900 mb-4">
-          Current AI Assistant
+          固定运行时
         </h3>
         
         <div className="space-y-4">
@@ -43,19 +42,19 @@ export function AIAssistantSettings({ projectId }: AIAssistantSettingsProps) {
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-medium text-slate-700 mb-1">
-                  CLI Agent
+                  运行时
                 </h4>
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-semibold text-slate-900 ">
-                    {selectedCLIOption?.name || preference?.preferredCli || 'Not configured'}
+                    {selectedCLIOption?.name || preference?.preferredCli || 'Claude Code'}
                   </span>
                   {selectedCLIOption?.configured ? (
                     <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded">
-                      Configured
+                      已配置
                     </span>
                   ) : (
                     <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded">
-                      Not Configured
+                      未检测到配置
                     </span>
                   )}
                 </div>
@@ -66,7 +65,7 @@ export function AIAssistantSettings({ projectId }: AIAssistantSettingsProps) {
           {/* Current Model */}
           <div className="p-4 bg-slate-50 rounded-lg">
             <h4 className="text-sm font-medium text-slate-700 mb-1">
-              Model
+              模型
             </h4>
             <span className="text-lg font-semibold text-slate-900 ">
               {modelDisplayName}
@@ -77,7 +76,7 @@ export function AIAssistantSettings({ projectId }: AIAssistantSettingsProps) {
           {/* Note */}
           <div className="text-center">
             <p className="text-sm text-slate-500 ">
-              To modify these settings, use Global Settings
+              项目固定使用 Claude Code runtime 与 MiniMax M2.7，界面不提供 CLI 或模型切换入口。
             </p>
           </div>
         </div>

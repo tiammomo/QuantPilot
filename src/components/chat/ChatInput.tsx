@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Pause, SendHorizontal, MessageSquare, Image as ImageIcon, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -58,12 +58,7 @@ export default function ChatInput({
   onModeChange,
   projectId,
   preferredCli = 'claude',
-  selectedModel = '',
-  modelOptions = [],
-  onModelChange,
   modelChangeDisabled = false,
-  cliOptions = [],
-  onCliChange,
   cliChangeDisabled = false,
   isRunning = false,
   onPause,
@@ -79,22 +74,7 @@ export default function ChatInput({
   const submissionLockRef = useRef(false);
   const supportsImageUpload = preferredCli !== 'cursor' && preferredCli !== 'qwen' && preferredCli !== 'glm';
 
-  const modelOptionsForCli = useMemo(
-    () => modelOptions.filter(option => option.cli === preferredCli),
-    [modelOptions, preferredCli]
-  );
-
-  const selectedModelValue = useMemo(() => {
-    return modelOptionsForCli.some(opt => opt.id === selectedModel) ? selectedModel : '';
-  }, [modelOptionsForCli, selectedModel]);
-  const selectedModelOption = useMemo(
-    () => modelOptionsForCli.find(opt => opt.id === selectedModel),
-    [modelOptionsForCli, selectedModel]
-  );
-  const selectedModelSupportsImages = selectedModelOption?.supportsImages === true;
-  const imageUploadTitle = selectedModelSupportsImages
-    ? '上传图片，模型可直接识别图片内容'
-    : '上传图片作为附件上下文；当前模型不支持原生视觉识别，Agent 会读取附件清单并标注需要人工确认的字段。';
+  const imageUploadTitle = '上传图片作为附件上下文，Agent 会读取附件清单并标注需要人工确认的字段。';
 
   useEffect(() => {
     if (!disabled && !cliChangeDisabled && !modelChangeDisabled) {
@@ -448,13 +428,7 @@ export default function ChatInput({
               (!supportsImageUpload) ? (
                 <div
                   className="flex h-8 w-8 items-center justify-center text-slate-300 cursor-not-allowed opacity-50 rounded-full"
-                  title={
-                    preferredCli === 'qwen'
-                      ? 'Qwen Coder 暂不支持图片输入，请使用 Claude Code。'
-                      : preferredCli === 'cursor'
-                      ? 'Cursor CLI 暂不支持图片输入，请使用 Claude Code。'
-                      : 'GLM CLI 仅支持文本输入，请使用 Claude Code。'
-                  }
+                  title="当前固定运行时暂不支持原生图片输入。"
                 >
                   <ImageIcon className="h-4 w-4" />
                 </div>
@@ -482,46 +456,6 @@ export default function ChatInput({
                 </button>
               )
             )}
-            <select
-              value={preferredCli}
-              onChange={(e) => {
-                onCliChange?.(e.target.value);
-                requestAnimationFrame(() => textareaRef.current?.focus());
-              }}
-              disabled={cliChangeDisabled || !onCliChange}
-              className="h-8 min-w-[118px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
-              aria-label="选择助手"
-            >
-              {cliOptions.length === 0 && <option value={preferredCli}>{preferredCli}</option>}
-              {cliOptions.map(option => (
-                <option key={option.id} value={option.id} disabled={!option.available}>
-                  {option.name}{!option.available ? '（不可用）' : ''}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedModelValue}
-              onChange={(e) => {
-                const option = modelOptionsForCli.find(opt => opt.id === e.target.value);
-                if (option) {
-                  onModelChange?.(option);
-                  requestAnimationFrame(() => textareaRef.current?.focus());
-                }
-              }}
-              disabled={modelChangeDisabled || !onModelChange || modelOptionsForCli.length === 0}
-              className="h-8 min-w-[136px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
-              aria-label="选择模型"
-            >
-              {modelOptionsForCli.length === 0 && <option value="">暂无可用模型</option>}
-              {modelOptionsForCli.length > 0 && selectedModelValue === '' && (
-                <option value="" disabled>选择模型</option>
-              )}
-              {modelOptionsForCli.map(option => (
-                <option key={option.id} value={option.id} disabled={!option.available}>
-                  {option.name}{!option.available ? '（不可用）' : ''}
-                </option>
-              ))}
-            </select>
             <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5">
             <button
               type="button"
@@ -604,7 +538,7 @@ export default function ChatInput({
           </div>
           <div className="mt-2 text-xs text-slate-500">
             {uploadedImages.length} 张图片已上传
-            {!selectedModelSupportsImages ? ' · 当前模型会作为附件上下文处理' : ' · 可直接识图'}
+            {' · 当前模型会作为附件上下文处理'}
           </div>
         </div>
       )}

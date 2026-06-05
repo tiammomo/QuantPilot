@@ -42,73 +42,6 @@ const CLI_OPTIONS: CLIOption[] = [
     })),
     features: ['Anthropic-compatible runtime', 'External model routing', 'Code generation'],
   },
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    icon: '🧠',
-    description: 'OpenAI Codex agent with GPT-5 support',
-    color: 'from-slate-900 to-slate-700',
-    downloadUrl: 'https://github.com/openai/codex',
-    installCommand: 'npm install -g @openai/codex',
-    models: getModelDefinitionsForCli('codex').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-      provider,
-      runtime,
-      external,
-    })),
-    features: ['Autonomous apply_patch', 'OpenAI GPT-5 access', 'Web search integration'],
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor Agent',
-    icon: '🖱️',
-    description: 'Cursor CLI with multi-model routing and session resume',
-    color: 'from-slate-500 to-slate-600',
-    downloadUrl: 'https://docs.cursor.com/en/cli/overview',
-    installCommand: 'curl https://cursor.com/install -fsS | bash',
-    models: getModelDefinitionsForCli('cursor').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Autonomous workflow', 'Multi-model router', 'Session resume support'],
-  },
-  {
-    id: 'qwen',
-    name: 'Qwen Coder',
-    icon: '🛠️',
-    description: 'Alibaba Qwen Code CLI with sandboxed tooling',
-    color: 'from-emerald-500 to-teal-600',
-    downloadUrl: 'https://github.com/QwenLM/qwen-code',
-    installCommand: 'npm install -g @qwen-code/qwen-code',
-    models: getModelDefinitionsForCli('qwen').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Edit/write tools', 'Sandbox approval modes', 'Great for open-source workflows'],
-  },
-  {
-    id: 'glm',
-    name: 'GLM CLI',
-    icon: '🌐',
-    description: 'Zhipu GLM agent running via Claude Code runtime',
-    color: 'from-blue-500 to-indigo-600',
-    downloadUrl: 'https://docs.z.ai/devpack/tool/claude',
-    installCommand: 'zai devpack install claude',
-    models: getModelDefinitionsForCli('glm').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Claude-compatible runtime', 'GLM 4.6 reasoning', 'Text-only mode'],
-  },
 ];
 
 function generateUUID() {
@@ -134,7 +67,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const [selectedCapability, setSelectedCapability] = useState<TravelCapabilityId>(DEFAULT_TRAVEL_CAPABILITY_ID);
   // Fallback is removed but kept for backward compatibility
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
-  const [useDefaultSettings, setUseDefaultSettings] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initializationStep, setInitializationStep] = useState('');
   const [showInitialization, setShowInitialization] = useState(false);
@@ -147,8 +79,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const [imageError, setImageError] = useState('');
   const [showImageInput, setShowImageInput] = useState(false);
   const [showWebsiteInput, setShowWebsiteInput] = useState(false);
-  const [showCLIDropdown, setShowCLIDropdown] = useState(false);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const router = useRouter();
 
   const loadGlobalSettings = useCallback(async () => {
@@ -174,52 +104,23 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       }
 
       if (settings) {
-        const enabled = CLI_OPTIONS.filter((cli) => {
-          const isEnabled = settings.cli_settings?.[cli.id]?.enabled !== false;
-          const isInstalled = cliStatuses[cli.id]?.installed !== false;
-          const isAvailable = cli.enabled !== false;
-          return isEnabled && isInstalled && isAvailable;
-        });
-
-        const effectiveCLIs = enabled.length > 0 ? enabled : CLI_OPTIONS.filter((cli) => cli.enabled !== false);
-        setEnabledCLIs(effectiveCLIs);
-
-        const defaultCLI = settings.default_cli || 'claude';
-        const preferredCLI =
-          effectiveCLIs.find((cli) => cli.id === defaultCLI)?.id ?? effectiveCLIs[0]?.id ?? 'claude';
+        setEnabledCLIs(CLI_OPTIONS);
+        const preferredCLI = 'claude';
         setSelectedCLI(preferredCLI);
         setFallbackEnabled(settings.fallback_enabled ?? true);
-
-        const preferredModelSetting = settings.cli_settings?.[preferredCLI]?.model;
-        if (preferredModelSetting) {
-          setSelectedModel(sanitizeModel(preferredCLI, preferredModelSetting as string));
-        } else {
-          const fallbackModel =
-            effectiveCLIs.find((cli) => cli.id === preferredCLI)?.models[0]?.id ?? DEFAULT_MODEL_ID;
-          setSelectedModel(sanitizeModel(preferredCLI, fallbackModel));
-        }
+        setSelectedModel(DEFAULT_MODEL_ID);
       } else {
-        const available = CLI_OPTIONS.filter(
-          (cli) => cliStatuses[cli.id]?.installed !== false && cli.enabled !== false
-        );
-        const effectiveCLIs = available.length > 0 ? available : CLI_OPTIONS.filter((cli) => cli.enabled !== false);
-        setEnabledCLIs(effectiveCLIs);
-
-        const fallbackCLI = effectiveCLIs[0]?.id ?? 'claude';
-        setSelectedCLI(fallbackCLI);
-        const fallbackModel = effectiveCLIs[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
-        setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
+        setEnabledCLIs(CLI_OPTIONS);
+        setSelectedCLI('claude');
+        setSelectedModel(DEFAULT_MODEL_ID);
         setFallbackEnabled(true);
       }
     } catch (error) {
       console.error('Failed to load global settings:', error);
       setCLIStatus(createCliStatusFallback());
-      const available = CLI_OPTIONS.filter((cli) => cli.enabled !== false);
-      setEnabledCLIs(available);
-      const fallbackCLI = available[0]?.id ?? 'claude';
-      setSelectedCLI(fallbackCLI);
-      const fallbackModel = available[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
-      setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
+      setEnabledCLIs(CLI_OPTIONS);
+      setSelectedCLI('claude');
+      setSelectedModel(DEFAULT_MODEL_ID);
       setFallbackEnabled(true);
     }
   }, []);
@@ -230,9 +131,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       loadGlobalSettings();
     }
   }, [open, globalSettings, loadGlobalSettings]);
-
-  const selectedCLIOption = enabledCLIs.find(cli => cli.id === selectedCLI);
-  const selectedModelOption = selectedCLIOption?.models.find(model => model.id === selectedModel);
 
   // WebSocket connection for project initialization
   const connectToProjectWebSocket = (projectId: string) => {
@@ -339,23 +237,14 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     setWebsiteUrl('');
     setShowImageInput(false);
     setShowWebsiteInput(false);
-    setUseDefaultSettings(true);
     setSelectedCapability(DEFAULT_TRAVEL_CAPABILITY_ID);
     setImageError('');
     setShowInitialization(false);
     setInitializingProjectId(null);
 
-    // Reset to global defaults or fallback
-    if (globalSettings) {
-      setSelectedCLI(globalSettings.default_cli || 'claude');
-      setFallbackEnabled(globalSettings.fallback_enabled ?? true);
-      const cliSettings = globalSettings.cli_settings?.[globalSettings.default_cli || 'claude'];
-      setSelectedModel(sanitizeModel(globalSettings.default_cli || 'claude', cliSettings?.model));
-    } else {
-      setSelectedCLI('claude');
-      setSelectedModel(DEFAULT_MODEL_ID);
-      setFallbackEnabled(true);
-    }
+    setSelectedCLI('claude');
+    setSelectedModel(DEFAULT_MODEL_ID);
+    setFallbackEnabled(globalSettings?.fallback_enabled ?? true);
 
     // Close modal and navigate to chat with initial prompt
     onClose();
@@ -369,56 +258,18 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   };
 
 
-  // Check for image compatibility
-  useEffect(() => {
-    if (imageUrl && selectedModelOption && !selectedModelOption.supportsImages) {
-      setImageError(`The selected model "${selectedModelOption.name}" does not support image inputs. Please choose a different model or remove the image.`);
-    } else {
-      setImageError('');
-    }
-  }, [imageUrl, selectedModelOption]);
-
-  const handleCLIChange = (cliId: string) => {
-    setUseDefaultSettings(false);
-    setSelectedCLI(cliId);
-    // Auto-select first model for the selected CLI
-    const cli = enabledCLIs.find(c => c.id === cliId);
-    if (cli?.models.length) {
-      setSelectedModel(sanitizeModel(cliId, cli.models[0].id));
-    }
-    setShowCLIDropdown(false);
-  };
-
-  const handleModelChange = (modelId: string) => {
-    setUseDefaultSettings(false);
-    setSelectedModel(sanitizeModel(selectedCLI, modelId));
-    setShowModelDropdown(false);
-  };
-
   async function submit() {
     if (!projectName.trim() || !prompt.trim()) return;
 
-    // Determine CLI and model based on useDefaultSettings
-    let finalCLI = selectedCLI;
-    let finalModel = selectedModel;
-
-    if (useDefaultSettings && globalSettings) {
-      finalCLI = globalSettings.default_cli || 'claude';
-      const cliSettings = globalSettings.cli_settings?.[finalCLI];
-      finalModel = sanitizeModel(finalCLI, cliSettings?.model || selectedModel || DEFAULT_MODEL_ID);
-    }
+    const finalCLI = 'claude';
+    const finalModel = DEFAULT_MODEL_ID;
 
     if (!finalCLI || !finalModel) {
-      console.error('Missing CLI or model selection:', { finalCLI, finalModel, useDefaultSettings, globalSettings });
+      console.error('Missing CLI or model selection:', { finalCLI, finalModel, globalSettings });
       return;
     }
 
-    // Check image compatibility before submitting
-    if (imageUrl && selectedModelOption && !selectedModelOption.supportsImages) {
-      return; // Don't submit if there's an image compatibility error
-    }
-
-    console.log('Creating project with:', { finalCLI, finalModel, useDefaultSettings, globalSettings });
+    console.log('Creating project with:', { finalCLI, finalModel, globalSettings });
 
     const name = projectName.trim() || 'New Project';
     const projectUuid = generateUUID();
@@ -541,9 +392,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       onClose();
     }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      if (useDefaultSettings && globalSettings) {
-        submit();
-      }
+      submit();
     }
   };
 
@@ -750,180 +599,10 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
           {/* AI Configuration */}
           <div className="space-y-4 mb-6">
-            {/* Use Default Settings Toggle */}
-            <div className="flex items-start gap-3">
-              <button
-                onClick={() => setUseDefaultSettings(!useDefaultSettings)}
-                className="mt-0.5 flex-shrink-0"
-              >
-                <div className={`w-5 h-5 border-2 rounded transition-colors ${
-                  useDefaultSettings
-                    ? 'bg-slate-900 border-slate-900 '
-                    : 'border-slate-300 '
-                }`}>
-                  {useDefaultSettings && (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white ">
-                      <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </div>
-              </button>
-              <div className="flex-1">
-                <label
-                  onClick={() => setUseDefaultSettings(!useDefaultSettings)}
-                  className="text-sm font-medium text-slate-900 cursor-pointer"
-                >
-                  Use default AI settings
-                </label>
-                <p className="text-xs text-slate-500 mt-1">
-                  {globalSettings ? (
-                    <>Use {enabledCLIs.find(cli => cli.id === globalSettings.default_cli)?.name || 'default'} AI with your preferred model. Change this in <button
-                      onClick={() => {
-                        onClose();
-                        onOpenGlobalSettings?.();
-                      }}
-                      className="text-slate-900 hover:underline"
-                    >Global Settings</button>.</>
-                  ) : (
-                    <>Quick start with Claude AI. Customize AI preferences in <button
-                      onClick={() => {
-                        onClose();
-                        onOpenGlobalSettings?.();
-                      }}
-                      className="text-slate-900 hover:underline"
-                    >Global Settings</button>.</>
-                  )}
-                </p>
-              </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-sm font-medium text-slate-900">固定运行时</p>
+              <p className="mt-1 text-xs text-slate-500">新建项目默认使用 Claude Code runtime 与 MiniMax M2.7。</p>
             </div>
-
-            {/* AI Selection Dropdowns */}
-            {!useDefaultSettings && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* CLI Selection Dropdown */}
-                <div className="relative">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    AI Assistant
-                  </label>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowCLIDropdown(!showCLIDropdown)}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-lg">{selectedCLIOption?.icon}</span>
-                        <div>
-                          <div className="font-medium text-slate-900 ">{selectedCLIOption?.name}</div>
-                          <div className="text-xs text-slate-500 ">{selectedCLIOption?.description}</div>
-                        </div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`transition-transform ${showCLIDropdown ? 'rotate-180' : ''}`}>
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-
-                    <AnimatePresence>
-                      {showCLIDropdown && (
-                        <MotionDiv
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
-                        >
-                          {enabledCLIs.map((cli) => {
-                            const cliStatusInfo = cliStatus?.[cli.id];
-                            const isInstalled = cliStatusInfo?.installed ?? true;
-
-                            return (
-                              <button
-                                key={cli.id}
-                                onClick={() => handleCLIChange(cli.id)}
-                                className="w-full p-3 text-left hover:bg-slate-50 flex items-center gap-3 border-b border-slate-100 last:border-b-0"
-                              >
-                                <span className="text-lg">{cli.icon}</span>
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2">
-                                    <div className="font-medium text-slate-900 ">{cli.name}</div>
-                                    {isInstalled ? (
-                                      <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
-                                        ✓
-                                      </span>
-                                    ) : (
-                                      <span className="text-xs bg-yellow-100 text-yellow-600 px-2 py-1 rounded-full">
-                                        !
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-xs text-slate-500 ">{cli.description}</div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </MotionDiv>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-
-                {/* Model Selection Dropdown */}
-                <div className="relative">
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Model
-                  </label>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowModelDropdown(!showModelDropdown)}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-lg text-left flex items-center justify-between hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <div className="font-medium text-slate-900 ">{selectedModelOption?.name}</div>
-                          {selectedModelOption?.supportsImages && (
-                            <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
-                              📷
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-500 ">{selectedModelOption?.description}</div>
-                      </div>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={`transition-transform ${showModelDropdown ? 'rotate-180' : ''}`}>
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-
-                    <AnimatePresence>
-                      {showModelDropdown && selectedCLIOption && (
-                        <MotionDiv
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto"
-                        >
-                          {selectedCLIOption.models.map((model) => (
-                            <button
-                              key={model.id}
-                              onClick={() => handleModelChange(model.id)}
-                              className="w-full p-3 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
-                            >
-                              <div className="flex items-center gap-2 mb-1">
-                                <div className="font-medium text-slate-900 ">{model.name}</div>
-                                {model.supportsImages && (
-                                  <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
-                                    📷
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-xs text-slate-500 ">{model.description}</div>
-                            </button>
-                          ))}
-                        </MotionDiv>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-            )}
-
           </div>
 
           {/* Footer */}

@@ -9,7 +9,7 @@ const TRAVEL_SKILLS = [
   'travel-ugc-evidence',
   'travel-route-optimizer',
   'travel-visualization-html',
-  'travel-data-quality',
+  'travel-constraint-validator',
 ];
 
 type TravelManifest = {

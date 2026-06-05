@@ -17,6 +17,7 @@ const REQUIRED_TABLES = [
   'travel_areas',
   'travel_semantic_mappings',
   'travel_query_logs',
+  'travel_precomputed_routes',
 ];
 
 async function count(tableName) {
@@ -42,6 +43,7 @@ async function main() {
   const reviewCount = await count('travel_reviews');
   const areaCount = await count('travel_areas');
   const semanticCount = await count('travel_semantic_mappings');
+  const routeCount = await count('travel_precomputed_routes');
 
   const coverageRows = await prisma.$queryRaw`
     SELECT
@@ -71,7 +73,7 @@ async function main() {
   `;
 
   console.log('[travel:db:doctor] tables ok:', REQUIRED_TABLES.join(', '));
-  console.log(`[travel:db:doctor] counts POIs=${poiCount}, features=${featureCount}, reviews=${reviewCount}, areas=${areaCount}, semantics=${semanticCount}`);
+  console.log(`[travel:db:doctor] counts POIs=${poiCount}, features=${featureCount}, reviews=${reviewCount}, areas=${areaCount}, semantics=${semanticCount}, routes=${routeCount}`);
   console.log(
     `[travel:db:doctor] POI coverage area=${coverage.area_count || 0}/${coverage.total || 0}, cost=${coverage.cost_count || 0}/${coverage.total || 0}, duration=${coverage.duration_count || 0}/${coverage.total || 0}, opening=${coverage.opening_count || 0}/${coverage.total || 0}`,
   );
@@ -83,6 +85,9 @@ async function main() {
   }
   if (featureCount === 0 || reviewCount === 0) {
     throw new Error('Travel features or reviews are empty. Run npm run travel:db:import.');
+  }
+  if (routeCount === 0) {
+    throw new Error('No precomputed travel routes found. Run npm run travel:routes:build && npm run travel:db:import.');
   }
   console.log('[travel:db:doctor] passed');
 }

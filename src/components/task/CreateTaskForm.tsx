@@ -4,13 +4,6 @@ import { useCallback, useRef, useState } from "react";
 import { ArrowUp, Image as ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { TravelCapabilityId } from "@/lib/travel/capabilities";
@@ -67,13 +60,6 @@ function CreateTaskForm({
   onSubmit,
   uploadedImages,
   onImagesChange,
-  selectedAssistant,
-  onAssistantChange,
-  assistantOptions,
-  isAssistantSelectable,
-  selectedModel,
-  onModelChange,
-  modelOptions,
   selectedRole,
 }: CreateTaskFormProps) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -222,41 +208,9 @@ function CreateTaskForm({
           </label>
         </Button>
 
-        <Select value={selectedAssistant} onValueChange={onAssistantChange}>
-          <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="选择助手" />
-          </SelectTrigger>
-          <SelectContent>
-            {assistantOptions.map((opt) => (
-              <SelectItem
-                key={opt.id}
-                value={opt.id}
-                disabled={!isAssistantSelectable(opt.id)}
-              >
-                {opt.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Badge variant="secondary" className="h-9 rounded-md px-3 text-sm text-primary">
           {selectedRole.name}
         </Badge>
-
-        {modelOptions.length > 0 && (
-          <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger className="w-[170px]">
-              <SelectValue placeholder="选择模型" />
-            </SelectTrigger>
-            <SelectContent>
-              {modelOptions.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
 
         <Button
           type="submit"

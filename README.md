@@ -7,29 +7,33 @@
 ## 核心能力
 
 - 自然语言解析：把用户的区域、时长、预算、餐饮和偏好约束转成结构化规划条件。
-- 本地数据检索：读取 `travel-data/processed` 中的北京 POI、餐厅、文化地点和 UGC 特征。
+- 数据库路线命中：优先从 PostgreSQL 的 `travel_precomputed_routes` 查询预生成路线，命中后直接返回前端渲染。
+- 本地数据检索：将 `travel-data/processed` 中的北京 POI、餐厅、文化地点、UGC 特征和预生成路线导入数据库。
 - 通勤补全：使用 `travel_commute_edges` 表中的景点-景点、景点-餐厅、餐厅-餐厅通勤边。
-- 路线规划：生成多套候选方案，并给出预算、时长、步行、转场和风险解释。
+- 路线规划：大模型只负责语义理解，后端根据结构化条件查询数据库路线库；未命中时使用本地数据规则兜底。
 - 动态重规划：支持继续追加、删除、替换或保留地点。
 - 数据平台：`/data-platform` 查看旅游能力、数据源和接口健康状态。
 
 ## 数据位置
 
 - 原始/处理后的 POI 数据：`travel-data/processed`
+- 预生成路线库文件：`travel-data/processed/beijing_route_corpus.json`
 - Wiki 知识库：`travel-data/wiki`
 - 通勤补全 SQL：`sqls/008-travel-commute-data.sql`
 - 旅游知识库 SQL：`sqls/009-travel-knowledge-base.sql`
+- 预生成路线库 SQL：`sqls/010-travel-route-corpus.sql`
 - 通勤采集 CSV 导出：`tmp/exports/travel_commute_edges_completed_9000.csv`
-- 数据库表：`travel_commute_edges`
+- 主要数据库表：`travel_pois`、`travel_poi_features`、`travel_reviews`、`travel_areas`、`travel_commute_edges`、`travel_precomputed_routes`
 
 ## 快速启动
+
+推荐使用 Docker PostgreSQL 保存旅游数据和预生成路线：
 
 ```bash
 npm install
 cp .env.example .env
 npm run db:up
-npm run db:init
-npm run travel:db:import
+npm run travel:db:seed
 npm run travel:db:doctor
 npm run dev
 ```
@@ -41,6 +45,73 @@ http://localhost:3000
 ```
 
 如果你已经在本机用旧数据库名保存了采集结果，可以继续在 `.env` 中保留原来的 `DATABASE_URL`，不需要为了改名重新采集。
+
+## Docker 数据库导入
+
+`docker-compose.yml` 会启动一个 PostgreSQL 16 容器，默认配置来自 `.env`：
+
+```env
+DATABASE_URL="postgresql://travelpilot:travelpilot_dev_password@127.0.0.1:5432/travelpilot?schema=public"
+POSTGRES_DB="travelpilot"
+POSTGRES_USER="travelpilot"
+POSTGRES_PASSWORD="travelpilot_dev_password"
+POSTGRES_PORT=5432
+```
+
+完整导入流程：
+
+```bash
+# 1. 启动 PostgreSQL 容器
+npm run db:up
+
+# 2. 建旅游数据表，包括 POI、UGC、通勤边、语义日志、预生成路线库
+npm run travel:db:init
+
+# 3. 从 travel-data/processed 生成预计算路线库 JSON
+npm run travel:routes:build
+
+# 4. 将 POI、UGC、评论、区域和预生成路线导入 PostgreSQL
+npm run travel:db:import
+
+# 5. 检查表和数据量
+npm run travel:db:doctor
+```
+
+也可以直接使用合并命令：
+
+```bash
+npm run travel:db:seed
+```
+
+导入完成后，关键数据会保存在 Docker PostgreSQL 的这些表中：
+
+| 表 | 内容 |
+| --- | --- |
+| `travel_pois` | 北京 POI、餐厅、文化地点、基础评分、营业时间和标签 |
+| `travel_poi_features` | UGC 聚合特征，例如排队风险、性价比、亲子友好度 |
+| `travel_reviews` | 本地评论/证据文本 |
+| `travel_areas` | 区域汇总 |
+| `travel_commute_edges` | 景点和餐饮点之间的通勤边 |
+| `travel_precomputed_routes` | 预生成旅行路线，运行时优先命中后直接返回前端 |
+
+可以用下面的命令确认路线库已经入库：
+
+```bash
+docker compose exec postgres psql -U travelpilot -d travelpilot \
+  -c "SELECT COUNT(*) FROM travel_precomputed_routes;"
+```
+
+当前路线链路是：
+
+```text
+用户自然语言
+  -> MiniMax-M2.7 解析结构化 intent
+  -> 后端将 intent 转成受控 SQL 查询
+  -> 优先命中 travel_precomputed_routes
+  -> 直接返回 planning_response.proposals 给前端渲染
+```
+
+大模型不直接生成 SQL 字符串，也不负责实时生成完整路线；SQL 查询由后端模板和参数控制。
 
 ## 常用命令
 
@@ -57,6 +128,8 @@ npm run db:doctor
 npm run db:psql
 
 npm run travel:db:init
+npm run travel:routes:build
+npm run travel:db:seed
 npm run travel:db:import
 npm run travel:db:doctor
 npm run travel:wiki:build

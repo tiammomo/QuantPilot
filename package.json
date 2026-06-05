@@ -55,6 +55,8 @@
     "check:travel": "npm run check:travel-query-plan && npm run check:travel-commute && npm run check:travel-performance && npm run check:travel-targeted-replan && npm run check:travel-samples && npm run check:travel-personas && npm run check:travel-generic-additions && npm run check:travel-meal-refinement && npm run check:travel-ui-sync && npm run check:travel-competition && npm run check:travel-llm-rerank && npm run check:travel-llm-draft && npm run check:travel-planning-advice",
     "travel:db:init": "node scripts/travel/init-travel-database.js",
     "travel:db:import": "node scripts/travel/import-travel-data.js",
+    "travel:routes:build": "node scripts/travel/build-route-corpus.js",
+    "travel:db:seed": "npm run travel:db:init && npm run travel:routes:build && npm run travel:db:import",
     "travel:db:doctor": "node scripts/travel/doctor-travel-database.js",
     "travel:wiki:build": "node scripts/travel/build-travel-wiki.js",
     "travel:commute:analyze-common": "node scripts/travel/analyze-common-commute-coverage.js",

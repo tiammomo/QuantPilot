@@ -76,7 +76,7 @@ function readPositiveMsEnv(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-type QuantDashboardArtifactSnapshot = {
+type TravelDashboardArtifactSnapshot = {
   complete: boolean;
   signature: string;
   summary: string;
@@ -112,10 +112,10 @@ async function parseJsonFileOrNull(filePath: string): Promise<unknown | null> {
   }
 }
 
-async function inspectQuantDashboardArtifacts(projectPath: string): Promise<QuantDashboardArtifactSnapshot> {
+async function inspectTravelDashboardArtifacts(projectPath: string): Promise<TravelDashboardArtifactSnapshot> {
   const requiredFiles = [
-    '.quantpilot/run_plan.json',
-    'data_file/final/dashboard-data.json',
+    '.travelpilot/run_plan.json',
+    'data_file/final/itinerary-data.json',
     'evidence/sources.json',
     'evidence/data_quality.json',
     'app/page.tsx',
@@ -137,63 +137,33 @@ async function inspectQuantDashboardArtifacts(projectPath: string): Promise<Quan
     };
   }
 
-  const [runPlan, dashboardData, sources, dataQuality, pageSource] = await Promise.all([
-    parseJsonFileOrNull(path.join(projectPath, '.quantpilot/run_plan.json')),
-    parseJsonFileOrNull(path.join(projectPath, 'data_file/final/dashboard-data.json')),
+  const [runPlan, itineraryData, sources, dataQuality, pageSource] = await Promise.all([
+    parseJsonFileOrNull(path.join(projectPath, '.travelpilot/run_plan.json')),
+    parseJsonFileOrNull(path.join(projectPath, 'data_file/final/itinerary-data.json')),
     parseJsonFileOrNull(path.join(projectPath, 'evidence/sources.json')),
     parseJsonFileOrNull(path.join(projectPath, 'evidence/data_quality.json')),
     fs.readFile(path.join(projectPath, 'app/page.tsx'), 'utf8').catch(() => ''),
   ]);
 
   if (!hasMeaningfulJsonPayload(runPlan)) {
-    return { complete: false, signature: '', summary: '.quantpilot/run_plan.json 不是有效执行计划' };
+    return { complete: false, signature: '', summary: '.travelpilot/run_plan.json 不是有效执行计划' };
   }
 
-  if (!hasMeaningfulJsonPayload(dashboardData)) {
-    return { complete: false, signature: '', summary: 'dashboard-data.json 没有有效数据' };
+  if (!hasMeaningfulJsonPayload(itineraryData)) {
+    return { complete: false, signature: '', summary: 'itinerary-data.json 没有有效路线数据' };
   }
 
   if (!hasMeaningfulJsonPayload(sources) || !hasMeaningfulJsonPayload(dataQuality)) {
     return { complete: false, signature: '', summary: '数据来源或质量证据不完整' };
   }
 
-  const hasQuantDashboard =
+  const hasTravelDashboard =
     pageSource.length > 1500 &&
     !/Create Next App|Get started by editing|next\/image/i.test(pageSource) &&
-    /(dashboard-data|data_file\/final|K\s*线|量价|均线|财务|公告|风险|quote_time|fetched_at|svg|canvas|recharts)/i.test(pageSource);
+    /(itinerary-data|data_file\/final|路线|行程|POI|UGC|预算|时长|步行|排队|风险|proposal|timeline|evidence|svg|canvas|recharts)/i.test(pageSource);
 
-  if (!hasQuantDashboard) {
-    return { complete: false, signature: '', summary: 'app/page.tsx 尚未形成有效量化看板' };
-  }
-
-  const runPlanRecord = runPlan && typeof runPlan === 'object' && !Array.isArray(runPlan)
-    ? (runPlan as Record<string, unknown>)
-    : null;
-  const dashboardRecord = dashboardData && typeof dashboardData === 'object' && !Array.isArray(dashboardData)
-    ? (dashboardData as Record<string, unknown>)
-    : null;
-  const plannedSymbols = Array.isArray(runPlanRecord?.symbols)
-    ? runPlanRecord.symbols.filter((symbol): symbol is string => typeof symbol === 'string' && /^(?:6|0|3|5)\d{5}$/.test(symbol))
-    : [];
-  const assetRows = Array.isArray(dashboardRecord?.assets) ? dashboardRecord.assets : [];
-  const isMultiSymbolTask = plannedSymbols.length > 1 || assetRows.length > 1;
-  if (isMultiSymbolTask) {
-    const dashboardSymbols = Array.isArray(dashboardRecord?.assets)
-      ? dashboardRecord.assets
-          .map((asset) => (asset && typeof asset === 'object' && !Array.isArray(asset) ? (asset as Record<string, unknown>).symbol : null))
-          .filter((symbol): symbol is string => typeof symbol === 'string')
-      : [];
-    const pageMentionsAllSymbols =
-      plannedSymbols.every((symbol) => pageSource.includes(symbol)) ||
-      (/requestedSymbols|assets|comparison/.test(pageSource) && plannedSymbols.every((symbol) => dashboardSymbols.includes(symbol)));
-    const hasComparisonSignals = /(requestedSymbols|assets|comparison|对比|相对强弱|横向|矩阵|多标的|收益对比|回撤对比|波动)/i.test(pageSource);
-    if (!pageMentionsAllSymbols || !hasComparisonSignals) {
-      return {
-        complete: false,
-        signature: '',
-        summary: '多标的任务页面尚未展示全部标的或对比结构',
-      };
-    }
+  if (!hasTravelDashboard) {
+    return { complete: false, signature: '', summary: 'app/page.tsx 尚未形成有效旅行路线看板' };
   }
 
   return {
@@ -201,12 +171,12 @@ async function inspectQuantDashboardArtifacts(projectPath: string): Promise<Quan
     signature: stats
       .map(({ relativePath, stat }) => `${relativePath}:${stat?.size ?? 0}:${Math.round(stat?.mtimeMs ?? 0)}`)
       .join('|'),
-    summary: 'run_plan、final 数据、证据文件和看板页面已完成',
+    summary: 'run_plan、itinerary 数据、证据文件和路线看板页面已完成',
   };
 }
 
-async function appendQuantExecutionEvent(projectPath: string, payload: Record<string, unknown>): Promise<void> {
-  const eventPath = path.join(projectPath, '.quantpilot/events.jsonl');
+async function appendTravelExecutionEvent(projectPath: string, payload: Record<string, unknown>): Promise<void> {
+  const eventPath = path.join(projectPath, '.travelpilot/events.jsonl');
   const event = {
     created_at: new Date().toISOString(),
     ...payload,
@@ -216,7 +186,7 @@ async function appendQuantExecutionEvent(projectPath: string, payload: Record<st
     await fs.mkdir(path.dirname(eventPath), { recursive: true });
     await fs.appendFile(eventPath, `${JSON.stringify(event)}\n`, 'utf8');
   } catch (error) {
-    console.warn('[ClaudeService] Failed to append QuantPilot execution event:', error);
+    console.warn('[ClaudeService] Failed to append travel execution event:', error);
   }
 }
 

@@ -331,7 +331,7 @@ module.exports = nextConfig;
   );
 }
 
-export async function ensureQuantDashboardTemplate(projectPath: string) {
+export async function ensureTravelDashboardTemplate(projectPath: string) {
   await upsertTextFile(path.join(projectPath, 'app', 'page.tsx'), pageTemplate(path.basename(projectPath)));
   await upsertTextFile(path.join(projectPath, 'app', 'globals.css'), cssTemplate());
 }
@@ -413,7 +413,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 `
   );
 
-  await ensureQuantDashboardTemplate(projectPath);
+  await ensureTravelDashboardTemplate(projectPath);
   await ensureNextConfig(path.join(projectPath, 'next.config.js'));
   await writeFileIfMissing(path.join(projectPath, 'scripts', 'run-build.js'), generatedBuildScriptContents());
   await writeFileIfMissing(path.join(projectPath, 'scripts', 'run-dev.js'), generatedDevScriptContents());

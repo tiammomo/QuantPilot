@@ -2937,8 +2937,51 @@ const ToolResultMessage = ({
     return cleanedContent.trim();
   };
 
+  const cleanTravelAssistantSummary = (content: string): string => {
+    if (!/(北京智能路线方案|北京旅行规划|北京旅游路线规划完成|动态重规划完成)/.test(content)) {
+      return content;
+    }
+
+    const destination =
+      content.match(/(?:区域|目的地)：([^\n]+)/)?.[1]?.trim() ||
+      content.match(/目的地[：:]\s*([^\n]+)/)?.[1]?.trim() ||
+      '北京';
+    const adjustmentBlock = content.match(/(?:Route Diff|本次调整)[\s\S]*?(?=\n##|\n方案\s*\d|$)/)?.[0] || '';
+    const added = adjustmentBlock.match(/(?:新增|加入)：([^\n]+)/)?.[1]?.trim();
+    const removed = adjustmentBlock.match(/(?:删除|移除)：([^\n]+)/)?.[1]?.trim();
+    const kept = adjustmentBlock.match(/保留：([^\n]+)/)?.[1]?.trim();
+    const proposalMatches = Array.from(
+      content.matchAll(
+        /方案\s*(\d+)[：:]\s*([^\n]+)[\s\S]*?预计总时长[：:]\s*([^\n]+)[\s\S]*?预计预算[：:]\s*([^\n]+)[\s\S]*?路线[：:]\s*([^\n]+)/g,
+      ),
+    ).slice(0, 3);
+
+    const lines = ['# 北京旅行规划已生成', '', `目的地：${destination}`, ''];
+    if (added || removed || kept) {
+      lines.push('## 本次调整');
+      if (added) lines.push(`- 加入：${added}`);
+      if (removed) lines.push(`- 移除：${removed}`);
+      if (kept) lines.push(`- 保留：${kept}`);
+      lines.push('');
+    }
+
+    if (proposalMatches.length > 0) {
+      lines.push('## 方案概览');
+      proposalMatches.forEach((match) => {
+        const [, index, title, duration, budget, route] = match;
+        lines.push(`- 方案 ${index}：${title}，${duration}，预算 ${budget}`);
+        lines.push(`  路线：${route.replace(/->/g, '→')}`);
+      });
+      lines.push('');
+    }
+
+    lines.push('右侧已展示完整旅行规划页，可以继续输入想增删的地点、预算或节奏要求。');
+    return lines.join('\n');
+  };
+
   // Function to render content while flattening legacy thinking tags into normal markdown
   const renderContentWithThinking = (content: string): ReactElement => {
+    content = cleanTravelAssistantSummary(content);
     const parts: ReactElement[] = [];
     let lastIndex = 0;
     let segmentCounter = 0;
@@ -3161,7 +3204,7 @@ const ToolResultMessage = ({
       case 'system':
         return (
           <div>
-            系统已连接（模型：{log.data.model || '未知'}）
+            系统已连接
           </div>
         );
 

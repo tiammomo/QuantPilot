@@ -61,7 +61,7 @@ async function writeTravelPilotManifest(params: {
     schemaVersion: 1,
     projectId: params.projectId,
     projectName: params.projectName,
-    platform: '北京旅游 Agent',
+    platform: '北京旅游规划',
     createdAt: new Date().toISOString(),
     runtime: {
       cli: params.preferredCli,

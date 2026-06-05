@@ -21,39 +21,17 @@ const DEFAULT_SETTINGS: GlobalSettings = {
     claude: {
       model: getDefaultModelForCli('claude'),
     },
-    codex: {
-      model: getDefaultModelForCli('codex'),
-    },
-    cursor: {
-      model: getDefaultModelForCli('cursor'),
-    },
-    qwen: {
-      model: getDefaultModelForCli('qwen'),
-    },
-    glm: {
-      model: getDefaultModelForCli('glm'),
-    },
   },
 };
 
 function migrateStoredModelDefaults(settings: GlobalSettings): GlobalSettings {
-  const codexSettings = settings.cli_settings?.codex ?? {};
-  const normalizedCodexModel = normalizeModelId(
-    'codex',
-    typeof codexSettings.model === 'string' ? codexSettings.model : undefined
-  );
-
-  if (codexSettings.model === normalizedCodexModel) {
-    return settings;
-  }
-
   return {
     ...settings,
+    default_cli: 'claude',
     cli_settings: {
-      ...settings.cli_settings,
-      codex: {
-        ...codexSettings,
-        model: normalizedCodexModel,
+      claude: {
+        ...(settings.cli_settings?.claude ?? {}),
+        model: normalizeModelId('claude', settings.cli_settings?.claude?.model as string | undefined),
       },
     },
   };
@@ -61,8 +39,6 @@ function migrateStoredModelDefaults(settings: GlobalSettings): GlobalSettings {
 
 function applyEnvironmentModelDefaults(settings: GlobalSettings): GlobalSettings {
   const anthropicModel = process.env.ANTHROPIC_MODEL?.trim();
-  const codexModelRaw = process.env.CODEX_MODEL?.trim();
-  const codexModel = codexModelRaw ? normalizeModelId('codex', codexModelRaw) : undefined;
   let nextSettings = settings;
 
   if (anthropicModel) {
@@ -87,51 +63,11 @@ function applyEnvironmentModelDefaults(settings: GlobalSettings): GlobalSettings
     }
   }
 
-  if (codexModel) {
-    const codexSettings = nextSettings.cli_settings?.codex ?? {};
-    const currentModel =
-      typeof codexSettings.model === 'string' && codexSettings.model.trim().length > 0
-        ? codexSettings.model.trim()
-        : undefined;
-
-    if (!currentModel || currentModel === DEFAULT_SETTINGS.cli_settings.codex.model) {
-      nextSettings = {
-        ...nextSettings,
-        cli_settings: {
-          ...nextSettings.cli_settings,
-          codex: {
-            ...codexSettings,
-            model: codexModel,
-          },
-        },
-      };
-    }
-  }
-
   return nextSettings;
 }
 
 function applyEnvironmentRuntimeDefaults(settings: GlobalSettings): GlobalSettings {
-  const codexBaseUrl = process.env.CODEX_OPENAI_BASE_URL?.trim() || process.env.OPENAI_BASE_URL?.trim();
-  const codexReasoningEffort =
-    process.env.CODEX_MODEL_REASONING_EFFORT?.trim() || process.env.MODEL_REASONING_EFFORT?.trim();
-
-  if (!codexBaseUrl && !codexReasoningEffort) {
-    return settings;
-  }
-
-  const codexSettings = settings.cli_settings?.codex ?? {};
-  return {
-    ...settings,
-    cli_settings: {
-      ...settings.cli_settings,
-      codex: {
-        ...codexSettings,
-        ...(codexBaseUrl ? { openAIBaseUrl: codexBaseUrl } : {}),
-        ...(codexReasoningEffort ? { reasoningEffort: codexReasoningEffort } : {}),
-      },
-    },
-  };
+  return settings;
 }
 
 async function ensureDataDir(): Promise<void> {

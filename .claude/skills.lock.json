@@ -2,82 +2,41 @@
   "schemaVersion": 1,
   "packageFormat": "tgz",
   "skills": {
-    "quant-run-planner": {
-      "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quant-run-planner.tgz",
-      "sourceSha256": "0d3a1864abb8c4fd6a1be2c279955c3a1aa73394b52cb96a2ddaa59cdb28be7f",
-      "packageSha256": "6e1e65eec10a84cd9eafa9a35889fadec685c99b4bf728a0fe55c7680967cf31",
-      "fileCount": 2
-    },
-    "quant-data-registry": {
-      "version": "0.3.0",
-      "packagePath": ".claude/skill-packages/quant-data-registry.tgz",
-      "sourceSha256": "d0c0ff2c5a188add6b1c1d6823821b58b8f8349e255a6c97313cd6e66eaf9dce",
-      "packageSha256": "b56d9e6ba757a3961c871e51c8b6abc2c229434794c2bf3d8617c4a49fbfc0f0",
-      "fileCount": 1
-    },
-    "quant-symbol-resolver": {
+    "travel-run-planner": {
       "version": "0.1.0",
-      "packagePath": ".claude/skill-packages/quant-symbol-resolver.tgz",
-      "sourceSha256": "17598fea5a379c94982276e14d04faaeac0b507c0609e5d88e1ac1bae27dfd0c",
-      "packageSha256": "edd928c2964badec9c81090461c9bcd16730e1b54813912565b396c1203c30a6",
+      "packagePath": ".claude/skill-packages/travel-run-planner.tgz",
+      "packageSha256": "2c08d2ebc310bc05c3bc70e16a94bcdb75c5f900bc762b176995350c01e2e1be",
       "fileCount": 1
     },
-    "quant-market-data": {
-      "version": "0.4.0",
-      "packagePath": ".claude/skill-packages/quant-market-data.tgz",
-      "sourceSha256": "ed045d8479628c7c891efcee5ffed02a12fa0f25f358b77f076cd2d56f145df7",
-      "packageSha256": "13d557bec5b7e68b74f478f8ff18e7ce92ef355d5ee573cda700acbec74869d3",
-      "fileCount": 1
-    },
-    "quant-fundamentals": {
+    "travel-poi-retrieval": {
       "version": "0.1.0",
-      "packagePath": ".claude/skill-packages/quant-fundamentals.tgz",
-      "sourceSha256": "a8eec34aa8ab0799cb46abe4267f367b3066a34c9dce6d78b187e8ca82d52a66",
-      "packageSha256": "39ac5f31d90bf56aceb6d89887e808c19236fa763d9ccf92db9be52552a15412",
-      "fileCount": 2
+      "packagePath": ".claude/skill-packages/travel-poi-retrieval.tgz",
+      "packageSha256": "be0ac68ec28009093a35ab6d3d47b8f599110a1845c55163de92caa0bf3b88bc",
+      "fileCount": 1
     },
-    "quant-indicators": {
+    "travel-ugc-evidence": {
       "version": "0.1.0",
-      "packagePath": ".claude/skill-packages/quant-indicators.tgz",
-      "sourceSha256": "d5de0df6791c01166c81be9c5f596a721bc1fdce9bfd973aa7a0f5b12f85c72f",
-      "packageSha256": "bad4e9dfe283f7669e19052c47bcb3e6a963d00b9e7b5d77c544cf981b1452a7",
-      "fileCount": 4
-    },
-    "quant-backtest": {
-      "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quant-backtest.tgz",
-      "sourceSha256": "372fac437a34171e902e753ca78180477735f992ef045d452ba4c493ac5707a7",
-      "packageSha256": "2ae74b065e446c1528d5c3f4292f1ee1f02eacd5cc1612313c591d39baced3f1",
+      "packagePath": ".claude/skill-packages/travel-ugc-evidence.tgz",
+      "packageSha256": "1b928434fcee9bdf0a21e4a4b4bbb7b56d7c7effe64fcd6560496d5c29fc12ef",
       "fileCount": 1
     },
-    "quant-data-quality": {
-      "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quant-data-quality.tgz",
-      "sourceSha256": "f442b4e98fa7e4ecbb98cbe376226e2c7d7629fc903bbcfb113cae2dc06edfaa",
-      "packageSha256": "bbc6f8bbd85a0c66feb59d911f8d60ec17ab9f6f664947ea77a8f82cbebe3997",
-      "fileCount": 1
-    },
-    "quant-visualization-html": {
-      "version": "0.4.0",
-      "packagePath": ".claude/skill-packages/quant-visualization-html.tgz",
-      "sourceSha256": "33d6948167e955c8ad5a61e4344a3c132bd7ab345225890c070957cf1a367fba",
-      "packageSha256": "8b3a0c7f8df0b458cbc68c298130caee3accb32f4fe958a3553c90667f1a7ba2",
-      "fileCount": 2
-    },
-    "quant-image-extraction": {
+    "travel-route-optimizer": {
       "version": "0.1.0",
-      "packagePath": ".claude/skill-packages/quant-image-extraction.tgz",
-      "sourceSha256": "f1377762fdc9f8cfeb59e64fc22862e455845bc8b87722fa0ddf8f9825cd215e",
-      "packageSha256": "224833f5a363bf4f8d5d048fc4ccd6003a13fb431251c077a5c67abb03075805",
+      "packagePath": ".claude/skill-packages/travel-route-optimizer.tgz",
+      "packageSha256": "d73c010f8e2c3588fd4187cda5359bff5ea0001c2a50932cc3cbd7cb911eeb53",
       "fileCount": 1
     },
-    "quantpilot-ui-product-design": {
-      "version": "0.2.0",
-      "packagePath": ".claude/skill-packages/quantpilot-ui-product-design.tgz",
-      "sourceSha256": "b5662876b9b462a99208379bc7910a4669606acc9d0fc2d5b16cd9b4b3053738",
-      "packageSha256": "b788e3b97187fc790ff1c93567fd515122c49633c731784d7958f7b750b7d3fb",
-      "fileCount": 2
+    "travel-constraint-validator": {
+      "version": "0.1.0",
+      "packagePath": ".claude/skill-packages/travel-constraint-validator.tgz",
+      "packageSha256": "5904c2a4f97e01178bc026e467dfc24685da7c19a9bfaa5417d6fdb05226b741",
+      "fileCount": 1
+    },
+    "travel-visualization-html": {
+      "version": "0.1.0",
+      "packagePath": ".claude/skill-packages/travel-visualization-html.tgz",
+      "packageSha256": "7f344a20494f9b42a483ae379fc3de5d46e7049926c19ef4dd017afe28280a78",
+      "fileCount": 1
     }
   }
 }

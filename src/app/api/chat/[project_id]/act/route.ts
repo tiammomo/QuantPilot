@@ -33,13 +33,13 @@ type TravelProgressStage =
   | 'completed';
 
 const TRAVEL_PROGRESS_LABELS: Record<TravelProgressStage, string> = {
-  received: '多 Agent 任务已收到，正在启动北京旅游规划链路。',
-  parsing: '意图解析 Agent：已识别本轮游玩目标和约束。',
-  retrieving_poi: 'POI 检索 Agent：正在读取本地北京 POI/UGC 数据并筛选候选点。',
-  planning: '路线优化 Agent：正在生成或调整可执行路线方案。',
-  writing_artifacts: '证据与产物 Agent：正在写入 itinerary-data.json 和证据文件。',
-  rendering: '可视化 Agent：已更新右侧“北京智能路线方案”。',
-  completed: '多 Agent 路线规划完成。',
+  received: '旅游规划任务已收到，正在启动北京路线规划链路。',
+  parsing: '已识别本轮游玩目标和约束。',
+  retrieving_poi: '正在读取本地北京 POI/UGC 数据并筛选候选点。',
+  planning: '正在生成或调整可执行路线方案。',
+  writing_artifacts: '正在写入 itinerary-data.json 和证据文件。',
+  rendering: '已更新右侧“北京智能路线方案”。',
+  completed: '北京旅游路线规划完成。',
 };
 
 const TRAVEL_CAPABILITY_IDS = new Set([
@@ -117,7 +117,7 @@ function publishTravelProgress(params: {
       isStreaming: !params.final,
       isFinal: Boolean(params.final),
       isOptimistic: true,
-      metadata: { type: 'travel_agent_progress', stage: params.stage, elapsed_ms: elapsedMs, localOnly: true },
+      metadata: { type: 'travel_progress', stage: params.stage, elapsed_ms: elapsedMs, localOnly: true },
     },
   });
 }
@@ -126,13 +126,13 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
   const planning = result.planning_response || {};
   const proposals = Array.isArray(planning.proposals) ? planning.proposals.slice(0, 3) : [];
   const routePatchSummary = planning.route_patch_summary;
-  const lines = ['# 北京智能路线方案', '', `区域：${planning.resolved_area || result.parsed_request?.area || '北京'}`, ''];
+  const lines = ['# 北京旅行规划已生成', '', `目的地：${planning.resolved_area || result.parsed_request?.area || '北京'}`, ''];
 
   if (routePatchSummary) {
     const kept = Array.isArray(routePatchSummary.kept) ? routePatchSummary.kept.join('、') : '';
     const removed = Array.isArray(routePatchSummary.removed) ? routePatchSummary.removed.join('、') : '';
     const added = Array.isArray(routePatchSummary.added) ? routePatchSummary.added.join('、') : '';
-    lines.push('## Route Diff');
+    lines.push('## 本次调整');
     if (kept) lines.push(`- 保留：${kept}`);
     if (removed) lines.push(`- 删除：${removed}`);
     if (added) lines.push(`- 新增：${added}`);
@@ -140,17 +140,15 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
   }
 
   if (planning.natural_language_explanation) {
-    lines.push('## MiniMax 解释', String(planning.natural_language_explanation), '');
+    lines.push('## 路线说明', String(planning.natural_language_explanation), '');
   }
 
   if (planning.llm_rerank) {
     lines.push(
-      '## MiniMax 重排',
-      `- 是否生效：${planning.llm_rerank.llm_used ? '是' : '否'}`,
+      '## 规划依据',
       `- 主推方案：${planning.final_selected_proposal_id ?? planning.llm_rerank.primary_proposal_id ?? '-'}`,
-      `- 模型：${planning.llm_rerank.model ?? '-'}`,
-      `- 耗时：${planning.llm_rerank.elapsed_ms ?? 0} ms`,
-      planning.llm_rerank.fallback_reason ? `- 降级原因：${planning.llm_rerank.fallback_reason}` : '- 降级原因：无',
+      `- 选择依据：${planning.llm_rerank.rerank_source === 'wiki_local' ? '本地旅行知识与地点证据' : planning.llm_rerank.llm_used ? '你的偏好与路线可执行性' : '本地规划规则'}`,
+      planning.llm_rerank.fallback_reason ? `- 注意事项：${planning.llm_rerank.fallback_reason}` : '- 注意事项：暂无硬性风险',
       '',
     );
   }
@@ -158,10 +156,8 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
   if (planning.wiki_retrieval) {
     const hits = Array.isArray(planning.wiki_retrieval.hits) ? planning.wiki_retrieval.hits.slice(0, 5) : [];
     lines.push(
-      '## 知识库证据',
-      `- Obsidian Vault：${planning.wiki_retrieval.vault_path || 'travel-data/wiki'}`,
-      `- 命中页面数：${hits.length}`,
-      ...hits.map((hit: Record<string, any>) => `- ${hit.title || '-'}（${hit.type || '-'}，score=${hit.score ?? '-'}，${hit.path || '-'}）`),
+      '## 参考地点',
+      ...hits.map((hit: Record<string, any>) => `- ${hit.title || '-'}`),
       '',
     );
   }
@@ -177,7 +173,7 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
       `- 预计总时长：${proposal.total_route_duration_min ?? '-'} 分钟`,
       `- 预计预算：${proposal.total_budget_estimate ?? '-'} 元`,
       `- 预计转移/步行：${proposal.total_transfer_minutes ?? '-'} 分钟，${proposal.total_walking_distance_m ?? '-'} 米`,
-      `- 通勤来源：${commuteEdgesUsed} 段通勤库，${coordinateEstimatesUsed} 段坐标回退`,
+      `- 转移估算：${commuteEdgesUsed} 段有本地通勤数据，${coordinateEstimatesUsed} 段按距离估算`,
       `- 路线：${names}`,
       `- 风险：${risks}`,
       '',
@@ -185,11 +181,8 @@ function buildTravelAssistantMessage(result: Record<string, any>): string {
   });
 
   lines.push(
-    '结果文件：data_file/final/itinerary-data.json',
-    '证据文件：evidence/sources.json、evidence/data_quality.json',
-    'Trace 文件：.travelpilot/agent-trace.json、.travelpilot/session-state.json',
-    `数据库召回：${planning.generation_metrics?.database_recall_used ? '已执行白名单 SQL 召回' : '未执行数据库召回'}`,
-    '说明：转移时间优先来自 travel_commute_edges 通勤库，缺失路段回退坐标估算；排队风险来自本地 UGC 静态信号，不是实时导航结果。',
+    `数据来源：${planning.generation_metrics?.database_recall_used ? '已使用本地北京旅行数据库' : '已使用本地旅行规划数据'}`,
+    '说明：转移时间和排队热度是规划参考，出发前仍建议核对实时交通与景区开放信息。',
   );
   return lines.join('\n');
 }
@@ -229,8 +222,7 @@ async function writeTravelPlanArtifacts(params: {
             itinerary: 'data_file/final/itinerary-data.json',
             sources: 'evidence/sources.json',
             dataQuality: 'evidence/data_quality.json',
-            agentTrace: '.travelpilot/agent-trace.json',
-            sessionState: '.travelpilot/session-state.json',
+            diagnostics: '.travelpilot/session-state.json',
           },
           createdAt: now,
           updatedAt: now,
@@ -370,7 +362,7 @@ async function saveTravelMessages(params: {
 
 function buildImagePreferenceText(images: unknown[]): string {
   if (images.length === 0) return '';
-  return `\n\n用户上传了 ${images.length} 张图片附件；当前旅游 Agent 会把图片作为出行偏好、目的地或风格线索。`;
+  return `\n\n用户上传了 ${images.length} 张图片附件；当前旅游规划会把图片作为出行偏好、目的地或风格线索。`;
 }
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
@@ -414,27 +406,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       existingItinerary: shouldReplan ? existingItinerary : null,
     });
 
-    for (const trace of orchestration.agentTrace) {
-      streamManager.publish(project_id, {
-        type: 'travel_progress',
-        data: {
-          requestId,
-          stage:
-            trace.agent_key === 'poi_retrieval_agent' || trace.agent_key === 'ugc_evidence_agent'
-              ? 'retrieving_poi'
-              : trace.agent_key === 'route_composition_agent' || trace.agent_key === 'constraint_judge_agent'
-                ? 'planning'
-                : 'parsing',
-          message: trace.summary,
-          elapsed_ms: trace.elapsed_ms,
-          agent_key: trace.agent_key,
-          status: trace.status === 'clarification_required' ? 'clarification_required' : 'completed',
-          summary: trace.summary,
-          payload_preview: trace.payload_preview,
-        },
-      });
-    }
-
     if (orchestration.status === 'travel_clarification_required') {
       const messages = await saveTravelMessages({
         projectId: project_id,
@@ -445,7 +416,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         assistantMetadata: {
           type: 'travel_clarification_required',
           reason: orchestration.clarification?.reason,
-          agentTrace: orchestration.agentTrace,
           sessionStateSummary: orchestration.sessionStateSummary,
           clarificationPayload: orchestration.clarificationPayload,
         },
@@ -459,7 +429,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           requestId,
           metadata: {
             reason: orchestration.clarification?.reason,
-            agentTrace: orchestration.agentTrace,
             sessionStateSummary: orchestration.sessionStateSummary,
             clarificationPayload: orchestration.clarificationPayload,
           },
@@ -475,7 +444,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         conversationId: conversationId ?? null,
         message: orchestration.clarification?.message || '需要补充信息后再继续规划。',
         needsClarification: true,
-        agentTrace: orchestration.agentTrace,
         sessionStateSummary: orchestration.sessionStateSummary,
         clarificationPayload: orchestration.clarificationPayload,
       });
@@ -519,7 +487,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         runPlanPath: '.travelpilot/run_plan.json',
         generationMetrics: planningResponse.generation_metrics,
         replanMetadata: planningResponse.replan_metadata,
-        agentTrace: orchestration.agentTrace,
         sessionStateSummary: orchestration.sessionStateSummary,
       },
     });
@@ -529,13 +496,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       type: 'status',
       data: {
         status,
-        message: status === 'travel_replan_completed' ? '北京旅游路线已基于上一轮结果完成多 Agent 动态重规划。' : '北京旅游路线已基于本地 POI/UGC 数据完成多 Agent 规划。',
+        message: status === 'travel_replan_completed' ? '北京旅游路线已基于上一轮结果完成动态重规划。' : '北京旅游路线已基于本地 POI/UGC 数据完成规划。',
         requestId,
         metadata: {
           capabilityId: selectedTravelCapabilityId,
           itineraryPath: 'data_file/final/itinerary-data.json',
           proposalCount: Array.isArray(planningResponse.proposals) ? planningResponse.proposals.length : 0,
-          agentTrace: orchestration.agentTrace,
           sessionStateSummary: orchestration.sessionStateSummary,
         },
       },
@@ -553,7 +519,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       itineraryPath: 'data_file/final/itinerary-data.json',
       proposalCount: Array.isArray(planningResponse.proposals) ? planningResponse.proposals.length : 0,
       travelItinerary: travelResult,
-      agentTrace: orchestration.agentTrace,
       sessionStateSummary: orchestration.sessionStateSummary,
       clarificationPayload: orchestration.clarificationPayload ?? null,
     });

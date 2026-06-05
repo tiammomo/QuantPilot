@@ -1,7 +1,5 @@
 "use client";
 
-import type { CLIStatus } from "@/types/cli";
-
 interface GeneralTabProps {
   defaultCliName: string;
   isDefaultCliInstalled: boolean;
@@ -16,12 +14,12 @@ interface GeneralTabProps {
 const GENERATION_POLICIES = [
   {
     title: "生成工作空间",
-    description: "首页任务会使用默认智能体与模型创建工作空间，并继承已配置的服务令牌。",
+    description: "首页任务固定使用 Claude Code runtime 与 MiniMax M2.7 创建工作空间，并继承已配置的服务令牌。",
     status: "自动继承",
   },
   {
     title: "评测链路",
-    description: "测试用例、评测集和运行记录使用同一套模型与服务连接，便于复盘生成质量。",
+    description: "测试用例、评测集和运行记录使用同一套固定模型与服务连接，便于复盘生成质量。",
     status: "统一配置",
   },
   {
@@ -45,16 +43,16 @@ function GeneralTab({
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-medium text-slate-500">默认智能体</p>
+          <p className="text-xs font-medium text-slate-500">固定运行时</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{defaultCliName || "未配置"}</p>
           <p className="mt-1 text-sm text-slate-600">
             {isDefaultCliInstalled ? "已安装，可用于新任务" : "未检测到安装状态"}
           </p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-medium text-slate-500">默认模型</p>
+          <p className="text-xs font-medium text-slate-500">固定模型</p>
           <p className="mt-2 text-lg font-semibold text-slate-900">{defaultModelName || "未选择模型"}</p>
-          <p className="mt-1 text-sm text-slate-600">首页创建任务时默认采用该模型</p>
+          <p className="mt-1 text-sm text-slate-600">首页创建任务时始终采用该模型</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <p className="text-xs font-medium text-slate-500">服务令牌</p>
@@ -66,9 +64,9 @@ function GeneralTab({
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-medium text-slate-900">生成链路默认配置</h3>
+            <h3 className="text-lg font-medium text-slate-900">生成链路固定配置</h3>
             <p className="mt-1 text-sm text-slate-600">
-              这里的配置会影响首页生成、项目会话和评测运行；具体工作空间健康与修复在运维平台处理。
+              模型与运行时不再提供界面切换；具体工作空间健康与修复在运维平台处理。
             </p>
           </div>
           <div className="flex gap-2">
@@ -77,7 +75,7 @@ function GeneralTab({
               onClick={onNavigateToAgents}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
             >
-              配置智能体
+              查看运行时
             </button>
             <button
               type="button"
@@ -109,13 +107,13 @@ function GeneralTab({
 
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-slate-900">当前可用智能体</span>
+          <span className="text-sm font-medium text-slate-900">固定运行时状态</span>
           <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
             {installedAgentCount}/{totalAgentCount}
           </span>
         </div>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          未安装的智能体不会作为默认选项。新建工作空间时，如果需要切换运行时，可以在首页输入框下方临时选择。
+          项目始终使用 Claude Code runtime 与 MiniMax M2.7；界面不提供 CLI 或模型选择入口。
         </p>
       </div>
     </div>

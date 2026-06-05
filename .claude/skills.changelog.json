@@ -1,312 +1,63 @@
 {
   "schemaVersion": 1,
-  "policy": {
-    "dateFormat": "YYYY-MM-DD",
-    "versioning": "semver",
-    "description": "每个核心 skill 的版本变更必须记录在这里；修改 SKILL.md、references、scripts 或输出契约时必须同步升级 registry 版本并新增 release。"
-  },
   "skills": {
-    "quant-run-planner": {
-      "releases": [
-        {
-          "version": "0.2.0",
-          "date": "2026-05-25",
-          "summary": "增强运行规划、澄清承接和场景化可视化模板字段。",
-          "changes": [
-            "新增 visualization.templateId、painPoints、dataSignals 和 finalDataContract 输出要求。",
-            "要求澄清回复合并上一轮问题后继续原 run plan。"
-          ]
-        }
-      ]
-    },
-    "quant-data-registry": {
-      "releases": [
-        {
-          "version": "0.3.0",
-          "date": "2026-05-29",
-          "summary": "强化本地 PostgreSQL/TimescaleDB 优先的数据选择规则。",
-          "changes": [
-            "新增 /api/v1/research/universes/summary、/api/v1/research/data-coverage 和 /api/v1/research/bars/{symbol} 作为历史分析前置检查。",
-            "要求首页对话、生成工作空间和策略分析先说明本地覆盖，再决定是否补数。",
-            "交互式对话默认使用 universe summary、分页 members 和指定标的 bars，避免每次全量扫描 data-coverage。",
-            "明确外部 provider 只作为实时补充或本地缺口补数入口，补数后必须回读本地库。"
-          ]
-        },
-        {
-          "version": "0.2.0",
-          "date": "2026-05-29",
-          "summary": "补充行情字段补数、provider 优先级和数据源知识库使用规则。",
-          "changes": [
-            "新增 Baostock / AKShare 历史 K 线补数字段规则，覆盖 amount、amplitude、change_percent、change_amount 和 turnover。",
-            "要求查询 docs/market-data-source-knowledge.md 后再选择历史行情 provider。",
-            "明确腾讯 K 线只能作为 OHLCV 兜底，不能视为成交额和换手率来源。"
-          ]
-        },
-        {
-          "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "建立数据注册、候选信源和降级规则说明能力。",
-          "changes": [
-            "约束后端 registry、provider candidates 和数据质量说明的使用边界。"
-          ]
-        }
-      ]
-    },
-    "quant-symbol-resolver": {
+    "travel-run-planner": {
       "releases": [
         {
           "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "建立中文简称、代码、指数和 ETF 的标准化解析能力。",
-          "changes": [
-            "要求 run_plan.symbols 保持为证券代码字符串数组。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立北京旅游 Agent 的运行规划 skill。",
+          "changes": ["记录区域、时长、预算、餐饮、少走路、低排队和重规划约束。"]
         }
       ]
     },
-    "quant-image-extraction": {
+    "travel-poi-retrieval": {
       "releases": [
         {
           "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "新增上传图片和持仓截图提取能力。",
-          "changes": [
-            "要求图片任务先读取 .quantpilot/attachments.json 并调用 QuantPilotImage MCP 工具。",
-            "输出 evidence/image_extraction.json 与 dashboard-data.json.imageExtraction 契约。",
-            "视觉识别不可用时必须保留 null 字段并列出需要人工确认的信息。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立本地北京 POI 检索 skill。",
+          "changes": ["要求 POI 来自 travel-data/processed 或 Travel API。"]
         }
       ]
     },
-    "quant-market-data": {
-      "releases": [
-        {
-          "version": "0.4.0",
-          "date": "2026-05-29",
-          "summary": "将历史行情、策略分析和回测的数据入口调整为本地 TimescaleDB 优先。",
-          "changes": [
-            "新增本地数据库优先原则，要求历史 K 线、均线、涨跌停、成交额和换手率优先读取 /api/v1/research/bars/{symbol}。",
-            "补充股票池 summary、分页成员和本地 bars 的标准 curl 示例。",
-            "禁止本地库已有覆盖时优先请求外部历史 K 线接口。"
-          ]
-        },
-        {
-          "version": "0.3.0",
-          "date": "2026-05-29",
-          "summary": "接入本地历史 K 线高价值字段补数链路。",
-          "changes": [
-            "新增 /api/v1/ingestion/baostock/history 和 /api/v1/ingestion/akshare/history 作为字段补数端点。",
-            "要求 amount、amplitude、change_percent、change_amount 和 turnover 缺失时说明补数状态。",
-            "补充生成页面不得用成交量或涨跌幅伪造成交额和换手率的限制。"
-          ]
-        },
-        {
-          "version": "0.2.0",
-          "date": "2026-05-25",
-          "summary": "整合实时行情、历史 K 线、指数 ETF、批量行情和多源 fallback。",
-          "changes": [
-            "合并 quant-a-share-history、quant-index-etf-market 和 quant-comparison 为兼容别名。",
-            "要求趋势类任务必须保留 K 线或明确错误面板。"
-          ]
-        }
-      ]
-    },
-    "quant-fundamentals": {
+    "travel-ugc-evidence": {
       "releases": [
         {
           "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "建立基本面、财务衍生指标、公告事件和估值情景能力。",
-          "changes": [
-            "新增 valuation_scenarios.py，用于 PE/EPS 三档估值情景。",
-            "合并财务报表、财务指标和公告事件 legacy skill 边界。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立 UGC 评论特征解释 skill。",
+          "changes": ["明确 UGC 是历史评论信号，不代表实时排队。"]
         }
       ]
     },
-    "quant-indicators": {
+    "travel-route-optimizer": {
       "releases": [
         {
           "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "建立技术指标、风险指标、相关性、流动性和趋势模板计算能力。",
-          "changes": [
-            "新增 trend_template.py，输出趋势状态、MA20/MA60、回撤和量能比。",
-            "保留 correlation.py 和 liquidity.py 作为多标的风险分析辅助脚本。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立路线生成和重规划 skill。",
+          "changes": ["支持 parse-and-plan、plan 和 replan Travel API。"]
         }
       ]
     },
-    "quant-backtest": {
+    "travel-constraint-validator": {
       "releases": [
-        {
-          "version": "0.2.0",
-          "date": "2026-05-29",
-          "summary": "将回测技能调整为先检查本地 TimescaleDB bars 覆盖。",
-          "changes": [
-            "要求回测前读取 /api/v1/research/bars/{symbol} 并记录样本区间、行数和复权口径。",
-            "新增 backtest.localBarsCoverage 输出建议。",
-            "如果回测接口来源无法确认本地化，要求在数据质量中显式标记限制。"
-          ]
-        },
         {
           "version": "0.1.0",
-          "date": "2026-05-25",
-          "summary": "建立策略参数、回测执行、净值曲线、回撤和交易明细能力。",
-          "changes": [
-            "要求说明费用、样本、滑点和策略限制。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立路线约束校验 skill。",
+          "changes": ["校验预算、时长、类别覆盖、营业时间和 UGC 证据。"]
         }
       ]
     },
-    "quant-data-quality": {
+    "travel-visualization-html": {
       "releases": [
-        {
-          "version": "0.2.0",
-          "date": "2026-05-25",
-          "summary": "增强证据文件、来源、时效、缺失字段和限制说明。",
-          "changes": [
-            "要求每个展示数据可追溯到 source。",
-            "统一 evidence/sources.json 与 evidence/data_quality.json 输出。"
-          ]
-        }
-      ]
-    },
-    "quantpilot-ui-product-design": {
-      "releases": [
-        {
-          "version": "0.2.0",
-          "date": "2026-05-28",
-          "summary": "接入 UI/UX Pro Max 方法论并沉淀 QuantPilot 适配层。",
-          "changes": [
-            "新增 references/ui-ux-pro-max-adapter.md，覆盖产品类型、页面模式、风格、配色、字体、UX、Next.js/shadcn 和图表规则。",
-            "将平台 UI 工作流调整为先做 UI/UX Pro Max 风格设计决策，再实施组件和页面。",
-            "把生成工作空间页面的审美和 UX 规则纳入本 skill 的触发范围。"
-          ]
-        },
         {
           "version": "0.1.0",
-          "date": "2026-05-28",
-          "summary": "建立 QuantPilot 主平台页面和组件的 UI 产品设计能力。",
-          "changes": [
-            "新增平台页面设计工作流，覆盖信息层级、组件复用、响应式和状态完整性。",
-            "明确主平台 UI 与生成工作空间金融看板的职责边界。",
-            "固化现有 shadcn 基础组件、量化控制台 primitives、语义状态色和分页验收要求。"
-          ]
-        }
-      ]
-    },
-    "quant-visualization-html": {
-      "releases": [
-        {
-          "version": "0.4.0",
-          "date": "2026-05-30",
-          "summary": "强化生成看板的自动验证自修复能力。",
-          "changes": [
-            "要求验证失败时读取 validation、repair plan 和 visual-validation 报告，并实际修改页面、final 数据或 evidence。",
-            "针对真实数据形态检查失败，明确 dashboard-data.json 标准字段、模板 ID、多标的覆盖和页面绑定修复规则。",
-            "要求修复后继续运行构建和平台验证，不能停留在修复计划或验证失败兜底页。"
-          ]
-        },
-        {
-          "version": "0.3.9",
-          "date": "2026-05-30",
-          "summary": "新增模板族与页面变体自动匹配规则。",
-          "changes": [
-            "要求生成链路同时读取 visualization.templateId 和 variantId，避免所有可视化落成同一套通用页面。",
-            "沉淀多标的排名、相关性风险、流动性强弱、板块资金流、突破观察、调仓计划等具体页面变体。",
-            "要求 final 数据保留 variant_id、layout、first_viewport、variant_guidance 和 match_reasons，方便页面按变体组织首屏。"
-          ]
-        },
-        {
-          "version": "0.3.8",
-          "date": "2026-05-30",
-          "summary": "强化多标的看板主图质量，避免迷你 sparkline 冒充核心可视化。",
-          "changes": [
-            "要求多标的看板必须提供带坐标、日期、图例、数值标签或矩阵尺度的主图/对比图。",
-            "明确资产卡 sparkline 只能作为辅助图，不能替代收益、回撤、波动、K 线或矩阵主视图。",
-            "补充卡片数字不得被挤压成竖排，字段优先读取 comparison.rows[] 标准指标。"
-          ]
-        },
-        {
-          "version": "0.3.7",
-          "date": "2026-05-29",
-          "summary": "强化多标的对比看板的模板一致性和 TypeScript 动态字段渲染规则。",
-          "changes": [
-            "要求多标的、对比矩阵、排名和观察池问题必须使用 stock-selection/多标的对比结构，禁止降级成单股诊断页。",
-            "要求 dashboard-data.json.visualization.template_id 必须与 run_plan.visualization.templateId 对齐。",
-            "补充 JSX 渲染动态 JSON 字段前必须 String/format 转换，避免 unknown/object 导致 Next.js build 失败。"
-          ]
-        },
-        {
-          "version": "0.3.6",
-          "date": "2026-05-29",
-          "summary": "强化可视化看板的缺数据空态和截图验收反馈。",
-          "changes": [
-            "要求缺失行情、K 线或财务数据时显示专业待接入/待确认状态，避免首屏散落大量占位符。",
-            "要求图表区域保留 OHLC、均线、成交量或矩阵结构，并用空态文案说明数据写入后会自动渲染。",
-            "沉淀截图验收反馈，确保空数据页面也像可用金融工作台。"
-          ]
-        },
-        {
-          "version": "0.3.5",
-          "date": "2026-05-29",
-          "summary": "强化首页提问生成看板的首屏质量、字段优先级和移动端可用性。",
-          "changes": [
-            "要求默认生成看板首屏呈现真实金融内容、核心图表或矩阵、更新时间和数据状态。",
-            "明确实时行情字段优先读取 quote.previous_close/open/high/low/amount/turnover，避免用错误 K 线字段冒充昨收、成交额或换手率。",
-            "新增移动端无页面级横向溢出、宽表格内部滚动、长文本不撑爆卡片等硬性约束。"
-          ]
-        },
-        {
-          "version": "0.3.4",
-          "date": "2026-05-28",
-          "summary": "补充生成金融看板的 UI/UX Pro Max 视觉质量门槛。",
-          "changes": [
-            "要求生成页面参考 QuantPilot 的 UI/UX Pro Max 适配层，默认使用 Data-Dense Dashboard 结构。",
-            "新增首屏真实金融内容、图表表格 fallback、语义配色、响应式和动效约束。",
-            "明确功能正确但视觉粗糙或像默认模板的生成页面不算完成。"
-          ]
-        },
-        {
-          "version": "0.3.3",
-          "date": "2026-05-26",
-          "summary": "收紧持仓分析页面结构，避免生成占据首屏的巨型 hero。",
-          "changes": [
-            "要求 holding-analysis、调仓建议和截图持仓页面直接从账户摘要、持仓矩阵或核心风险面板开始。",
-            "禁止持仓分析页面使用 hero-band、深色大 VaR 卡或模板名称加巨型标题的首屏结构。",
-            "将 VaR、样本口径、刷新接口和非投资建议声明下沉到指标卡、风险模块、数据质量或底部说明。"
-          ]
-        },
-        {
-          "version": "0.3.2",
-          "date": "2026-05-25",
-          "summary": "新增生成产物策略约束，防止外部资源、mock 数据和敏感信息进入工作空间。",
-          "changes": [
-            "禁止外部 CDN、远程脚本、远程样式、远程媒体和浏览器直连外部接口。",
-            "要求页面只读取 final 数据文件或同源 /api/market，并保留 run plan、final 数据和 evidence 标准产物。",
-            "禁止 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据和明文密钥。"
-          ]
-        },
-        {
-          "version": "0.3.1",
-          "date": "2026-05-25",
-          "summary": "增强生成页面的 TypeScript 稳定性约束，避免动态 JSON 字段推断导致 build 失败。",
-          "changes": [
-            "要求 dashboard-data.json 读取后统一使用 JsonRecord、asRecord、asArray 和 numeric 守卫。",
-            "要求 flatMap/map 中新增字段的动态对象显式标注为 JsonRecord。",
-            "禁止用 as any 掩盖页面类型错误，新增公告、财务、估值、相关性等模块后必须通过 Next.js build。"
-          ]
-        },
-        {
-          "version": "0.3.0",
-          "date": "2026-05-25",
-          "summary": "引入场景化可视化模板矩阵，按持仓、选股、个股、技术、基本面、回测和板块轮动生成差异化看板。",
-          "changes": [
-            "新增 references/scenario_templates.md。",
-            "要求页面按 visualization.templateId 覆盖场景痛点和必备组件。",
-            "要求 final 数据保留 visualization.template_id、required_components、rendered_components 和 pain_points。"
-          ]
+          "date": "2026-06-04",
+          "summary": "建立北京路线看板生成 skill。",
+          "changes": ["要求展示三方案对比、时间轴、POI 卡、证据和风险提示。"]
         }
       ]
     }

@@ -11,6 +11,7 @@ import { rerankTravelProposals } from '@/lib/travel/llm-rerank';
 import { retrieveTravelWiki } from '@/lib/travel/wiki-retrieval';
 import { applyTravelPlanningAdvice, getTravelPlanningAdvice, type TravelPlanningAdvice } from '@/lib/travel/llm-planning-advice';
 import { generateTravelRouteDraft, type TravelRouteDraft, type TravelRouteDraftValidation } from '@/lib/travel/llm-route-draft';
+import { buildPlanningResponseFromRouteCorpus, findPrecomputedTravelRoutes } from '@/lib/travel/route-corpus';
 
 type JsonRecord = Record<string, any>;
 type RouteMode = 'culture' | 'mixed';
@@ -1591,9 +1592,103 @@ export async function planTravelRoute(payload: Partial<TravelPlanningRequest>) {
   return baseResponse;
 }
 
+export async function buildStaticTravelRoute(payload: Partial<TravelPlanningRequest>) {
+  const started = performance.now();
+  const data = await loadTravelData();
+  const commuteEdges = await loadCommuteEdges();
+  const request = normalizeRequest(payload);
+  const pool = candidatePool(data, request);
+  const selectedArea = selectArea(request, pool);
+  const proposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
+  const dayCount = Math.max(1, Math.min(5, Number(request.day_count || 1)));
+  const dayAreas = request.area ? [selectedArea] : selectPopularAreas(pool, dayCount);
+  const dailyItinerary = Array.from({ length: dayCount }, (_, index) => {
+    const dayArea = dayAreas[index % dayAreas.length] || selectedArea;
+    const dayRequest = normalizeRequest({
+      ...request,
+      area: dayArea,
+      max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
+      exclude_poi_ids: [...(request.exclude_poi_ids || []), ...proposals[0].ordered_poi_ids.slice(0, index * 2)],
+    });
+    const dayProposal = buildProposal({ request: dayRequest, strategy: index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget', selectedArea: dayArea, candidates: pool, data, commuteEdges });
+    return { day: index + 1, title: `Day ${index + 1}`, area: dayArea, theme: index === 0 ? 'Classic area' : index === 1 ? 'Food and culture mix' : 'Budget-friendly culture', proposal: dayProposal };
+  });
+  const transferSummary = summarizeProposalTransfers(proposals);
+  return {
+    request_id: `travel-static-${Math.random().toString(16).slice(2, 12)}`,
+    city_id: 'beijing',
+    route_mode: request.route_mode,
+    goal: request.goal,
+    resolved_area: selectedArea,
+    persona_id: request.persona_id,
+    evidence_summary: {
+      data_root: DATA_ROOT,
+      poi_count: data.plannerEntities.length,
+      review_feature_count: data.reviewAggregates.length,
+      static_data_notice: 'UGC and opening hours come from local static data, not realtime queue or realtime operations.',
+    },
+    request_snapshot: request,
+    day_count: dayCount,
+    daily_itinerary: dailyItinerary,
+    proposals,
+    generation_metrics: {
+      elapsed_ms: Number((performance.now() - started).toFixed(2)),
+      within_10s: performance.now() - started < 10000,
+      commute_edges_loaded: commuteEdges.loaded,
+      commute_edge_count: commuteEdges.edge_count,
+      commute_edge_loaded_at: commuteEdges.loaded_at,
+      commute_edge_load_elapsed_ms: commuteEdgeLoadElapsedMs,
+      commute_edge_error: commuteEdges.error,
+      ...transferSummary,
+    },
+    replan_metadata: null,
+  };
+}
+
 export async function parseAndPlanTravel(payload: { goal?: string; defaults?: Partial<TravelPlanningRequest>; debug_route_draft_mock?: string }) {
   const rawGoal = String(payload.goal || '');
   const intent = await parseTravelQueryIntentMiniMaxPreferred(rawGoal).catch(() => null);
+  if (intent && intent.missing_fields.length === 0 && !payload.debug_route_draft_mock) {
+    const corpusRequest = normalizeRequest({
+      ...payload.defaults,
+      ...intentToPlannerLikeRequest(intent),
+      goal: rawGoal,
+    });
+    const corpusMatch = await findPrecomputedTravelRoutes(intent);
+    if (corpusMatch.matched) {
+      return buildPlanningResponseFromRouteCorpus({ intent, match: corpusMatch, request: corpusRequest });
+    }
+    const planningResponse = await buildStaticTravelRoute(corpusRequest);
+    const databaseRecall = await executeDatabaseRecall(intent);
+    return {
+      parsed_request: corpusRequest,
+      parser_confidence: intent.confidence,
+      parser_notes: [
+        ...intent.notes,
+        '未命中预生成路线库，已使用本地 POI/UGC 数据即时生成路线。',
+      ],
+      parser_correction_hints: [],
+      intent,
+      planning_response: {
+        ...planningResponse,
+        query_plan: databaseRecall.query_plan,
+        query_results: databaseRecall.results,
+        route_corpus_match: {
+          used: false,
+          source: 'none',
+          elapsed_ms: corpusMatch.elapsed_ms,
+          reason: corpusMatch.reason,
+        },
+        natural_language_explanation: planningResponse.proposals?.[0]?.summary || '已根据本地北京旅行数据生成路线。',
+        generation_metrics: {
+          ...(planningResponse.generation_metrics || {}),
+          route_corpus_used: false,
+          database_recall_used: databaseRecall.used,
+          llm_role: 'semantic_intent_only',
+        },
+      },
+    };
+  }
   const preWikiRetrieval = rawGoal
     ? await retrieveTravelWiki({ rawText: rawGoal, intent, limit: 8 }).catch(() => null)
     : null;

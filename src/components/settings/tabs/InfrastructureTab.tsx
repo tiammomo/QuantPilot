@@ -62,7 +62,7 @@ function InfrastructureTab({
         <div>
           <h3 className="text-lg font-medium text-slate-900">基础组件配置</h3>
           <p className="mt-1 text-sm text-slate-600">
-            管理北京旅游 Agent 本地开发依赖的 PostgreSQL、旅游数据表和后续基础设施入口。
+            管理北京旅游规划本地开发依赖的 PostgreSQL、旅游数据表和后续基础设施入口。
           </p>
         </div>
         <button

@@ -307,6 +307,72 @@ async function rebuildAreas() {
   return Number(rows[0]?.count || 0);
 }
 
+async function readRouteCorpus() {
+  const file = path.join(dataRoot, 'beijing_route_corpus.json');
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.routes) ? parsed.routes : [];
+  } catch {
+    return [];
+  }
+}
+
+async function upsertRouteCorpus() {
+  const routes = await readRouteCorpus();
+  let count = 0;
+  for (const route of routes) {
+    const routeId = String(route.route_id || '').trim();
+    if (!routeId) continue;
+    await prisma.$executeRaw`
+      INSERT INTO travel_precomputed_routes (
+        route_id, city_id, title, area, route_mode, persona_id, walk_preference,
+        duration_bucket_min, budget_bucket_cny, requires_meal, meal_type,
+        indoor_preferred, avoid_queue, tags, poi_ids, poi_names,
+        total_budget_estimate, total_route_duration_min, score, payload, source, updated_at
+      )
+      VALUES (
+        ${routeId}, ${String(route.city_id || 'beijing')}, ${String(route.title || '北京旅行路线')},
+        ${route.area ? String(route.area) : null}, ${String(route.route_mode || 'mixed')},
+        ${String(route.persona_id || 'classic_first_timer')}, ${String(route.walk_preference || 'medium')},
+        ${Number(route.duration_bucket_min || 0)}, ${route.budget_bucket_cny === null || route.budget_bucket_cny === undefined ? null : Number(route.budget_bucket_cny)},
+        ${Boolean(route.requires_meal)}, ${route.meal_type ? String(route.meal_type) : null},
+        ${Boolean(route.indoor_preferred)}, ${Boolean(route.avoid_queue)},
+        ${Array.isArray(route.tags) ? route.tags.map(String) : []},
+        ${Array.isArray(route.poi_ids) ? route.poi_ids.map(String) : []},
+        ${Array.isArray(route.poi_names) ? route.poi_names.map(String) : []},
+        ${Number(route.total_budget_estimate || 0)}, ${Number(route.total_route_duration_min || 0)},
+        ${Number(route.score || 0)}, CAST(${JSON.stringify(route.payload || {})} AS jsonb),
+        'travel-data/processed/beijing_route_corpus.json', NOW()
+      )
+      ON CONFLICT (route_id) DO UPDATE SET
+        city_id = EXCLUDED.city_id,
+        title = EXCLUDED.title,
+        area = EXCLUDED.area,
+        route_mode = EXCLUDED.route_mode,
+        persona_id = EXCLUDED.persona_id,
+        walk_preference = EXCLUDED.walk_preference,
+        duration_bucket_min = EXCLUDED.duration_bucket_min,
+        budget_bucket_cny = EXCLUDED.budget_bucket_cny,
+        requires_meal = EXCLUDED.requires_meal,
+        meal_type = EXCLUDED.meal_type,
+        indoor_preferred = EXCLUDED.indoor_preferred,
+        avoid_queue = EXCLUDED.avoid_queue,
+        tags = EXCLUDED.tags,
+        poi_ids = EXCLUDED.poi_ids,
+        poi_names = EXCLUDED.poi_names,
+        total_budget_estimate = EXCLUDED.total_budget_estimate,
+        total_route_duration_min = EXCLUDED.total_route_duration_min,
+        score = EXCLUDED.score,
+        payload = EXCLUDED.payload,
+        source = EXCLUDED.source,
+        updated_at = NOW()
+    `;
+    count += 1;
+  }
+  return count;
+}
+
 async function main() {
   console.log(`[travel:db:import] data root: ${dataRoot}`);
   const pois = await loadPois();
@@ -315,7 +381,8 @@ async function main() {
   const featureCount = await upsertFeatures();
   const reviewCount = await upsertReviews();
   const areaCount = await rebuildAreas();
-  console.log(`[travel:db:import] done POIs=${pois.length}, features=${featureCount}, reviews=${reviewCount}, areas=${areaCount}`);
+  const routeCount = await upsertRouteCorpus();
+  console.log(`[travel:db:import] done POIs=${pois.length}, features=${featureCount}, reviews=${reviewCount}, areas=${areaCount}, routes=${routeCount}`);
 }
 
 main()

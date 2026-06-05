@@ -1,11 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
-  Database,
-  Map,
-  Menu,
-  Settings,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,7 +17,7 @@ const ROLE_MODULES: Array<{
   {
     id: "mixed-food-route",
     name: "餐饮文化混排",
-    description: "组合餐饮、文化和娱乐 POI，兼顾预算、排队和步行",
+    description: "组合餐饮、文化和娱乐地点，兼顾预算、排队和步行",
     capabilityId: "mixed_food_route",
     inputPlaceholder: "前门附近玩4小时，中午吃饭，想吃好但不想排队，预算200以内，少走路",
   },
@@ -36,14 +31,14 @@ const ROLE_MODULES: Array<{
   {
     id: "family-low-queue",
     name: "亲子低排队",
-    description: "提高亲子友好、环境质量和低排队 UGC 信号权重",
+    description: "提高亲子友好、环境质量和低排队偏好权重",
     capabilityId: "family_low_queue",
     inputPlaceholder: "带孩子在什刹海附近轻松玩，安排吃饭，不想排队",
   },
   {
     id: "budget-route",
     name: "预算优先",
-    description: "在预算上限内保留高性价比、低成本 POI",
+    description: "在预算上限内保留高性价比、低成本地点",
     capabilityId: "budget_route",
     inputPlaceholder: "预算100以内，前门附近吃逛路线，尽量不排队",
   },
@@ -66,8 +61,6 @@ const ROLE_MODULES: Array<{
 interface SidebarProps {
   selectedCapability: TravelCapabilityId;
   onSelectCapability: (id: TravelCapabilityId) => void;
-  onOpenTaskDrawer: () => void;
-  onShowSettings: () => void;
   isMobile?: boolean;
   onCloseMobile?: () => void;
 }
@@ -75,13 +68,9 @@ interface SidebarProps {
 function Sidebar({
   selectedCapability,
   onSelectCapability,
-  onOpenTaskDrawer,
-  onShowSettings,
   isMobile = false,
   onCloseMobile,
 }: SidebarProps) {
-  const router = useRouter();
-
   return (
     <aside
       className={cn(
@@ -89,16 +78,10 @@ function Sidebar({
         isMobile ? "w-[310px]" : "w-[280px]",
       )}
     >
-      <div className="flex h-16 items-center justify-between border-b border-[#ead8c3] px-4">
-        <button
-          type="button"
-          onClick={onOpenTaskDrawer}
-          className="flex items-center gap-2 text-[#24140f] hover:text-[#b73522]"
-          title="打开任务记录"
-        >
-          <Menu className="h-4 w-4" />
-          <span className="text-base font-black">任务记录</span>
-        </button>
+      <div className="flex h-14 items-center justify-between border-b border-[#ead8c3] px-5">
+        <span className="text-sm font-black tracking-wide text-[#7a513c]">
+          北京旅游核心能力
+        </span>
         {isMobile && (
           <Button
             type="button"
@@ -113,14 +96,8 @@ function Sidebar({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-5">
-        <div className="mb-2 px-2">
-          <span className="text-sm font-black tracking-wide text-[#7a513c]">
-            北京旅游核心能力
-          </span>
-        </div>
-
-        <div className="space-y-2">
+      <div className="flex-1 overflow-y-auto px-3 py-4">
+        <div className="space-y-1">
           {ROLE_MODULES.map((role) => {
             const active = selectedCapability === role.capabilityId;
             return (
@@ -134,16 +111,16 @@ function Sidebar({
                 className={cn(
                   "w-full rounded-2xl border px-4 py-4 text-left transition-colors",
                   active
-                    ? "border-[#e7a6a0] bg-[#fff0ef] text-[#b73522] shadow-sm"
-                    : "border-transparent text-[#24140f] hover:border-[#ead8c3] hover:bg-white",
+                    ? "border-[#ffaaa4] bg-[#fff0ef] text-[#b73522]"
+                    : "border-transparent text-[#111827] hover:bg-white/70",
                 )}
                 title={role.description}
                 aria-pressed={active}
               >
-                <span className={cn("text-base font-black", active ? "text-[#b73522]" : "text-[#24140f]")}>
+                <span className={cn("text-base font-black", active ? "text-[#b73522]" : "text-[#0f172a]")}>
                   {role.name}
                 </span>
-                <p className={cn("mt-2 text-sm leading-6", active ? "text-[#b73522]/85" : "text-[#385070]")}>
+                <p className={cn("mt-2 text-sm leading-6", active ? "text-[#d44b3d]" : "text-[#244566]")}>
                   {role.description}
                 </p>
               </button>
@@ -152,20 +129,6 @@ function Sidebar({
         </div>
       </div>
 
-      <div className="border-t border-[#ead8c3] p-3">
-        <Button type="button" onClick={() => router.push("/data-platform")} variant="ghost" className="mb-0.5 w-full justify-start">
-          <Database className="h-4 w-4" />
-          POI/UGC 数据
-        </Button>
-        <Button type="button" onClick={() => router.push("/")} variant="ghost" className="mb-0.5 w-full justify-start">
-          <Map className="h-4 w-4" />
-          回到首页
-        </Button>
-        <Button type="button" onClick={onShowSettings} variant="ghost" className="w-full justify-start">
-          <Settings className="h-4 w-4" />
-          设置
-        </Button>
-      </div>
     </aside>
   );
 }

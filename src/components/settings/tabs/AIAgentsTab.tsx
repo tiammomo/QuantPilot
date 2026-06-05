@@ -48,33 +48,23 @@ function AIAgentsTab({
   onOpenInstallModal,
 }: AIAgentsTabProps) {
   const enabledOptions = cliOptions.filter((cli) => cli.enabled !== false);
+  const fixedRuntime = enabledOptions[0];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div>
-            <h3 className="mb-1 text-lg font-medium text-slate-900">智能体运行时</h3>
+            <h3 className="mb-1 text-lg font-medium text-slate-900">固定运行时</h3>
             <p className="text-sm text-slate-600">
-              管理生成工作空间和评测任务可使用的 CLI 智能体
+              北京旅行 Agent 默认使用 Claude Code runtime 与 MiniMax M2.7，不在界面暴露切换入口
             </p>
           </div>
-          {/* Inline Default CLI Selector */}
           <div className="ml-6 flex items-center gap-2 border-l border-slate-200 pl-6">
-            <span className="text-sm text-slate-600">默认:</span>
-            <select
-              value={globalSettings.default_cli}
-              onChange={(e) => onSetDefaultCli(e.target.value)}
-              className="cursor-pointer rounded-full border border-slate-200/50 bg-transparent px-3 py-1.5 pl-3 pr-8 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300/50 hover:bg-slate-50 focus:outline-none focus:ring-0"
-            >
-              {enabledOptions
-                .filter((cli) => cliStatus[cli.id]?.installed)
-                .map((cli) => (
-                  <option key={cli.id} value={cli.id}>
-                    {cli.name}
-                  </option>
-                ))}
-            </select>
+            <span className="text-sm text-slate-600">默认</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">
+              {fixedRuntime?.name ?? "Claude Code"} / MiniMax M2.7
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -116,8 +106,7 @@ function AIAgentsTab({
         </div>
       </div>
 
-      {/* Agent Cards Grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4">
         {enabledOptions.map((cli) => {
           const status = cliStatus[cli.id];
           const settings = globalSettings.cli_settings?.[cli.id] || {};
@@ -127,13 +116,12 @@ function AIAgentsTab({
           return (
             <div
               key={cli.id}
-              onClick={() => isInstalled && onSetDefaultCli(cli.id)}
               className={`rounded-xl border py-4 pl-4 pr-8 transition-all ${
                 !isInstalled
                   ? "cursor-not-allowed border-slate-200/50 bg-slate-50/50"
                   : isDefault
-                    ? "cursor-pointer"
-                    : "cursor-pointer border-slate-200/50 hover:border-slate-300/50 hover:bg-slate-50"
+                    ? ""
+                    : "border-slate-200/50"
               }`}
               style={
                 isDefault && isInstalled
@@ -177,20 +165,9 @@ function AIAgentsTab({
 
               {isInstalled ? (
                 <div onClick={(e) => e.stopPropagation()} className="space-y-3">
-                  <select
-                    value={settings.model || ""}
-                    onChange={(e) => onSetDefaultModel(cli.id, e.target.value)}
-                    className="w-full cursor-pointer rounded-full border border-slate-200/50 bg-transparent px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-0"
-                  >
-                    <option value="">选择模型</option>
-                    {cli.models
-                      .filter((m) => m.id.trim().length > 0)
-                      .map((model) => (
-                        <option key={`${cli.id}-${model.id}`} value={model.id}>
-                          {model.external ? `${model.name} · 外部` : model.name}
-                        </option>
-                      ))}
-                  </select>
+                  <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800">
+                    {cli.models[0]?.name ?? "MiniMax M2.7"}
+                  </div>
 
                   {settings.model && cli.models.find((m) => m.id === settings.model)?.description && (
                     <p className="text-[11px] leading-snug text-slate-500">

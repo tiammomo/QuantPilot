@@ -38,6 +38,7 @@ async function main() {
   const travelSqlFiles = [
     path.join(rootDir, 'sqls', '008-travel-commute-data.sql'),
     path.join(rootDir, 'sqls', '009-travel-knowledge-base.sql'),
+    path.join(rootDir, 'sqls', '010-travel-route-corpus.sql'),
   ];
   const schema = path.join(rootDir, 'prisma', 'schema.prisma');
 
