@@ -21,7 +21,7 @@ import { formatCompactDate as formatDate } from '@/components/quant/console-prim
 import { getEvalEvaluatorOption } from '@/components/quant/eval-evaluator-view';
 import { EvalPagination, formatDuration } from '@/components/quant/eval-console-primitives';
 import type { EvalSet } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalQueueItem, QuantEvalRun } from '@/lib/quant/evals';
+import type { QuantEvalQueueItem, QuantEvalRun } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
 type QueueStatusFilter = 'all' | 'active' | 'completed' | 'cancelled';

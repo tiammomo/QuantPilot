@@ -10,7 +10,7 @@ import {
   passRateClass,
   scoreClass,
 } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalModelComparison, QuantEvalRun, QuantEvalSkillVersionImpact } from '@/lib/quant/evals';
+import type { QuantEvalModelComparison, QuantEvalRun, QuantEvalSkillVersionImpact } from '@/lib/eval';
 
 type EvalRunsViewProps = {
   runKeyword: string;

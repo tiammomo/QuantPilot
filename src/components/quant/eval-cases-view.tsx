@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { EvalPagination, EvalSelect, statusPill } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalCase, QuantEvalResult, QuantEvalRun } from '@/lib/quant/evals';
+import type { QuantEvalCase, QuantEvalResult, QuantEvalRun } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
 type EvalCasesViewProps = {

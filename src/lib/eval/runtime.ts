@@ -1,440 +1,73 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
-import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/client';
+import { buildModelComparison, buildSkillVersionImpact } from './analysis';
+import { getQuantEvalCases, getQuantEvalSets } from './cases';
+import {
+  DEFAULT_EVAL_CONCURRENCY,
+  DEFAULT_EVALUATOR_ID,
+  EVAL_CAPABILITY_LABELS,
+  EVAL_RUNTIME_OPTIONS,
+  EVAL_TYPE_LABELS,
+  MAX_EVAL_CONCURRENCY,
+} from './constants';
+import {
+  CASES_PATH,
+  LOG_DIR,
+  QUEUE_DIR,
+  QUEUE_PATH,
+  REPAIRS_DIR,
+  REPAIRS_PATH,
+  REPORTS_DIR,
+  ROOT,
+  SCHEDULE_PATH,
+} from './paths';
+import type {
+  EvalCheckStatus,
+  QuantEvalArtifactSummary,
+  QuantEvalCase,
+  QuantEvalCheck,
+  QuantEvalDashboardData,
+  QuantEvalFlowSimulation,
+  QuantEvalFlowStep,
+  QuantEvalQueueItem,
+  QuantEvalQueueStatus,
+  QuantEvalRepairTicket,
+  QuantEvalResult,
+  QuantEvalRun,
+  QuantEvalScheduleConfig,
+  StartQuantEvalOptions,
+  UpdateQuantEvalScheduleInput,
+} from './types';
+import {
+  addHours,
+  booleanValue,
+  dateOrNow,
+  isRecord,
+  jsonArray,
+  jsonObject,
+  numberValue,
+  readJson,
+  readRecordArray,
+  stringArray,
+  stringValue,
+  toDate,
+  uniqueId,
+  writeJson,
+  type JsonRecord,
+} from './runtime-utils';
+import { defaultScheduleConfig } from './schedule-defaults';
 
-type JsonRecord = Record<string, unknown>;
+export {
+  createQuantEvalCase,
+  createQuantEvalSet,
+  getQuantEvalCases,
+  getQuantEvalSets,
+} from './cases';
 
-const ROOT = process.cwd();
-const CASES_PATH = path.join(ROOT, 'benchmarks', 'quantpilot', 'cases.json');
-const EVAL_SETS_PATH = path.join(ROOT, 'benchmarks', 'quantpilot', 'eval-sets.json');
-const REPORTS_DIR = path.join(ROOT, 'tmp', 'quantpilot-benchmark-reports');
-const QUEUE_DIR = path.join(ROOT, 'tmp', 'quantpilot-eval-queue');
-const QUEUE_PATH = path.join(QUEUE_DIR, 'queue.json');
-const LOG_DIR = path.join(QUEUE_DIR, 'logs');
-const REPAIRS_DIR = path.join(ROOT, 'tmp', 'quantpilot-eval-repairs');
-const REPAIRS_PATH = path.join(REPAIRS_DIR, 'repairs.json');
-const SCHEDULE_PATH = path.join(QUEUE_DIR, 'schedule.json');
 let queueKickoffInProgress = false;
 const runningChildren = new Map<string, ChildProcess>();
-const DEFAULT_EVALUATOR_ID = 'rule-strict';
-const DEFAULT_EVAL_CONCURRENCY = 1;
-const MAX_EVAL_CONCURRENCY = 16;
-
-const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
-  {
-    cli: 'claude',
-    label: 'Claude Code',
-    defaultModel: 'mimo-v2.5-pro',
-    supportsReasoningEffort: false,
-    models: [
-      {
-        id: 'mimo-v2.5-pro',
-        name: 'Mimo V2.5 Pro',
-        description: '通过 Anthropic 兼容协议接入 Claude Code 的 Mimo 模型',
-      },
-      {
-        id: 'MiniMax-M2.7',
-        name: 'MiniMax M2.7',
-        description: '保留的 MiniMax 兼容模型选项',
-      },
-    ],
-  },
-  {
-    cli: 'codex',
-    label: 'Codex CLI',
-    defaultModel: 'gpt-5.5',
-    supportsReasoningEffort: true,
-    models: [
-      {
-        id: 'gpt-5.5',
-        name: 'GPT-5.5',
-        description: '通过 OpenAI 兼容协议接入 Codex CLI 的第三方 GPT 模型',
-      },
-    ],
-  },
-];
-
-export const EVAL_CAPABILITY_LABELS: Record<string, string> = {
-  fundamental_analysis: '基本面研究',
-  technical_analysis: '技术分析',
-  backtest_review: '策略回测',
-  asset_comparison: '标的对比',
-  portfolio_risk: '组合风控',
-  stock_diagnosis: '个股诊断',
-};
-
-export const EVAL_TYPE_LABELS: Record<string, string> = {
-  generated_project: '生成项目',
-  clarification_required: '意图澄清',
-  clarification_continuation: '澄清承接',
-  runtime_registry: '运行时注册',
-  repair_plan: '修复计划',
-  source_degradation_contract: '信源降级',
-};
-
-export type EvalCheckStatus = 'passed' | 'failed' | 'warning' | 'unknown';
-
-export interface QuantEvalCase {
-  id: string;
-  name: string;
-  question: string;
-  capabilityId: string;
-  capabilityLabel: string;
-  type: string;
-  typeLabel: string;
-  expectedSymbols: string[];
-  expectedAssetType: string | null;
-  expectedTemplateId: string | null;
-  expectedDatasets: string[];
-  expectedRawFiles: string[];
-  expectedFinalFields: string[];
-  tags: string[];
-  hasImageAttachment: boolean;
-  expectClarification: boolean;
-  visualCheck: boolean;
-}
-
-export interface QuantEvalSetDefinition {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  caseIds: string[];
-  custom: boolean;
-}
-
-export interface QuantEvalCheck {
-  id: string;
-  name: string;
-  status: EvalCheckStatus;
-  summary: string;
-}
-
-export interface QuantEvalArtifactSummary {
-  templateId: string | null;
-  finalDataPath: string | null;
-  rawFileCount: number;
-  klineRows: number;
-  reportRows: number;
-  announcementRows: number;
-  tradeRows: number;
-  assetCount: number;
-  holdingCount: number;
-  comparisonRows: number;
-  qualityStatus: string | null;
-  hasImageExtraction: boolean;
-}
-
-export interface QuantEvalResult {
-  id: string;
-  name: string;
-  question: string;
-  projectId: string | null;
-  projectPath: string | null;
-  durationMs: number;
-  passed: boolean;
-  score: number;
-  failures: string[];
-  symbols: string[];
-  capabilityId: string;
-  capabilityLabel: string;
-  type: string;
-  typeLabel: string;
-  tags: string[];
-  validationStatus: EvalCheckStatus;
-  validationChecks: QuantEvalCheck[];
-  eventAudit: {
-    total: number;
-    warningCount: number;
-    errorCount: number;
-    eventTypes: string[];
-    stages: string[];
-  } | null;
-  artifacts: QuantEvalArtifactSummary;
-  visualCheck: {
-    passed: boolean;
-    screenshotPath: string | null;
-    failures: string[];
-  } | null;
-}
-
-export interface QuantEvalRun {
-  id: string;
-  fileName: string;
-  filePath: string;
-  createdAt: string;
-  mtimeMs: number;
-  passed: boolean;
-  total: number;
-  passedCount: number;
-  failedCount: number;
-  passRate: number;
-  averageScore: number;
-  durationMs: number;
-  metadata: {
-    trigger: string | null;
-    startedAt: string | null;
-    finishedAt: string | null;
-    command: string[];
-    evaluator: {
-      id: string | null;
-      concurrency: number;
-    };
-    runtime: {
-      cli: string | null;
-      model: string | null;
-      reasoningEffort: string | null;
-    };
-    selection: {
-      selectedCases: string[];
-      limit: number | null;
-      keepProjects: boolean;
-      caseCount: number;
-      concurrency: number;
-    };
-    skillLockSnapshot: {
-      schemaVersion: string | number | null;
-      skills: Record<string, {
-        version: string | null;
-        hash: string | null;
-        packageHash: string | null;
-        sourcePath: string | null;
-        packagePath: string | null;
-      }>;
-    };
-  };
-  coverage: {
-    byCapability: Record<string, { total: number; passed: number; failed: number }>;
-    byType: Record<string, { total: number; passed: number; failed: number }>;
-    byTag: Record<string, { total: number; passed: number; failed: number }>;
-    caseTags: Record<string, string[]>;
-    failedTags: Record<string, string[]>;
-    requiredCoverage: {
-      capabilities: string[];
-      tags: string[];
-    };
-  };
-  results: QuantEvalResult[];
-}
-
-export interface QuantEvalDashboardData {
-  generatedAt: string;
-  reportsDir: string;
-  casesPath: string;
-  runtimeOptions: QuantEvalRuntimeOption[];
-  cases: QuantEvalCase[];
-  customEvalSets: QuantEvalSetDefinition[];
-  runs: QuantEvalRun[];
-  queue: QuantEvalQueueItem[];
-  repairTickets: QuantEvalRepairTicket[];
-  schedule: QuantEvalScheduleConfig;
-  latestRun: QuantEvalRun | null;
-  modelComparison: QuantEvalModelComparison[];
-  skillVersionImpact: QuantEvalSkillVersionImpact[];
-  summary: {
-    caseCount: number;
-    reportCount: number;
-    capabilityCount: number;
-    latestPassRate: number;
-    latestAverageScore: number;
-    latestPassedCount: number;
-    latestFailedCount: number;
-    latestTotal: number;
-  };
-}
-
-export interface CreateQuantEvalCaseInput {
-  id?: string;
-  name?: string;
-  question?: string;
-  capabilityId?: string;
-  type?: string;
-  expectedSymbols?: string[];
-  expectedAssetType?: string | null;
-  expectedTemplateId?: string | null;
-  expectedDatasets?: string[];
-  expectedRawFiles?: string[];
-  expectedFinalFields?: string[];
-  expectClarification?: boolean;
-  visualCheck?: boolean;
-}
-
-export interface CreateQuantEvalSetInput {
-  id?: string;
-  name?: string;
-  description?: string;
-  category?: string;
-  caseIds?: string[];
-}
-
-export interface QuantEvalRuntimeOption {
-  cli: string;
-  label: string;
-  defaultModel: string;
-  supportsReasoningEffort: boolean;
-  models: {
-    id: string;
-    name: string;
-    description: string | null;
-  }[];
-}
-
-export interface QuantEvalQueueItem {
-  id: string;
-  status: 'queued' | 'running' | 'passed' | 'failed' | 'cancelled';
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  cli: string;
-  model: string;
-  reasoningEffort: string;
-  evaluatorId: string;
-  concurrency: number;
-  selectedCases: string[];
-  limit: number | null;
-  keepProjects: boolean;
-  reportId: string | null;
-  reportPath: string | null;
-  logPath: string | null;
-  pid: number | null;
-  exitCode: number | null;
-  error: string | null;
-}
-
-type QuantEvalQueueStatus = QuantEvalQueueItem['status'];
-
-export interface QuantEvalModelComparison {
-  key: string;
-  cli: string;
-  model: string;
-  reasoningEffort: string;
-  runs: number;
-  latestRunId: string;
-  latestPassRate: number;
-  averagePassRate: number;
-  latestAverageScore: number;
-  averageScore: number;
-  latestCreatedAt: string;
-}
-
-export interface QuantEvalSkillVersionImpact {
-  skillId: string;
-  version: string;
-  runs: number;
-  latestRunId: string;
-  latestPassRate: number;
-  averagePassRate: number;
-  latestAverageScore: number;
-  averageScore: number;
-  latestCreatedAt: string;
-}
-
-export interface StartQuantEvalOptions {
-  cli?: string;
-  model?: string;
-  reasoningEffort?: string;
-  evaluatorId?: string;
-  concurrency?: number;
-  selectedCases?: string[];
-  limit?: number | null;
-  keepProjects?: boolean;
-}
-
-export interface QuantEvalFlowStep {
-  id: string;
-  name: string;
-  status: 'passed' | 'warning' | 'failed';
-  summary: string;
-  detail: string | null;
-}
-
-export interface QuantEvalFlowSimulation {
-  generatedAt: string;
-  ready: boolean;
-  runtime: {
-    cli: string;
-    model: string;
-    reasoningEffort: string;
-  };
-  evaluator: {
-    id: string;
-    concurrency: number;
-  };
-  selection: {
-    selectedCases: string[];
-    limit: number | null;
-    keepProjects: boolean;
-    caseCount: number;
-    concurrency: number;
-  };
-  selectedCaseIds: string[];
-  command: string[];
-  steps: QuantEvalFlowStep[];
-  warnings: string[];
-}
-
-export interface QuantEvalRepairTicket {
-  id: string;
-  runId: string;
-  caseId: string;
-  title: string;
-  status: 'open' | 'resolved';
-  severity: 'high' | 'medium';
-  createdAt: string;
-  updatedAt: string;
-  model: string;
-  reportPath: string;
-  projectId: string | null;
-  failures: string[];
-  validationSummaries: string[];
-  suggestedActions: string[];
-  skillVersions: Record<string, string | null>;
-}
-
-export interface QuantEvalScheduleConfig {
-  enabled: boolean;
-  intervalHours: number;
-  cli: string;
-  model: string;
-  reasoningEffort: string;
-  selectedCases: string[];
-  limit: number | null;
-  keepProjects: boolean;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  lastQueuedRunId: string | null;
-  updatedAt: string | null;
-}
-
-export interface UpdateQuantEvalScheduleInput {
-  enabled?: boolean;
-  intervalHours?: number;
-  cli?: string;
-  model?: string;
-  reasoningEffort?: string;
-  selectedCases?: string[];
-  limit?: number | null;
-  keepProjects?: boolean;
-  nextRunAt?: string | null;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function stringValue(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function numberValue(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function booleanValue(value: unknown, fallback = false): boolean {
-  return typeof value === 'boolean' ? value : fallback;
-}
 
 function supportsReasoningEffort(cli: string | null | undefined): boolean {
   return EVAL_RUNTIME_OPTIONS.some((option) => option.cli === cli && option.supportsReasoningEffort);
@@ -459,49 +92,6 @@ function normalizeEvalConcurrency(value: unknown): number {
     return DEFAULT_EVAL_CONCURRENCY;
   }
   return Math.min(MAX_EVAL_CONCURRENCY, Math.max(1, Math.floor(value)));
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
-}
-
-function readRecordArray(value: unknown): JsonRecord[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-async function readJson(filePath: string): Promise<unknown> {
-  const content = await fs.readFile(filePath, 'utf8');
-  return JSON.parse(content);
-}
-
-async function writeJson(filePath: string, value: unknown): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
-
-function uniqueId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function addHours(date: Date, hours: number): Date {
-  return new Date(date.getTime() + hours * 60 * 60 * 1000);
-}
-
-function defaultScheduleConfig(): QuantEvalScheduleConfig {
-  return {
-    enabled: false,
-    intervalHours: 24,
-    cli: 'claude',
-    model: 'mimo-v2.5-pro',
-    reasoningEffort: '',
-    selectedCases: [],
-    limit: null,
-    keepProjects: false,
-    nextRunAt: null,
-    lastRunAt: null,
-    lastQueuedRunId: null,
-    updatedAt: null,
-  };
 }
 
 function normalizeSkillLockSnapshot(value: unknown): QuantEvalRun['metadata']['skillLockSnapshot'] {
@@ -569,68 +159,6 @@ function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]): Quan
       concurrency,
     },
     skillLockSnapshot: normalizeSkillLockSnapshot(metadata.skillLockSnapshot),
-  };
-}
-
-function inferCaseType(testCase: JsonRecord): string {
-  const explicitType = stringValue(testCase.type);
-  if (explicitType) return explicitType;
-  if (booleanValue(testCase.expectClarification)) return 'clarification_required';
-  return 'generated_project';
-}
-
-function buildCaseTags(testCase: JsonRecord): string[] {
-  const tags = new Set<string>();
-  const capabilityId = stringValue(testCase.capabilityId);
-  const type = inferCaseType(testCase);
-  const assetType = stringValue(testCase.expectedAssetType);
-  const templateId = stringValue(testCase.expectedTemplateId);
-
-  if (capabilityId) tags.add(capabilityId);
-  if (type) tags.add(type);
-  if (assetType) tags.add(`asset:${assetType}`);
-  if (templateId) tags.add(`template:${templateId}`);
-  if (booleanValue(testCase.expectClarification)) tags.add('intent:clarification_required');
-  if (testCase.imageAttachment) tags.add('input:image_attachment');
-  if (booleanValue(testCase.visualCheck)) tags.add('visual:playwright');
-  if (booleanValue(testCase.expectedImageExtraction)) tags.add('evidence:image_extraction');
-  if (type === 'clarification_continuation') tags.add('intent:clarification_continuation');
-  if (type === 'repair_plan') tags.add('validation:repair_plan');
-  if (type === 'source_degradation_contract') tags.add('data:source_degradation');
-  if (type === 'runtime_registry') tags.add('runtime:codex_gpt55');
-  if (stringArray(testCase.expectedSymbols).length > 1) tags.add('data:multi_symbol');
-
-  return Array.from(tags);
-}
-
-function normalizeCase(testCase: JsonRecord): QuantEvalCase {
-  const capabilityId = stringValue(testCase.capabilityId, 'unknown');
-  const type = inferCaseType(testCase);
-  const expectedSymbols = [
-    ...new Set([
-      ...stringArray(testCase.expectedSymbols),
-      stringValue(testCase.expectedSymbol),
-    ].filter(Boolean)),
-  ];
-
-  return {
-    id: stringValue(testCase.id, 'unknown'),
-    name: stringValue(testCase.name, stringValue(testCase.id, '未命名用例')),
-    question: stringValue(testCase.question),
-    capabilityId,
-    capabilityLabel: EVAL_CAPABILITY_LABELS[capabilityId] ?? capabilityId,
-    type,
-    typeLabel: EVAL_TYPE_LABELS[type] ?? type,
-    expectedSymbols,
-    expectedAssetType: stringValue(testCase.expectedAssetType) || null,
-    expectedTemplateId: stringValue(testCase.expectedTemplateId) || null,
-    expectedDatasets: stringArray(testCase.expectedDatasets),
-    expectedRawFiles: stringArray(testCase.expectedRawFiles),
-    expectedFinalFields: stringArray(testCase.expectedFinalFields),
-    tags: buildCaseTags(testCase),
-    hasImageAttachment: Boolean(testCase.imageAttachment),
-    expectClarification: booleanValue(testCase.expectClarification),
-    visualCheck: booleanValue(testCase.visualCheck),
   };
 }
 
@@ -702,25 +230,6 @@ function normalizeQueueStatus(value: unknown): QuantEvalQueueStatus {
     return value;
   }
   return 'failed';
-}
-
-function toDate(value: string | Date | null | undefined): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function dateOrNow(value: string | Date | null | undefined): Date {
-  return toDate(value) ?? new Date();
-}
-
-function jsonArray(value: unknown): Prisma.InputJsonValue {
-  return (Array.isArray(value) ? value : []) as unknown as Prisma.InputJsonValue;
-}
-
-function jsonObject(value: unknown): Prisma.InputJsonValue {
-  return (isRecord(value) ? value : {}) as unknown as Prisma.InputJsonValue;
 }
 
 function mapDbEvalRun(record: {
@@ -1521,200 +1030,6 @@ async function processEvalQueue(): Promise<void> {
   } finally {
     queueKickoffInProgress = false;
   }
-}
-
-function buildModelComparison(runs: QuantEvalRun[]): QuantEvalModelComparison[] {
-  const groups = new Map<string, QuantEvalRun[]>();
-  runs.forEach((run) => {
-    const cli = run.metadata.runtime.cli ?? 'unknown';
-    const model = run.metadata.runtime.model ?? 'unknown';
-    const reasoningEffort = run.metadata.runtime.reasoningEffort ?? '-';
-    const key = `${cli}:${model}:${reasoningEffort}`;
-    groups.set(key, [...(groups.get(key) ?? []), run]);
-  });
-
-  return Array.from(groups.entries())
-    .map(([key, group]) => {
-      const sorted = [...group].sort((a, b) => b.mtimeMs - a.mtimeMs);
-      const latest = sorted[0];
-      return {
-        key,
-        cli: latest.metadata.runtime.cli ?? 'unknown',
-        model: latest.metadata.runtime.model ?? 'unknown',
-        reasoningEffort: latest.metadata.runtime.reasoningEffort ?? '-',
-        runs: sorted.length,
-        latestRunId: latest.id,
-        latestPassRate: latest.passRate,
-        averagePassRate: Math.round(sorted.reduce((total, run) => total + run.passRate, 0) / sorted.length),
-        latestAverageScore: latest.averageScore,
-        averageScore: Math.round(sorted.reduce((total, run) => total + run.averageScore, 0) / sorted.length),
-        latestCreatedAt: latest.createdAt,
-      };
-    })
-    .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt));
-}
-
-function buildSkillVersionImpact(runs: QuantEvalRun[]): QuantEvalSkillVersionImpact[] {
-  const groups = new Map<string, { skillId: string; version: string; runs: QuantEvalRun[] }>();
-
-  runs.forEach((run) => {
-    Object.entries(run.metadata.skillLockSnapshot.skills).forEach(([skillId, entry]) => {
-      const version = entry.version ?? 'unknown';
-      const key = `${skillId}@${version}`;
-      const group = groups.get(key) ?? { skillId, version, runs: [] };
-      group.runs.push(run);
-      groups.set(key, group);
-    });
-  });
-
-  return Array.from(groups.values())
-    .map((group) => {
-      const sorted = [...group.runs].sort((a, b) => b.mtimeMs - a.mtimeMs);
-      const latest = sorted[0];
-      return {
-        skillId: group.skillId,
-        version: group.version,
-        runs: sorted.length,
-        latestRunId: latest.id,
-        latestPassRate: latest.passRate,
-        averagePassRate: Math.round(sorted.reduce((total, run) => total + run.passRate, 0) / sorted.length),
-        latestAverageScore: latest.averageScore,
-        averageScore: Math.round(sorted.reduce((total, run) => total + run.averageScore, 0) / sorted.length),
-        latestCreatedAt: latest.createdAt,
-      };
-    })
-    .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt))
-    .slice(0, 30);
-}
-
-function slugifyEvalId(value: string, prefix: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return slug ? `${prefix}-${slug}` : uniqueId(prefix);
-}
-
-function normalizeStringList(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map(String).map((item) => item.trim()).filter(Boolean);
-  }
-  if (typeof value === 'string') {
-    return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-function normalizeCustomEvalSet(value: JsonRecord): QuantEvalSetDefinition {
-  return {
-    id: stringValue(value.id, uniqueId('custom-set')),
-    name: stringValue(value.name, '未命名评测集'),
-    description: stringValue(value.description),
-    category: stringValue(value.category, '自定义'),
-    caseIds: stringArray(value.caseIds),
-    custom: true,
-  };
-}
-
-async function readRawEvalCases(): Promise<JsonRecord[]> {
-  const parsed = await readJson(CASES_PATH).catch(() => []);
-  return readRecordArray(parsed);
-}
-
-async function readCustomEvalSetsRaw(): Promise<JsonRecord[]> {
-  const parsed = await readJson(EVAL_SETS_PATH).catch(() => []);
-  return readRecordArray(parsed);
-}
-
-export async function getQuantEvalCases(): Promise<QuantEvalCase[]> {
-  return (await readRawEvalCases()).map(normalizeCase);
-}
-
-export async function getQuantEvalSets(): Promise<QuantEvalSetDefinition[]> {
-  const cases = await getQuantEvalCases();
-  const caseIds = new Set(cases.map((testCase) => testCase.id));
-  return (await readCustomEvalSetsRaw())
-    .map(normalizeCustomEvalSet)
-    .map((evalSet) => ({
-      ...evalSet,
-      caseIds: evalSet.caseIds.filter((caseId) => caseIds.has(caseId)),
-    }))
-    .filter((evalSet) => evalSet.caseIds.length > 0);
-}
-
-export async function createQuantEvalCase(input: CreateQuantEvalCaseInput): Promise<QuantEvalCase> {
-  const rawCases = await readRawEvalCases();
-  const existingIds = new Set(rawCases.map((item) => stringValue(item.id)).filter(Boolean));
-  const name = stringValue(input.name).trim();
-  const question = stringValue(input.question).trim();
-  const capabilityId = stringValue(input.capabilityId, 'asset_comparison').trim();
-  const type = stringValue(input.type, 'generated_project').trim();
-  const id = stringValue(input.id).trim() || slugifyEvalId(name || capabilityId, 'case');
-
-  if (!id || !/^[\w:-]+$/u.test(id)) throw new Error('用例 ID 只能包含字母、数字、下划线、短横线和冒号。');
-  if (existingIds.has(id)) throw new Error(`用例 ID 已存在：${id}`);
-  if (!name) throw new Error('请填写用例名称。');
-  if (!question) throw new Error('请填写用户 Query。');
-
-  const expectedSymbols = normalizeStringList(input.expectedSymbols);
-  const record: JsonRecord = {
-    id,
-    name,
-    question,
-    capabilityId,
-    type,
-  };
-
-  if (expectedSymbols.length === 1) record.expectedSymbol = expectedSymbols[0];
-  if (expectedSymbols.length > 1) record.expectedSymbols = expectedSymbols;
-  if (input.expectedAssetType) record.expectedAssetType = input.expectedAssetType;
-  if (input.expectedTemplateId) record.expectedTemplateId = input.expectedTemplateId;
-  const expectedDatasets = normalizeStringList(input.expectedDatasets);
-  const expectedRawFiles = normalizeStringList(input.expectedRawFiles);
-  const expectedFinalFields = normalizeStringList(input.expectedFinalFields);
-  if (expectedDatasets.length) record.expectedDatasets = expectedDatasets;
-  if (expectedRawFiles.length) record.expectedRawFiles = expectedRawFiles;
-  if (expectedFinalFields.length) record.expectedFinalFields = expectedFinalFields;
-  if (input.expectClarification) record.expectClarification = true;
-  if (input.visualCheck) record.visualCheck = true;
-
-  await writeJson(CASES_PATH, [...rawCases, record]);
-  return normalizeCase(record);
-}
-
-export async function createQuantEvalSet(input: CreateQuantEvalSetInput): Promise<QuantEvalSetDefinition> {
-  const rawSets = await readCustomEvalSetsRaw();
-  const cases = await getQuantEvalCases();
-  const caseIds = new Set(cases.map((testCase) => testCase.id));
-  const selectedCaseIds = normalizeStringList(input.caseIds).filter((caseId) => caseIds.has(caseId));
-  const reservedIds = new Set<string>(['all']);
-  for (const testCase of cases) {
-    reservedIds.add(`capability:${testCase.capabilityId}`);
-    reservedIds.add(`type:${testCase.type}`);
-  }
-  if (cases.some((testCase) => testCase.visualCheck || testCase.hasImageAttachment)) reservedIds.add('special:visual');
-  if (cases.some((testCase) => testCase.expectClarification || testCase.type.includes('clarification'))) reservedIds.add('special:clarification');
-  const existingIds = new Set([...rawSets.map((item) => stringValue(item.id)).filter(Boolean), ...reservedIds]);
-  const name = stringValue(input.name).trim();
-  const id = stringValue(input.id).trim() || slugifyEvalId(name || 'eval-set', 'custom');
-
-  if (!id || !/^[\w:-]+$/u.test(id)) throw new Error('评测集 ID 只能包含字母、数字、下划线、短横线和冒号。');
-  if (existingIds.has(id)) throw new Error(`评测集 ID 已存在：${id}`);
-  if (!name) throw new Error('请填写评测集名称。');
-  if (!selectedCaseIds.length) throw new Error('请至少选择一个测试用例。');
-
-  const record: JsonRecord = {
-    id,
-    name,
-    description: stringValue(input.description),
-    category: stringValue(input.category, '自定义'),
-    caseIds: selectedCaseIds,
-  };
-
-  await writeJson(EVAL_SETS_PATH, [...rawSets, record]);
-  return normalizeCustomEvalSet(record);
 }
 
 export async function getQuantEvalRuns(limit = 30): Promise<QuantEvalRun[]> {

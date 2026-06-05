@@ -1,4 +1,4 @@
-import { getQuantEvalDashboardData } from '@/lib/quant/evals';
+import { getQuantEvalDashboardData } from '@/lib/eval';
 import EvalsDashboardClient from './EvalsDashboardClient';
 import type { Metadata } from 'next';
 

@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getQuantEvalRun } from '@/lib/quant/evals';
+import { getQuantEvalRun } from '@/lib/eval';
 import EvalRunDetailClient from './EvalRunDetailClient';
 
 export default async function EvalRunPage({

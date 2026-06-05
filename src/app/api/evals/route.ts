@@ -8,7 +8,7 @@ import {
   simulateQuantEvalFlow,
   startQuantEvalRun,
   updateQuantEvalSchedule,
-} from '@/lib/quant/evals';
+} from '@/lib/eval';
 
 export async function GET() {
   try {

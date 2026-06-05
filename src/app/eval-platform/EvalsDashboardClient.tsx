@@ -31,7 +31,7 @@ import {
   type EvalSet,
   type EvalView,
 } from "@/components/quant/eval-console-primitives";
-import type { QuantEvalDashboardData, QuantEvalFlowSimulation, QuantEvalResult } from "@/lib/quant/evals";
+import type { QuantEvalDashboardData, QuantEvalFlowSimulation, QuantEvalResult } from "@/lib/eval";
 import { cn } from "@/lib/utils";
 
 type Props = { data: QuantEvalDashboardData };

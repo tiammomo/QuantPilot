@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getQuantEvalRun } from '@/lib/quant/evals';
+import { getQuantEvalRun } from '@/lib/eval';
 
 export async function GET(
   _request: Request,

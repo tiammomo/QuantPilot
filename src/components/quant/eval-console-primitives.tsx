@@ -17,7 +17,7 @@ import type {
   QuantEvalResult,
   QuantEvalRun,
   QuantEvalRuntimeOption,
-} from '@/lib/quant/evals';
+} from '@/lib/eval';
 
 export type EvalSet = {
   id: string;

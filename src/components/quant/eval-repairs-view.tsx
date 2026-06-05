@@ -3,7 +3,7 @@ import { ChevronRight, TriangleAlert, Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Panel } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalRepairTicket, QuantEvalResult, QuantEvalRun } from '@/lib/quant/evals';
+import type { QuantEvalRepairTicket, QuantEvalResult, QuantEvalRun } from '@/lib/eval';
 
 type EvalRepairsViewProps = {
   repairTickets: QuantEvalRepairTicket[];

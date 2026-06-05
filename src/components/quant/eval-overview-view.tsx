@@ -17,7 +17,7 @@ import {
   scoreClass,
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalDashboardData, QuantEvalRun } from '@/lib/quant/evals';
+import type { QuantEvalDashboardData, QuantEvalRun } from '@/lib/eval';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell,

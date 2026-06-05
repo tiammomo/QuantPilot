@@ -16,7 +16,7 @@ import {
   flowStepClass,
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalFlowSimulation } from '@/lib/quant/evals';
+import type { QuantEvalFlowSimulation } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
 export type EvalEvaluatorId = 'rule-strict' | 'agent-review' | 'visual-contract';

@@ -33,7 +33,7 @@ import {
   passRateClass,
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
-import type { QuantEvalCase, QuantEvalRun } from '@/lib/quant/evals';
+import type { QuantEvalCase, QuantEvalRun } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
 type RunStateFilter = 'all' | 'ran' | 'not-run';
