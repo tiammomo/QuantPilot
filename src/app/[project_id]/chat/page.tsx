@@ -932,8 +932,8 @@ function TravelItineraryPreviewV2({ data }: { data: TravelItineraryData }) {
                     <p className="mt-1 text-xl font-black">{selectedStops.length} 站</p>
                   </div>
                   <div className="rounded-2xl bg-[#eef8f3] p-4 text-[#173f35]">
-                    <p className="text-xs font-bold text-[#236247]">步行</p>
-                    <p className="mt-1 text-xl font-black">{selectedPlan.total_walking_distance_m ?? '-'} 米</p>
+                    <p className="text-xs font-bold text-[#236247]">通勤</p>
+                    <p className="mt-1 text-xl font-black">{selectedPlan.total_transfer_minutes ?? '-'} 分钟</p>
                   </div>
                 </div>
                 <div className="mt-5 rounded-2xl bg-[#fff8ed] p-4 text-sm leading-6 text-[#7a4d27]">
