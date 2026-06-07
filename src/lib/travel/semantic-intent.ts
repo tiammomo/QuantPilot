@@ -55,7 +55,7 @@ export class TravelIntentError extends Error {
   }
 }
 
-const INTENT_CACHE_VERSION = 'v3-composite-trip-days';
+const INTENT_CACHE_VERSION = 'v4-llm-first-intent';
 const INTENT_CACHE_TTL_MS = Number(process.env.TRAVELPILOT_INTENT_CACHE_TTL_MS || 5 * 60 * 1000);
 const MAX_TRIP_DAYS = Number(process.env.TRAVELPILOT_MAX_TRIP_DAYS || 7);
 const intentCache = new Map<string, { expiresAt: number; intent: TravelQueryIntent }>();
@@ -367,6 +367,7 @@ function parseDictionaryIntent(rawText: string): TravelQueryIntent {
 }
 
 export function shouldUseMiniMaxForTravelIntent(intent: TravelQueryIntent): boolean {
+  if (process.env.TRAVELPILOT_INTENT_LLM_FIRST !== '0') return true;
   const text = intent.raw_text;
   const complexConstraintCount = [
     intent.day_count > 1,
@@ -392,7 +393,7 @@ function getMiniMaxConfig() {
   const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.minimaxi.com/anthropic';
   const token = process.env.ANTHROPIC_AUTH_TOKEN?.trim();
   const model = process.env.ANTHROPIC_MODEL?.trim() || 'MiniMax-M2.7';
-  const timeoutMs = Number(process.env.TRAVELPILOT_INTENT_TIMEOUT_MS || 5000);
+  const timeoutMs = Number(process.env.TRAVELPILOT_INTENT_TIMEOUT_MS || 2500);
   if (!token) {
     throw new TravelIntentError('MiniMax intent parsing requires ANTHROPIC_AUTH_TOKEN.', 503, 'missing_config');
   }
@@ -400,7 +401,7 @@ function getMiniMaxConfig() {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     token,
     model,
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2500,
   };
 }
 
@@ -409,6 +410,14 @@ function buildMiniMaxPrompt(rawText: string): string {
     '你是北京旅游 Agent 的语义兜底解析器。只把用户自然语言解析成 JSON object。',
     '禁止输出 Markdown、解释、SQL、路线方案、POI 推荐、实时排队、实时地图、实时营业状态。',
     '缺少区域或时长时填 null，并把字段名写入 missing_fields。',
+    '必须区分“区域锚点”和“用户明确要去的地点”：',
+    '- area 表示住宿/附近/周边/路线所在区域，可以是“故宫”“什刹海”“前门”等。',
+    '- must_include_names 只放用户明确想去/想逛/必须安排的具体景点、餐厅、地标或酒店名。',
+    '- 不要把“北京”“4小时”“3天”“经典文化景点”“吃逛结合”“好吃的”“少走路”“不想排队”“预算300以内”等时间、预算、偏好、主题词放进 must_include_names。',
+    '- “故宫附近安排4小时文化路线”表示 area=故宫，must_include_names 通常为空；“逛故宫/去故宫/想去故宫”才把“故宫”放进 must_include_names。',
+    '- “三天玩北京，想去颐和园，吃好吃的，逛故宫，预算3000”应识别 day_count=3、budget_cny=3000、needs_meal=true、food_quality_preferred=true、must_include_names 包含“颐和园”和“故宫”。',
+    '- 如果用户说“住在/酒店在/从某地出发”，把地点放进 accommodation_names，不要把住宿名当游玩 POI。',
+    '- 重规划时，“其他地方不变/原来的点都保留”表示 replan_action=preserve_route 或 replace_stop 时需要保留未指定替换的点。',
     '字段和取值必须严格如下：',
     '{',
     '  "area": string|null,',
@@ -680,7 +689,7 @@ export function intentToPlannerLikeRequest(intent: TravelQueryIntent) {
     persona_id: personaId,
     must_include_names: Array.from(new Set([
       ...(intent.must_include_names || []),
-      ...(intent.area && /(去|玩|逛|看|附近|周边|路线)/.test(intent.raw_text) ? [intent.area] : []),
+      ...(intent.area && /(?:想去|必须去|一定去|逛|看|游览|参观)(?:一下|一圈)?[^，,。；;]*(?:故宫|颐和园|天坛|长城|什刹海|北海|南锣鼓巷|环球影城|北京环球)/.test(intent.raw_text) ? [intent.area] : []),
     ])),
     exclude_names: intent.exclude_names,
     accommodation_names: intent.accommodation_names,

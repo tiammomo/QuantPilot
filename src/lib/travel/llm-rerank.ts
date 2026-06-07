@@ -48,13 +48,13 @@ function getMiniMaxConfig() {
   const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim() || 'https://api.minimaxi.com/anthropic';
   const token = process.env.ANTHROPIC_AUTH_TOKEN?.trim();
   const model = process.env.ANTHROPIC_MODEL?.trim() || 'MiniMax-M2.7';
-  const timeoutMs = Number(process.env.TRAVELPILOT_RERANK_TIMEOUT_MS || 8000);
+  const timeoutMs = Number(process.env.TRAVELPILOT_RERANK_TIMEOUT_MS || 1500);
   if (!token) return null;
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     token,
     model,
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 8000,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 1500,
   };
 }
 
