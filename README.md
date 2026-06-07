@@ -12,6 +12,7 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 量化数据底座：PostgreSQL + TimescaleDB + Redis，承载应用状态、时序行情、估值因子、缓存和补数任务状态。
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
+- 投研日报：围绕自选池生成证据型日报，沉淀 Markdown/JSON 报告、运行历史和推送记录。
 - Skills 能力层：管理 `.claude/skills`，沉淀量化规划、数据质量、可视化生成和自修复能力。
 - 评测与运维：评测平台、数据平台、运维平台共同覆盖生成质量、数据契约、工作空间健康、运行 trace 和集中日志。
 
@@ -60,6 +61,7 @@ npm run dev
 | --- | --- | --- |
 | AI 工作台 | `http://localhost:3000` | 创建任务、进入项目聊天和预览 |
 | 策略平台 | `http://localhost:3000/strategy-platform` | 股票池、ETF/指数池、板块资金、策略目录、基础组件和金融知识 |
+| 投研日报 | `http://localhost:3000/research-reports` | 管理观察池、生成日报、查看证据、运行历史和推送记录 |
 | Skills 管理 | `http://localhost:3000/skills` | 编辑、发布、回滚和导入核心 skills |
 | 数据平台 | `http://localhost:3000/data-platform` | 查看能力域、数据接口、契约和验证边界 |
 | 运维平台 | `http://localhost:3000/ops-platform` | 查看 workspace 健康、产物、队列和 trace |
@@ -93,6 +95,7 @@ npm run dev
 | 想系统学习项目 | [教学路径](docs/learning/README.md) |
 | 想参与开发或判断代码放哪 | [项目结构与分层边界](docs/project-structure.md) / [模块边界](docs/module-boundaries.md) |
 | 想查接口、字段或数据源口径 | [API 总览](docs/api-reference.md) / [数据字典](docs/data-dictionary.md) / [行情数据源知识库](docs/market-data-source-knowledge.md) |
+| 想做每日投研报告和推送 | [投研日报自动化指南](docs/research-automation-guide.md) |
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |
 | 想看后续优先级 | [持续完善路线图](docs/ROADMAP.md) |
 

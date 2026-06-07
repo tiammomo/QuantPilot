@@ -138,7 +138,9 @@
         "src/lib/quant/**",
         "src/lib/services/quant-image-mcp.ts",
         "src/app/api/quant/**",
+        "src/app/api/research/**",
         "src/app/strategy-platform/**",
+        "src/app/research-reports/**",
         "src/app/data-platform/**",
         "src/app/capabilities/**",
         "src/app/strategies/**",
@@ -154,6 +156,7 @@
       ],
       "publicSurface": [
         "@/lib/quant/capabilities",
+        "@/lib/quant/research-reports",
         "@/lib/quant/strategies",
         "@/lib/quant/workspace",
         "@/lib/quant/validation"

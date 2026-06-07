@@ -57,6 +57,7 @@
 | `/api/quant/strategies` | `GET/POST` | 策略平台 | 策略平台聚合数据、扫描、补数和因子目录 |
 | `/api/quant/capabilities` | `GET` | 数据平台 | 能力域和数据接口摘要 |
 | `/api/quant/capability-center` | `GET` | 数据平台 | 能力中心、数据源、契约和验证边界 |
+| `/api/research/reports` | `GET/POST` | 投研日报 | 观察池、证据型日报、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
 | `/api/evals` | `GET/POST` | 评测平台 | 用例、评测集、运行队列、模拟链路和定时任务 |
 | `/api/evals/runs/[runId]` | `GET` | 评测平台 | 单次评测报告详情 |
 | `/api/ops/platform` | `GET` | 运维平台 | 基础环境、日志、健康和降级状态 |

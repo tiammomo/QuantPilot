@@ -22,6 +22,7 @@ import {
   Target,
   Zap,
   Loader2,
+  Newspaper,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -103,6 +104,7 @@ const CAPABILITY_ICON_COLORS: Record<string, string> = {
 
 const PLATFORM_NAV_ITEMS = [
   { href: "/strategy-platform", label: "策略", icon: BarChart3 },
+  { href: "/research-reports", label: "日报", icon: Newspaper },
   { href: "/ops-platform", label: "运维", icon: ShieldCheck },
   { href: "/data-platform", label: "数据", icon: Boxes },
   { href: "/eval-platform", label: "评测", icon: Gauge },

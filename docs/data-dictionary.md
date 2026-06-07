@@ -6,7 +6,7 @@
 
 | 层 | 存储 | 典型表/目录 | 说明 |
 | --- | --- | --- | --- |
-| 主业务状态 | PostgreSQL public schema | Prisma models | 项目、消息、设置、token、评测、策略扫描状态 |
+| 主业务状态 | PostgreSQL public schema | Prisma models | 项目、消息、设置、token、评测、策略扫描状态、投研日报 |
 | 量化事实库 | PostgreSQL/TimescaleDB `quant` schema | `stock_bars`、`stock_factors`、`securities` | 行情、因子、股票池、补数、回测 |
 | 短期缓存 | Redis | `quantpilot:*` | 板块资金、行情摘要、接口短 TTL，不作为事实库 |
 | 生成原件 | 文件系统 | `data/projects/` | 生成工作空间源码、数据文件、证据和验证报告 |
@@ -28,6 +28,11 @@
 | `platform_settings` | `PlatformSetting` | 平台级设置 |
 | `strategy_scan_runs` | `StrategyScanRun` | 策略扫描运行结果 |
 | `strategy_scan_jobs` | `StrategyScanJob` | 策略扫描单标的任务 |
+| `research_watchlists` | `ResearchWatchlist` | 投研日报观察池、市场范围、计划和关联推送通道 |
+| `research_report_runs` | `ResearchReportRun` | 日报生成运行记录、状态、错误和证据元信息 |
+| `research_reports` | `ResearchReport` | Markdown/JSON 日报、评分、建议、风险等级和 evidence |
+| `notification_channels` | `NotificationChannel` | 企业微信、飞书、钉钉、Telegram、Discord、邮件等推送通道配置 |
+| `notification_deliveries` | `NotificationDelivery` | 推送或 dry-run 推送记录 |
 | `eval_runs` | `EvalRun` | 评测报告索引和摘要 |
 | `eval_queue_items` | `EvalQueueItem` | 评测队列任务 |
 | `eval_repair_tickets` | `EvalRepairTicket` | 失败修复单 |

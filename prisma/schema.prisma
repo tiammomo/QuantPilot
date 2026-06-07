@@ -346,6 +346,130 @@ model StrategyScanJob {
 }
 
 // ============================================================
+// Research Automation State
+// ============================================================
+
+model ResearchWatchlist {
+  id                     String   @id @default(cuid())
+  name                   String
+  description            String?
+  universeId             String?  @map("universe_id")
+  symbols                Json
+  markets                Json
+  status                 String   @default("active")
+  schedule               Json
+  reportTemplate         String   @default("daily_brief") @map("report_template")
+  notificationChannelIds Json     @map("notification_channel_ids")
+  metadata               Json
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  runs    ResearchReportRun[]
+  reports ResearchReport[]
+
+  @@index([status])
+  @@index([updatedAt])
+  @@map("research_watchlists")
+}
+
+model ResearchReportRun {
+  id           String    @id @default(cuid())
+  watchlistId  String?   @map("watchlist_id")
+  status       String
+  runType      String    @map("run_type")
+  scheduledFor DateTime? @map("scheduled_for")
+  startedAt    DateTime  @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  model        String?
+  providerMode String    @default("local") @map("provider_mode")
+  metadata     Json
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  watchlist  ResearchWatchlist?   @relation(fields: [watchlistId], references: [id], onDelete: SetNull)
+  reports    ResearchReport[]
+  deliveries NotificationDelivery[]
+
+  @@index([watchlistId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("research_report_runs")
+}
+
+model ResearchReport {
+  id              String   @id @default(cuid())
+  runId           String   @map("run_id")
+  watchlistId     String?  @map("watchlist_id")
+  title           String
+  summary         String
+  reportDate      DateTime @map("report_date")
+  marketScope     Json     @map("market_scope")
+  score           Int
+  recommendation  String
+  riskLevel       String   @map("risk_level")
+  contentMarkdown String   @map("content_markdown")
+  structured      Json
+  evidence        Json
+  source          String   @default("local-market-data")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  run        ResearchReportRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  watchlist  ResearchWatchlist?      @relation(fields: [watchlistId], references: [id], onDelete: SetNull)
+  deliveries NotificationDelivery[]
+
+  @@index([runId])
+  @@index([watchlistId])
+  @@index([reportDate])
+  @@map("research_reports")
+}
+
+model NotificationChannel {
+  id          String   @id @default(cuid())
+  name        String
+  channelType String   @map("channel_type")
+  status      String   @default("configured")
+  target      String?
+  config      Json
+  isDryRun    Boolean  @default(true) @map("is_dry_run")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  deliveries NotificationDelivery[]
+
+  @@index([channelType])
+  @@index([status])
+  @@map("notification_channels")
+}
+
+model NotificationDelivery {
+  id          String    @id @default(cuid())
+  runId       String?   @map("run_id")
+  reportId    String?   @map("report_id")
+  channelId   String?   @map("channel_id")
+  status      String
+  channelType String    @map("channel_type")
+  title       String
+  payload     Json
+  error       String?
+  deliveredAt DateTime? @map("delivered_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  run     ResearchReportRun?  @relation(fields: [runId], references: [id], onDelete: SetNull)
+  report  ResearchReport?     @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  channel NotificationChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([reportId])
+  @@index([channelId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notification_deliveries")
+}
+
+// ============================================================
 // Evaluation Platform State
 // ============================================================
 
