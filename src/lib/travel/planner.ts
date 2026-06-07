@@ -561,20 +561,28 @@ function landmarkPoiIdsForName(name: string): string[] {
   if (/颐和园|summerpalace/i.test(normalized)) {
     return ['fixture_summer_palace'];
   }
+  if (/圆明园|yuanmingyuan/i.test(normalized)) {
+    return ['fixture_yuanmingyuan_park'];
+  }
+  if (/环球影城|北京环球|universal/i.test(normalized)) {
+    return ['fixture_universal_beijing_resort'];
+  }
   return [];
 }
 
 function classicPoiIdsForArea(area?: string | null): string[] {
   const normalized = normalizePoiName(area || '');
   if (!normalized) return [];
-  if (/故宫|紫禁城/.test(normalized)) return ['amap_B000A8UIN8'];
-  if (/天坛/.test(normalized)) return ['amap_B000A81CB2'];
-  if (/颐和园/.test(normalized)) return ['fixture_summer_palace'];
-  if (/长城|八达岭/.test(normalized)) return ['fixture_badaling_great_wall'];
-  if (/北海/.test(normalized)) return ['amap_B000A80UL1'];
-  if (/什刹海|后海/.test(normalized)) return ['amap_B000A7O5PK'];
-  if (/天安门/.test(normalized)) return ['amap_B000A83C1S'];
-  if (/南锣鼓巷/.test(normalized)) return ['amap_B0FFFAH7I9'];
+  if (/故宫|紫禁城/.test(normalized)) return ['amap_B000A8UIN8', 'amap_B000A7I1OL', 'amap_B000A80UL1'];
+  if (/天坛/.test(normalized)) return ['amap_B000A81CB2', 'real_dining_amap_b000a80wkg', 'amap_B000A16BBC'];
+  if (/颐和园/.test(normalized)) return ['fixture_summer_palace', 'fixture_tingliguan_summer_palace', 'fixture_yuanmingyuan_park'];
+  if (/圆明园/.test(normalized)) return ['fixture_yuanmingyuan_park', 'fixture_summer_palace', 'fixture_tingliguan_summer_palace'];
+  if (/长城|八达岭/.test(normalized)) return ['fixture_badaling_great_wall', 'fixture_badaling_lunch_anchor', 'fixture_badaling_great_wall_museum'];
+  if (/环球影城|北京环球|universal/.test(normalized)) return ['fixture_universal_beijing_resort', 'fixture_universal_citywalk_lunch', 'fixture_universal_citywalk'];
+  if (/北海/.test(normalized)) return ['amap_B000A80UL1', 'amap_B000A7I1OL', 'amap_B000A7O5PK'];
+  if (/什刹海|后海/.test(normalized)) return ['amap_B000A7O5PK', 'amap_B0FFFS33G2', 'real_dining_kaorouji_shichahai'];
+  if (/天安门/.test(normalized)) return ['amap_B000A83C1S', 'real_dining_quanjude_qianmen', 'amap_B000A8UIN8'];
+  if (/南锣鼓巷/.test(normalized)) return ['amap_B0FFFAH7I9', 'amap_B0FFFS33G2', 'real_dining_amap_b0j21ufgsm'];
   if (/雍和宫|地坛/.test(normalized)) return ['amap_B000A7BGMG'];
   return [];
 }
@@ -744,14 +752,13 @@ function unresolvedMustIncludeNames(data: TravelData, request: TravelPlanningReq
 function buildFallbackPoiForIncludeName(name: string, request: TravelPlanningRequest, index: number): Poi {
   const normalizedName = String(name || '').trim() || '用户指定地点';
   const namedAnchor = anchorForName(normalizedName);
-  const requestAnchor = request.area ? anchorForName(request.area) : null;
-  const anchor = namedAnchor || requestAnchor || { area: '用户指定地点', ...BEIJING_AREA_ANCHORS.北京 };
+  const anchor = namedAnchor || { area: '用户指定地点', ...BEIJING_AREA_ANCHORS.北京 };
   const isFoodName = /餐|饭|吃|咖啡|小吃|烤鸭|涮肉|面|甜品|茶/.test(normalizedName);
   return normalizePoi({
     poi_id: `user_requested_${normalizePoiName(normalizedName) || index}`,
     name: normalizedName,
     district: anchor.district,
-    area: anchor.area || request.area || '用户指定地点',
+    area: anchor.area || '用户指定地点',
     category: isFoodName ? '餐饮' : '用户指定地点',
     poi_type: isFoodName ? 'food' : 'culture',
     address: '用户指定地点，本地 POI 库未命中，建议出发前确认精确地址',
@@ -761,8 +768,8 @@ function buildFallbackPoiForIncludeName(name: string, request: TravelPlanningReq
     avg_cost: isFoodName ? 80 : 0,
     review_count: 0,
     suggested_duration_min: isFoodName ? 60 : 90,
-    planning_tags: ['user_requested', 'needs_address_confirmation'],
-    evidence_tags: ['用户明确指定，但本地 POI 库未命中'],
+    planning_tags: ['user_requested', 'needs_address_confirmation', namedAnchor ? 'area_anchor' : 'unknown_location_anchor'],
+    evidence_tags: [namedAnchor ? '用户明确指定，本地 POI 库未命中，按同名区域锚点估算' : '用户明确指定，但本地 POI 库和区域锚点均未命中，需确认精确位置'],
     queue_risk: 'unknown',
     value_for_money: 'unknown',
     family_friendliness: 'unknown',
@@ -901,12 +908,14 @@ function isRecommendablePoi(item: Poi): boolean {
   if (/\u9152\u5e97|\u5bbe\u9986|\u6f2b\u5fc3\u5e9c|\u5ba2\u6808|\u4f4f\u5bbf/.test(name)) return false;
   if (/\u5e02\u6c11\u6587\u5316\u4e2d\u5fc3|\u793e\u533a|\u5c45\u6c11|\u8857\u9053\u529e/.test(name)) return false;
   if (/\u5efa\u8bbe\u4e2d|\u89c2\u4f17\u670d\u52a1\u4e2d\u5fc3|\u8bb2\u89e3\u670d\u52a1\u5904|停车场|出入口|足球场|体育中心|运动场|售票处|卫生间|游客中心|观众服务中心/.test(name)) return false;
+  if (!isClassicBackbonePoi(item) && /石碑|碑刻|观景平台|管理处|服务处|科普小屋|文化活动室|售票|入口|出口|卫生间|停车场/.test(name)) return false;
   return true;
 }
 
 function isClassicBackbonePoi(item: Poi): boolean {
   const name = String(item.name || '');
-  return /故宫博物院|天坛公园|颐和园|八达岭长城|景山公园|北海公园|什刹海|后海公园|天安门广场|鼓楼|南锣鼓巷|雍和宫|圆明园|奥林匹克公园/.test(name);
+  if (/石碑|碑刻|观景平台|管理处|服务处|科普小屋|文化活动室|售票|入口|出口|卫生间|停车场/.test(name)) return false;
+  return /故宫博物院|天坛公园|颐和园|圆明园|听鹂馆|八达岭长城|中国长城博物馆|景山公园|北海公园|什刹海|后海公园|天安门广场|鼓楼|南锣鼓巷|雍和宫|奥林匹克公园|北京环球|环球影城|环球城市大道/.test(name);
 }
 
 function isOverSpecificCulturePoi(item: Poi): boolean {
@@ -931,6 +940,32 @@ function mealQualityScore(item: Poi): number {
   if (item.meal_type === 'dessert') score -= 8;
   if (item.meal_type === 'hotel_dining' || item.meal_type === 'invalid') score -= 20;
   if (Number(item.avg_cost || 0) > 0) score += 3;
+  return score;
+}
+
+function foodPreferenceScore(item: Poi, request: TravelPlanningRequest): number {
+  if (!isFoodPoi(item)) return 0;
+  const goal = String(request.goal || '');
+  const name = String(item.name || '');
+  let score = 0;
+  const pairs: Array<[RegExp, RegExp]> = [
+    [/烤鸭|北京菜/, /烤鸭|四季民福|全聚德|便宜坊|大董|利群/],
+    [/涮肉|铜锅|火锅/, /涮肉|铜锅|南门|鸦儿李记|烤肉季/],
+    [/炸酱面/, /炸酱面|方砖厂/],
+    [/豆汁|小吃|老北京小吃/, /豆汁|小吃|护国寺|锦馨|紫光园|门钉肉饼|烧麦/],
+    [/咖啡|下午茶/, /咖啡|coffee|cafe|下午茶/],
+  ];
+  for (const [intent, foodName] of pairs) {
+    if (intent.test(goal) && foodName.test(name)) score += 60;
+  }
+  if (request.preference_signals?.roast_duck && /烤鸭|四季民福|全聚德|便宜坊|大董|利群/.test(name)) score += 70;
+  if (request.preference_signals?.hotpot && /涮肉|铜锅|南门|鸦儿李记|烤肉季/.test(name)) score += 60;
+  if (request.preference_signals?.zhajiangmian && /炸酱面|方砖厂/.test(name)) score += 60;
+  if (request.preference_signals?.beijing_snack && /豆汁|小吃|护国寺|锦馨|紫光园|门钉肉饼|烧麦/.test(name)) score += 50;
+  if (/好吃|吃好|吃点好的|靠谱|美食|口碑|招牌|特色|不踩雷|推荐餐厅/.test(goal)) {
+    if (/四季民福|便宜坊|大董|全聚德|南门涮肉|鸦儿李记|烤肉季|方砖厂/.test(name)) score += 22;
+  }
+  if (/咖啡|下午茶/.test(goal) && !/咖啡|coffee|cafe|下午茶/.test(name)) score -= 20;
   return score;
 }
 
@@ -1194,6 +1229,10 @@ function parseGoal(goal: string, defaults: Partial<TravelPlanningRequest> = {}):
       lunch: asksLunch || Boolean(inheritedSignals.lunch),
       formal_meal: asksFood && !/咖啡|甜品|下午茶|小吃/.test(goal) || Boolean(inheritedSignals.formal_meal),
       coffee: coffeeWanted,
+      roast_duck: /烤鸭|北京菜/.test(goal) || Boolean(inheritedSignals.roast_duck),
+      hotpot: /涮肉|铜锅|火锅/.test(goal) || Boolean(inheritedSignals.hotpot),
+      zhajiangmian: /炸酱面/.test(goal) || Boolean(inheritedSignals.zhajiangmian),
+      beijing_snack: /豆汁|小吃|老北京小吃/.test(goal) || Boolean(inheritedSignals.beijing_snack),
     },
   });
 }
@@ -1203,14 +1242,14 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
   if (!text.trim()) return request;
   const parsed = parseGoal(text, request);
   const noFood = /不吃饭|不安排吃饭|不要吃饭|不用吃饭|不含餐/.test(text);
-  const asksFood = !noFood && /吃饭|吃好|好吃|美食|餐饮|午餐|午饭|中午|晚餐|饭店|餐厅|小吃|咖啡|下午茶|每.?天.*吃|安排.*餐/.test(text);
+  const asksFood = !noFood && /吃饭|吃好|好吃|美食|餐饮|午餐|午饭|中午|晚餐|饭店|餐厅|小吃|咖啡|下午茶|烤鸭|炸酱面|涮肉|豆汁|每.?天.*吃|安排.*餐/.test(text);
   const asksCoffee = /咖啡|下午茶|甜品|奶茶/.test(text);
   const asksLunch = asksFood && !/晚上|夜间|夜游|晚餐/.test(text) && /中午|午餐|午饭|午间|吃饭|好吃|美食|餐饮|每.?天.*吃|安排.*餐/.test(text);
   const wantsCouple = /情侣|约会|恋人|浪漫|两个人|二人|鎯呬荆|娴极/.test(text);
   const wantsSenior = /老人|长辈|父母|爸妈|老年|别太累|不累|慢一点|鑰佷汉|闀胯緢|鐖舵瘝|鍒お绱/.test(text);
   const wantsKids = /亲子|孩子|小孩|儿童|带娃|遛娃|家庭|浜插瓙|瀛╁瓙|灏忓|鍎跨/.test(text);
   const lowWalk = /少走路|少步行|别太累|不累|轻松|老人|长辈|父母|爸妈|带娃|亲子|孩子|小孩|灏戣蛋璺|鍒お绱/.test(text);
-  const qualityFood = /好吃|吃好|吃点好的|靠谱|美食|口碑|招牌|特色|不踩雷|推荐餐厅/.test(text);
+  const qualityFood = /好吃|吃好|吃点好的|靠谱|美食|口碑|招牌|特色|不踩雷|推荐餐厅|烤鸭|炸酱面|涮肉|老北京小吃/.test(text);
   const avoidQueue = /不想排队|少排队|别排队|排队少|低排队|排队/.test(text);
   const valueForMoney = /性价比|预算|便宜|实惠|划算/.test(text);
   const accommodationNames = Array.from(new Set([
@@ -1251,6 +1290,10 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
       formal_meal: noFood ? false : (asksFood && !asksCoffee) || Boolean(request.preference_signals?.formal_meal),
       quality_food: noFood ? false : qualityFood || Boolean(request.preference_signals?.quality_food),
       coffee: noFood ? false : asksCoffee || Boolean(request.preference_signals?.coffee),
+      roast_duck: noFood ? false : /烤鸭|北京菜/.test(text) || Boolean(request.preference_signals?.roast_duck),
+      hotpot: noFood ? false : /涮肉|铜锅|火锅/.test(text) || Boolean(request.preference_signals?.hotpot),
+      zhajiangmian: noFood ? false : /炸酱面/.test(text) || Boolean(request.preference_signals?.zhajiangmian),
+      beijing_snack: noFood ? false : /豆汁|小吃|老北京小吃/.test(text) || Boolean(request.preference_signals?.beijing_snack),
       avoid_queue: avoidQueue || Boolean(request.preference_signals?.avoid_queue),
       value_for_money: valueForMoney || Boolean(request.preference_signals?.value_for_money),
       hotel_anchor: accommodationNames.length > 0 || /住宿|酒店|宾馆|民宿|住在|从.*出发/.test(text) || Boolean(request.preference_signals?.hotel_anchor),
@@ -1505,9 +1548,15 @@ function selectClassicAreas(candidates: Poi[], limit: number): string[] {
 
 function shouldUseClassicBackbone(request: TravelPlanningRequest): boolean {
   const text = String(request.goal || '');
+  const dayCount = Number(request.day_count || 1);
+  const beijingTrip = /北京|故宫|颐和园|天坛|长城|什刹海|北海|南锣鼓巷|环球影城|北京环球/.test(text)
+    || (request.must_include_names || []).some((name) => /故宫|颐和园|天坛|长城|什刹海|北海|南锣鼓巷|环球影城|北京环球/.test(String(name)))
+    || (request.must_include_poi_ids || []).some((id) => /fixture_summer_palace|fixture_badaling|fixture_universal|amap_B000A8UIN8|amap_B000A81CB2/.test(String(id)));
+  if (request.area && dayCount <= 1) return false;
+  if (dayCount > 1 && beijingTrip) return true;
   return !request.area
     && !requestHasNamedInclude(request)
-    && (/北京|不知道去哪|随便|推荐|经典|第一次|初次|好玩|玩/.test(text) || Number(request.day_count || 1) > 1);
+    && (/北京|不知道去哪|随便|推荐|经典|第一次|初次|好玩|玩/.test(text) || dayCount > 1);
 }
 
 function distributeMustIncludeIdsByDay(data: TravelData, request: TravelPlanningRequest, dayCount: number): string[][] {
@@ -1583,19 +1632,33 @@ function buildDailyItinerary(params: {
     const dayMustIds = mustIdsByDay[index] || [];
     const firstMustArea = areaForPoi(data.poiById.get(dayMustIds[0]));
     const dayArea = firstMustArea || dayAreas[index % dayAreas.length] || selectedArea;
-    const classicDayMustIds = dayMustIds.length === 0 && shouldUseClassicBackbone(request)
-      ? classicPoiIdsForArea(dayArea).filter((id) => data.poiById.has(id) && !usedDailyPoiIds.has(id))
+    const classicCompanionTarget = Math.max(0, 3 - dayMustIds.length);
+    const classicDayMustIds = shouldUseClassicBackbone(request)
+      ? classicPoiIdsForArea(dayArea)
+        .filter((id) => data.poiById.has(id))
+        .filter((id) => !dayMustIds.includes(id))
+        .filter((id) => !usedDailyPoiIds.has(id))
+        .slice(0, classicCompanionTarget || (dayMustIds.length ? 1 : 3))
       : [];
+    const classicSkeletonCount = dayMustIds.length + classicDayMustIds.length;
+    const classicSkeletonHasFood = [...dayMustIds, ...classicDayMustIds]
+      .map((id) => data.poiById.get(id))
+      .some((poi) => poi && isFoodPoi(poi));
+    const dayTargetCount = classicSkeletonCount >= 3
+      ? classicSkeletonCount + (request.route_mode === 'mixed' && !classicSkeletonHasFood ? 1 : 0)
+      : request.max_duration_min && request.max_duration_min >= 420
+        ? 4
+        : request.max_total_pois;
     const dayRequest = prepare(data, {
       ...request,
       goal: '',
       area: dayArea,
       max_budget: dailyBudget,
       max_duration_min: dailyDuration,
-      max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
+      max_total_pois: dayTargetCount,
       must_include_names: [],
       must_include_poi_ids: [...dayMustIds, ...classicDayMustIds],
-      route_order_poi_ids: index === 0 ? request.route_order_poi_ids : [],
+      route_order_poi_ids: [...(index === 0 ? request.route_order_poi_ids || [] : []), ...dayMustIds, ...classicDayMustIds],
       exclude_poi_ids: [...(request.exclude_poi_ids || []), ...Array.from(usedDailyPoiIds).filter((id) => !dayMustIds.includes(id))],
     });
     const strategy = params.strategies?.[index] || (index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget');
@@ -2435,6 +2498,10 @@ function buildProposal(params: {
     return sliced.length >= count ? sliced : [...sliced, ...items.slice(0, count - sliced.length)];
   };
   const foodRanked = (items: Poi[]) => ranked(items).sort((a, b) => {
+    const preference = foodPreferenceScore(b, request) - foodPreferenceScore(a, request);
+    if (preference !== 0) return preference;
+    const proximity = areaProximityScore(b) - areaProximityScore(a);
+    if (Math.abs(proximity) > 1) return proximity;
     if (request.preference_signals?.coffee) {
       const aCoffee = isCoffeePoi(a) ? 1 : 0;
       const bCoffee = isCoffeePoi(b) ? 1 : 0;
@@ -2584,6 +2651,21 @@ function buildProposal(params: {
       });
     const lunchFirst = request.preference_signals?.lunch && (parseMinutes(request.start_time) ?? 9 * 60) >= 11 * 60;
     ordered = lunchFirst ? [...foodStops, ...cultureStops] : [...cultureStops.slice(0, 1), ...foodStops, ...cultureStops.slice(1)];
+  }
+  const minimumStops = Math.min(targetCount, 3);
+  while (ordered.length < minimumStops) {
+    const next = ranked(scopedRecommendable)
+      .filter((item) => !ordered.some((chosen) => chosen.poi_id === item.poi_id))
+      .filter((item) => isRecommendablePoi(item))
+      .find((item) => {
+        if (request.route_mode === 'mixed' && !ordered.some(isFoodPoi)) return isFoodPoi(item);
+        return !isFoodPoi(item);
+      })
+      ?? ranked(scopedRecommendable)
+        .filter((item) => !ordered.some((chosen) => chosen.poi_id === item.poi_id))
+        .find(isRecommendablePoi);
+    if (!next) break;
+    ordered.push(next);
   }
 
   const accommodationAnchor = accommodationAnchorForRequest(request, selectedArea);

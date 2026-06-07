@@ -41,6 +41,14 @@ function assertNoImplausibleNamedTransfer(days, fromPattern, toPattern, maxMeter
   }
 }
 
+function assertNoLowValueStops(days, label) {
+  const names = days.flatMap((day) => day.proposal?.ordered_poi_names || []);
+  assert(
+    !names.some((name) => /周边补充|周边休息|需确认|石碑|观景平台|管理处|服务处|科普小屋|文化活动室|售票|入口|出口|卫生间|停车场/.test(String(name))),
+    `${label}: includes low-value or placeholder stop: ${names.join(' -> ')}`,
+  );
+}
+
 async function runPlannerGenericDayCase(label, goal, expectedDays) {
   const result = await post('/api/v1/travel/plan', { goal });
   const days = dailyRoutes(result);
@@ -56,6 +64,7 @@ async function runPlannerGenericDayCase(label, goal, expectedDays) {
     assert(stops.length >= 3, `${label}: day ${index + 1} should have >=3 stops`);
     assert(stops.slice(1).every((stop) => stop.transfer_mode), `${label}: day ${index + 1} should include transfer modes`);
   }
+  assertNoLowValueStops(days, label);
   return {
     label,
     day_count: planning.day_count,
@@ -83,6 +92,7 @@ async function runPlannerAccommodationAnchorCase() {
     return first && first.transfer_from_label && Number(first.transfer_from_previous_minutes || 0) > 0;
   }), 'accommodation anchor: each first stop should include hotel outbound transfer');
   assert(days.every((day) => Number((day.accommodation || day.proposal?.accommodation)?.return_transfer_minutes || 0) > 0), 'accommodation anchor: each day should estimate return transfer');
+  assertNoLowValueStops(days, 'accommodation anchor');
   return {
     label: 'planner-accommodation-anchor',
     accommodation: primary.accommodation,
@@ -119,6 +129,7 @@ async function runPlannerQualityCase() {
     assert(!stops.some((stop) => /停车场|出入口|体育中心|足球场|服务中心/.test(String(stop.name))), `planner quality: day ${index + 1} includes facility-like stop`);
     assert(Number(day.proposal?.total_route_duration_min || 0) <= 600, `planner quality: day ${index + 1} duration is too long`);
   }
+  assertNoLowValueStops(days, 'planner quality');
   return {
     label: 'planner-quality-generic-three-day',
     routes: days.map((day) => (day.proposal?.ordered_poi_names || []).join(' -> ')),
@@ -148,6 +159,7 @@ async function runCase(label, instruction, expectedDays) {
   for (const [index, signature] of routeSignatures.entries()) {
     assert(signature.split(' -> ').filter(Boolean).length >= 3, `${label}: day ${index + 1} should have >=3 POIs: ${signature}`);
   }
+  assertNoLowValueStops(days, label);
   assert(new Set(routeSignatures).size > 1, `${label}: multi-day routes should not all be identical: ${routeSignatures.join(' || ')}`);
   return {
     label,
@@ -158,12 +170,26 @@ async function runCase(label, instruction, expectedDays) {
   };
 }
 
+async function runPlannerFoodKeywordCase() {
+  const result = await post('/api/v1/travel/plan', {
+    goal: '北京两天一晚，第一次来，别太累，想吃烤鸭',
+  });
+  const days = dailyRoutes(result);
+  assertRouteContains(days, /烤鸭|四季民福|全聚德|便宜坊|大董|利群/, 'food keyword: should honor roast duck preference');
+  assertNoLowValueStops(days, 'food keyword');
+  return {
+    label: 'planner-food-keyword-roast-duck',
+    routes: days.map((day) => (day.proposal?.ordered_poi_names || []).join(' -> ')),
+  };
+}
+
 async function main() {
   const rows = [];
   rows.push(await runPlannerQualityCase());
   rows.push(await runPlannerGenericDayCase('planner-two-day-unknown-budget', '两天玩北京，想吃点好吃的，不知道去哪', 2));
   rows.push(await runPlannerGenericDayCase('planner-four-day-must-includes', '四天想去长城、故宫、天坛，吃饭预算还没定', 4));
   rows.push(await runPlannerAccommodationAnchorCase());
+  rows.push(await runPlannerFoodKeywordCase());
   rows.push(await runCase('five-day-summer-palace', '五天玩颐和园，想吃好吃的。', 5));
   rows.push(await runCase('four-day-beihai-hotel', '4天在北海附近慢慢玩，住酒店，想吃点靠谱的，不要太累。', 4));
   console.log('[travel-multiday-itinerary] passed');
