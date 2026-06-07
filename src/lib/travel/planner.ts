@@ -13,6 +13,15 @@ import { retrieveTravelWiki } from '@/lib/travel/wiki-retrieval';
 import { applyTravelPlanningAdvice, getTravelPlanningAdvice, type TravelPlanningAdvice } from '@/lib/travel/llm-planning-advice';
 import { generateTravelRouteDraft, type TravelRouteDraft, type TravelRouteDraftValidation } from '@/lib/travel/llm-route-draft';
 import { buildPlanningResponseFromRouteCorpus, findPrecomputedTravelRoutes, findRouteCorpusPoiHints } from '@/lib/travel/route-corpus';
+import { BEIJING_AREA_ANCHORS, BEIJING_CLASSIC_DAY_AREAS, LANDMARK_FIXTURE_POIS, MAX_TRIP_DAYS } from '@/lib/travel/constants';
+import {
+  commutePairKey,
+  estimateTransfer,
+  meters,
+  type CommuteEdge,
+  type CommuteEdgeIndex,
+  type TransferSource,
+} from '@/lib/travel/commute';
 
 type JsonRecord = Record<string, any>;
 type RouteMode = 'culture' | 'mixed';
@@ -20,37 +29,6 @@ type WalkPreference = 'low' | 'medium' | 'high';
 type Pace = 'relaxed' | 'balanced' | 'compact';
 type Strategy = 'balanced' | 'budget' | 'efficient';
 type MealType = 'meal' | 'snack' | 'coffee' | 'dessert' | 'hotel_dining' | 'invalid' | 'non_food';
-type TransferSource = 'commute_edge' | 'coordinate_estimate';
-const MAX_TRIP_DAYS = Number(process.env.TRAVELPILOT_MAX_TRIP_DAYS || 7);
-
-interface CommuteEdge {
-  origin_poi_id: string;
-  destination_poi_id: string;
-  mode: string;
-  provider: string;
-  distance_m: number | null;
-  duration_s: number;
-  walking_distance_m: number | null;
-  transfer_count: number | null;
-}
-
-interface CommuteEdgeIndex {
-  edgesByPair: Map<string, CommuteEdge[]>;
-  loaded: boolean;
-  edge_count: number;
-  loaded_at: string | null;
-  error: string | null;
-}
-
-interface TransferEstimate {
-  minutes: number;
-  meters: number;
-  source: TransferSource;
-  mode: string | null;
-  provider: string | null;
-  duration_s: number | null;
-  transfer_count: number | null;
-}
 
 export interface TravelPlanningRequest {
   goal?: string;
@@ -70,6 +48,7 @@ export interface TravelPlanningRequest {
   must_include_poi_ids?: string[];
   exclude_poi_ids?: string[];
   route_order_poi_ids?: string[];
+  accommodation_names?: string[];
   preference_signals?: Record<string, boolean>;
   replan_acceleration_cache?: TravelReplanAccelerationCache | null;
 }
@@ -163,36 +142,6 @@ let dataLoadElapsedMs: number | null = null;
 let commuteEdgeCache: Promise<CommuteEdgeIndex> | null = null;
 let commuteEdgeLoadedAt: string | null = null;
 let commuteEdgeLoadElapsedMs: number | null = null;
-
-const LANDMARK_FIXTURE_POIS: Poi[] = [
-  {
-    poi_id: 'fixture_badaling_great_wall',
-    name: '八达岭长城',
-    district: '延庆区',
-    area: '长城',
-    category: '景区',
-    poi_type: 'culture',
-    address: '北京市延庆区G6京藏高速58号出口',
-    lng: 116.016736,
-    lat: 40.356213,
-    rating: 4.8,
-    avg_cost: 40,
-    review_count: 12000,
-    open_time: '07:30',
-    close_time: '17:00',
-    suggested_duration_min: 180,
-    planning_tags: ['landmark', 'scene:outdoor', 'theme:great_wall', 'walk:high', 'classic_first_timer'],
-    evidence_tags: ['北京经典地标', '适合半日或一日游', '与市区 POI 转场较远'],
-    queue_risk: 'high',
-    value_for_money: 'medium',
-    family_friendliness: 'medium',
-    environment_quality: 'high',
-    meal_type: 'invalid',
-    is_lunch_suitable: false,
-    is_coffee_stop: false,
-    is_meal_stop: false,
-  },
-];
 
 async function readJsonArray<T>(fileName: string): Promise<T[]> {
   const content = await fs.readFile(path.join(DATA_ROOT, fileName), 'utf8');
@@ -291,7 +240,11 @@ async function loadTravelData(): Promise<TravelData> {
       readJsonArray<ReviewAggregate>('beijing_poi_feature_aggregates.json'),
       readJsonArray<ReviewRecord>('beijing_review_records.json'),
     ]).then(([culturePois, mixedPois, plannerEntities, reviewAggregates, reviewRecords]) => {
-      const landmarkFixtures = LANDMARK_FIXTURE_POIS.map(normalizePoi);
+      const landmarkFixtures = LANDMARK_FIXTURE_POIS.map((item) => normalizePoi({
+        ...item,
+        planning_tags: [...item.planning_tags],
+        evidence_tags: [...item.evidence_tags],
+      } as Poi));
       const normalizedCulturePois = [...landmarkFixtures, ...culturePois.map(normalizePoi)];
       const normalizedMixedPois = [...landmarkFixtures, ...mixedPois.map(normalizePoi)];
       const normalizedPlannerEntities = [...landmarkFixtures, ...plannerEntities.map(normalizePoi)];
@@ -320,10 +273,6 @@ async function loadTravelData(): Promise<TravelData> {
     });
   }
   return dataCache;
-}
-
-function commutePairKey(originPoiId: string, destinationPoiId: string): string {
-  return `${originPoiId}->${destinationPoiId}`;
 }
 
 function commuteModeRank(mode: string): number {
@@ -603,15 +552,31 @@ function replanCacheFromCorpusHints(hints: Array<{
 
 function landmarkPoiIdsForName(name: string): string[] {
   const normalized = normalizePoiName(name);
+  if (/故宫|紫禁城|forbiddencity|palacemuseum/i.test(normalized)) {
+    return ['amap_B000A8UIN8'];
+  }
   if (/(长城|八达岭|慕田峪|居庸关|greatwall|badaling)/i.test(normalized)) {
     return ['fixture_badaling_great_wall'];
+  }
+  if (/颐和园|summerpalace/i.test(normalized)) {
+    return ['fixture_summer_palace'];
   }
   return [];
 }
 
-function requestHasLandmarkInclude(request: TravelPlanningRequest): boolean {
-  return (request.must_include_names || []).some((name) => landmarkPoiIdsForName(name).length > 0)
-    || (request.must_include_poi_ids || []).some((id) => id === 'fixture_badaling_great_wall');
+function classicPoiIdsForArea(area?: string | null): string[] {
+  const normalized = normalizePoiName(area || '');
+  if (!normalized) return [];
+  if (/故宫|紫禁城/.test(normalized)) return ['amap_B000A8UIN8'];
+  if (/天坛/.test(normalized)) return ['amap_B000A81CB2'];
+  if (/颐和园/.test(normalized)) return ['fixture_summer_palace'];
+  if (/长城|八达岭/.test(normalized)) return ['fixture_badaling_great_wall'];
+  if (/北海/.test(normalized)) return ['amap_B000A80UL1'];
+  if (/什刹海|后海/.test(normalized)) return ['amap_B000A7O5PK'];
+  if (/天安门/.test(normalized)) return ['amap_B000A83C1S'];
+  if (/南锣鼓巷/.test(normalized)) return ['amap_B0FFFAH7I9'];
+  if (/雍和宫|地坛/.test(normalized)) return ['amap_B000A7BGMG'];
+  return [];
 }
 
 function requestHasNamedInclude(request: TravelPlanningRequest): boolean {
@@ -646,7 +611,7 @@ function extractExcludedNames(text: string): string[] {
 }
 
 function isGenericIncludeName(name: string): boolean {
-  return /^(一个|一个点|一个景点|景点|景区|地点|地方|点|室内点|文化点|好玩的|午餐地点|吃饭地点|餐厅|饭店|吃饭|午餐|午饭|顺路|原来的点都保留|其他地方不变)$/.test(name);
+  return /^(北京|北京市|一个|一个点|一个景点|景点|景区|地点|地方|点|室内点|文化点|好玩的|很多地方|几个地方|哪|哪里|去哪|去哪儿|不知道去哪|不知道去哪儿|午餐地点|吃饭地点|餐厅|饭店|吃饭|午餐|午饭|顺路|原来的点都保留|其他地方不变)$/.test(name);
 }
 
 function cleanupIncludedName(rawName: string): string {
@@ -672,7 +637,7 @@ function splitIncludedNameParts(rawName: string): string[] {
 function extractIncludedNames(text: string): string[] {
   const names: string[] = [];
   const normalizedText = normalizeUserTravelText(text);
-  const pattern = /(?:还想去|也想去|有点想去|想去|必须去|一定去|加上|添加|增加|安排|顺便去|能不能(?:帮我)?(?:把)?(?:安排|加上|放进去|排进去)?)([^，,。；;]+)/g;
+  const pattern = /(?:还想去|也想去|有点想去|想去|想玩|想逛|必须去|一定去|顺便去|逛|看|玩|去|加上|添加|增加|安排|能不能(?:帮我)?(?:把)?(?:安排|加上|放进去|排进去)?)([^，,。；;]+)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(normalizedText)) !== null) {
     const raw = cleanupIncludedName(String(match[1] || ''));
@@ -696,6 +661,55 @@ function matchesIncludeName(item: Pick<Poi, 'name'>, includeName: string): boole
   const name = normalizePoiName(item.name);
   const include = normalizePoiName(includeName);
   return Boolean(include && (name.includes(include) || include.includes(name)));
+}
+
+function anchorForName(name?: string | null) {
+  const normalized = normalizePoiName(name || '');
+  const direct = Object.entries(BEIJING_AREA_ANCHORS)
+    .find(([area]) => normalized.includes(normalizePoiName(area)) || normalizePoiName(area).includes(normalized));
+  return direct ? { area: direct[0], ...direct[1] } : null;
+}
+
+function accommodationAnchorForRequest(request: TravelPlanningRequest, selectedArea: string): (Poi & { location_confidence: string; source_name: string }) | null {
+  const requestedName = request.accommodation_names?.[0] || '';
+  if (!requestedName && !request.preference_signals?.hotel_anchor) return null;
+  const directAnchor = requestedName ? anchorForName(requestedName) : null;
+  const anchor = directAnchor || anchorForName(request.area) || anchorForName(selectedArea) || { area: selectedArea || '北京', ...BEIJING_AREA_ANCHORS.北京 };
+  const displayName = requestedName
+    ? (/酒店|宾馆|民宿|住宿/.test(requestedName) ? requestedName : `${requestedName}附近住宿`)
+    : `${anchor.area}附近住宿`;
+  const base = normalizePoi({
+    poi_id: `fixture_accommodation_${normalizePoiName(displayName).slice(0, 32) || 'beijing'}`,
+    name: displayName,
+    district: anchor.district,
+    area: anchor.area,
+    category: '住宿',
+    poi_type: 'accommodation',
+    address: `${anchor.area}周边住宿锚点`,
+    lng: anchor.lng,
+    lat: anchor.lat,
+    rating: 0,
+    avg_cost: 0,
+    review_count: 0,
+    suggested_duration_min: 0,
+    planning_tags: ['accommodation_anchor'],
+    evidence_tags: ['用户住宿位置锚点', '用于估算每日出发和返回通勤'],
+    meal_type: 'invalid',
+    is_lunch_suitable: false,
+    is_coffee_stop: false,
+    is_meal_stop: false,
+  } as Poi);
+  return {
+    ...base,
+    location_confidence: directAnchor ? 'area_anchor' : 'fallback_area_anchor',
+    source_name: requestedName || anchor.area,
+  };
+}
+
+function areaForPoi(item?: Pick<Poi, 'area' | 'district' | 'name'> | null): string | null {
+  if (!item) return null;
+  const direct = item.area && !String(item.area).includes('未知') ? String(item.area) : item.district || null;
+  return direct || anchorForName(item.name)?.area || null;
 }
 
 function resolveMustIncludePoiIds(data: TravelData, request: TravelPlanningRequest): string[] {
@@ -729,26 +743,20 @@ function unresolvedMustIncludeNames(data: TravelData, request: TravelPlanningReq
 
 function buildFallbackPoiForIncludeName(name: string, request: TravelPlanningRequest, index: number): Poi {
   const normalizedName = String(name || '').trim() || '用户指定地点';
-  const anchorByArea: Record<string, { lng: number; lat: number; district: string }> = {
-    前门: { lng: 116.3976, lat: 39.9006, district: '东城区' },
-    故宫: { lng: 116.3972, lat: 39.9163, district: '东城区' },
-    什刹海: { lng: 116.3844, lat: 39.9417, district: '西城区' },
-    天坛: { lng: 116.4108, lat: 39.8819, district: '东城区' },
-    颐和园: { lng: 116.2755, lat: 39.9999, district: '海淀区' },
-    王府井: { lng: 116.4114, lat: 39.9149, district: '东城区' },
-  };
-  const anchor = (request.area && anchorByArea[request.area]) || { lng: 116.4074, lat: 39.9042, district: '北京市' };
+  const namedAnchor = anchorForName(normalizedName);
+  const requestAnchor = request.area ? anchorForName(request.area) : null;
+  const anchor = namedAnchor || requestAnchor || { area: '用户指定地点', ...BEIJING_AREA_ANCHORS.北京 };
   const isFoodName = /餐|饭|吃|咖啡|小吃|烤鸭|涮肉|面|甜品|茶/.test(normalizedName);
   return normalizePoi({
     poi_id: `user_requested_${normalizePoiName(normalizedName) || index}`,
     name: normalizedName,
     district: anchor.district,
-    area: request.area || '用户指定地点',
+    area: anchor.area || request.area || '用户指定地点',
     category: isFoodName ? '餐饮' : '用户指定地点',
     poi_type: isFoodName ? 'food' : 'culture',
     address: '用户指定地点，本地 POI 库未命中，建议出发前确认精确地址',
-    lng: anchor.lng + index * 0.002,
-    lat: anchor.lat + index * 0.002,
+    lng: anchor.lng,
+    lat: anchor.lat,
     rating: 4.2,
     avg_cost: isFoodName ? 80 : 0,
     review_count: 0,
@@ -760,6 +768,58 @@ function buildFallbackPoiForIncludeName(name: string, request: TravelPlanningReq
     family_friendliness: 'unknown',
     environment_quality: 'unknown',
   } as Poi);
+}
+
+function buildAreaSupplementPoi(params: {
+  selectedArea: string;
+  request: TravelPlanningRequest;
+  index: number;
+  kind: 'food' | 'culture' | 'rest';
+}): Poi | null {
+  const anchor = anchorForName(params.selectedArea);
+  if (!anchor) return null;
+  const isFood = params.kind === 'food';
+  const name = isFood
+    ? `${params.selectedArea}周边午餐（需确认）`
+    : params.kind === 'rest'
+      ? `${params.selectedArea}周边休息点（需确认）`
+      : `${params.selectedArea}周边补充游览（需确认）`;
+  const offset = params.index * 0.0015;
+  return normalizePoi({
+    poi_id: `area_supplement_${normalizePoiName(params.selectedArea)}_${params.kind}_${params.index}`,
+    name,
+    district: anchor.district,
+    area: params.selectedArea,
+    category: isFood ? '餐饮' : '周边补充',
+    poi_type: isFood ? 'food' : 'culture',
+    address: `${params.selectedArea}周边，本地 POI 库覆盖不足，建议出发前确认精确地点`,
+    lng: anchor.lng + offset,
+    lat: anchor.lat + offset,
+    rating: 4.0,
+    avg_cost: isFood ? 100 : 0,
+    review_count: 0,
+    suggested_duration_min: isFood ? 60 : params.kind === 'rest' ? 45 : 75,
+    planning_tags: ['area_supplement', 'needs_address_confirmation'],
+    evidence_tags: ['本地 POI 库覆盖不足，按用户指定区域生成低置信度补充点'],
+    queue_risk: 'unknown',
+    value_for_money: 'unknown',
+    family_friendliness: 'unknown',
+    environment_quality: 'unknown',
+  } as Poi);
+}
+
+function buildAreaSupplementPois(selectedArea: string, request: TravelPlanningRequest, targetCount: number): Poi[] {
+  const items: Poi[] = [];
+  if (request.route_mode === 'mixed') {
+    const food = buildAreaSupplementPoi({ selectedArea, request, index: 1, kind: 'food' });
+    if (food) items.push(food);
+  }
+  for (const kind of ['culture', 'rest', 'culture'] as const) {
+    if (items.length >= targetCount) break;
+    const item = buildAreaSupplementPoi({ selectedArea, request, index: items.length + 1, kind });
+    if (item) items.push(item);
+  }
+  return items;
 }
 
 function uniqueByName(items: Poi[]): Poi[] {
@@ -808,7 +868,7 @@ function isFoodPoi(item: Poi): boolean {
   const text = poiText(item);
   const name = String(item.name || '');
   if (/\u9152\u5e97|\u5bbe\u9986|\u5ba2\u6808|\u6f2b\u5fc3\u5e9c|\u4f4f\u5bbf/.test(name)) return false;
-  if (/\u552e\u7968\u5904|\u8bb2\u89e3|\u670d\u52a1\u4e2d\u5fc3|\u5e02\u6c11\u6587\u5316\u4e2d\u5fc3/.test(name)) return false;
+  if (/\u552e\u7968\u5904|\u8bb2\u89e3|\u670d\u52a1\u4e2d\u5fc3|\u5e02\u6c11\u6587\u5316\u4e2d\u5fc3|停车场|出入口|足球场|体育中心|运动场|售票处|卫生间|游客中心|观众服务中心/.test(name)) return false;
   return ['meal', 'snack', 'coffee', 'dessert'].includes(mealType)
     || /(^|\s)(food|dining|restaurant|meal|snack|coffee|cafe)(\s|$)/.test(text)
     || Boolean(item.is_lunch_suitable || item.is_coffee_stop);
@@ -840,8 +900,21 @@ function isRecommendablePoi(item: Poi): boolean {
   if (latinCount >= 4 && weakEvidence) return false;
   if (/\u9152\u5e97|\u5bbe\u9986|\u6f2b\u5fc3\u5e9c|\u5ba2\u6808|\u4f4f\u5bbf/.test(name)) return false;
   if (/\u5e02\u6c11\u6587\u5316\u4e2d\u5fc3|\u793e\u533a|\u5c45\u6c11|\u8857\u9053\u529e/.test(name)) return false;
-  if (/\u5efa\u8bbe\u4e2d|\u89c2\u4f17\u670d\u52a1\u4e2d\u5fc3|\u8bb2\u89e3\u670d\u52a1\u5904/.test(name)) return false;
+  if (/\u5efa\u8bbe\u4e2d|\u89c2\u4f17\u670d\u52a1\u4e2d\u5fc3|\u8bb2\u89e3\u670d\u52a1\u5904|停车场|出入口|足球场|体育中心|运动场|售票处|卫生间|游客中心|观众服务中心/.test(name)) return false;
   return true;
+}
+
+function isClassicBackbonePoi(item: Poi): boolean {
+  const name = String(item.name || '');
+  return /故宫博物院|天坛公园|颐和园|八达岭长城|景山公园|北海公园|什刹海|后海公园|天安门广场|鼓楼|南锣鼓巷|雍和宫|圆明园|奥林匹克公园/.test(name);
+}
+
+function isOverSpecificCulturePoi(item: Poi): boolean {
+  if (isClassicBackbonePoi(item)) return false;
+  const name = String(item.name || '');
+  const latinCount = (name.match(/[A-Za-z]/g) || []).length;
+  return latinCount >= 4
+    || /金鱼展|观景平台|碑|石碑|遗址$|美术馆|艺术馆|创意产业园|文化宫|劳动人民文化宫|HERE|Mood|SLOWBOAT/i.test(name);
 }
 
 function isIndoorCulturePoi(item: Poi): boolean {
@@ -1014,9 +1087,29 @@ function normalizeRequest(payload: Partial<TravelPlanningRequest>): TravelPlanni
     must_include_poi_ids: normalizeMustIncludeIds(payload),
     exclude_poi_ids: Array.isArray(payload.exclude_poi_ids) ? payload.exclude_poi_ids : [],
     route_order_poi_ids: Array.isArray(payload.route_order_poi_ids) ? payload.route_order_poi_ids : [],
+    accommodation_names: Array.isArray(payload.accommodation_names) ? payload.accommodation_names.map(String).filter(Boolean).slice(0, 3) : [],
     preference_signals: payload.preference_signals || {},
     replan_acceleration_cache: replanCache,
   };
+}
+
+function extractAccommodationNames(text: string): string[] {
+  const names: string[] = [];
+  const patterns = [
+    /(?:住在|住宿在|酒店在|从)([^，,。；;]{2,24}?)(?:附近|周边|一带|出发|开始|酒店|宾馆|民宿)/g,
+    /([^，,。；;]{2,24}?(?:酒店|宾馆|民宿))(?:附近|周边|一带|出发|开始)?/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const raw = String(match[1] || '')
+        .replace(/^(我|我们|打算|计划|从)/, '')
+        .replace(/(附近|周边|一带|出发|开始)$/g, '')
+        .trim();
+      if (raw && !/^(北京|酒店|宾馆|民宿|住宿)$/.test(raw)) names.push(raw);
+    }
+  }
+  return Array.from(new Set(names)).slice(0, 3);
 }
 
 function parseGoal(goal: string, defaults: Partial<TravelPlanningRequest> = {}): TravelPlanningRequest {
@@ -1054,6 +1147,10 @@ function parseGoal(goal: string, defaults: Partial<TravelPlanningRequest> = {}):
       : defaults.max_duration_min ?? (dayCount > 1 ? dayCount * 8 * 60 : dayCount >= 1 && /(天|日|整天|全天)/.test(goal) ? 8 * 60 : null);
   const excludeNames = [...(defaults.exclude_names || [])];
   excludeNames.push(...parsedExcludedNames);
+  const accommodationNames = Array.from(new Set([
+    ...(defaults.accommodation_names || []),
+    ...extractAccommodationNames(goal),
+  ]));
   const coffeeWanted = /咖啡|喝咖啡/.test(goal) && !/(去掉|不要|排除)[^，,。；;]*咖啡/.test(goal);
   const inheritedSignals = defaults.preference_signals || {};
   const personaId = wantsKids
@@ -1085,6 +1182,7 @@ function parseGoal(goal: string, defaults: Partial<TravelPlanningRequest> = {}):
         ? [areas.find((item) => compactGoal.includes(item)) as string]
         : []),
     ])),
+    accommodation_names: accommodationNames,
     preference_signals: {
       avoid_queue: /不想排队|少排队|排队/.test(goal) || Boolean(inheritedSignals.avoid_queue),
       value_for_money: /性价比|预算|便宜|实惠/.test(goal) || Boolean(inheritedSignals.value_for_money),
@@ -1103,6 +1201,7 @@ function parseGoal(goal: string, defaults: Partial<TravelPlanningRequest> = {}):
 function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest): TravelPlanningRequest {
   const text = String(goal || '');
   if (!text.trim()) return request;
+  const parsed = parseGoal(text, request);
   const noFood = /不吃饭|不安排吃饭|不要吃饭|不用吃饭|不含餐/.test(text);
   const asksFood = !noFood && /吃饭|吃好|好吃|美食|餐饮|午餐|午饭|中午|晚餐|饭店|餐厅|小吃|咖啡|下午茶|每.?天.*吃|安排.*餐/.test(text);
   const asksCoffee = /咖啡|下午茶|甜品|奶茶/.test(text);
@@ -1114,6 +1213,11 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
   const qualityFood = /好吃|吃好|吃点好的|靠谱|美食|口碑|招牌|特色|不踩雷|推荐餐厅/.test(text);
   const avoidQueue = /不想排队|少排队|别排队|排队少|低排队|排队/.test(text);
   const valueForMoney = /性价比|预算|便宜|实惠|划算/.test(text);
+  const accommodationNames = Array.from(new Set([
+    ...(request.accommodation_names || []),
+    ...extractAccommodationNames(text),
+    ...(parsed.accommodation_names || []),
+  ]));
   const personaId = wantsKids
     ? 'family_kids'
     : wantsSenior
@@ -1123,6 +1227,19 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
         : request.persona_id;
   return normalizeRequest({
     ...request,
+    area: request.area || parsed.area,
+    max_budget: request.max_budget ?? parsed.max_budget,
+    max_duration_min: request.max_duration_min ?? parsed.max_duration_min,
+    day_count: Math.max(Number(request.day_count || 1), Number(parsed.day_count || 1)),
+    must_include_names: Array.from(new Set([
+      ...(request.must_include_names || []),
+      ...(parsed.must_include_names || []),
+    ])),
+    exclude_names: Array.from(new Set([
+      ...(request.exclude_names || []),
+      ...(parsed.exclude_names || []),
+    ])),
+    accommodation_names: accommodationNames,
     route_mode: noFood ? 'culture' : asksFood ? 'mixed' : request.route_mode,
     persona_id: personaId,
     walk_preference: lowWalk ? 'low' : request.walk_preference,
@@ -1136,6 +1253,7 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
       coffee: noFood ? false : asksCoffee || Boolean(request.preference_signals?.coffee),
       avoid_queue: avoidQueue || Boolean(request.preference_signals?.avoid_queue),
       value_for_money: valueForMoney || Boolean(request.preference_signals?.value_for_money),
+      hotel_anchor: accommodationNames.length > 0 || /住宿|酒店|宾馆|民宿|住在|从.*出发/.test(text) || Boolean(request.preference_signals?.hotel_anchor),
       family: wantsKids || Boolean(request.preference_signals?.family),
       senior: wantsSenior || Boolean(request.preference_signals?.senior),
       couple: wantsCouple || Boolean(request.preference_signals?.couple),
@@ -1143,67 +1261,38 @@ function applyStableGoalIntentPatch(goal: string, request: TravelPlanningRequest
   });
 }
 
-function meters(a: Poi, b: Poi): number {
-  const rad = Math.PI / 180;
-  const lat1 = a.lat * rad;
-  const lat2 = b.lat * rad;
-  const dLat = (b.lat - a.lat) * rad;
-  const dLng = (b.lng - a.lng) * rad;
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
-}
-
-function transferMinutes(distanceMeters: number): number {
-  return Math.max(4, Math.round(distanceMeters / 70));
-}
-
-function estimateCoordinateFallback(distanceMeters: number) {
-  if (distanceMeters <= 800) {
-    return {
-      minutes: transferMinutes(distanceMeters),
-      mode: 'walking_estimate',
-    };
-  }
-  if (distanceMeters <= 3000) {
-    // Shared-bike style local fallback: includes unlock/parking buffer.
-    return {
-      minutes: Math.max(6, Math.round(distanceMeters / 180) + 4),
-      mode: 'bike_estimate',
-    };
-  }
-  return {
-    minutes: Math.max(10, Math.round(distanceMeters / 260) + 8),
-    mode: 'driving_estimate',
-  };
-}
-
-function estimateTransfer(a: Poi, b: Poi, commuteEdges?: CommuteEdgeIndex): TransferEstimate {
-  const edge =
-    commuteEdges?.edgesByPair.get(commutePairKey(a.poi_id, b.poi_id))?.[0]
-    ?? commuteEdges?.edgesByPair.get(commutePairKey(b.poi_id, a.poi_id))?.[0];
-  if (edge && Number.isFinite(edge.duration_s) && edge.duration_s > 0) {
-    const metersValue = edge.walking_distance_m ?? edge.distance_m ?? meters(a, b);
-    return {
-      minutes: Math.max(1, Math.round(edge.duration_s / 60)),
-      meters: Math.round(Number(metersValue || 0)),
-      source: 'commute_edge',
-      mode: edge.mode,
-      provider: edge.provider,
-      duration_s: edge.duration_s,
-      transfer_count: edge.transfer_count,
-    };
-  }
-  const distance = meters(a, b);
-  const fallback = estimateCoordinateFallback(distance);
-  return {
-    minutes: fallback.minutes,
-    meters: Math.round(distance),
-    source: 'coordinate_estimate',
-    mode: fallback.mode,
-    provider: null,
-    duration_s: null,
-    transfer_count: null,
-  };
+function requestFromGoalAndIntent(goal: string, defaults: Partial<TravelPlanningRequest> = {}, intent?: TravelQueryIntent | null): TravelPlanningRequest {
+  const localParsed = parseGoal(goal, defaults);
+  if (!intent) return applyStableGoalIntentPatch(goal, localParsed);
+  const intentPatch = intentToPlannerLikeRequest(intent);
+  return applyStableGoalIntentPatch(goal, normalizeRequest({
+    ...localParsed,
+    route_mode: intentPatch.route_mode || localParsed.route_mode,
+    area: intentPatch.area || localParsed.area,
+    max_budget: intentPatch.max_budget ?? localParsed.max_budget,
+    max_duration_min: intentPatch.max_duration_min ?? localParsed.max_duration_min,
+    day_count: Math.max(Number(localParsed.day_count || 1), Number(intentPatch.day_count || 1)),
+    start_time: intentPatch.start_time || localParsed.start_time,
+    walk_preference: intentPatch.walk_preference || localParsed.walk_preference,
+    persona_id: intentPatch.persona_id || localParsed.persona_id,
+    must_include_names: Array.from(new Set([
+      ...(localParsed.must_include_names || []),
+      ...(intentPatch.must_include_names || []),
+    ])),
+    exclude_names: Array.from(new Set([
+      ...(localParsed.exclude_names || []),
+      ...(intentPatch.exclude_names || []),
+    ])),
+    accommodation_names: Array.from(new Set([
+      ...(localParsed.accommodation_names || []),
+      ...(intentPatch.accommodation_names || []),
+    ])),
+    preference_signals: {
+      ...(localParsed.preference_signals || {}),
+      ...(intentPatch.preference_signals || {}),
+    },
+    goal,
+  }));
 }
 
 function parseMinutes(value?: string): number | null {
@@ -1278,10 +1367,17 @@ function scorePoi(item: Poi, request: TravelPlanningRequest, strategy: Strategy,
   const cost = Number(item.avg_cost || 0);
   const duration = Number(item.suggested_duration_min || 90);
   const text = poiText(item);
+  const hasSpecificInclude = requestHasNamedInclude(request);
+  if (!isFoodPoi(item) && isClassicBackbonePoi(item)) score += hasSpecificInclude ? 12 : 34;
+  if (!isFoodPoi(item) && isOverSpecificCulturePoi(item)) score -= hasSpecificInclude ? 8 : 30;
   if (strategy === 'budget') score -= cost / 8;
   else score -= cost / 25;
   if (strategy === 'efficient') score -= duration / 5;
   else score -= duration / 14;
+  if (strategy === 'budget' && cost <= 40) score += 10;
+  if (strategy === 'budget' && cost >= 120) score -= 12;
+  if (strategy === 'efficient' && duration <= 75) score += 8;
+  if (strategy === 'balanced' && duration >= 75 && duration <= 120) score += 4;
   if (request.preference_signals?.avoid_queue && values.queue_risk === 'low') score += 10;
   if (request.preference_signals?.avoid_queue && values.queue_risk === 'high') score -= 18;
   if (request.preference_signals?.value_for_money && values.value_for_money === 'high') score += 8;
@@ -1378,6 +1474,7 @@ function selectAdditionalStop(params: {
 
 function selectArea(request: TravelPlanningRequest, candidates: Poi[]): string {
   if (request.area && candidates.some((item) => item.area === request.area || item.district === request.area)) return request.area;
+  if (shouldUseClassicBackbone(request)) return '故宫';
   const counts = new Map<string, number>();
   for (const item of candidates) {
     const area = item.area && item.area !== '未知' ? item.area : item.district || '故宫';
@@ -1394,6 +1491,189 @@ function selectPopularAreas(candidates: Poi[], limit: number): string[] {
     counts.set(area, (counts.get(area) || 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([area]) => area).slice(0, Math.max(1, limit));
+}
+
+function selectClassicAreas(candidates: Poi[], limit: number): string[] {
+  const availableAreas = new Set(candidates
+    .flatMap((item) => [item.area, item.district])
+    .filter(Boolean)
+    .map(String));
+  return BEIJING_CLASSIC_DAY_AREAS
+    .filter((area) => availableAreas.has(area) || Boolean(BEIJING_AREA_ANCHORS[area]))
+    .slice(0, Math.max(1, limit));
+}
+
+function shouldUseClassicBackbone(request: TravelPlanningRequest): boolean {
+  const text = String(request.goal || '');
+  return !request.area
+    && !requestHasNamedInclude(request)
+    && (/北京|不知道去哪|随便|推荐|经典|第一次|初次|好玩|玩/.test(text) || Number(request.day_count || 1) > 1);
+}
+
+function distributeMustIncludeIdsByDay(data: TravelData, request: TravelPlanningRequest, dayCount: number): string[][] {
+  const ids = Array.from(new Set(request.must_include_poi_ids || []));
+  const result = Array.from({ length: dayCount }, () => [] as string[]);
+  ids.forEach((id, index) => {
+    result[Math.min(index, dayCount - 1)].push(id);
+  });
+  const unresolved = unresolvedMustIncludeNames(data, request);
+  unresolved.forEach((name, index) => {
+    const fallback = buildFallbackPoiForIncludeName(name, request, index + 1);
+    result[Math.min(ids.length + index, dayCount - 1)].push(fallback.poi_id);
+  });
+  return result;
+}
+
+function resolveDayAreas(params: {
+  data: TravelData;
+  request: TravelPlanningRequest;
+  pool: Poi[];
+  selectedArea: string;
+  dayCount: number;
+}) {
+  const { data, request, pool, selectedArea, dayCount } = params;
+  const areas: string[] = [];
+  for (const id of request.must_include_poi_ids || []) {
+    const area = areaForPoi(data.poiById.get(id));
+    if (area && !areas.includes(area)) areas.push(area);
+  }
+  for (const name of unresolvedMustIncludeNames(data, request)) {
+    const area = anchorForName(name)?.area || request.area || selectedArea;
+    if (area && !areas.includes(area)) areas.push(area);
+  }
+  if (request.area && !areas.includes(request.area)) areas.unshift(request.area);
+  if (!areas.includes(selectedArea)) areas.push(selectedArea);
+  const supplementalAreas = shouldUseClassicBackbone(request)
+    ? selectClassicAreas(pool, dayCount + 4)
+    : selectPopularAreas(pool, dayCount + 4);
+  const popularAreas = supplementalAreas.filter((area) => !areas.includes(area));
+  return [...areas, ...popularAreas].slice(0, Math.max(1, dayCount));
+}
+
+function perDayBudget(request: TravelPlanningRequest, dayCount: number): number | null {
+  if (request.max_budget === null || request.max_budget === undefined) return null;
+  return Math.max(80, Math.ceil(Number(request.max_budget) / Math.max(1, dayCount)));
+}
+
+function perDayDuration(request: TravelPlanningRequest, dayCount: number): number | null {
+  if (request.max_duration_min === null || request.max_duration_min === undefined) return null;
+  const total = Number(request.max_duration_min);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return Math.max(240, Math.min(540, Math.ceil(total / Math.max(1, dayCount))));
+}
+
+function buildDailyItinerary(params: {
+  data: TravelData;
+  request: TravelPlanningRequest;
+  pool: Poi[];
+  selectedArea: string;
+  commuteEdges?: CommuteEdgeIndex;
+  prepare: (data: TravelData, payload: Partial<TravelPlanningRequest>) => TravelPlanningRequest;
+  strategies?: Strategy[];
+}) {
+  const { data, request, pool, selectedArea, commuteEdges, prepare } = params;
+  const dayCount = Math.max(1, Math.min(MAX_TRIP_DAYS, Number(request.day_count || 1)));
+  const dayAreas = resolveDayAreas({ data, request, pool, selectedArea, dayCount });
+  const mustIdsByDay = distributeMustIncludeIdsByDay(data, request, dayCount);
+  const dailyBudget = perDayBudget(request, dayCount);
+  const dailyDuration = perDayDuration(request, dayCount) ?? (dayCount > 1 ? 480 : request.max_duration_min ?? null);
+  const usedDailyPoiIds = new Set<string>();
+
+  return Array.from({ length: dayCount }, (_, index) => {
+    const dayMustIds = mustIdsByDay[index] || [];
+    const firstMustArea = areaForPoi(data.poiById.get(dayMustIds[0]));
+    const dayArea = firstMustArea || dayAreas[index % dayAreas.length] || selectedArea;
+    const classicDayMustIds = dayMustIds.length === 0 && shouldUseClassicBackbone(request)
+      ? classicPoiIdsForArea(dayArea).filter((id) => data.poiById.has(id) && !usedDailyPoiIds.has(id))
+      : [];
+    const dayRequest = prepare(data, {
+      ...request,
+      goal: '',
+      area: dayArea,
+      max_budget: dailyBudget,
+      max_duration_min: dailyDuration,
+      max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
+      must_include_names: [],
+      must_include_poi_ids: [...dayMustIds, ...classicDayMustIds],
+      route_order_poi_ids: index === 0 ? request.route_order_poi_ids : [],
+      exclude_poi_ids: [...(request.exclude_poi_ids || []), ...Array.from(usedDailyPoiIds).filter((id) => !dayMustIds.includes(id))],
+    });
+    const strategy = params.strategies?.[index] || (index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget');
+    const dayProposal = buildProposal({ request: dayRequest, strategy, selectedArea: dayArea, candidates: pool, data, commuteEdges });
+    for (const id of dayProposal.ordered_poi_ids || []) usedDailyPoiIds.add(String(id));
+    return {
+      day: index + 1,
+      title: `第 ${index + 1} 天`,
+      area: dayArea,
+      theme: dayMustIds.length ? '用户指定目的地体验' : index === 0 ? '核心目的地体验' : index === 1 ? '餐饮与文化扩展' : '顺路补充与轻松探索',
+      accommodation: dayProposal.accommodation || null,
+      proposal: dayProposal,
+    };
+  });
+}
+
+function buildTripProposalFromDaily(strategy: Strategy, dailyItinerary: Array<Record<string, any>>) {
+  const title = strategy === 'balanced' ? '均衡体验方案' : strategy === 'budget' ? '预算优先方案' : '效率优先方案';
+  const dayProposals = dailyItinerary.map((day) => day.proposal || {});
+  const allStops = dayProposals.flatMap((proposal, dayIndex) =>
+    (Array.isArray(proposal.pois) ? proposal.pois : []).map((stop: Record<string, any>) => ({
+      ...stop,
+      day: dayIndex + 1,
+    })),
+  );
+  const totalBudget = dayProposals.reduce((sum, proposal) => sum + Number(proposal.total_budget_estimate || 0), 0);
+  const totalTransfer = dayProposals.reduce((sum, proposal) => sum + Number(proposal.total_transfer_minutes || 0), 0);
+  const totalDistance = dayProposals.reduce((sum, proposal) => sum + Number(proposal.total_walking_distance_m || 0), 0);
+  const totalVisit = dayProposals.reduce((sum, proposal) => sum + Number(proposal.total_visit_duration_min || 0), 0);
+  const totalDuration = dayProposals.reduce((sum, proposal) => sum + Number(proposal.total_route_duration_min || 0), 0);
+  const transferSummary = summarizeProposalTransfers(dayProposals);
+  const accommodation = dayProposals.find((proposal) => proposal.accommodation)?.accommodation || null;
+  const orderedNames = allStops.map((stop) => String(stop.name || '')).filter(Boolean);
+  return {
+    proposal_id: `${strategy}-trip-${Math.random().toString(16).slice(2, 10)}`,
+    strategy,
+    display_title: title,
+    title,
+    summary: `${dailyItinerary.length} 天北京行程，${allStops.length} 个停留点，预计 ${totalDuration} 分钟，预算约 ${totalBudget} 元。`,
+    day_count: dailyItinerary.length,
+    daily_itinerary: dailyItinerary,
+    accommodation,
+    ordered_poi_ids: allStops.map((stop) => stop.poi_id).filter(Boolean),
+    ordered_poi_names: orderedNames,
+    pois: allStops,
+    total_budget_estimate: totalBudget,
+    total_transfer_minutes: totalTransfer,
+    total_walking_distance_m: Math.round(totalDistance),
+    transfer_source_summary: transferSummary,
+    total_visit_duration_min: totalVisit,
+    total_route_duration_min: totalDuration,
+    travel_time_confidence: 'estimated',
+    budget_summary: { total_budget_estimate: totalBudget },
+    duration_summary: { total_route_duration_min: totalDuration, total_visit_duration_min: totalVisit, total_transfer_minutes: totalTransfer },
+    risks: Array.from(new Set(dayProposals.flatMap((proposal) => Array.isArray(proposal.risks) ? proposal.risks : []))).slice(0, 6),
+  };
+}
+
+function buildMultiDayPlanSet(params: {
+  data: TravelData;
+  request: TravelPlanningRequest;
+  pool: Poi[];
+  selectedArea: string;
+  commuteEdges?: CommuteEdgeIndex;
+  prepare: (data: TravelData, payload: Partial<TravelPlanningRequest>) => TravelPlanningRequest;
+}) {
+  const dayCount = Math.max(1, Math.min(MAX_TRIP_DAYS, Number(params.request.day_count || 1)));
+  const variants = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => {
+    const dailyItinerary = buildDailyItinerary({
+      ...params,
+      strategies: Array.from({ length: dayCount }, () => strategy),
+    });
+    return buildTripProposalFromDaily(strategy, dailyItinerary);
+  });
+  return {
+    dailyItinerary: variants[0]?.daily_itinerary || [],
+    proposals: variants,
+  };
 }
 
 function orderNearest(items: Poi[], commuteEdges?: CommuteEdgeIndex): Poi[] {
@@ -2053,7 +2333,9 @@ function candidatePool(data: TravelData, request: TravelPlanningRequest): Poi[] 
 }
 
 function preparePlanningRequest(data: TravelData, payload: Partial<TravelPlanningRequest>): TravelPlanningRequest {
-  const request = normalizeRequest(payload);
+  const request = payload.goal
+    ? applyStableGoalIntentPatch(String(payload.goal), parseGoal(String(payload.goal), payload))
+    : normalizeRequest(payload);
   request.must_include_poi_ids = Array.from(new Set([
     ...(request.must_include_poi_ids || []),
     ...resolveMustIncludePoiIds(data, request),
@@ -2077,7 +2359,19 @@ function buildProposal(params: {
   const targetCount = Math.max(3, request.max_total_pois || 4, requestedMustCount);
   const sameArea = candidates.filter((item) => item.area === selectedArea || item.district === selectedArea);
   const sameAreaDiversified = uniqueByAttractionGroup(uniqueByName(sameArea));
-  const basePool = sameAreaDiversified.length >= targetCount
+  const selectedAnchor = anchorForName(selectedArea);
+  const nearbyCandidates = selectedAnchor
+    ? candidates
+      .filter((item) => meters({ ...item, lat: selectedAnchor.lat, lng: selectedAnchor.lng }, item) <= 5000)
+      .filter((item) => item.area === selectedArea || isFoodPoi(item))
+    : [];
+  const nearbyDiversified = uniqueByAttractionGroup(uniqueByName([...sameAreaDiversified, ...nearbyCandidates]));
+  const scopedPool = nearbyDiversified.length >= Math.min(targetCount, 3)
+    ? nearbyDiversified
+    : uniqueByName([...nearbyDiversified, ...buildAreaSupplementPois(selectedArea, request, targetCount)]);
+  const basePool = scopedPool.length >= targetCount
+    ? scopedPool
+    : sameAreaDiversified.length >= targetCount
     ? sameAreaDiversified
     : uniqueByAttractionGroup(uniqueByName(candidates));
   const effectiveMustNames = unresolvedMustIncludeNames(data, request);
@@ -2100,7 +2394,6 @@ function buildProposal(params: {
     : [];
   const pool = uniqueByName([...requiredCandidates, ...basePool, ...familyCultureCandidates, ...stableFamilyCultureCandidates]);
   const excludedIds = new Set(request.exclude_poi_ids || []);
-  const excludedNames = (request.exclude_names || []).map(normalizePoiName);
   const available = pool.filter((item) => {
     if (excludedIds.has(item.poi_id)) return false;
     return !matchesExcludedName(item, request.exclude_names || []);
@@ -2119,9 +2412,28 @@ function buildProposal(params: {
   const lunchFood = food.filter(isLunchPoi);
   const culture = scopedRecommendable.filter((item) => !isFoodPoi(item));
   const isRealLunchCandidate = (item: Poi) => isFoodPoi(item) && (item.meal_type === 'meal' || item.meal_type === 'snack' || item.is_lunch_suitable) && !isCoffeePoi(item);
+  const areaProximityScore = (item: Poi) => {
+    if (!selectedAnchor) return 0;
+    const distance = meters({ ...item, lat: selectedAnchor.lat, lng: selectedAnchor.lng }, item);
+    if (distance <= 1000) return 18;
+    if (distance <= 2500) return 10;
+    if (distance <= 5000) return 2;
+    return -Math.min(30, distance / 500);
+  };
   const ranked = (items: Poi[]) => [...items]
     .filter((item) => request.max_budget === null || request.max_budget === undefined || Number(item.avg_cost || 0) <= Number(request.max_budget))
-    .sort((a, b) => scorePoi(b, request, strategy, data) - scorePoi(a, request, strategy, data));
+    .sort((a, b) => (scorePoi(b, request, strategy, data) + areaProximityScore(b)) - (scorePoi(a, request, strategy, data) + areaProximityScore(a)));
+  const strategyRankOffset = (items: Poi[]) => {
+    if (items.length <= 3) return 0;
+    if (strategy === 'balanced') return 0;
+    if (strategy === 'budget') return Math.min(1, items.length - 1);
+    return Math.min(2, items.length - 1);
+  };
+  const takeStrategySlice = (items: Poi[], count: number) => {
+    const offset = strategyRankOffset(items);
+    const sliced = items.slice(offset, offset + count);
+    return sliced.length >= count ? sliced : [...sliced, ...items.slice(0, count - sliced.length)];
+  };
   const foodRanked = (items: Poi[]) => ranked(items).sort((a, b) => {
     if (request.preference_signals?.coffee) {
       const aCoffee = isCoffeePoi(a) ? 1 : 0;
@@ -2158,7 +2470,11 @@ function buildProposal(params: {
     const foodCandidates = budgetLimit
       ? foodRanked(mealPool).filter((item) => Number(item.avg_cost || 0) <= Math.max(0, foodBudgetCap ?? budgetLimit))
       : foodRanked(mealPool);
-    const selectedFood = requiredFood ?? foodCandidates[0] ?? foodRanked(mealPool)[0] ?? foodRanked(food.filter((item) => !isCoffeePoi(item)))[0] ?? foodRanked(food)[0];
+    const selectedFood = requiredFood
+      ?? takeStrategySlice(foodCandidates, 1)[0]
+      ?? takeStrategySlice(foodRanked(mealPool), 1)[0]
+      ?? takeStrategySlice(foodRanked(food.filter((item) => !isCoffeePoi(item))), 1)[0]
+      ?? foodRanked(food)[0];
     if (selectedFood) selected.push(selectedFood);
     const remainingBudget = budgetLimit === null ? null : Math.max(0, budgetLimit - Number(selectedFood?.avg_cost || 0));
     const cultureSlots = Math.max(2, targetCount - 1);
@@ -2167,12 +2483,12 @@ function buildProposal(params: {
     const cultureCandidates = ranked(culture)
       .filter((item) => Number(item.suggested_duration_min || 90) <= cultureDurationCap)
       .filter((item) => cultureBudgetCap === null || Number(item.avg_cost || 0) <= cultureBudgetCap);
-    selected.push(...cultureCandidates.slice(0, cultureSlots));
+    selected.push(...takeStrategySlice(cultureCandidates, cultureSlots));
     if (selected.length < targetCount) {
-      selected.push(...ranked(culture).filter((item) => !selected.some((chosen) => chosen.poi_id === item.poi_id)).slice(0, targetCount - selected.length));
+      selected.push(...takeStrategySlice(ranked(culture).filter((item) => !selected.some((chosen) => chosen.poi_id === item.poi_id)), targetCount - selected.length));
     }
   } else {
-    selected.push(...ranked(culture).slice(0, targetCount));
+    selected.push(...takeStrategySlice(ranked(culture), targetCount));
   }
 
   const mustIds = new Set(request.must_include_poi_ids || []);
@@ -2211,7 +2527,7 @@ function buildProposal(params: {
       request.preference_signals?.lunch || request.preference_signals?.formal_meal
         ? food.filter(isRealLunchCandidate)
         : food,
-    )[0] ?? foodRanked(food)[0];
+    )[0] ?? foodRanked(food)[0] ?? buildAreaSupplementPoi({ selectedArea, request, index: 1, kind: 'food' });
     if (fallbackFood) {
       const cultureOnly = ordered.filter((item) => !isFoodPoi(item));
       ordered = [fallbackFood, ...cultureOnly].slice(0, Math.max(3, targetCount));
@@ -2270,35 +2586,37 @@ function buildProposal(params: {
     ordered = lunchFirst ? [...foodStops, ...cultureStops] : [...cultureStops.slice(0, 1), ...foodStops, ...cultureStops.slice(1)];
   }
 
+  const accommodationAnchor = accommodationAnchorForRequest(request, selectedArea);
+  const originTransfer = accommodationAnchor && ordered[0] ? estimateTransfer(accommodationAnchor, ordered[0], commuteEdges) : null;
+  const returnTransfer = accommodationAnchor && ordered.length > 0 ? estimateTransfer(ordered[ordered.length - 1], accommodationAnchor, commuteEdges) : null;
   const start = parseMinutes(request.start_time) ?? 9 * 60;
   let cursor = start;
-  let totalTransfer = 0;
-  let totalDistance = 0;
-  let commuteEdgesUsed = 0;
-  let coordinateEstimatesUsed = 0;
+  let totalTransfer = originTransfer?.minutes || 0;
+  let totalDistance = originTransfer?.meters || 0;
+  let commuteEdgesUsed = originTransfer?.source === 'commute_edge' ? 1 : 0;
+  let coordinateEstimatesUsed = originTransfer?.source === 'coordinate_estimate' ? 1 : 0;
   let unknownHours = 0;
   let hasOpeningConflict = false;
   const stops = ordered.map((item, index) => {
-    let transfer = 0;
-    let distance = 0;
-    let transferSource: TransferSource = 'coordinate_estimate';
-    let transferMode: string | null = null;
-    let transferProvider: string | null = null;
-    let transferDurationSeconds: number | null = null;
-    let transferCount: number | null = null;
+    const inboundEstimate = index === 0 && originTransfer
+      ? originTransfer
+      : index > 0
+        ? estimateTransfer(ordered[index - 1], item, commuteEdges)
+        : null;
+    const transfer = inboundEstimate?.minutes || 0;
+    const distance = inboundEstimate?.meters || 0;
+    const transferSource: TransferSource = inboundEstimate?.source || 'coordinate_estimate';
+    const transferMode: string | null = inboundEstimate?.mode || null;
+    const transferProvider: string | null = inboundEstimate?.provider || null;
+    const transferDurationSeconds: number | null = inboundEstimate?.duration_s || null;
+    const transferCount: number | null = inboundEstimate?.transfer_count || null;
     if (index > 0) {
-      const estimate = estimateTransfer(ordered[index - 1], item, commuteEdges);
-      distance = estimate.meters;
-      transfer = estimate.minutes;
-      transferSource = estimate.source;
-      transferMode = estimate.mode;
-      transferProvider = estimate.provider;
-      transferDurationSeconds = estimate.duration_s;
-      transferCount = estimate.transfer_count;
-      if (estimate.source === 'commute_edge') commuteEdgesUsed += 1;
+      if (inboundEstimate?.source === 'commute_edge') commuteEdgesUsed += 1;
       else coordinateEstimatesUsed += 1;
       totalTransfer += transfer;
       totalDistance += distance;
+      cursor += transfer;
+    } else if (originTransfer) {
       cursor += transfer;
     }
     const isFoodStop = isFoodPoi(item);
@@ -2342,7 +2660,8 @@ function buildProposal(params: {
       stay_minutes: stay,
       transfer_from_previous_minutes: transfer,
       transfer_from_previous_meters: Math.round(distance),
-      transfer_source: index > 0 ? transferSource : null,
+      transfer_source: index > 0 || originTransfer ? transferSource : null,
+      transfer_from_label: index === 0 && accommodationAnchor ? accommodationAnchor.name : null,
       transfer_mode: transferMode,
       transfer_provider: transferProvider,
       transfer_duration_s: transferDurationSeconds,
@@ -2357,16 +2676,24 @@ function buildProposal(params: {
     };
   });
 
+  if (returnTransfer) {
+    totalTransfer += returnTransfer.minutes;
+    totalDistance += returnTransfer.meters;
+    if (returnTransfer.source === 'commute_edge') commuteEdgesUsed += 1;
+    else coordinateEstimatesUsed += 1;
+  }
   const totalBudget = stops.reduce((sum, item) => sum + item.estimated_cost, 0);
   const totalVisit = stops.reduce((sum, item) => sum + item.stay_minutes, 0);
-  const totalDuration = cursor - start;
+  const totalDuration = cursor - start + (returnTransfer?.minutes || 0);
   const foodCount = stops.filter((item) => item.poi_type === 'food').length;
   const cultureCount = stops.length - foodCount;
   const categorySatisfied = request.route_mode === 'mixed' ? foodCount >= 1 && cultureCount >= 2 : cultureCount >= 3;
   const transferSummary = {
     commute_edges_used: commuteEdgesUsed,
     coordinate_estimates_used: coordinateEstimatesUsed,
-    commute_edge_hit_rate: ordered.length > 1 ? Number((commuteEdgesUsed / (ordered.length - 1)).toFixed(3)) : 0,
+    commute_edge_hit_rate: Math.max(0, stops.length - 1 + (originTransfer ? 1 : 0) + (returnTransfer ? 1 : 0)) > 0
+      ? Number((commuteEdgesUsed / Math.max(1, stops.length - 1 + (originTransfer ? 1 : 0) + (returnTransfer ? 1 : 0))).toFixed(3))
+      : 0,
   };
   const risks = [
     request.max_budget !== null && request.max_budget !== undefined && totalBudget > Number(request.max_budget) ? `Estimated budget ${totalBudget} exceeds requested ${request.max_budget}.` : null,
@@ -2388,6 +2715,23 @@ function buildProposal(params: {
     ordered_poi_ids: stops.map((item) => item.poi_id),
     ordered_poi_names: stops.map((item) => item.name),
     pois: stops,
+    accommodation: accommodationAnchor ? {
+      name: accommodationAnchor.name,
+      area: accommodationAnchor.area,
+      district: accommodationAnchor.district,
+      address: accommodationAnchor.address,
+      location_confidence: accommodationAnchor.location_confidence,
+      source_name: accommodationAnchor.source_name,
+      outbound_transfer_minutes: originTransfer?.minutes ?? null,
+      outbound_transfer_meters: originTransfer?.meters ?? null,
+      outbound_transfer_mode: originTransfer?.mode ?? null,
+      outbound_transfer_source: originTransfer?.source ?? null,
+      return_transfer_minutes: returnTransfer?.minutes ?? null,
+      return_transfer_meters: returnTransfer?.meters ?? null,
+      return_transfer_mode: returnTransfer?.mode ?? null,
+      return_transfer_source: returnTransfer?.source ?? null,
+      note: '住宿位置按用户描述解析为区域锚点，用于估算每日出发和返回通勤；真实酒店地址和实时导航需出发前确认。',
+    } : null,
     total_budget_estimate: totalBudget,
     total_transfer_minutes: totalTransfer,
     total_walking_distance_m: Math.round(totalDistance),
@@ -2678,26 +3022,14 @@ export async function planTravelRoute(payload: Partial<TravelPlanningRequest>) {
   const request = preparePlanningRequest(data, payload);
   const pool = candidatePool(data, request);
   const selectedArea = selectArea(request, pool);
-  const proposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
   const dayCount = Math.max(1, Math.min(MAX_TRIP_DAYS, Number(request.day_count || 1)));
-  const popularAreas = selectPopularAreas(pool, dayCount + 2).filter((area) => area !== selectedArea);
-  const dayAreas = request.area ? [selectedArea, ...popularAreas] : selectPopularAreas(pool, dayCount);
-  const usedDailyPoiIds = new Set<string>();
-  const dailyItinerary = Array.from({ length: dayCount }, (_, index) => {
-    const dayArea = dayAreas[index % dayAreas.length] || selectedArea;
-    const dayRequest = preparePlanningRequest(data, {
-      ...request,
-      area: dayArea,
-      max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
-      must_include_names: index === 0 ? request.must_include_names : [],
-      must_include_poi_ids: index === 0 ? request.must_include_poi_ids : [],
-      route_order_poi_ids: index === 0 ? request.route_order_poi_ids : [],
-      exclude_poi_ids: [...(request.exclude_poi_ids || []), ...Array.from(usedDailyPoiIds)],
-    });
-    const dayProposal = buildProposal({ request: dayRequest, strategy: index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget', selectedArea: dayArea, candidates: pool, data, commuteEdges });
-    for (const id of dayProposal.ordered_poi_ids || []) usedDailyPoiIds.add(String(id));
-    return { day: index + 1, title: `第 ${index + 1} 天`, area: dayArea, theme: index === 0 ? '核心目的地体验' : index === 1 ? '餐饮与文化扩展' : '顺路补充与轻松探索', proposal: dayProposal };
-  });
+  const singleDayProposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
+  const multiDayPlanSet = dayCount > 1
+    ? buildMultiDayPlanSet({ data, request, pool, selectedArea, commuteEdges, prepare: preparePlanningRequest })
+    : null;
+  const dailyItinerary = multiDayPlanSet?.dailyItinerary
+    || buildDailyItinerary({ data, request, pool, selectedArea, commuteEdges, prepare: preparePlanningRequest });
+  const proposals = multiDayPlanSet?.proposals || singleDayProposals;
   const transferSummary = summarizeProposalTransfers(proposals);
   const slaMetrics = buildSlaMetrics({ started, fastPath: 'local_planner', llmBlocking: false });
   const baseResponse = {
@@ -2746,26 +3078,14 @@ export async function buildStaticTravelRoute(payload: Partial<TravelPlanningRequ
   const request = normalizeRequest(payload);
   const pool = candidatePool(data, request);
   const selectedArea = selectArea(request, pool);
-  const proposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
   const dayCount = Math.max(1, Math.min(MAX_TRIP_DAYS, Number(request.day_count || 1)));
-  const popularAreas = selectPopularAreas(pool, dayCount + 2).filter((area) => area !== selectedArea);
-  const dayAreas = request.area ? [selectedArea, ...popularAreas] : selectPopularAreas(pool, dayCount);
-  const usedDailyPoiIds = new Set<string>();
-  const dailyItinerary = Array.from({ length: dayCount }, (_, index) => {
-    const dayArea = dayAreas[index % dayAreas.length] || selectedArea;
-    const dayRequest = normalizeRequest({
-      ...request,
-      area: dayArea,
-      max_total_pois: request.max_duration_min && request.max_duration_min >= 420 ? 4 : request.max_total_pois,
-      must_include_names: index === 0 ? request.must_include_names : [],
-      must_include_poi_ids: index === 0 ? request.must_include_poi_ids : [],
-      route_order_poi_ids: index === 0 ? request.route_order_poi_ids : [],
-      exclude_poi_ids: [...(request.exclude_poi_ids || []), ...Array.from(usedDailyPoiIds)],
-    });
-    const dayProposal = buildProposal({ request: dayRequest, strategy: index % 3 === 0 ? 'balanced' : index % 3 === 1 ? 'efficient' : 'budget', selectedArea: dayArea, candidates: pool, data, commuteEdges });
-    for (const id of dayProposal.ordered_poi_ids || []) usedDailyPoiIds.add(String(id));
-    return { day: index + 1, title: `第 ${index + 1} 天`, area: dayArea, theme: index === 0 ? '核心目的地体验' : index === 1 ? '餐饮与文化扩展' : '顺路补充与轻松探索', proposal: dayProposal };
-  });
+  const singleDayProposals = (['balanced', 'budget', 'efficient'] as Strategy[]).map((strategy) => buildProposal({ request, strategy, selectedArea, candidates: pool, data, commuteEdges }));
+  const multiDayPlanSet = dayCount > 1
+    ? buildMultiDayPlanSet({ data, request, pool, selectedArea, commuteEdges, prepare: (_data, value) => normalizeRequest(value) })
+    : null;
+  const dailyItinerary = multiDayPlanSet?.dailyItinerary
+    || buildDailyItinerary({ data, request, pool, selectedArea, commuteEdges, prepare: (_data, value) => normalizeRequest(value) });
+  const proposals = multiDayPlanSet?.proposals || singleDayProposals;
   const transferSummary = summarizeProposalTransfers(proposals);
   const slaMetrics = buildSlaMetrics({ started, fastPath: 'static_local_planner', llmBlocking: false });
   return {
@@ -2802,11 +3122,7 @@ export async function parseAndPlanTravel(payload: { goal?: string; defaults?: Pa
   const rawGoal = String(payload.goal || '');
   const intent = await parseTravelQueryIntentMiniMaxPreferred(rawGoal).catch(() => null);
   if (intent && intent.missing_fields.length === 0 && !payload.debug_route_draft_mock) {
-    const corpusRequest = applyStableGoalIntentPatch(rawGoal, normalizeRequest({
-      ...payload.defaults,
-      ...intentToPlannerLikeRequest(intent),
-      goal: rawGoal,
-    }));
+    const corpusRequest = requestFromGoalAndIntent(rawGoal, payload.defaults, intent);
     const shouldUseStaticFastPath = corpusRequest.persona_id === 'classic_first_timer'
       && !corpusRequest.preference_signals?.family
       && !corpusRequest.preference_signals?.senior
@@ -2865,11 +3181,7 @@ export async function parseAndPlanTravel(payload: { goal?: string; defaults?: Pa
     : null;
   const parsed = intent
     ? {
-        parsed_request: applyStableGoalIntentPatch(rawGoal, normalizeRequest({
-          ...payload.defaults,
-          ...intentToPlannerLikeRequest(intent),
-          goal: rawGoal,
-        })),
+        parsed_request: requestFromGoalAndIntent(rawGoal, payload.defaults, intent),
         parser_confidence: intent.confidence,
         parser_notes: intent.notes,
         parser_correction_hints: intent.missing_fields.length ? [`Please clarify ${intent.missing_fields.join(', ')}.`] : [],

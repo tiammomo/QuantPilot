@@ -252,8 +252,8 @@ function parseNamesAfter(text: string, pattern: RegExp): string[] {
       .replace(/(吧|呀|啊|呢|了)$/g, '')
       .trim();
     if (!raw) continue;
-    for (const name of raw.split(/[、,，]/).map((item) => item.trim()).filter(Boolean)) {
-      if (!/^(吃饭|午餐|午饭|餐饮|景点|地方|点|室内点)$/.test(name)) names.push(name);
+    for (const name of raw.split(/[、,，]|和|以及/).map((item) => item.trim()).filter(Boolean)) {
+      if (!/^(吃饭|午餐|午饭|餐饮|景点|地方|点|室内点|吃好吃的|好吃的|美食)$/.test(name)) names.push(name);
     }
   }
   return Array.from(new Set(names));
@@ -327,7 +327,7 @@ function parseDictionaryIntent(rawText: string): TravelQueryIntent {
     persona,
     indoor_preferred: /室内|雨天|下雨|博物馆|美术馆|展览/.test(text),
     must_include_names: Array.from(new Set([
-      ...parseNamesAfter(text, /(?:必须去|一定去|想去|还想去|也想去|保留)([^，,。；;]+)/g),
+      ...parseNamesAfter(text, /(?:必须去|一定去|想去|还想去|也想去|想玩|想逛|逛|看|玩|保留)([^，,。；;]+)/g),
       ...parseLandmarkIncludes(text),
       ...parseImplicitIncludeNames(text),
     ])),
@@ -683,6 +683,7 @@ export function intentToPlannerLikeRequest(intent: TravelQueryIntent) {
       ...(intent.area && /(去|玩|逛|看|附近|周边|路线)/.test(intent.raw_text) ? [intent.area] : []),
     ])),
     exclude_names: intent.exclude_names,
+    accommodation_names: intent.accommodation_names,
     preference_signals: {
       lunch: intent.needs_meal,
       formal_meal: intent.needs_meal && intent.meal_type === 'meal',

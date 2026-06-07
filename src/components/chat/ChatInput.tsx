@@ -510,7 +510,7 @@ export default function ChatInput({
       {uploadedImages.length > 0 && (
         <div className="px-4 pb-3">
           <div className="flex flex-wrap gap-2">
-            {uploadedImages.map((image, index) => (
+            {uploadedImages.map((image) => (
               <div key={image.id} className="relative group">
                 <div className="w-16 h-16 bg-slate-100 rounded-lg overflow-hidden border border-slate-300">
                   {/* eslint-disable-next-line @next/next/no-img-element */}

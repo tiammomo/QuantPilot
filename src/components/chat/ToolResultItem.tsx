@@ -5,7 +5,6 @@ import {
   CheckSquare,
   Code2,
   FileText,
-  FolderSearch,
   Search,
   Terminal,
   Wrench,

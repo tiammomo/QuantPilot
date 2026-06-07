@@ -244,7 +244,6 @@ function inferPatch(params: {
 }): TravelRoutePatch | null {
   if (params.operation === 'new_plan') return null;
   const text = params.text;
-  const previousRequest = (params.existingItinerary?.planning_response?.request_snapshot || params.existingItinerary?.parsed_request || {}) as Partial<TravelPlanningRequest>;
   const previousProposal = Array.isArray(params.existingItinerary?.planning_response?.proposals)
     ? params.existingItinerary?.planning_response?.proposals?.[0]
     : null;

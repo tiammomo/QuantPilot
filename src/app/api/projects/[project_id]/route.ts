@@ -23,7 +23,7 @@ interface RouteContext {
  * Retrieve specific project
  */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: RouteContext
 ) {
   try {
@@ -111,7 +111,7 @@ export async function PUT(
  * Delete project
  */
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: RouteContext
 ) {
   try {

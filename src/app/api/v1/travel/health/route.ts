@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { travelHealth } from '@/lib/travel/planner';
+import { getTravelHealthResponse } from '@/lib/travel/api-health';
 
 export async function GET() {
-  return NextResponse.json(await travelHealth());
+  return NextResponse.json(await getTravelHealthResponse());
 }
 
 export const runtime = 'nodejs';
