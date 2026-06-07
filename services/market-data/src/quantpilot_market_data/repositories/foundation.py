@@ -82,14 +82,40 @@ async def list_foundation_components() -> list[FoundationComponentStatus]:
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(
             """
-            WITH table_estimates AS (
+            WITH hypertable_estimates AS (
               SELECT
-                c.relname,
-                GREATEST(c.reltuples::BIGINT, 0) AS estimated_rows
-              FROM pg_class c
-              JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE n.nspname = 'quant'
-                AND c.relname IN ('stock_bars', 'stock_factors')
+                hypertables.table_name AS relname,
+                COALESCE(SUM(GREATEST(classes.reltuples, 0))::BIGINT, 0) AS estimated_rows
+              FROM _timescaledb_catalog.hypertable hypertables
+              JOIN _timescaledb_catalog.chunk chunks
+                ON chunks.hypertable_id = hypertables.id
+               AND chunks.status = 0
+              JOIN pg_namespace namespaces
+                ON namespaces.nspname = chunks.schema_name
+              JOIN pg_class classes
+                ON classes.relnamespace = namespaces.oid
+               AND classes.relname = chunks.table_name
+              WHERE hypertables.schema_name = 'quant'
+                AND hypertables.table_name IN ('stock_bars', 'stock_factors')
+              GROUP BY hypertables.table_name
+            ),
+            table_estimates AS (
+              SELECT relname, estimated_rows
+              FROM hypertable_estimates
+              UNION ALL
+              SELECT
+                classes.relname,
+                GREATEST(classes.reltuples::BIGINT, 0) AS estimated_rows
+              FROM pg_class classes
+              JOIN pg_namespace namespaces
+                ON namespaces.oid = classes.relnamespace
+              WHERE namespaces.nspname = 'quant'
+                AND classes.relname IN ('stock_bars', 'stock_factors')
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM hypertable_estimates
+                  WHERE hypertable_estimates.relname = classes.relname
+                )
             )
             SELECT
               (SELECT count(*)::INT FROM quant.trading_calendars) AS calendar_count,
@@ -151,7 +177,10 @@ async def list_foundation_components() -> list[FoundationComponentStatus]:
             name="因子定义仓库",
             status="ready" if factor_count else "missing",
             count=factor_count,
-            detail=f"已登记 {factor_count} 个因子口径，因子值 {factor_value_count} 条。",
+            detail=(
+                f"已登记 {factor_count} 个因子口径，因子值约 {factor_value_count} 条"
+                "（按 TimescaleDB chunk 统计估算）。"
+            ),
         ),
         FoundationComponentStatus(
             id="data-quality",
@@ -178,7 +207,7 @@ async def list_foundation_components() -> list[FoundationComponentStatus]:
             name="TimescaleDB 行情时序库",
             status="ready" if bar_count else "partial",
             count=bar_count,
-            detail=f"本地 K 线 {bar_count} 行。",
+            detail=f"本地 K 线约 {bar_count} 行（按 TimescaleDB chunk 统计估算）。",
         ),
         FoundationComponentStatus(
             id="clickhouse-analytics",

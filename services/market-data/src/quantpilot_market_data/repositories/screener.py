@@ -301,39 +301,84 @@ async def screen_a_share_short_term_candidates(
         if trade_date_cache_hit:
             resolved_trade_date = cached_trade_date
         else:
-            await cursor.execute(
-                """
-                WITH universe_config AS (
-                  SELECT
-                    id,
-                    COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
-                    COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
-                  FROM quant.security_universes
-                  WHERE id = %s
+            if resolved_trade_date is None:
+                await cursor.execute(
+                    """
+                    WITH universe_config AS (
+                      SELECT
+                        id,
+                        COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                        COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+                      FROM quant.security_universes
+                      WHERE id = %s
+                    ),
+                    target_members AS (
+                      SELECT
+                        members.symbol,
+                        universe_config.timeframe,
+                        universe_config.adjustment
+                      FROM quant.security_universe_members members
+                      JOIN universe_config
+                        ON universe_config.id = members.universe_id
+                      JOIN quant.securities securities
+                        ON securities.symbol = members.symbol
+                      WHERE members.universe_id = %s
+                        AND securities.asset_type = 'stock'
+                        AND COALESCE(members.role, 'member') <> 'inactive'
+                        AND COALESCE(securities.status, 'active') NOT IN (
+                          'inactive',
+                          'delisted'
+                        )
+                    )
+                    SELECT max((sync_state.last_ts AT TIME ZONE 'Asia/Shanghai')::date)
+                      AS trade_date
+                    FROM target_members
+                    JOIN quant.market_data_sync_state sync_state
+                      ON sync_state.symbol = target_members.symbol
+                     AND sync_state.timeframe = target_members.timeframe
+                     AND sync_state.adjustment = target_members.adjustment
+                    WHERE sync_state.row_count > 0
+                      AND sync_state.last_ts IS NOT NULL
+                    """,
+                    (universe_id, universe_id),
                 )
-                SELECT max((bars.ts AT TIME ZONE 'Asia/Shanghai')::date) AS trade_date
-                FROM quant.security_universe_members members
-                JOIN universe_config
-                  ON universe_config.id = members.universe_id
-                JOIN quant.securities securities
-                  ON securities.symbol = members.symbol
-                JOIN quant.stock_bars bars
-                  ON bars.symbol = members.symbol
-                 AND bars.timeframe = universe_config.timeframe
-                 AND bars.adjustment = universe_config.adjustment
-                WHERE members.universe_id = %s
-                  AND securities.asset_type = 'stock'
-                  AND COALESCE(members.role, 'member') <> 'inactive'
-                  AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
-                  AND (
-                    %s::date IS NULL
-                    OR bars.ts < ((%s::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
-                  )
-                """,
-                (universe_id, universe_id, resolved_trade_date, resolved_trade_date),
-            )
-            target_row = await cursor.fetchone()
-            resolved_trade_date = target_row["trade_date"] if target_row else None
+                target_row = await cursor.fetchone()
+                resolved_trade_date = target_row["trade_date"] if target_row else None
+
+            if requested_trade_date_input is not None or resolved_trade_date is None:
+                await cursor.execute(
+                    """
+                    WITH universe_config AS (
+                      SELECT
+                        id,
+                        COALESCE(metadata->>'default_timeframe', 'daily') AS timeframe,
+                        COALESCE(metadata->>'default_adjustment', 'qfq') AS adjustment
+                      FROM quant.security_universes
+                      WHERE id = %s
+                    )
+                    SELECT max((bars.ts AT TIME ZONE 'Asia/Shanghai')::date) AS trade_date
+                    FROM quant.security_universe_members members
+                    JOIN universe_config
+                      ON universe_config.id = members.universe_id
+                    JOIN quant.securities securities
+                      ON securities.symbol = members.symbol
+                    JOIN quant.stock_bars bars
+                      ON bars.symbol = members.symbol
+                     AND bars.timeframe = universe_config.timeframe
+                     AND bars.adjustment = universe_config.adjustment
+                    WHERE members.universe_id = %s
+                      AND securities.asset_type = 'stock'
+                      AND COALESCE(members.role, 'member') <> 'inactive'
+                      AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
+                      AND (
+                        %s::date IS NULL
+                        OR bars.ts < ((%s::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+                      )
+                    """,
+                    (universe_id, universe_id, resolved_trade_date, resolved_trade_date),
+                )
+                target_row = await cursor.fetchone()
+                resolved_trade_date = target_row["trade_date"] if target_row else None
             _screener_trade_date_cache_set(trade_date_cache_key, resolved_trade_date)
 
         if resolved_trade_date is None:

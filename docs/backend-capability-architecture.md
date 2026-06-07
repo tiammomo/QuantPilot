@@ -71,7 +71,9 @@ flowchart LR
 | 文件系统 workspace | 原始产物 | 生成项目源码、证据、大 JSON、截图和验证报告 |
 | 服务目录 | 轻量注册表 | Python/Node 服务、基础组件 endpoint、依赖关系和降级边界 |
 
-TimescaleDB 是事实主库，ClickHouse 是旁路分析层。ClickHouse 不替代业务状态，也不承接需要事务一致性的写入。启用 ClickHouse 后，A 股短线筛选会优先读取 `quant_bars_daily`；如果分析表最新交易日落后，会按目标交易日做一次有限增量同步并重试，仍不可用时回退 TimescaleDB，同时在响应 `analytics` 元信息里记录命中、同步和回退原因。
+TimescaleDB 是事实主库，ClickHouse 是旁路分析层。ClickHouse 不替代业务状态，也不承接需要事务一致性的写入。启用 ClickHouse 后，A 股短线筛选会优先读取 `quant_bars_daily`；如果分析表最新交易日落后，会按目标交易日做一次有限增量同步并重试，仍不可用时回退 TimescaleDB，同时在响应 `analytics` 元信息里记录命中、同步和回退原因。最新交易日这类在线读模型优先读取 `quant.market_data_sync_state`，不要在请求链路里聚合全量 `stock_bars`。
+
+筛选器的性能边界是“聚合下推”。ClickHouse 查询应在数据库内完成单标的最新日去重、最近 60 日数组、均线、成交额均值和涨停计数，只把每个标的一行特征返回 Python；Python 侧负责模式过滤、评分和响应组装。不同 `limit` 请求应复用同一批短 TTL 特征行，避免重复扫描横截面。
 
 ## 设计模式
 

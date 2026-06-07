@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit
@@ -25,6 +25,10 @@ DEFAULT_DATABASE = "quantpilot"
 DAILY_BARS_TABLE = "quant_bars_daily"
 DAILY_FACTORS_TABLE = "quant_factors_daily"
 SYNC_BATCH_SIZE = 10_000
+SCREENER_FEATURE_CACHE_TTL_SECONDS = 60
+_SCREENER_FEATURE_ROWS_CACHE: dict[
+    tuple[str, str, str, str], tuple[datetime, list[dict[str, Any]]]
+] = {}
 
 DAILY_BAR_COLUMNS = [
     "universe_id",
@@ -441,15 +445,42 @@ def _resolve_screener_trade_date_sync(
     return _date_value(value) if value else None
 
 
-def _average(values: list[Any]) -> Decimal | None:
-    present = [Decimal(str(value)) for value in values if value is not None]
-    if not present:
+def _screener_feature_cache_key(
+    *,
+    universe_id: str,
+    trade_date: date,
+    timeframe: str,
+    adjustment: str,
+) -> tuple[str, str, str, str]:
+    return (universe_id, trade_date.isoformat(), timeframe, adjustment)
+
+
+def _screener_feature_cache_get(
+    key: tuple[str, str, str, str],
+) -> list[dict[str, Any]] | None:
+    cached = _SCREENER_FEATURE_ROWS_CACHE.get(key)
+    if cached is None:
         return None
-    return sum(present, Decimal("0")) / Decimal(len(present))
+    cached_at, rows = cached
+    if datetime.now(UTC) - cached_at > timedelta(seconds=SCREENER_FEATURE_CACHE_TTL_SECONDS):
+        _SCREENER_FEATURE_ROWS_CACHE.pop(key, None)
+        return None
+    return [row.copy() for row in rows]
 
 
-def _truthy(value: Any) -> bool:
-    return bool(value) if value is not None else False
+def _screener_feature_cache_set(
+    key: tuple[str, str, str, str],
+    rows: list[dict[str, Any]],
+) -> None:
+    if SCREENER_FEATURE_CACHE_TTL_SECONDS <= 0 or not rows:
+        return
+    _SCREENER_FEATURE_ROWS_CACHE[key] = (datetime.now(UTC), [row.copy() for row in rows])
+    if len(_SCREENER_FEATURE_ROWS_CACHE) > 16:
+        oldest_key = min(
+            _SCREENER_FEATURE_ROWS_CACHE.items(),
+            key=lambda item: item[1][0],
+        )[0]
+        _SCREENER_FEATURE_ROWS_CACHE.pop(oldest_key, None)
 
 
 def _query_screener_feature_rows_sync(
@@ -463,40 +494,150 @@ def _query_screener_feature_rows_sync(
         """
         WITH
           {trade_date:Date} AS target_date,
-          target_date - 260 AS start_date
+          target_date - 260 AS start_date,
+          toDate('1970-01-01') AS empty_limit_up_date
         SELECT
-          symbol,
-          code,
-          name,
-          exchange,
-          security_metadata,
-          trade_date,
-          provider,
-          open,
-          high,
-          low,
-          close,
-          previous_close,
-          amount,
-          turnover,
-          change_percent,
-          limit_up,
-          is_st,
-          synced_at
-        FROM quant_bars_daily
-        WHERE universe_id = {universe_id:String}
-          AND timeframe = {timeframe:String}
-          AND adjustment = {adjustment:String}
-          AND asset_type = 'stock'
-          AND exchange != 'BJ'
-          AND NOT startsWith(code, '688')
-          AND NOT startsWith(code, '8')
-          AND NOT startsWith(code, '4')
-          AND positionCaseInsensitiveUTF8(coalesce(name, ''), 'ST') = 0
-          AND trade_date >= start_date
-          AND trade_date <= target_date
-        ORDER BY symbol ASC, trade_date DESC, synced_at DESC
-        LIMIT 80 BY symbol
+          feature_rows.*,
+          count(*) OVER () AS scanned_symbols
+        FROM (
+          SELECT
+            symbol,
+            bars[1].2 AS code,
+            bars[1].3 AS name,
+            bars[1].4 AS exchange,
+            bars[1].5 AS security_metadata,
+            length(bars) AS sample_count,
+            bars[1].1 AS latest_trade_date,
+            bars[1].6 AS latest_provider,
+            bars[1].7 AS latest_open,
+            bars[1].8 AS latest_high,
+            bars[1].9 AS latest_low,
+            bars[1].10 AS latest_close,
+            bars[1].11 AS previous_close,
+            bars[1].12 AS latest_amount,
+            bars[1].13 AS latest_turnover,
+            bars[1].14 AS latest_change_percent,
+            if(length(bars) > 1, bars[2].14, NULL) AS previous_change_percent,
+            coalesce(bars[1].15, false) AS latest_limit_up,
+            coalesce(bars[1].16, false) AS latest_is_st,
+            arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 5)) AS ma5,
+            arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 10)) AS ma10,
+            arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 20)) AS ma20,
+            arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 30)) AS ma30,
+            arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 60)) AS ma60,
+            if(
+              empty(arrayFilter(x -> isNotNull(x.12), arraySlice(bars, 1, 20))),
+              NULL,
+              arrayAvg(
+                x -> toFloat64(assumeNotNull(x.12)),
+                arrayFilter(x -> isNotNull(x.12), arraySlice(bars, 1, 20))
+              )
+            ) AS avg_amount_20d,
+            if(length(bars) > 20, bars[21].10, NULL) AS close_20d,
+            arrayCount(x -> coalesce(x.15, false), arraySlice(bars, 1, 4))
+              AS limit_up_count_4d,
+            arrayCount(x -> coalesce(x.15, false), arraySlice(bars, 1, 10))
+              AS limit_up_count_10d,
+            arrayMax(
+              arrayMap(
+                x -> if(coalesce(x.15, false), x.1, empty_limit_up_date),
+                arraySlice(bars, 1, 10)
+              )
+            ) AS latest_limit_up_date,
+            target_date AS requested_trade_date
+          FROM (
+            SELECT
+              symbol,
+              arraySlice(
+                arrayReverseSort(
+                  x -> x.1,
+                  groupArray((
+                    trade_date,
+                    code,
+                    name,
+                    exchange,
+                    security_metadata,
+                    provider,
+                    open,
+                    high,
+                    low,
+                    close,
+                    previous_close,
+                    amount,
+                    turnover,
+                    change_percent,
+                    limit_up,
+                    is_st
+                  ))
+                ),
+                1,
+                60
+              ) AS bars
+            FROM (
+              SELECT
+                symbol,
+                code,
+                name,
+                exchange,
+                security_metadata,
+                trade_date,
+                provider,
+                open,
+                high,
+                low,
+                close,
+                previous_close,
+                amount,
+                turnover,
+                change_percent,
+                limit_up,
+                is_st
+              FROM (
+                SELECT
+                  symbol,
+                  code,
+                  name,
+                  exchange,
+                  security_metadata,
+                  trade_date,
+                  provider,
+                  open,
+                  high,
+                  low,
+                  close,
+                  previous_close,
+                  amount,
+                  turnover,
+                  change_percent,
+                  limit_up,
+                  is_st,
+                  row_number() OVER (
+                    PARTITION BY symbol, trade_date
+                    ORDER BY synced_at DESC
+                  ) AS daily_rank
+                FROM quant_bars_daily
+                WHERE universe_id = {universe_id:String}
+                  AND timeframe = {timeframe:String}
+                  AND adjustment = {adjustment:String}
+                  AND asset_type = 'stock'
+                  AND exchange != 'BJ'
+                  AND NOT startsWith(code, '688')
+                  AND NOT startsWith(code, '8')
+                  AND NOT startsWith(code, '4')
+                  AND positionCaseInsensitiveUTF8(coalesce(name, ''), 'ST') = 0
+                  AND trade_date >= start_date
+                  AND trade_date <= target_date
+              ) daily_latest
+              WHERE daily_rank = 1
+            ) deduplicated
+            GROUP BY symbol
+          ) grouped
+          WHERE bars[1].1 = target_date
+            AND coalesce(bars[1].16, false) = false
+            AND coalesce(bars[1].15, false) = false
+            AND isNotNull(bars[1].10)
+            AND length(bars) >= 20
+        ) feature_rows
         """,
         {
             "universe_id": universe_id,
@@ -505,78 +646,7 @@ def _query_screener_feature_rows_sync(
             "adjustment": adjustment,
         },
     )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        symbol = str(row["symbol"])
-        group = grouped.setdefault(symbol, [])
-        if any(existing["trade_date"] == row["trade_date"] for existing in group):
-            continue
-        if len(group) < 60:
-            group.append(row)
-
-    features: list[dict[str, Any]] = []
-    for symbol, bars in grouped.items():
-        if not bars:
-            continue
-        latest = bars[0]
-        latest_trade_date = _date_value(latest["trade_date"])
-        if (
-            latest_trade_date != trade_date
-            or _truthy(latest.get("is_st"))
-            or _truthy(latest.get("limit_up"))
-            or latest.get("close") is None
-            or len(bars) < 20
-        ):
-            continue
-        recent_4 = bars[:4]
-        recent_10 = bars[:10]
-        latest_limit_up_date = max(
-            (_date_value(row["trade_date"]) for row in recent_10 if _truthy(row.get("limit_up"))),
-            default=None,
-        )
-        features.append(
-            _parse_metadata(
-                {
-                    "symbol": symbol,
-                    "code": latest["code"],
-                    "name": latest["name"],
-                    "exchange": latest["exchange"],
-                    "security_metadata": latest["security_metadata"],
-                    "sample_count": len(bars),
-                    "latest_trade_date": latest_trade_date,
-                    "latest_provider": latest["provider"],
-                    "latest_open": latest["open"],
-                    "latest_high": latest["high"],
-                    "latest_low": latest["low"],
-                    "latest_close": latest["close"],
-                    "previous_close": latest["previous_close"],
-                    "latest_amount": latest["amount"],
-                    "latest_turnover": latest["turnover"],
-                    "latest_change_percent": latest["change_percent"],
-                    "previous_change_percent": bars[1]["change_percent"] if len(bars) > 1 else None,
-                    "latest_limit_up": _truthy(latest["limit_up"]),
-                    "latest_is_st": _truthy(latest["is_st"]),
-                    "ma5": _average([row["close"] for row in bars[:5]]),
-                    "ma10": _average([row["close"] for row in bars[:10]]),
-                    "ma20": _average([row["close"] for row in bars[:20]]),
-                    "ma30": _average([row["close"] for row in bars[:30]]),
-                    "ma60": _average([row["close"] for row in bars[:60]]),
-                    "avg_amount_20d": _average([row["amount"] for row in bars[:20]]),
-                    "close_20d": bars[20]["close"] if len(bars) > 20 else None,
-                    "limit_up_count_4d": sum(1 for row in recent_4 if _truthy(row.get("limit_up"))),
-                    "limit_up_count_10d": sum(
-                        1 for row in recent_10 if _truthy(row.get("limit_up"))
-                    ),
-                    "latest_limit_up_date": latest_limit_up_date,
-                }
-            )
-        )
-
-    scanned_symbols = len(features)
-    for row in features:
-        row["requested_trade_date"] = trade_date
-        row["scanned_symbols"] = scanned_symbols
-    return features
+    return [_parse_metadata(row) for row in rows]
 
 
 async def query_screener_feature_rows(
@@ -595,6 +665,15 @@ async def query_screener_feature_rows(
     )
     if resolved_trade_date is None:
         return None, []
+    cache_key = _screener_feature_cache_key(
+        universe_id=universe_id,
+        trade_date=resolved_trade_date,
+        timeframe=timeframe,
+        adjustment=adjustment,
+    )
+    cached_rows = _screener_feature_cache_get(cache_key)
+    if cached_rows is not None:
+        return resolved_trade_date, cached_rows
     rows = await asyncio.to_thread(
         _query_screener_feature_rows_sync,
         universe_id=universe_id,
@@ -602,4 +681,5 @@ async def query_screener_feature_rows(
         timeframe=timeframe,
         adjustment=adjustment,
     )
+    _screener_feature_cache_set(cache_key, rows)
     return resolved_trade_date, rows
