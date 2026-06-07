@@ -549,33 +549,51 @@ function buildRuntimeHealthProfile(params: {
 }
 
 function buildProjectHealthProfile(workspace: WorkspaceHealthDashboard): OpsHealthProfile {
-  const passedProjects = workspace.summary.healthy;
-  const verifiedScore = percent(passedProjects, workspace.summary.total);
-  const blockerScore = clampScore(100 - workspace.summary.failed * 18 - workspace.summary.warning * 7 - workspace.summary.unknown * 4);
+  const delivery = workspace.delivery ?? {
+    showcase: workspace.summary.healthy,
+    atRisk: workspace.summary.warning + workspace.summary.unknown,
+    needsRepair: workspace.summary.failed,
+    archiveCandidates: 0,
+    activeTotal: workspace.summary.total,
+    activeAverageScore: workspace.summary.averageScore,
+  };
+  const verifiedScore = percent(delivery.showcase, delivery.activeTotal);
+  const repairPressureScore = clampScore(100 - delivery.needsRepair * 18 - delivery.atRisk * 7);
+  const archiveScore = delivery.archiveCandidates
+    ? clampScore(100 - delivery.archiveCandidates * 4)
+    : 100;
   const factors: OpsHealthFactor[] = [
     {
-      id: 'average-score',
-      label: '平均交付分',
-      score: workspace.summary.averageScore,
+      id: 'active-delivery-score',
+      label: '活跃交付分',
+      score: delivery.activeAverageScore,
       weight: 45,
-      status: scoreStatus(workspace.summary.averageScore),
-      summary: `${workspace.summary.total} 个工作空间平均 ${workspace.summary.averageScore} 分。`,
+      status: scoreStatus(delivery.activeAverageScore),
+      summary: `${delivery.activeTotal} 个非归档候选工作空间平均 ${delivery.activeAverageScore} 分。`,
     },
     {
-      id: 'healthy-ratio',
-      label: '健康占比',
+      id: 'showcase-ratio',
+      label: '可演示占比',
       score: verifiedScore,
       weight: 30,
       status: scoreStatus(verifiedScore),
-      summary: `${passedProjects}/${workspace.summary.total} 个工作空间处于健康状态。`,
+      summary: `${delivery.showcase}/${delivery.activeTotal} 个活跃工作空间可直接演示。`,
     },
     {
-      id: 'blocker-risk',
-      label: '阻断风险',
-      score: blockerScore,
-      weight: 25,
-      status: scoreStatus(blockerScore),
-      summary: `${workspace.summary.failed} 个失败、${workspace.summary.warning} 个风险、${workspace.summary.unknown} 个待验证。`,
+      id: 'repair-pressure',
+      label: '修复压力',
+      score: repairPressureScore,
+      weight: 20,
+      status: scoreStatus(repairPressureScore),
+      summary: `${delivery.needsRepair} 个待修复、${delivery.atRisk} 个风险项。`,
+    },
+    {
+      id: 'archive-hygiene',
+      label: '历史归档',
+      score: archiveScore,
+      weight: 5,
+      status: scoreStatus(archiveScore),
+      summary: `${delivery.archiveCandidates} 个历史失败工作空间建议归档，不纳入主平台可用性。`,
     },
   ];
   const score = weightedScore(factors);

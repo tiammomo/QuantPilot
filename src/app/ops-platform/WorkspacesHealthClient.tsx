@@ -107,12 +107,20 @@ const LOG_TIME_RANGES: Array<{ id: LogTimeRange; label: string; minutes: number 
 
 // ─── Health StatusBar ──────────────────────────────────────────
 function HealthStatusBar({ data }: { data: WorkspaceHealthDashboard }) {
+  const delivery = data.delivery ?? {
+    showcase: data.summary.healthy,
+    atRisk: data.summary.warning + data.summary.unknown,
+    needsRepair: data.summary.failed,
+    archiveCandidates: 0,
+    activeTotal: data.summary.total,
+    activeAverageScore: data.summary.averageScore,
+  };
   const items = [
-    { label: "平均健康分", value: data.summary.averageScore, sub: "综合评分", icon: <ShieldCheck className="h-3.5 w-3.5" />, accent: data.summary.averageScore < 70 },
-    { label: "健康", value: data.summary.healthy, sub: "验证与产物正常", icon: <CheckCircle2 className="h-3.5 w-3.5" />, ok: true },
-    { label: "风险", value: data.summary.warning, sub: "数据质量或过期", icon: <TriangleAlert className="h-3.5 w-3.5" />, warn: true },
-    { label: "失败", value: data.summary.failed, sub: "缺产物或验证失败", icon: <XCircle className="h-3.5 w-3.5" />, err: true },
-    { label: "待验证", value: data.summary.unknown, sub: "缺少验证报告", icon: <Gauge className="h-3.5 w-3.5" />, muted: true },
+    { label: "活跃交付分", value: delivery.activeAverageScore, sub: `${delivery.activeTotal} 个活跃项目`, icon: <ShieldCheck className="h-3.5 w-3.5" />, accent: delivery.activeAverageScore < 70 },
+    { label: "可演示", value: delivery.showcase, sub: "可进入演示池", icon: <CheckCircle2 className="h-3.5 w-3.5" />, ok: true },
+    { label: "风险", value: delivery.atRisk, sub: "警告或待验证", icon: <TriangleAlert className="h-3.5 w-3.5" />, warn: true },
+    { label: "待修复", value: delivery.needsRepair, sub: "阻断项仍需处理", icon: <XCircle className="h-3.5 w-3.5" />, err: true },
+    { label: "归档候选", value: delivery.archiveCandidates, sub: "历史失败分离", icon: <FileText className="h-3.5 w-3.5" />, muted: true },
   ];
 
   return (
@@ -642,6 +650,13 @@ function LogsView({
 }
 
 // ─── Health Row ────────────────────────────────────────────────
+function deliverySegmentClass(segmentId: WorkspaceHealthItem["deliverySegment"]["id"]) {
+  if (segmentId === "showcase") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (segmentId === "needs_repair") return "border-red-200 bg-red-50 text-red-700";
+  if (segmentId === "archive_candidate") return "border-slate-200 bg-slate-100 text-slate-600";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 function HealthRow({ project, onClick }: { project: WorkspaceHealthItem; onClick: () => void }) {
   const status = project.health.status;
   const score = project.health.score;
@@ -666,6 +681,9 @@ function HealthRow({ project, onClick }: { project: WorkspaceHealthItem; onClick
           <p className="truncate text-sm font-semibold text-slate-900">{project.name}</p>
           <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", healthStatusClass(status))}>
             {healthStatusLabel[status]}
+          </span>
+          <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-medium", deliverySegmentClass(project.deliverySegment.id))}>
+            {project.deliverySegment.label}
           </span>
         </div>
         <p className="mt-0.5 truncate text-xs text-slate-500">{project.id} · {project.repoPath}</p>
@@ -718,6 +736,9 @@ function HealthSheet({
               <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", healthStatusClass(project.health.status))}>
                 {healthStatusLabel[project.health.status]} · {project.health.score}
               </span>
+              <span className={cn("rounded-full border px-2.5 py-1 text-xs font-semibold", deliverySegmentClass(project.deliverySegment.id))}>
+                {project.deliverySegment.label}
+              </span>
             </div>
           </div>
         </SheetHeader>
@@ -725,6 +746,9 @@ function HealthSheet({
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
           {/* Quick summary */}
           <p className="text-sm leading-6 text-slate-600">{project.health.summary}</p>
+          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            分层判断：{project.deliverySegment.reason}
+          </p>
 
           {/* Status triad */}
           <div className="grid grid-cols-3 gap-2">

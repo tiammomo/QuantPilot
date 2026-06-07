@@ -17,6 +17,13 @@ import type { Project } from '@/types/backend';
 type JsonRecord = Record<string, unknown>;
 
 export type WorkspaceHealthStatus = 'healthy' | 'warning' | 'failed' | 'unknown';
+export type WorkspaceDeliverySegmentId = 'showcase' | 'at_risk' | 'needs_repair' | 'archive_candidate';
+
+export interface WorkspaceDeliverySegment {
+  id: WorkspaceDeliverySegmentId;
+  label: string;
+  reason: string;
+}
 
 export interface WorkspaceHealthArtifact {
   id: string;
@@ -48,6 +55,7 @@ export interface WorkspaceHealthItem {
     blockers: number;
     warnings: number;
   };
+  deliverySegment: WorkspaceDeliverySegment;
   validation: {
     status: WorkspaceHealthStatus;
     passed: boolean | null;
@@ -111,6 +119,14 @@ export interface WorkspaceHealthDashboard {
     failed: number;
     unknown: number;
     averageScore: number;
+  };
+  delivery: {
+    showcase: number;
+    atRisk: number;
+    needsRepair: number;
+    archiveCandidates: number;
+    activeTotal: number;
+    activeAverageScore: number;
   };
   projects: WorkspaceHealthItem[];
 }
@@ -309,6 +325,67 @@ function summarizeHealth(status: WorkspaceHealthStatus, blockers: number, warnin
   return '工作空间状态不完整，需要先补充验证报告。';
 }
 
+function daysSince(value: string | Date | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86_400_000));
+}
+
+function classifyDeliverySegment(params: {
+  project: Project;
+  healthStatus: WorkspaceHealthStatus;
+  blockers: number;
+  warnings: number;
+  score: number;
+  queue: WorkspaceHealthItem['generationQueue'];
+  repairPlanNeeded: boolean;
+}): WorkspaceDeliverySegment {
+  const inactiveDays = daysSince(params.project.lastActiveAt ?? params.project.updatedAt);
+  const hasActiveQueue = params.queue.running > 0 || params.queue.queued > 0;
+  if (params.healthStatus === 'healthy' || (params.blockers === 0 && params.score >= 82)) {
+    return {
+      id: 'showcase',
+      label: '可演示',
+      reason: '关键产物、验证和页面交付状态可用于展示。',
+    };
+  }
+  if (
+    params.healthStatus === 'failed' &&
+    !hasActiveQueue &&
+    !params.repairPlanNeeded &&
+    inactiveDays !== null &&
+    inactiveDays >= 7
+  ) {
+    return {
+      id: 'archive_candidate',
+      label: '归档候选',
+      reason: `已 ${inactiveDays} 天未活跃且存在阻断项，建议从主可用性口径中分离。`,
+    };
+  }
+  if (params.healthStatus === 'failed' || params.repairPlanNeeded || hasActiveQueue) {
+    return {
+      id: 'needs_repair',
+      label: '待修复',
+      reason: hasActiveQueue
+        ? '仍有生成队列任务，需要等待完成后重新验收。'
+        : '存在验证、产物契约或视觉验收阻断项。',
+    };
+  }
+  if (params.warnings > 0 || params.healthStatus === 'warning' || params.healthStatus === 'unknown') {
+    return {
+      id: 'at_risk',
+      label: '有风险',
+      reason: '产物可追踪但存在警告、未知验证或数据质量风险。',
+    };
+  }
+  return {
+    id: 'at_risk',
+    label: '有风险',
+    reason: '状态不完整，建议补充验证报告。',
+  };
+}
+
 async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> {
   const projectPath = project.repoPath
     ? path.isAbsolute(project.repoPath)
@@ -401,6 +478,15 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
   const healthStatus: WorkspaceHealthStatus = blockers ? 'failed' : worstStatus === 'failed' ? 'failed' : warnings ? 'warning' : 'healthy';
   const score = Math.max(0, Math.min(100, 100 - blockers * 18 - warnings * 4));
   const repairPlanNeeded = Boolean(repairPlan?.steps?.length);
+  const deliverySegment = classifyDeliverySegment({
+    project,
+    healthStatus,
+    blockers,
+    warnings,
+    score,
+    queue: queueSummary,
+    repairPlanNeeded,
+  });
 
   return {
     id: project.id,
@@ -422,6 +508,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
       blockers,
       warnings,
     },
+    deliverySegment,
     validation: validationStatus,
     dataQuality: dataQualitySummary,
     runPlan: {
@@ -464,6 +551,27 @@ export async function getWorkspaceHealthDashboard(): Promise<WorkspaceHealthDash
     },
     { total: 0, healthy: 0, warning: 0, failed: 0, unknown: 0, averageScore: 0 }
   );
+  const delivery = items.reduce(
+    (acc, item) => {
+      if (item.deliverySegment.id === 'showcase') acc.showcase += 1;
+      if (item.deliverySegment.id === 'at_risk') acc.atRisk += 1;
+      if (item.deliverySegment.id === 'needs_repair') acc.needsRepair += 1;
+      if (item.deliverySegment.id === 'archive_candidate') acc.archiveCandidates += 1;
+      if (item.deliverySegment.id !== 'archive_candidate') {
+        acc.activeTotal += 1;
+        acc.activeScore += item.health.score;
+      }
+      return acc;
+    },
+    {
+      showcase: 0,
+      atRisk: 0,
+      needsRepair: 0,
+      archiveCandidates: 0,
+      activeTotal: 0,
+      activeScore: 0,
+    }
+  );
 
   return {
     generatedAt: new Date().toISOString(),
@@ -471,6 +579,16 @@ export async function getWorkspaceHealthDashboard(): Promise<WorkspaceHealthDash
     summary: {
       ...summary,
       averageScore: summary.total ? Math.round(summary.averageScore / summary.total) : 0,
+    },
+    delivery: {
+      showcase: delivery.showcase,
+      atRisk: delivery.atRisk,
+      needsRepair: delivery.needsRepair,
+      archiveCandidates: delivery.archiveCandidates,
+      activeTotal: delivery.activeTotal,
+      activeAverageScore: delivery.activeTotal
+        ? Math.round(delivery.activeScore / delivery.activeTotal)
+        : 0,
     },
     projects: items.sort((a, b) => statusRank(b.health.status) - statusRank(a.health.status) || b.updatedAt.localeCompare(a.updatedAt)),
   };
