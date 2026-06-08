@@ -75,14 +75,14 @@ wheels = [
 
 [[package]]
 name = "baostock"
-version = "0.9.1"
+version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/5e/471c14eebb204ed89de0fe11740d6f4513d44454fe5e35bc13b29ef3e510/baostock-0.9.1.tar.gz", hash = "sha256:5ec3a44cbec9471872b0a4ae02c39aea29db688bb740b769167393bc6e244a39", size = 25560, upload-time = "2026-04-14T09:55:28.382Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/2e/32f7c36a6d021b7cb8bf3bd75b4de8d74e2405e21a5ba1bf1e3706b2d34b/baostock-0.9.2.tar.gz", hash = "sha256:7a3fbba3417b308f774e84a62fc10909a70e81384051b3d693cbe54213686544", size = 25513, upload-time = "2026-06-06T12:20:20.783Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c8/eb/fadb92e38fbb2fefa3d9d3c14d016cf3a5920e34666aeb9950bc5311c856/baostock-0.9.1-py3-none-any.whl", hash = "sha256:a30749f095fd58ecd7ba3799dad605d355ad8e6d19310bc437039e1e526f15fe", size = 47918, upload-time = "2026-04-14T09:55:27.129Z" },
+    { url = "https://files.pythonhosted.org/packages/28/b8/ccba7fa0dd4d1809a6244c04e58173b648fbb64d7cb158387b70d6695e7f/baostock-0.9.2-py3-none-any.whl", hash = "sha256:f7aaca22eb010db268a2b8bc3ed1a8743cc6f1989902477c65c1c3c022d2ecbf", size = 47940, upload-time = "2026-06-06T12:20:19.626Z" },
 ]
 
 [[package]]
@@ -835,7 +835,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "akshare", marker = "extra == 'akshare'", specifier = ">=1.17.0" },
-    { name = "baostock", marker = "extra == 'baostock'", specifier = ">=0.8.9" },
+    { name = "baostock", marker = "extra == 'baostock'", specifier = ">=0.9.2" },
     { name = "clickhouse-connect", specifier = ">=0.9.2" },
     { name = "fastapi", specifier = ">=0.124.0" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
