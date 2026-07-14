@@ -52,16 +52,16 @@ flowchart LR
 
 ## 运行时
 
-| 执行器 | 模型 | 用途 | Reasoning |
+| 内部执行器 | 模型 | 接口边界 | 用途 |
 | --- | --- | --- | --- |
-| `claude` | `mimo-v2.5-pro` | 默认分析、默认评测 | 不展示 |
-| `codex` | `gpt-5.5` | GPT 兼容链路和对照评测 | 默认 `low` |
+| `claude` | `deepseek-v4-flash` | DeepSeek 官方 API `https://api.deepseek.com/anthropic` | 分析、生成与评测 |
+
+`claude` 仅是 Agent SDK 的内部执行器标识，不代表 Anthropic 模型接入。平台不接受自定义 Base URL、备用模型或第三方中转配置。
 
 模型和 CLI 的注册入口：
 
 - `src/lib/constants/cliModels.ts`
 - `src/lib/services/cli/claude.ts`
-- `src/lib/services/cli/codex.ts`
 
 ## 服务目录
 

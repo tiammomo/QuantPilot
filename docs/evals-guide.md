@@ -12,15 +12,11 @@ http://localhost:3000/eval-platform
 
 默认评测运行时：
 
-- 执行器：`Claude Code`
-- 模型：`Mimo V2.5 Pro`
+- 执行器：`DeepSeek Agent`
+- 模型：`DeepSeek V4 Flash`
 - Reasoning：不展示、不传递
 
-可选运行时：
-
-- 执行器：`Codex CLI`
-- 模型：`GPT-5.5`
-- Reasoning：`low`、`medium`、`high`、`xhigh`
+评测不提供其他运行时、模型对比或自定义 Base URL，确保生成链路和回归链路使用同一个官方模型边界。
 
 ## 页面分栏
 
@@ -94,7 +90,7 @@ action=simulate-flow
 ```bash
 npm run benchmark:quant
 npm run benchmark:quant -- --case stock-fundamental-maotai
-npm run benchmark:quant -- --case runtime-registry-codex-gpt55 --cli codex --model gpt-5.5 --reasoning-effort low
+npm run benchmark:quant -- --case runtime-registry-deepseek-v4-flash
 ```
 
 相关检查：

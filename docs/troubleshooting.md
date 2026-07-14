@@ -26,8 +26,8 @@ npm run doctor
 它会快速检查：
 
 - Node、npm、uv 版本。
-- Claude / Mimo 环境变量。
-- Claude Code 和 Codex CLI。
+- DeepSeek 官方 API Key。
+- 项目内置 Agent 执行引擎。
 - 前端 `3000` 和后端 `8000` 可达性。
 - PostgreSQL / TimescaleDB、Loki 可观测性和降级配置。
 - workspace 目录。
@@ -139,41 +139,22 @@ Alloy: http://localhost:12345
 
 如果不需要集中日志，可保持 Loki 停止。运行治理中心会降级读取本地日志文件；`npm run doctor` 在 `auto` 模式下只给 warning，不会失败。
 
-## Claude Code 找不到 Mimo 配置
+## DeepSeek V4 Flash 未就绪
 
-确认 `.env`、`.env.local` 或 `~/.claude/settings.json` 中包含：
-
-- `ANTHROPIC_BASE_URL`
-- `ANTHROPIC_AUTH_TOKEN`
-- `ANTHROPIC_MODEL`
-
-QuantPilot 默认使用 `Mimo V2.5 Pro`。如果本地 Claude Code 能直接调用 `mimo-v2.5-pro`，应保持 `CLAUDE_CODE_MODEL_ALIASES` 和 `CLAUDE_CODE_MODEL_FALLBACK` 为空，让平台按原始模型名调用。只有在某个 Claude-compatible 网关明确要求模型别名时，才手动配置运行时别名，例如：
+确认 `.env.local` 中包含 DeepSeek 官方控制台签发的密钥：
 
 ```dotenv
-CLAUDE_CODE_MODEL_FALLBACK="gateway-supported-model"
-CLAUDE_CODE_MODEL_ALIASES="mimo-v2.5-pro:gateway-supported-model"
+DEEPSEEK_API_KEY="your-deepseek-api-key"
 ```
 
-然后重启：
+平台固定使用 `deepseek-v4-flash` 和 `https://api.deepseek.com/anthropic`。不要设置自定义 Base URL、模型别名、备用模型或中转站变量；这些配置不会被读取。
+
+然后重启并检查：
 
 ```bash
 npm run dev
+npm run check-cli
 ```
-
-可以用脚本写入本机 Claude Code 配置：
-
-```bash
-bash claude_code_minimax_env.sh
-```
-
-## Codex CLI 没有调用 GPT-5.5
-
-确认：
-
-- `codex --version` 可执行。
-- `CODEX_OPENAI_BASE_URL` 已配置。
-- `CODEX_OPENAI_API_KEY` 已配置在本地环境或 `~/.codex/auth.json`。
-- 前端模型选择为 `Codex CLI / GPT-5.5`。
 
 ## 生成页面没有真实行情
 

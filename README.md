@@ -26,7 +26,7 @@ cp .env.example .env
 cp .env.example .env.local
 ```
 
-把 `.env` 或 `.env.local` 中的模型 token 改成自己的值，真实密钥不要提交到 Git。当前默认运行时是 `Claude Code / Mimo V2.5 Pro`。
+在 `.env.local` 中填写 `DEEPSEEK_API_KEY`，真实密钥不要提交到 Git。当前只启用 `DeepSeek V4 Flash`，服务端固定直连 DeepSeek 官方 API，不读取自定义 Base URL 或第三方中转配置。
 
 ```bash
 npm run db:up

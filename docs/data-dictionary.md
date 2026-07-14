@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | `projects` | `Project` | 首页项目、workspace 路径、CLI 偏好和预览状态 |
 | `messages` | `Message` | 用户、助手、工具调用和错误消息 |
-| `sessions` | `Session` | Claude/Codex/Cursor 等 CLI session 状态 |
+| `sessions` | `Session` | DeepSeek Agent 会话状态 |
 | `tool_usages` | `ToolUsage` | 工具输入输出、耗时和错误 |
 | `user_requests` | `UserRequest` | 用户请求队列和执行状态 |
 | `env_vars` | `EnvVar` | 项目环境变量，写入 workspace `.env` |

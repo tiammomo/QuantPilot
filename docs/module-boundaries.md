@@ -12,7 +12,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `ui-kit` | 无领域知识的基础 UI | `src/components/ui/**` |
 | `product-shell` | 首页、导航、布局、主题和平台入口 | `src/app/page.tsx`、`src/components/layout/**` |
 | `platform-core` | 项目、设置、Token、服务目录和外部集成 | `src/lib/platform/**`、核心 `src/lib/services/**` |
-| `agent-runtime` | Claude/Codex/CLI、流式消息、预览和技能注入 | `src/lib/services/cli/**`、`src/app/api/chat/**` |
+| `agent-runtime` | DeepSeek V4 Flash 官方直连、流式消息、预览和技能注入 | `src/lib/services/cli/**`、`src/app/api/chat/**` |
 | `quant-core` | 量化能力、策略、证据、验证、数据预取和技能治理 | `src/lib/quant/**`、策略平台/业务知识中心 |
 | `eval-core` | 评测集、用例、运行、报告和 CI 质量门 | `src/lib/eval/**`、评测页面、评测脚本 |
 | `ops-core` | Docker、服务健康、日志和运维面板 | `src/lib/ops/**`、运行治理中心、观测配置 |

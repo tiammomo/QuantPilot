@@ -182,7 +182,7 @@ npm run package:skills -- <skill-id>
 1. 默认只安装核心 skills。
 2. 优先读取 `.claude/skill-packages/<skill-id>.tgz` 并解压。
 3. 如果压缩包不存在，回退复制 `.claude/skills/<skill-id>` 源目录。
-4. 返回实际安装成功的 skill id 给 Claude Code。
+4. 返回实际安装成功的 skill id 给 DeepSeek Agent。
 
 兼容旧项目或调试旧能力时，可以临时开启 legacy alias：
 
