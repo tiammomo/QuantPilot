@@ -17,9 +17,9 @@ flowchart LR
   R --> P[data/projects/project-*]
   M --> P
   P --> V[生成项目预览 :4100+]
-  P --> H[运维平台 /ops-platform]
+  P --> H[运行治理中心 /ops-platform]
   W --> T[策略平台 /strategy-platform]
-  W --> C[数据平台 /data-platform]
+  W --> C[量化业务知识中心 /business-knowledge]
   W --> E[评测平台 /eval-platform]
   W --> A[Skills 管理 /skills]
 ```
@@ -69,7 +69,7 @@ QuantPilot 当前采用 Python/Node 长期主线，不引入 Dubbo3 作为配置
 
 - `config/service-catalog.json` 记录 web、market-data、TimescaleDB、Redis、ClickHouse、Loki、Grafana 和 Alloy 的职责、runtime、endpoint、启动命令和依赖。
 - `src/lib/platform/service-catalog.ts` 负责 Node 侧解析、环境变量覆盖、endpoint 脱敏、依赖图和配置校验。
-- `/api/infrastructure/service-catalog` 暴露给运维平台和设置页，避免页面继续散落硬编码端口。
+- `/api/infrastructure/service-catalog` 暴露给运行治理中心和设置页，避免页面继续散落硬编码端口。
 - `npm run check:service-catalog` 作为 CI guardrail，确保服务目录、Docker、API、ops 页面和文档同步。
 
 这相当于项目内的轻量注册表：足够支撑本地开发、单机部署、可降级组件和运维可视化。只有当后端演进成多服务多副本、跨机器部署、服务自动伸缩和统一流量治理时，才需要评估 Consul、etcd、Kubernetes service discovery 或更重的 RPC/注册中心方案。
@@ -112,7 +112,7 @@ QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续
 - PostgreSQL 承载 Prisma 管理的主业务表，包括工作空间、项目、评测、设置和运行记录。
 - TimescaleDB 承载 `quant.stock_bars`、`quant.stock_factors`、`quant.strategy_signals` 和 `quant.portfolio_snapshots` 等时序表。
 - Redis 承载短期缓存，优先用于板块资金、行情摘要和后续任务进度。
-- Loki/Grafana/Alloy 承载集中日志采集和运维排查；Loki 未启动时运维平台会降级读取本地文件日志。
+- Loki/Grafana/Alloy 承载集中日志采集和运维排查；Loki 未启动时运行治理中心会降级读取本地文件日志。
 - 行情字段来源、补数优先级和 provider 边界见 [行情数据源采集知识库](market-data-source-knowledge.md)。
 - 根目录 `sqls/` 保存组件默认需要的基础 SQL，Docker 首次创建容器时会执行；已有数据库可通过 `npm run db:init` 补齐 SQL 对象并同步 Prisma 应用表。
 
@@ -177,8 +177,8 @@ Go/Rust 的合理引入场景：
 | 首页工作台 | `/` | 创建任务、进入项目、管理主工作流 |
 | Skills 管理 | `/skills` | 编辑、发布、回滚和导入核心 skills |
 | 策略平台 | `/strategy-platform` | 管理股票池、ETF/指数池、策略模板、板块资金、基础组件、金融知识、扫描队列和回测入口 |
-| 数据平台 | `/data-platform` | 查看能力域、数据接口、产物契约和验证规则 |
-| 运维平台 | `/ops-platform` | 查看 workspace 健康、生成链路状态、队列、阶段事件、产物、trace 和集中日志 |
+| 量化业务知识中心 | `/business-knowledge` | 查看业务能力、典型场景、交付契约和支撑依赖 |
+| 运行治理中心 | `/ops-platform` | 查看服务契约与依赖、workspace 交付、生成链路、阶段事件和集中/本地日志 |
 | 评测平台 | `/eval-platform` | 管理用例、评测集、运行队列、报告和失败修复 |
 
 项目目录和分层边界见 [项目结构与分层边界](project-structure.md)。

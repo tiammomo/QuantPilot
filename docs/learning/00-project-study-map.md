@@ -75,7 +75,7 @@ QuantPilot 可以理解成四条主线叠在一起：
 | 市场数据怎么入库 | `services/market-data/src/quantpilot_market_data/api.py` | `database.py`、`providers/`、`sqls/` |
 | Skills 怎么安装到工作空间 | `src/lib/utils/scaffold.ts` | `.claude/skills.registry.json`、`scripts/skills/` |
 | 验证怎么判断失败 | `src/lib/quant/validation.ts` | `artifact-contracts.ts`、`visual-validation.ts` |
-| 运维平台怎么聚合健康 | `src/app/ops-platform/` | `src/lib/ops/`、`src/lib/quant/workspace-health.ts` |
+| 运行治理中心怎么聚合健康 | `src/app/ops-platform/` | `src/lib/ops/`、`src/lib/quant/workspace-health.ts` |
 
 ## 学习时的判断口诀
 

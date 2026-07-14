@@ -26,12 +26,12 @@
 | `/api/projects` | `GET/POST` | 首页工作台 | 项目列表、创建项目和 workspace 索引 |
 | `/api/projects/[project_id]` | `GET/PATCH/DELETE` | 首页、项目页 | 单项目状态、元数据和删除 |
 | `/api/projects/[project_id]/files` | `GET` | 项目聊天页 | 浏览生成工作空间文件树 |
-| `/api/projects/[project_id]/artifact` | `GET` | 预览、运维平台 | 读取生成产物或验证报告摘要 |
+| `/api/projects/[project_id]/artifact` | `GET` | 预览、运行治理中心 | 读取生成产物或验证报告摘要 |
 | `/api/projects/[project_id]/install-dependencies` | `POST` | 项目聊天页 | 生成项目依赖安装 |
 | `/api/projects/[project_id]/retry-initialization` | `POST` | 项目聊天页 | 重新初始化失败 workspace |
-| `/api/workspaces/health` | `GET` | 运维平台 | 工作空间健康、验证、产物和预览状态 |
-| `/api/workspaces/trace` | `GET` | 运维平台 | 生成链路 trace、阶段事件和工具调用 |
-| `/api/observability/generation` | `GET` | 运维平台 | 生成状态、队列、事件和可观测性聚合 |
+| `/api/workspaces/health` | `GET` | 运行治理中心 | 工作空间健康、验证、产物和预览状态 |
+| `/api/workspaces/trace` | `GET` | 运行治理中心 | 生成链路 trace、阶段事件和工具调用 |
+| `/api/observability/generation` | `GET` | 运行治理中心 | 生成状态、队列、事件和可观测性聚合 |
 
 ### 聊天与 Agent Runtime
 
@@ -55,12 +55,12 @@
 | 路由 | 方法 | 调用方 | 责任 |
 | --- | --- | --- | --- |
 | `/api/quant/strategies` | `GET/POST` | 策略平台 | 策略平台聚合数据、扫描、补数和因子目录 |
-| `/api/quant/capabilities` | `GET` | 数据平台 | 能力域和数据接口摘要 |
-| `/api/quant/capability-center` | `GET` | 数据平台 | 能力中心、数据源、契约和验证边界 |
-| `/api/research/reports` | `GET/POST` | 投研日报 | 观察池、证据型日报、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
+| `/api/quant/capabilities` | `GET` | 业务知识中心 | 业务能力和执行依赖摘要 |
+| `/api/quant/capability-center` | `GET` | 业务知识中心 | 业务能力、场景知识、交付契约和支撑资源 |
+| `/api/research/reports` | `GET/POST` | 投研情报中心 | 观察池、证据型日报、主题洞察、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
 | `/api/evals` | `GET/POST` | 评测平台 | 用例、评测集、运行队列、模拟链路和定时任务 |
 | `/api/evals/runs/[runId]` | `GET` | 评测平台 | 单次评测报告详情 |
-| `/api/ops/platform` | `GET` | 运维平台 | 基础环境、日志、健康和降级状态 |
+| `/api/ops/platform` | `GET` | 运行治理中心 | 基础环境、日志、健康和降级状态 |
 | `/api/infrastructure/health` | `GET` | 设置/运维 | PostgreSQL、market-data、Redis、Loki 等组件健康 |
 | `/api/infrastructure/service-catalog` | `GET` | 设置/运维 | 服务目录、Python/Node runtime、endpoint、依赖边和配置校验结果 |
 

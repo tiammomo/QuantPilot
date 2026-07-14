@@ -23,11 +23,11 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | --- | --- | --- | --- |
 | 文档入口 | `README.md`、`docs/README.md`、`docs/START_HERE.md` | 容易重复导航 | 根 README 保留少量入口，docs README 做完整索引，START_HERE 做角色化导读 |
 | 文档路线 | 各专题文档里的“后续建议” | 后续事项散落，读者不知道优先级 | 集中到本文，专题文档只保留本主题强相关下一步 |
-| 生成脚手架 | `src/lib/utils/scaffold.ts` | 模板、依赖注入、修复策略和产物规则混在一个大文件 | 拆成 template registry、workspace writer、dependency planner、repair adapter |
+| 生成脚手架 | `scaffold.ts`、`scaffold-base-templates.ts`、`scaffold-dashboard-templates.ts` | 基础模板和三类专用看板模板均已迁出并加入真实 Next build 门禁，writer 主文件从 5715 行降至约 685 行 | 继续拆 workspace writer、dependency planner、repair adapter，并压缩模板内部重复 helper |
 | 聊天页面 | `src/app/[project_id]/chat/page.tsx`、`src/components/chat/ChatLog.tsx` | 页面状态、消息渲染、运行时控制和附件交互耦合 | 拆 hooks、message timeline、runtime controls、files panel |
 | 验证链路 | `src/lib/quant/validation.ts` | build、HTTP、数据、证据、截图和 stale report 检查混杂 | 拆 validators、report writer、repair summary |
-| 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | 已拆一轮，但 API client、mappers、dashboard 编排仍集中 | 继续拆 market client、mappers、dashboard service、hooks、dialogs |
-| 评测平台 | `src/lib/eval/runtime.ts` | runs、queue、reports、repairs、schedule 仍在同一运行时入口 | 拆 runs、queue、reports、repairs、schedule |
+| 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | response mappers 已迁出并有单测，API client、dashboard 编排和部分页面交互仍集中 | 继续拆 market client、dashboard service、hooks、dialogs |
+| 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
 | 市场数据后端 | `models.py`、`api.py`、`repositories/universes.py` | 模型和兼容入口偏大，universe repository 同时处理读取、写入、清洗 | 按 contract domains、legacy routes、membership hygiene 拆小 |
 
 ## P0：先让项目更容易被理解和发布
@@ -35,9 +35,9 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 工作 | 为什么重要 | 验收标准 |
 | --- | --- | --- |
 | 文档入口收敛 | `docs/` 文档很多，缺少角色化导读会让人迷路 | `README.md` 指向 `docs/START_HERE.md`；`docs/README.md` 和 learning 路径能回答“我该读哪篇” |
-| 发布前检查脚本 | 现在质量门分散在 doctor、build、smoke、Playwright 中 | 新增或明确 `release:check`，串起 build、doctor:full、关键 API smoke、页面 smoke 和 workspace 健康摘要 |
-| 文档路径检查 | 模块拆分后容易残留旧路径，例如旧 eval 文件名 | 增加轻量检查，扫描已知旧路径、坏链接或不存在的本地文档链接 |
-| 工作空间健康分层 | 历史 workspace 失败不应和主平台故障混在一起 | 已在运维平台增加可演示/有风险/待修复/归档候选分层，后续接归档动作和批量修复 |
+| 发布前检查脚本 | 已新增确定性 `release:check` 与包含依赖审计/运行态诊断的 `release:check:full` | 后续继续把关键 API、页面 smoke 和 workspace 健康摘要纳入运行态 profile |
+| 文档路径检查 | 已新增 `check:docs`，当前覆盖根 README、docs、market-data 与 SQL 文档 | 继续扩展锚点校验和已知旧路径规则 |
+| 工作空间健康分层 | 历史 workspace 失败不应和主平台故障混在一起 | 已在运行治理中心增加可演示/有风险/待修复/归档候选分层，后续接归档动作和批量修复 |
 | 基础组件状态准确性 | 状态面板误报会削弱系统可信度 | Foundation status 已按 TimescaleDB chunk 统计行情和因子估算行数，后续继续补精确审计入口 |
 
 对应文档：
@@ -45,7 +45,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 - [文档导读](START_HERE.md)
 - [文档写作风格指南](documentation-style-guide.md)
 - [运行手册](operations-runbook.md)
-- [运维平台使用与评分指南](ops-platform-guide.md)
+- [运行治理中心使用与评分指南](ops-platform-guide.md)
 
 ## P1：继续强化生成结果质量
 
@@ -68,8 +68,8 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 工作 | 为什么重要 | 验收标准 |
 | --- | --- | --- |
 | 策略平台 hooks 和 dialogs 拆分 | 主 client 仍承载部分弹窗和扫描编排 | `StrategyPlatformClient` 只负责顶层状态和视图切换，补数、K 线详情、扫描任务各有 hook/service |
-| 策略数据 service 拆分 | `strategies.ts` 仍是策略平台主入口 | 拆出 market client、response mappers、dashboard service，保留稳定 public surface |
-| eval runtime 拆分 | `src/lib/eval/runtime.ts` 仍承载 runs、queue、reports、repairs、schedule | 拆出 `runs.ts`、`queue.ts`、`reports.ts`、`repairs.ts`、`schedule.ts` |
+| 策略数据 service 拆分 | `strategy-mappers.ts` 已迁出并补齐纯函数单测，`strategies.ts` 仍是稳定 public surface | 继续拆出 market client、dashboard service，保留现有导出兼容 |
+| eval runtime 拆分 | report/database mappers 已迁入 `runtime-mappers.ts` 并补单测，runtime 已降至约 955 行 | 继续拆出 `runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
 | 模块边界预算收紧 | 当前大文件预算允许过渡，但不能长期放宽 | `npm run check:module-boundaries` 保持通过，大文件目标线逐步下降 |
 
 对应文档：
@@ -106,7 +106,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | Worker 化 | 长任务不应长期依赖 Next.js 请求生命周期 | 评测、策略扫描、补数任务可由独立 worker 执行 |
 | Redis 任务状态和锁 | 跨进程任务需要短期状态、锁和进度快照 | Redis 承载进度和锁，PostgreSQL 保存事实状态和最终结果 |
 | 暂停、恢复、停止语义统一 | 当前不同任务类型语义容易不一致 | 所有长任务都明确 checkpoint、resume offset、stop grace 和失败重试 |
-| 任务事件 outbox | 后续接 ClickHouse、日志或审计需要可重放事件 | 任务状态变化有事件记录，可用于运维平台和评测分析 |
+| 任务事件 outbox | 后续接 ClickHouse、日志或审计需要可重放事件 | 任务状态变化有事件记录，可用于运行治理中心和评测分析 |
 
 对应文档：
 

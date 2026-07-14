@@ -2,7 +2,7 @@
 
 目标：知道 QuantPilot 的代码该往哪里放、怎么验证、哪些文件不该提交。
 
-![数据平台](assets/data-platform.png)
+![量化业务知识中心](assets/business-knowledge.png)
 
 ## 代码边界
 
@@ -54,7 +54,7 @@ QuantPilot 不是单纯的前端项目，也不是单纯的数据服务。改代
 1. 先确认字段来源和口径，例如来自东方财富、Baostock、AKShare 还是本地计算。
 2. 如果需要长期保存，先补 `sqls/` 或后端数据库映射。
 3. 在 `services/market-data` 返回字段，并保证已有数据不会被空值覆盖。
-4. 在 `src/lib/quant/strategies.ts` 做类型映射。
+4. 在 `src/lib/quant/strategy-mappers.ts` 做类型映射，并补充 mapper 单元测试。
 5. 在策略平台客户端展示，避免重复列和低价值指标。
 6. 更新 `docs/learning/03-market-data-and-strategy-platform.md` 和相关 README。
 
@@ -62,7 +62,7 @@ QuantPilot 不是单纯的前端项目，也不是单纯的数据服务。改代
 
 1. 先判断它是不是必需组件，是否需要降级模式。
 2. 更新 `docker-compose.yml` 和 `.env.example`。
-3. 在 `scripts/checks/doctor.js` 和运维平台增加健康检查。
+3. 在 `scripts/checks/doctor.js` 和运行治理中心增加健康检查。
 4. 写入 `docs/infrastructure.md`、`docs/troubleshooting.md` 和 README。
 5. 确认没有和主前端、预览端口或数据库端口冲突。
 
@@ -76,11 +76,10 @@ QuantPilot 不是单纯的前端项目，也不是单纯的数据服务。改代
 ## 提交前检查
 
 ```bash
-npm run lint
-npm run type-check
-npm run check:skills
-npm run check:validation-repair
+npm run release:check
 ```
+
+正式发布使用 `npm run release:check:full`，它会额外运行完整依赖审计和运行态基础设施诊断。
 
 涉及数据库：
 
@@ -101,9 +100,10 @@ uv run pytest
 
 ```bash
 npm run check:homepage
+npm run check:platform-visuals
 ```
 
-必要时用 Playwright 截图人工复核，确认没有错误覆盖层、空白页、验证失败页或横向溢出。
+`check:platform-visuals` 会覆盖全部主入口的桌面亮色、移动端暗色、横向溢出、浏览器运行错误和历史路由重定向；聊天页使用只读视觉模式，不会启动依赖安装或自动重验。必要时再查看 `tmp/visual-checks/platforms/` 中的截图人工复核。
 
 ## 不应提交的内容
 

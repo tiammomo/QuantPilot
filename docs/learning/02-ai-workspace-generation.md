@@ -2,11 +2,11 @@
 
 目标：理解首页的一句话需求如何变成一个可预览、可验证、可修复的生成工作空间。
 
-![运维平台](assets/ops-platform.png)
+![运行治理中心](assets/ops-platform.png)
 
 ![AI 工作空间生成链路](assets/workspace-generation-gpt-image2.png)
 
-这张图用 gpt-image2 生成，用来辅助理解“用户问题 → 规划 → 取数 → 生成工作空间 → 验证 → 修复”的闭环。真实排障时仍以 `.quantpilot` 文件、验证报告和运维平台日志为准。
+这张图用 gpt-image2 生成，用来辅助理解“用户问题 → 规划 → 取数 → 生成工作空间 → 验证 → 修复”的闭环。真实排障时仍以 `.quantpilot` 文件、验证报告和运行治理中心日志为准。
 
 ## 基础概念
 

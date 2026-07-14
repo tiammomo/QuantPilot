@@ -22,7 +22,7 @@
 | `tool_usages` | `ToolUsage` | 工具输入输出、耗时和错误 |
 | `user_requests` | `UserRequest` | 用户请求队列和执行状态 |
 | `env_vars` | `EnvVar` | 项目环境变量，写入 workspace `.env` |
-| `service_tokens` | `ServiceToken` | 本地开发用外部服务 token |
+| `service_tokens` | `ServiceToken` | 外部服务 token；新写入使用 AES-256-GCM 加密，旧明文记录在读取时渐进迁移 |
 | `project_service_connections` | `ProjectServiceConnection` | GitHub/Vercel/Supabase 项目连接 |
 | `commits` | `Commit` | 项目关联 commit 元数据 |
 | `platform_settings` | `PlatformSetting` | 平台级设置 |

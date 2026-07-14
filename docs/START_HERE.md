@@ -11,7 +11,7 @@
 | 要改前端页面 | [项目结构与分层边界](project-structure.md) | [模块边界与模块化单体治理](module-boundaries.md)、对应页面专题 | 后端 provider 细节 |
 | 要改市场数据后端 | [后端能力架构与持续优化边界](backend-capability-architecture.md) | [API 总览](api-reference.md)、[数据字典](data-dictionary.md)、[行情数据源采集知识库](market-data-source-knowledge.md) | 生成页面视觉教程 |
 | 要处理生成页面质量 | [AI 工作空间生成链路](learning/02-ai-workspace-generation.md) | [Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md)、[生成工作空间契约](generated-workspace-contract.md) | Docker 组件细节 |
-| 要看评测和发布风险 | [评测、运维与质量门](learning/05-evaluation-and-operations.md) | [Agent 评测指南](evals-guide.md)、[运维平台使用与评分指南](ops-platform-guide.md) | 策略因子细节 |
+| 要看评测和发布风险 | [评测、运维与质量门](learning/05-evaluation-and-operations.md) | [Agent 评测指南](evals-guide.md)、[运行治理中心使用与评分指南](ops-platform-guide.md) | 策略因子细节 |
 | 要做策略平台或股票数据 | [市场数据与策略平台](learning/03-market-data-and-strategy-platform.md) | [策略平台使用与设计指南](strategy-platform-guide.md)、[数据字典](data-dictionary.md) | Skills 发布流程 |
 | 要写或改 skill | [Skills 编写与迭代教程](learning/07-skills-authoring.md) | [Skills 治理规范](skills-governance.md)、[文档写作风格指南](documentation-style-guide.md) | 数据库运维细节 |
 
@@ -54,7 +54,7 @@
 | 教程层 | 带你理解链路和概念 | `docs/learning/*` |
 | 契约层 | 定义长期规则和边界 | [API 总览](api-reference.md)、[数据字典](data-dictionary.md)、[模块边界](module-boundaries.md)、[生成工作空间契约](generated-workspace-contract.md) |
 | 操作层 | 给命令、检查和排障步骤 | [运行手册](operations-runbook.md)、[故障排查](troubleshooting.md) |
-| 专题层 | 深入某个业务域 | [策略平台指南](strategy-platform-guide.md)、[运维平台指南](ops-platform-guide.md)、[Skills 治理](skills-governance.md) |
+| 专题层 | 深入某个业务域 | [策略平台指南](strategy-platform-guide.md)、[运行治理中心指南](ops-platform-guide.md)、[Skills 治理](skills-governance.md) |
 
 ## 当前最值得继续完善的方向
 

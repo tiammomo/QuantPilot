@@ -141,9 +141,7 @@
         "src/app/api/research/**",
         "src/app/strategy-platform/**",
         "src/app/research-reports/**",
-        "src/app/data-platform/**",
-        "src/app/capabilities/**",
-        "src/app/strategies/**",
+        "src/app/business-knowledge/**",
         "src/components/quant/skills-*.tsx",
         "src/components/quant/workspace-*.tsx",
         "src/components/quant/console-primitives.tsx"
@@ -162,7 +160,7 @@
         "@/lib/quant/validation"
       ],
       "migrationNotes": [
-        "strategies.ts 已拆出 strategy-types / strategy-catalog / strategy-scan-repository / strategy-readiness；StrategyPlatformClient 已拆出 helpers、FinancialKnowledgeView、UniverseView、StockKlineDetail、SectorCapitalFlowView、FactorCatalogView、FoundationView，后续继续拆 dialogs、hooks、market API client 和 response mappers。"
+        "strategies.ts 已拆出 strategy-types / strategy-catalog / strategy-scan-repository / strategy-readiness / strategy-mappers；StrategyPlatformClient 已拆出 helpers、FinancialKnowledgeView、UniverseView、StockKlineDetail、SectorCapitalFlowView、FactorCatalogView、FoundationView，后续继续拆 dialogs、hooks、market API client 和 dashboard service。"
       ]
     },
     {
@@ -173,7 +171,6 @@
       "paths": [
         "src/lib/eval/**",
         "src/app/eval-platform/**",
-        "src/app/evals/**",
         "src/app/api/evals/**",
         "src/components/quant/eval-*.tsx",
         "scripts/evals/**",
@@ -192,7 +189,7 @@
         "@/components/quant/eval-console-primitives"
       ],
       "migrationNotes": [
-        "eval-core 已迁出 quant 目录；cases/sets 已拆入 cases.ts，paths 和 runtime-utils 已共享。runtime.ts 仍需继续拆 runs / queue / reports / repairs / scheduling。"
+        "eval-core 已迁出 quant 目录；cases/sets、paths、runtime-utils 和 runtime-mappers 已拆分。runtime.ts 后续继续拆 runs / queue / repairs / scheduling。"
       ]
     },
     {
@@ -273,6 +270,24 @@
     ],
     "largeFileBudgets": [
       {
+        "path": "src/lib/utils/scaffold.ts",
+        "maxLines": 900,
+        "targetLines": 750,
+        "nextAction": "保持 workspace writer 和模板选择职责；基础/专用模板必须留在独立模板模块，不再回填大段字符串。"
+      },
+      {
+        "path": "src/lib/utils/scaffold-base-templates.ts",
+        "maxLines": 2800,
+        "targetLines": 2600,
+        "nextAction": "继续提取模板内共享数据读取与格式化 helper，所有改动必须通过 check:scaffold-templates。"
+      },
+      {
+        "path": "src/lib/utils/scaffold-dashboard-templates.ts",
+        "maxLines": 2800,
+        "targetLines": 2600,
+        "nextAction": "压缩 comparison/selection/holding 模板重复 helper，同时保持每类模板独立构建。"
+      },
+      {
         "path": "services/market-data/src/quantpilot_market_data/database.py",
         "maxLines": 400,
         "targetLines": 180,
@@ -286,15 +301,15 @@
       },
       {
         "path": "src/lib/quant/strategies.ts",
-        "maxLines": 4800,
-        "targetLines": 1800,
-        "nextAction": "已拆 catalog/types/scan repository/readiness；继续拆 market API client、mappers 和 dashboard service。"
+        "maxLines": 1800,
+        "targetLines": 1200,
+        "nextAction": "已拆 catalog/types/scan repository/readiness/response mappers；继续拆 market API client 和 dashboard service。"
       },
       {
         "path": "src/lib/eval/runtime.ts",
-        "maxLines": 1800,
-        "targetLines": 1400,
-        "nextAction": "已拆 cases/sets、paths 和 runtime-utils；继续拆 runs / queue / reports / repairs / scheduling，保留 src/lib/eval 作为唯一公开入口。"
+        "maxLines": 1300,
+        "targetLines": 1000,
+        "nextAction": "已拆 cases/sets、paths、runtime-utils 和 report/database mappers；继续拆 runs / queue / repairs / scheduling，保留 src/lib/eval 作为唯一公开入口。"
       }
     ]
   }

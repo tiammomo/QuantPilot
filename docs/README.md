@@ -22,11 +22,11 @@
 | 想查页面和后端接口 | [API 总览](api-reference.md) |
 | 想查数据库字段口径 | [数据字典](data-dictionary.md) |
 | 想执行补数、验证或排障流程 | [运行手册](operations-runbook.md) |
-| 想做每日投研报告和推送 | [投研日报自动化指南](research-automation-guide.md) |
+| 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](research-automation-guide.md) |
 | 想参与开发 | [教学 06：开发者协作手册](learning/06-developer-playbook.md) |
 | 想学习怎么写 Skills | [教学 07：Skills 编写与迭代教程](learning/07-skills-authoring.md) |
 | 想深入策略平台 | [策略平台使用与设计指南](strategy-platform-guide.md) |
-| 想深入运维平台 | [运维平台使用与评分指南](ops-platform-guide.md) |
+| 想深入运行治理中心 | [运行治理中心使用与评分指南](ops-platform-guide.md) |
 | 想优化后端能力边界 | [后端能力架构与持续优化边界](backend-capability-architecture.md) |
 
 ## 知识地图
@@ -44,8 +44,8 @@
 | 基础设施 | [基础设施配置](infrastructure.md) | PostgreSQL、TimescaleDB、Redis、Loki/Grafana/Alloy、SQL 初始化和降级模式 |
 | 行情数据 | [行情数据源采集知识库](market-data-source-knowledge.md) | 东方财富、Baostock、AKShare、字段口径和补数规则 |
 | 策略平台 | [策略平台使用与设计指南](strategy-platform-guide.md) | 股票池、ETF/指数池、策略目录、因子目录、补数控制和策略数据依赖 |
-| 投研日报 | [投研日报自动化指南](research-automation-guide.md) | 自选池、证据采样、日报契约、运行历史和推送记录 |
-| 运维平台 | [运维平台使用与评分指南](ops-platform-guide.md) | 工作空间健康、运维评分、日志、降级模式和排查路径 |
+| 投研情报中心 | [投研情报中心与日报自动化指南](research-automation-guide.md) | 观察池、证据采样、报告库、主题洞察和自动化交付 |
+| 运行治理中心 | [运行治理中心使用与评分指南](ops-platform-guide.md) | 工作空间健康、治理评分、日志、降级模式和排查路径 |
 | Runbook | [运行手册](operations-runbook.md) | 长任务、补数、缓存、验证、skills 和提交前质量门 |
 | 工作空间契约 | [生成工作空间契约](generated-workspace-contract.md) | run plan、数据文件、证据、验证、视觉检查和修复计划 |
 | Skills | [Skills 治理规范](skills-governance.md) / [Skills 教程](learning/07-skills-authoring.md) | skill 元数据、版本、发布、回滚、锁文件和编写方法 |
@@ -70,8 +70,8 @@ flowchart TB
   R --> WS[data/projects 工作空间]
   WS --> V[预览与自动验证]
   W --> SP[策略平台]
-  W --> DP[数据平台]
-  W --> OP[运维平台]
+  W --> DP[量化业务知识中心]
+  W --> OP[运行治理中心]
   W --> EP[评测平台]
 ```
 

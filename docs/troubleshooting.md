@@ -137,7 +137,7 @@ Grafana: http://localhost:3001
 Alloy: http://localhost:12345
 ```
 
-如果不需要集中日志，可保持 Loki 停止。运维平台会降级读取本地日志文件；`npm run doctor` 在 `auto` 模式下只给 warning，不会失败。
+如果不需要集中日志，可保持 Loki 停止。运行治理中心会降级读取本地日志文件；`npm run doctor` 在 `auto` 模式下只给 warning，不会失败。
 
 ## Claude Code 找不到 Mimo 配置
 
@@ -295,4 +295,4 @@ timeout
 Reached maximum
 ```
 
-Loki 可用时优先在运维平台日志页查集中日志；Loki 不可用时查看本地文件日志。Next dev 的编译成功日志很多，通常可以先忽略，重点看红色错误、API 失败、SSE 断连和 Agent runtime 返回的错误。
+Loki 可用时优先在运行治理中心日志页查集中日志；Loki 不可用时查看本地文件日志。Next dev 的编译成功日志很多，通常可以先忽略，重点看红色错误、API 失败、SSE 断连和 Agent runtime 返回的错误。

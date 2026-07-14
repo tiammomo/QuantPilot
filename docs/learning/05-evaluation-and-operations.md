@@ -38,13 +38,13 @@ npm run eval:ci
 npm run benchmark:quant
 ```
 
-## 运维平台
+## 运行治理中心
 
-![运维平台](assets/ops-platform.png)
+![运行治理中心](assets/ops-platform.png)
 
-运维平台用于查看工作空间健康、生成链路观测、基础环境健康和日志。
+运行治理中心提供运行总览、服务治理、工作空间交付、生成链路和运行日志五个视图；基础环境、降级边界与故障动作在同一条排查路径中展示。
 
-评分口径、日志阅读方式和降级模式的更完整说明见 [运维平台使用与评分指南](../ops-platform-guide.md)。
+评分口径、日志阅读方式和降级模式的更完整说明见 [运行治理中心使用与评分指南](../ops-platform-guide.md)。
 
 | 区域 | 关注点 |
 | --- | --- |
@@ -55,7 +55,7 @@ npm run benchmark:quant
 | 产物检查 | run plan、data_file、evidence、validation、visual report |
 | 修复记录 | repair plan、修复次数、最后失败原因 |
 
-运维平台的价值不是“再做一个页面”，而是把生成链路里分散的事实集中起来：
+运行治理中心的价值不是“再做一个页面”，而是把生成链路里分散的事实集中起来：
 
 - 工作空间是否缺文件。
 - 最后一次验证是否过期。

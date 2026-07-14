@@ -1,6 +1,6 @@
 # 01. 本地启动与健康检查
 
-目标：把 QuantPilot 在本地完整跑起来，并确认首页、策略平台、Skills、评测、数据平台和运维平台都能打开。
+目标：把 QuantPilot 在本地完整跑起来，并确认首页、策略平台、Skills、评测、量化业务知识中心和运行治理中心都能打开。
 
 ![首页工作台](assets/home.png)
 
@@ -18,7 +18,7 @@
 
 | 组件 | 可以理解成 | 负责什么 |
 | --- | --- | --- |
-| Next.js 主前端 | 产品入口和控制台 | 首页、项目聊天、策略平台、数据平台、运维平台和评测平台 |
+| Next.js 主前端 | 产品入口和控制台 | 首页、项目聊天、策略平台、量化业务知识中心、运行治理中心和评测平台 |
 | 市场数据后端 | 量化数据 API | 行情、K 线、财务、公告、补数、交易日历和质量扫描 |
 | TimescaleDB / PostgreSQL | 事实库 | 保存项目索引、应用状态、股票时序数据、因子、补数任务和策略数据 |
 | Redis | 短期缓存 | 缓存行情摘要、板块资金和后续任务进度，不作为长期事实库 |
@@ -48,7 +48,7 @@ npm run db:doctor
 
 `db:up` 会拉起 TimescaleDB 和 Redis。TimescaleDB 本质上是带时序扩展的 PostgreSQL 镜像，用来同时承载普通关系表和量化时序表。
 
-如果需要在运维平台查看集中日志，可继续启动 Loki、Grafana 和 Alloy：
+如果需要在运行治理中心查看集中日志，可继续启动 Loki、Grafana 和 Alloy：
 
 ```bash
 npm run obs:up
@@ -110,7 +110,7 @@ http://localhost:3000
 
 如果 `3000` 被占用，启动器会临时选择 `3000-3099` 中的可用端口。主前端仍应优先保持在 `3000`：生成项目预览从 `4100` 往后分配端口，`3100` 留给 Loki，`3001` 留给 Grafana。
 
-后台启动时建议把日志放到 `tmp/runtime/`，这样 Alloy 和运维平台都能采集：
+后台启动时建议把日志放到 `tmp/runtime/`，这样 Alloy 和运行治理中心都能采集：
 
 ```bash
 mkdir -p tmp/runtime
@@ -126,8 +126,8 @@ setsid bash -c 'exec npm run dev -- --port 3000' > tmp/runtime/web.log 2>&1 < /d
 | 首页工作台 | `http://localhost:3000` |
 | 策略平台 | `http://localhost:3000/strategy-platform` |
 | Skills 管理 | `http://localhost:3000/skills` |
-| 数据平台 | `http://localhost:3000/data-platform` |
-| 运维平台 | `http://localhost:3000/ops-platform` |
+| 量化业务知识中心 | `http://localhost:3000/business-knowledge` |
+| 运行治理中心 | `http://localhost:3000/ops-platform` |
 | 评测平台 | `http://localhost:3000/eval-platform` |
 
 页面巡检时重点看三件事：

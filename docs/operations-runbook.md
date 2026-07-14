@@ -4,7 +4,13 @@
 
 ## 基础启动
 
-推荐启动顺序：
+日常开发推荐直接启动完整栈；该命令会复用已健康的 market-data，否则自动启动并在退出时一并回收：
+
+```bash
+npm run dev
+```
+
+需要手动分组件排障时，再按以下顺序启动：
 
 ```bash
 npm run db:up
@@ -15,10 +21,10 @@ uv sync --extra baostock --extra akshare
 uv run quantpilot-market-api
 ```
 
-另开一个终端回到项目根目录：
+另开一个终端回到项目根目录，仅启动前端：
 
 ```bash
-npm run dev
+npm run dev:web
 ```
 
 检查：
@@ -233,6 +239,7 @@ npm run package:skills
 ```bash
 npm run check:validation-repair
 npm run check:project-visual
+npm run check:platform-visuals
 npm run benchmark:quant -- --case <case-id>
 ```
 
@@ -240,20 +247,19 @@ npm run benchmark:quant -- --case <case-id>
 
 ## 提交前质量门
 
-轻量提交前：
+日常改动先运行确定性质量门。它不依赖已启动的数据库、行情服务或 Loki，会统一检查文档链接、模块边界、契约、前后端 lint/测试、类型和生产构建：
 
 ```bash
-npm run lint
-npm run type-check
+npm run release:check
 ```
 
-涉及后端：
+正式发布再运行完整质量门。它额外使用 npm 官方 registry 审计全部直接/传递依赖，并执行运行态 `doctor:full`；因此数据库、行情服务和 strict 模式要求的组件必须可用：
 
 ```bash
-cd services/market-data
-uv run ruff check .
-uv run pytest
+npm run release:check:full
 ```
+
+检查全部依赖安全状态可运行 `npm run security:audit`，只看生产依赖可运行 `npm run security:audit:production`；只检查 Markdown 本地链接可运行 `npm run check:docs`。
 
 涉及数据库：
 

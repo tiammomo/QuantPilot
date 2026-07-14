@@ -20,7 +20,7 @@
 专题深入：
 
 - [策略平台使用与设计指南](../strategy-platform-guide.md)：股票池、ETF/指数池、补数、策略数据依赖和页面取舍。
-- [运维平台使用与评分指南](../ops-platform-guide.md)：工作空间健康、评分口径、日志、降级模式和排障路径。
+- [运行治理中心使用与评分指南](../ops-platform-guide.md)：工作空间健康、评分口径、日志、降级模式和排障路径。
 
 ## 截图索引
 
@@ -32,8 +32,8 @@
 | 策略平台 | [assets/strategy-platform.png](assets/strategy-platform.png) |
 | Skills 管理 | [assets/skills.png](assets/skills.png) |
 | 评测平台 | [assets/eval-platform.png](assets/eval-platform.png) |
-| 数据平台 | [assets/data-platform.png](assets/data-platform.png) |
-| 运维平台 | [assets/ops-platform.png](assets/ops-platform.png) |
+| 量化业务知识中心 | [assets/business-knowledge.png](assets/business-knowledge.png) |
+| 运行治理中心 | [assets/ops-platform.png](assets/ops-platform.png) |
 
 ## gpt-image2 教学配图
 

@@ -12,9 +12,9 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 量化数据底座：PostgreSQL + TimescaleDB + Redis，承载应用状态、时序行情、估值因子、缓存和补数任务状态。
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
-- 投研日报：围绕自选池生成证据型日报，沉淀 Markdown/JSON 报告、运行历史和推送记录。
+- 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
 - Skills 能力层：管理 `.claude/skills`，沉淀量化规划、数据质量、可视化生成和自修复能力。
-- 评测与运维：评测平台、数据平台、运维平台共同覆盖生成质量、数据契约、工作空间健康、运行 trace 和集中日志。
+- 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
 
 ## 快速启动
 
@@ -42,10 +42,10 @@ npm run obs:up
 ```bash
 cd services/market-data
 uv sync --extra baostock --extra akshare
-uv run quantpilot-market-api
+cd ../..
 ```
 
-回到项目根目录：
+在项目根目录启动完整开发栈；命令会自动启动或复用 market-data：
 
 ```bash
 npm run dev
@@ -53,7 +53,7 @@ npm run dev
 
 默认访问 `http://localhost:3000`。如果 `3000` 被占用，启动器会在 `3000-3099` 内选择可用端口并同步 `.env` / `.env.local` 中的 `PORT`、`WEB_PORT` 和 `NEXT_PUBLIC_APP_URL`。生成项目预览端口池从 `4100` 开始，Loki 使用 `3100`，不要把主前端长期放到这些端口上。
 
-不启动 Loki/Grafana 时，运维平台会自动降级到本地文件日志；不启动市场数据后端时，策略平台和数据平台只能展示有限兜底信息。
+不启动 Loki/Grafana 时，运行治理中心会自动降级到本地文件日志；不启动市场数据后端时，策略平台和业务知识中心只能展示有限兜底信息。
 
 ## 常用入口
 
@@ -61,19 +61,23 @@ npm run dev
 | --- | --- | --- |
 | AI 工作台 | `http://localhost:3000` | 创建任务、进入项目聊天和预览 |
 | 策略平台 | `http://localhost:3000/strategy-platform` | 股票池、ETF/指数池、板块资金、策略目录、基础组件和金融知识 |
-| 投研日报 | `http://localhost:3000/research-reports` | 管理观察池、生成日报、查看证据、运行历史和推送记录 |
+| 投研情报中心 | `http://localhost:3000/research-reports` | 管理观察池、研究证据、报告库、主题洞察和自动化交付 |
 | Skills 管理 | `http://localhost:3000/skills` | 编辑、发布、回滚和导入核心 skills |
-| 数据平台 | `http://localhost:3000/data-platform` | 查看能力域、数据接口、契约和验证边界 |
-| 运维平台 | `http://localhost:3000/ops-platform` | 查看 workspace 健康、产物、队列和 trace |
+| 量化业务知识中心 | `http://localhost:3000/business-knowledge` | 查看业务能力、典型场景、交付规范和执行依赖 |
+| 运行治理中心 | `http://localhost:3000/ops-platform` | 统一查看服务依赖、工作空间交付、生成链路和运行日志 |
 | 评测平台 | `http://localhost:3000/eval-platform` | 运行评测、管理评测集、查看队列和报告 |
 
 ## 常用命令
 
 | 场景 | 命令 |
 | --- | --- |
-| 主前端开发 | `npm run dev` |
+| 完整开发环境（前端 + market-data） | `npm run dev` |
+| 仅启动主前端 | `npm run dev:web` |
+| 仅启动量化后端 | `npm run dev:market` |
 | 指定主前端端口 | `npm run dev -- --port 3000` |
-| 前端质量门 | `npm run lint && npm run type-check && npm run build` |
+| 单元与后端测试 | `npm test` |
+| 确定性发布质量门 | `npm run release:check` |
+| 含依赖审计与运行态诊断 | `npm run release:check:full` |
 | 数据库启动 | `npm run db:up && npm run db:init` |
 | 数据库检查 | `npm run db:doctor` |
 | Redis CLI | `npm run redis:cli` |
@@ -82,8 +86,11 @@ npm run dev
 | Skills 检查 | `npm run check:skills` |
 | 验证修复链路检查 | `npm run check:validation-repair` |
 | 首页视觉 smoke | `npm run check:homepage` |
+| 全平台响应式视觉 smoke | 启动 Web 后运行 `npm run check:platform-visuals` |
 | 量化后端 | `cd services/market-data && uv run quantpilot-market-api` |
 | 后端质量门 | `cd services/market-data && uv run ruff check . && uv run pytest` |
+| 文档本地链接检查 | `npm run check:docs` |
+| 四类生成模板真实构建 | `npm run check:scaffold-templates` |
 
 ## 文档导航
 
@@ -95,7 +102,7 @@ npm run dev
 | 想系统学习项目 | [教学路径](docs/learning/README.md) |
 | 想参与开发或判断代码放哪 | [项目结构与分层边界](docs/project-structure.md) / [模块边界](docs/module-boundaries.md) |
 | 想查接口、字段或数据源口径 | [API 总览](docs/api-reference.md) / [数据字典](docs/data-dictionary.md) / [行情数据源知识库](docs/market-data-source-knowledge.md) |
-| 想做每日投研报告和推送 | [投研日报自动化指南](docs/research-automation-guide.md) |
+| 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](docs/research-automation-guide.md) |
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |
 | 想看后续优先级 | [持续完善路线图](docs/ROADMAP.md) |
 
@@ -125,7 +132,7 @@ npm run dev
 
 ## 本地可观测性
 
-`npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 默认宿主机端口是 `3100`，生成项目预览端口池从 `4100` 开始；Grafana 默认入口是 `http://localhost:3001`，默认账号密码来自 `.env`；运维平台的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
+`npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 默认宿主机端口是 `3100`，生成项目预览端口池从 `4100` 开始；Grafana 默认入口是 `http://localhost:3001`，默认账号密码来自 `.env`；运行治理中心的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
 
 ## 前端启动模式
 
