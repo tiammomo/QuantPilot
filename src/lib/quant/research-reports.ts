@@ -105,6 +105,7 @@ export interface ResearchProviderMatrixItem {
 }
 
 export interface ResearchAutomationDashboard {
+  generatedAt: string;
   summary: {
     watchlists: number;
     reports: number;
@@ -770,10 +771,10 @@ export async function getResearchAutomationDashboard(): Promise<ResearchAutomati
     prisma.researchReport.count(),
     prisma.notificationChannel.count({ where: { status: { not: 'disabled' } } }),
     prisma.researchWatchlist.findMany({ orderBy: { updatedAt: 'desc' }, take: 20 }),
-    prisma.researchReport.findMany({ orderBy: { createdAt: 'desc' }, take: 5 }),
-    prisma.researchReportRun.findMany({ orderBy: { startedAt: 'desc' }, take: 8 }),
+    prisma.researchReport.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
+    prisma.researchReportRun.findMany({ orderBy: { startedAt: 'desc' }, take: 20 }),
     prisma.notificationChannel.findMany({ orderBy: { updatedAt: 'desc' }, take: 10 }),
-    prisma.notificationDelivery.findMany({ orderBy: { createdAt: 'desc' }, take: 8 }),
+    prisma.notificationDelivery.findMany({ orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
 
   const latestReports = reports.map(mapReport);
@@ -781,6 +782,7 @@ export async function getResearchAutomationDashboard(): Promise<ResearchAutomati
   const latestEvidence = latestReports[0]?.evidence ?? [];
 
   return {
+    generatedAt: nowIso(),
     summary: {
       watchlists: watchlistCount,
       reports: reportCount,
