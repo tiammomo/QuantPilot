@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import {
-  ArrowLeft,
   BarChart3,
   CheckCircle2,
   Clock3,
@@ -13,13 +12,13 @@ import {
   Image as ImageIcon,
   Layers3,
   ListChecks,
-  ShieldCheck,
   TriangleAlert,
   XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/layout/PageHeader';
 import type { QuantEvalRun, QuantEvalResult, EvalCheckStatus } from '@/lib/eval';
 
 type Props = {
@@ -46,13 +45,13 @@ function formatDuration(value: number) {
 function statusClass(status: EvalCheckStatus) {
   switch (status) {
     case 'passed':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+      return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500';
     case 'warning':
-      return 'border-amber-200 bg-amber-50 text-amber-700';
+      return 'border-amber-500/25 bg-amber-500/10 text-amber-500';
     case 'failed':
-      return 'border-red-200 bg-red-50 text-red-700';
+      return 'border-red-500/25 bg-red-500/10 text-red-500';
     default:
-      return 'border-slate-200 bg-slate-50 text-slate-600';
+      return 'border-border bg-muted/50 text-muted-foreground';
   }
 }
 
@@ -77,24 +76,24 @@ function statusIcon(status: EvalCheckStatus) {
 }
 
 function resultBorder(result: QuantEvalResult) {
-  if (!result.passed) return 'border-red-200 bg-red-50/30';
+  if (!result.passed) return 'border-red-500/25 bg-red-500/[0.035]';
   if (result.validationChecks.some((check) => check.status === 'warning')) {
-    return 'border-amber-200 bg-amber-50/20';
+    return 'border-amber-500/25 bg-amber-500/[0.025]';
   }
-  return 'border-slate-200 bg-white';
+  return 'border-border/60 bg-card/90';
 }
 
 function scoreClass(score: number) {
-  if (score >= 90) return 'text-emerald-600';
-  if (score >= 75) return 'text-amber-600';
-  return 'text-red-600';
+  if (score >= 90) return 'text-emerald-500';
+  if (score >= 75) return 'text-amber-500';
+  return 'text-red-500';
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-slate-950">{value}</p>
+    <div className="rounded-lg border border-border/50 bg-background/65 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold text-foreground">{value}</p>
     </div>
   );
 }
@@ -112,98 +111,97 @@ export default function EvalRunDetailClient({ run }: Props) {
   const skillEntries = Object.entries(run.metadata.skillLockSnapshot.skills);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/eval-platform" aria-label="返回评测平台">
-                <ArrowLeft className="h-5 w-5" />
-              </Link>
-            </Button>
+    <div className="platform-shell">
+      <PageHeader
+        title="评测运行详情"
+        backHref="/eval-platform?view=queue"
+        badge={(
+          <Badge className={run.passed ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500' : 'border-red-500/25 bg-red-500/10 text-red-500'}>
+            {run.passed ? '通过' : '失败'}
+          </Badge>
+        )}
+        subtitle={`${run.fileName} · ${formatDate(run.createdAt)} · ${run.metadata.runtime.cli ?? 'unknown'} / ${run.metadata.runtime.model ?? 'unknown'}`}
+      />
+
+      <main className="platform-content mx-auto max-w-[1520px] px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+        <section className="mb-5 overflow-hidden rounded-2xl border border-border/60 bg-card/90 p-5 shadow-[0_24px_60px_-42px_hsl(var(--shadow-color)/0.65)] sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-red-600" />
-                <h1 className="text-2xl font-bold tracking-normal text-slate-950">评测运行详情</h1>
-                <Badge className={run.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}>
-                  {run.passed ? '通过' : '失败'}
-                </Badge>
-              </div>
-              <p className="mt-1 text-sm text-slate-500">
-                {run.fileName} · {formatDate(run.createdAt)} · {run.metadata.runtime.cli ?? 'unknown'} / {run.metadata.runtime.model ?? 'unknown'}
-              </p>
+              <p className="text-[10px] font-bold tracking-[0.16em] text-primary">EVALUATION REPORT</p>
+              <h1 className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">{run.fileName}</h1>
+              <p className="mt-1 text-xs text-muted-foreground">{formatDate(run.createdAt)} · {run.metadata.runtime.cli ?? 'unknown'} / {run.metadata.runtime.model ?? 'unknown'}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="bg-background/60">{run.total} 条用例</Badge>
+              <Badge variant="outline" className="bg-background/60">并发 {run.metadata.evaluator.concurrency}</Badge>
+              <Badge className={run.passed ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500' : 'border-red-500/25 bg-red-500/10 text-red-500'}>{run.passed ? '质量门禁通过' : '质量门禁失败'}</Badge>
             </div>
           </div>
-          <Button variant="outline" asChild>
-            <Link href="/eval-platform">返回总览</Link>
-          </Button>
-        </div>
-      </header>
+        </section>
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
-        <section className="grid gap-4 md:grid-cols-5">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-slate-500">
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <CheckCircle2 className="h-4 w-4" />
                 通过率
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className={run.passRate === 100 ? 'text-3xl font-bold text-emerald-600' : 'text-3xl font-bold text-amber-600'}>
+            <CardContent className="px-4 pb-4">
+              <p className={run.passRate === 100 ? 'text-2xl font-bold text-emerald-500' : 'text-2xl font-bold text-amber-500'}>
                 {run.passRate}%
               </p>
-              <p className="mt-1 text-sm text-slate-500">{run.passedCount}/{run.total} 用例</p>
+              <p className="mt-1 text-xs text-muted-foreground">{run.passedCount}/{run.total} 用例</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <BarChart3 className="h-4 w-4" />
                 平均分
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className={`text-3xl font-bold ${scoreClass(run.averageScore)}`}>{run.averageScore}</p>
-              <p className="mt-1 text-sm text-slate-500">粗评分</p>
+            <CardContent className="px-4 pb-4">
+              <p className={`text-2xl font-bold ${scoreClass(run.averageScore)}`}>{run.averageScore}</p>
+              <p className="mt-1 text-xs text-muted-foreground">综合评分</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Clock3 className="h-4 w-4" />
                 总耗时
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold text-slate-950">{formatDuration(run.durationMs)}</p>
-              <p className="mt-1 text-sm text-slate-500">用例累计</p>
+            <CardContent className="px-4 pb-4">
+              <p className="text-2xl font-bold text-foreground">{formatDuration(run.durationMs)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">用例累计</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Layers3 className="h-4 w-4" />
                 事件
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold text-slate-950">{eventTotal}</p>
-              <p className="mt-1 text-sm text-slate-500">过程事件</p>
+            <CardContent className="px-4 pb-4">
+              <p className="text-2xl font-bold text-foreground">{eventTotal}</p>
+              <p className="mt-1 text-xs text-muted-foreground">过程事件</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium text-slate-500">
+          <Card className="col-span-2 border-border/60 bg-card/90 lg:col-span-1">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <TriangleAlert className="h-4 w-4" />
                 告警/错误
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold text-slate-950">
+            <CardContent className="px-4 pb-4">
+              <p className="text-2xl font-bold text-foreground">
                 {warnings}/{errors}
               </p>
-              <p className="mt-1 text-sm text-slate-500">warning/error</p>
+              <p className="mt-1 text-xs text-muted-foreground">warning / error</p>
             </CardContent>
           </Card>
         </section>

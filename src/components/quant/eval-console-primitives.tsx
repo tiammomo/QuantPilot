@@ -403,16 +403,16 @@ export function StatTile({
   }[tone];
 
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-card/80 px-5 py-4 dark:border-border/40">
+    <div className="rounded-xl border border-slate-200/80 bg-card/85 px-3.5 py-3.5 shadow-[0_14px_34px_-30px_hsl(var(--shadow-color)/0.55)] backdrop-blur sm:px-5 sm:py-4 dark:border-border/50">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <div className="mt-2 flex items-baseline gap-2 text-2xl font-bold tracking-tight text-foreground">
+          <div className="mt-2 flex items-baseline gap-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
             {value}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">{helper}</div>
         </div>
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${toneConfig.bg} ${toneConfig.text}`}>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-10 sm:w-10 ${toneConfig.bg} ${toneConfig.text}`}>
           {icon}
         </div>
       </div>
@@ -434,7 +434,7 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={`min-w-0 rounded-xl border border-slate-200/80 bg-card/80 dark:border-border/40 ${className ?? ''}`}>
+    <section className={`min-w-0 overflow-hidden rounded-xl border border-slate-200/80 bg-card/85 shadow-[0_18px_42px_-34px_hsl(var(--shadow-color)/0.55)] backdrop-blur dark:border-border/50 ${className ?? ''}`}>
       <div className="flex min-h-12 items-center justify-between gap-3 border-b border-slate-200/70 px-5 py-3 dark:border-border/30">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           {icon}

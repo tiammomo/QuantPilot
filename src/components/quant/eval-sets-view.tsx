@@ -156,7 +156,7 @@ function MetricCard({
   }[tone];
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card px-5 py-4 shadow-sm">
+    <div className="rounded-xl border border-border/50 bg-card/85 px-3.5 py-3.5 shadow-[0_14px_34px_-30px_hsl(var(--shadow-color)/0.55)] sm:px-5 sm:py-4">
       <div className="flex items-center gap-3">
         <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', toneClass)}>
           {icon}
@@ -481,12 +481,13 @@ export function EvalSetsView({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-xl font-bold tracking-normal text-foreground">评测集</h2>
-          <Badge variant="secondary" className="h-6 rounded-md px-2 text-xs">
-            共 {evalSets.length} 个
-          </Badge>
+      <div className="flex flex-col gap-3 rounded-xl border border-border/50 bg-card/80 p-4 shadow-[0_14px_34px_-30px_hsl(var(--shadow-color)/0.55)] sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-foreground">评测集资产库</h2>
+            <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">{evalSets.length} 个</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">导入或创建一组稳定的回归范围，用于重复执行与质量对比。</p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -513,7 +514,7 @@ export function EvalSetsView({
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard icon={<Database className="h-4 w-4" />} label="全部评测集" value={evalSets.length} />
         <MetricCard icon={<CheckCircle2 className="h-4 w-4" />} label="有运行结果" value={ranSetCount} tone="emerald" />
         <MetricCard icon={<Hourglass className="h-4 w-4" />} label="未运行" value={notRunSetCount} tone="amber" />
@@ -525,7 +526,7 @@ export function EvalSetsView({
         />
       </section>
 
-      <section className="rounded-lg border border-border/50 bg-card shadow-sm">
+      <section className="overflow-hidden rounded-xl border border-border/50 bg-card/90 shadow-[0_18px_42px_-34px_hsl(var(--shadow-color)/0.55)]">
         <div className="flex flex-col gap-4 border-b border-border/40 p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -638,7 +639,7 @@ export function EvalSetsView({
           )}
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1160px] text-sm">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20 text-left text-xs font-medium text-muted-foreground">
@@ -746,6 +747,57 @@ export function EvalSetsView({
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="divide-y divide-border/40 md:hidden">
+          {pagedVisibleEvalSets.map((evalSet) => {
+            const summary = runSummaryBySet.get(evalSet.id);
+            const latestPassRate = summary?.latestPassRate ?? null;
+            const isActive = evalSet.id === selectedEvalSet.id;
+            return (
+              <article key={evalSet.id} className={cn('p-4', isActive && 'bg-primary/[0.035]')}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRowIds.has(evalSet.id)}
+                    onChange={() => toggleRow(evalSet.id)}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border bg-background"
+                    aria-label={`勾选 ${evalSet.name}`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <button type="button" onClick={() => onEvalSetSelect(evalSet.id)} className="block w-full text-left">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-semibold text-foreground">{evalSet.name}</h3>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{evalSet.description || '暂无描述'}</p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 border-primary/20 bg-primary/5 text-[10px] text-primary">{evalSet.category}</Badge>
+                      </div>
+                    </button>
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-muted/35 p-2.5 text-center">
+                      <div><p className="text-sm font-bold tabular-nums text-foreground">{evalSet.caseIds.length}</p><p className="mt-0.5 text-[10px] text-muted-foreground">用例</p></div>
+                      <div><p className={cn('text-sm font-bold tabular-nums', latestPassRate === null ? 'text-muted-foreground' : passRateClass(latestPassRate))}>{latestPassRate === null ? '—' : `${latestPassRate}%`}</p><p className="mt-0.5 text-[10px] text-muted-foreground">通过率</p></div>
+                      <div><p className="truncate text-sm font-bold text-foreground">{evalSet.custom ? '自定义' : '内置'}</p><p className="mt-0.5 text-[10px] text-muted-foreground">来源</p></div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">{summary?.latestRun ? formatRelativeTime(summary.latestRun.createdAt) : '尚未运行'}</span>
+                      <Button variant="outline" size="sm" onClick={() => onRunEvalSet(evalSet.id)} disabled={isStarting} className="h-8 gap-1.5 px-3 text-xs">
+                        {isStarting && isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                        运行
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {!pagedVisibleEvalSets.length && (
+            <div className="px-4 py-12 text-center">
+              <Search className="mx-auto h-8 w-8 text-muted-foreground/45" />
+              <p className="mt-3 text-sm font-medium text-foreground">没有找到匹配评测集</p>
+              <p className="mt-1 text-xs text-muted-foreground">调整筛选条件，或创建一个新的评测集。</p>
+            </div>
+          )}
         </div>
 
         <EvalPagination

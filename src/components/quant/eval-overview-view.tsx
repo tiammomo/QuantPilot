@@ -1,12 +1,17 @@
 import {
   Activity,
+  ArrowRight,
   BarChart3,
   ClipboardList,
-  Clock,
+  Cpu,
+  Layers3,
+  Play,
   ShieldCheck,
+  Target,
   TrendingUp,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   CLI_LABELS,
   DeltaText,
@@ -16,6 +21,7 @@ import {
   passRateClass,
   scoreClass,
   type EvalSet,
+  type EvalView,
 } from '@/components/quant/eval-console-primitives';
 import type { QuantEvalDashboardData, QuantEvalRun } from '@/lib/eval';
 import {
@@ -45,6 +51,7 @@ type EvalOverviewViewProps = {
   delta: RunDelta;
   activeQueueCount: number;
   evalSets: EvalSet[];
+  onNavigate: (view: EvalView) => void;
 };
 
 type RecentEvalSetRow = {
@@ -213,9 +220,11 @@ function resolveRunEvalSet(run: QuantEvalRun, evalSets: EvalSet[]) {
 function RecentEvalSetsPanel({
   runs,
   evalSets,
+  onNavigate,
 }: {
   runs: QuantEvalRun[];
   evalSets: EvalSet[];
+  onNavigate: (view: EvalView) => void;
 }) {
   const recentRows: RecentEvalSetRow[] = runs.slice(0, 8).map((run) => {
     const evalSet = resolveRunEvalSet(run, evalSets);
@@ -225,7 +234,16 @@ function RecentEvalSetsPanel({
   });
 
   return (
-    <Panel title="最近评测集" icon={<ClipboardList className="h-4 w-4 text-primary" />}>
+    <Panel
+      title="最近评测运行"
+      icon={<ClipboardList className="h-4 w-4 text-primary" />}
+      action={(
+        <Button variant="ghost" size="sm" onClick={() => onNavigate('queue')} className="h-8 gap-1 text-xs text-muted-foreground">
+          全部记录
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    >
       {recentRows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[940px] text-sm">
@@ -280,9 +298,123 @@ function RecentEvalSetsPanel({
           </table>
         </div>
       ) : (
-        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">暂无最近评测集。</div>
+        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">暂无最近评测运行。</div>
       )}
     </Panel>
+  );
+}
+
+function EvalSetCatalog({
+  evalSets,
+  onNavigate,
+}: {
+  evalSets: EvalSet[];
+  onNavigate: (view: EvalView) => void;
+}) {
+  return (
+    <Panel
+      title="已准备的评测集"
+      icon={<Layers3 className="h-4 w-4 text-primary" />}
+      action={(
+        <Button variant="ghost" size="sm" onClick={() => onNavigate('evalSets')} className="h-8 gap-1 text-xs text-muted-foreground">
+          管理评测集
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    >
+      <div className="grid gap-px bg-border/40 sm:grid-cols-2 xl:grid-cols-3">
+        {evalSets.slice(0, 6).map((evalSet) => (
+          <button
+            key={evalSet.id}
+            type="button"
+            onClick={() => onNavigate('evalSets')}
+            className="group min-w-0 bg-card px-4 py-4 text-left transition-colors hover:bg-primary/5"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground group-hover:text-primary">{evalSet.name}</p>
+                <p className="mt-1 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">{evalSet.description}</p>
+              </div>
+              <Badge variant="secondary" className="h-6 shrink-0 rounded-md px-2 text-[10px]">
+                {evalSet.caseIds.length} 条
+              </Badge>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>{evalSet.category}</span>
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+            </div>
+          </button>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function BaselineSetup({
+  dashboard,
+  onNavigate,
+}: {
+  dashboard: QuantEvalDashboardData;
+  onNavigate: (view: EvalView) => void;
+}) {
+  const capabilityCounts = new Map<string, number>();
+  dashboard.cases.forEach((testCase) => {
+    capabilityCounts.set(testCase.capabilityLabel, (capabilityCounts.get(testCase.capabilityLabel) ?? 0) + 1);
+  });
+  const capabilityRows = Array.from(capabilityCounts.entries()).sort((left, right) => right[1] - left[1]);
+  const maxCount = Math.max(1, ...capabilityRows.map(([, count]) => count));
+
+  return (
+    <section className="grid gap-5 xl:grid-cols-[1.12fr_0.88fr]">
+      <Panel title="建立第一条质量基线" icon={<Target className="h-4 w-4 text-primary" />}>
+        <div className="p-5">
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+            当前用例与评测集已经就绪。完成一次链路模拟并启动真实评测后，这里会自动展示通过率趋势、分数分布和失败用例。
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {[
+              { icon: ClipboardList, index: '01', title: '确认评测范围', text: `${dashboard.summary.caseCount} 条用例已入库`, view: 'cases' as EvalView },
+              { icon: Cpu, index: '02', title: '配置评测策略', text: '选择规则或 Agent 评测器', view: 'evaluator' as EvalView },
+              { icon: Play, index: '03', title: '模拟并启动', text: '验证链路后建立基线', view: 'evaluator' as EvalView },
+            ].map((step) => (
+              <button key={step.index} type="button" onClick={() => onNavigate(step.view)} className="group rounded-xl border border-border/60 bg-background/65 p-4 text-left transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold tracking-[0.16em] text-primary">STEP {step.index}</span>
+                  <step.icon className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                </div>
+                <p className="mt-5 text-sm font-semibold text-foreground">{step.title}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{step.text}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Panel>
+
+      <Panel title="能力覆盖准备度" icon={<ShieldCheck className="h-4 w-4 text-emerald-500" />}>
+        <div className="space-y-4 p-5">
+          <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">用例资产可用</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">覆盖 {capabilityRows.length} 个能力域</p>
+            </div>
+            <Badge className="border-emerald-500/25 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/10">Ready</Badge>
+          </div>
+          <div className="space-y-3">
+            {capabilityRows.slice(0, 5).map(([label, count]) => (
+              <div key={label}>
+                <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                  <span className="truncate font-medium text-foreground">{label}</span>
+                  <span className="tabular-nums text-muted-foreground">{count} 条</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary/75" style={{ width: `${Math.max(16, (count / maxCount) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Panel>
+    </section>
   );
 }
 
@@ -291,18 +423,66 @@ export function EvalOverviewView({
   delta,
   activeQueueCount,
   evalSets,
+  onNavigate,
 }: EvalOverviewViewProps) {
-  const queueDepth = dashboard.queue.filter((q) => q.status === 'queued').length;
+  const latestRun = dashboard.latestRun;
+  const hasRuns = dashboard.runs.length > 0;
+  const score = latestRun?.averageScore ?? 0;
+  const scoreProgress = Math.max(0, Math.min(100, score));
 
   return (
     <div className="space-y-5">
-      {/* Stat cards */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-card/90 px-5 py-5 shadow-[0_24px_60px_-42px_hsl(var(--shadow-color)/0.65)] sm:px-6 lg:px-8 lg:py-7">
+        <div className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full bg-primary/12 blur-3xl" />
+        <div className="pointer-events-none absolute bottom-0 right-1/3 h-28 w-48 rounded-full bg-blue-500/5 blur-3xl" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-3xl">
+            <Badge variant="outline" className={hasRuns ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500' : 'border-amber-500/25 bg-amber-500/10 text-amber-500'}>
+              <span className={hasRuns ? 'mr-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500' : 'mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-500'} />
+              {hasRuns ? '质量基线已建立' : '等待首次基线评测'}
+            </Badge>
+            <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              {hasRuns ? `最近一次评测通过率 ${latestRun?.passRate ?? 0}%` : '从一条可信的质量基线开始'}
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              {hasRuns
+                ? `已完成 ${dashboard.summary.reportCount} 次评测运行，持续跟踪 ${dashboard.summary.caseCount} 条用例在 ${dashboard.summary.capabilityCount} 个能力域中的表现。`
+                : `系统已准备 ${dashboard.summary.caseCount} 条测试用例和 ${evalSets.length} 个评测集。先模拟执行链路，再启动首次真实评测。`}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button onClick={() => onNavigate('evaluator')} className="gap-2 rounded-lg shadow-sm">
+                <Play className="h-4 w-4" />
+                {hasRuns ? '发起新评测' : '配置首次评测'}
+              </Button>
+              <Button variant="outline" onClick={() => onNavigate('cases')} className="gap-2 rounded-lg">
+                <ClipboardList className="h-4 w-4" />
+                查看用例资产
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-4 rounded-2xl border border-border/60 bg-background/60 p-4 backdrop-blur-sm lg:min-w-[300px]">
+            <div className="relative flex h-24 w-24 shrink-0 items-center justify-center rounded-full" style={{ background: `conic-gradient(hsl(var(--primary)) ${scoreProgress * 3.6}deg, hsl(var(--muted)) 0deg)` }}>
+              <div className="flex h-[78px] w-[78px] flex-col items-center justify-center rounded-full bg-card">
+                <span className="text-2xl font-bold tabular-nums text-foreground">{hasRuns ? score : '—'}</span>
+                <span className="text-[10px] text-muted-foreground">平均分</span>
+              </div>
+            </div>
+            <div className="min-w-0 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-6"><span className="text-muted-foreground">评测报告</span><strong className="tabular-nums text-foreground">{dashboard.summary.reportCount}</strong></div>
+              <div className="flex items-center justify-between gap-6"><span className="text-muted-foreground">运行队列</span><strong className="tabular-nums text-foreground">{activeQueueCount}</strong></div>
+              <div className="flex items-center justify-between gap-6"><span className="text-muted-foreground">能力覆盖</span><strong className="tabular-nums text-foreground">{dashboard.summary.capabilityCount}</strong></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatTile
           icon={<Activity className="h-4 w-4" />}
-          label="运行中"
+          label="活跃任务"
           value={activeQueueCount}
-          helper="当前正在运行"
+          helper={activeQueueCount ? '队列正在处理' : '当前无执行任务'}
           tone={activeQueueCount > 0 ? 'amber' : 'slate'}
         />
         <StatTile
@@ -321,48 +501,39 @@ export function EvalOverviewView({
           icon={<TrendingUp className="h-4 w-4" />}
           label="平均分"
           value={<span className={scoreClass(dashboard.summary.latestAverageScore)}>{dashboard.summary.latestAverageScore}</span>}
-          helper={delta ? <DeltaText value={delta.score} /> : '最近一次'}
+          helper={hasRuns ? (delta ? <DeltaText value={delta.score} /> : '最近一次运行') : '等待首次评测'}
           tone="blue"
         />
         <StatTile
           icon={<ClipboardList className="h-4 w-4" />}
-          label="测试用例"
+          label="用例资产"
           value={dashboard.summary.caseCount}
           helper="覆盖用例数"
           tone="slate"
         />
-        <StatTile
-          icon={<Clock className="h-4 w-4" />}
-          label="等待队列"
-          value={queueDepth}
-          helper="等待运行"
-          tone={queueDepth > 0 ? 'blue' : 'slate'}
-        />
       </section>
 
-      {/* Charts */}
-      <section className="grid gap-5 xl:grid-cols-2">
-        <Panel title="运行趋势" icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}>
-          <div className="p-4">
-            {dashboard.runs.length > 0 ? (
+      {hasRuns ? (
+        <>
+          <section className="grid gap-5 xl:grid-cols-2">
+            <Panel title="质量趋势" icon={<TrendingUp className="h-4 w-4 text-emerald-500" />} action={<Badge variant="outline" className="text-[10px]">最近 20 次</Badge>}>
+              <div className="p-4">
               <RunsOverTimeChart runs={dashboard.runs} />
-            ) : (
-              <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">暂无运行数据。</div>
-            )}
-          </div>
-        </Panel>
-        <Panel title="分数分布" icon={<BarChart3 className="h-4 w-4 text-primary" />}>
-          <div className="p-4">
-            {dashboard.runs.length > 0 ? (
+              </div>
+            </Panel>
+            <Panel title="分数分布" icon={<BarChart3 className="h-4 w-4 text-primary" />} action={<Badge variant="outline" className="text-[10px]">{dashboard.runs.length} 次运行</Badge>}>
+              <div className="p-4">
               <ScoreDistributionChart runs={dashboard.runs} />
-            ) : (
-              <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">暂无运行数据。</div>
-            )}
-          </div>
-        </Panel>
-      </section>
+              </div>
+            </Panel>
+          </section>
+          <RecentEvalSetsPanel runs={dashboard.runs} evalSets={evalSets} onNavigate={onNavigate} />
+        </>
+      ) : (
+        <BaselineSetup dashboard={dashboard} onNavigate={onNavigate} />
+      )}
 
-      <RecentEvalSetsPanel runs={dashboard.runs} evalSets={evalSets} />
+      <EvalSetCatalog evalSets={evalSets} onNavigate={onNavigate} />
     </div>
   );
 }

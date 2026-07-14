@@ -65,7 +65,7 @@ function MetricCard({
   }[tone];
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card px-5 py-4 shadow-sm">
+    <div className="rounded-xl border border-border/50 bg-card/85 px-3.5 py-3.5 shadow-[0_14px_34px_-30px_hsl(var(--shadow-color)/0.55)] sm:px-5 sm:py-4">
       <div className="flex items-center gap-3">
         <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', toneClass)}>
           {icon}
@@ -408,24 +408,24 @@ export function EvalCasesView({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="text-xl font-bold tracking-normal text-foreground">测试用例</h2>
-          <Badge variant="secondary" className="h-6 rounded-md px-2 text-xs">
-            共 {totalCaseCount} 个
-          </Badge>
-        </div>
-      </div>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard icon={<ClipboardList className="h-4 w-4" />} label="全部用例" value={selectedEvalSetCases.length} />
         <MetricCard icon={<CheckCircle2 className="h-4 w-4" />} label="最近通过" value={passedCount} tone="emerald" />
         <MetricCard icon={<Clock3 className="h-4 w-4" />} label="未运行" value={notRunCount} tone="amber" />
         <MetricCard icon={<TriangleAlert className="h-4 w-4" />} label="需关注" value={failedCount} tone="red" />
       </section>
 
-      <section className="rounded-lg border border-border/50 bg-card shadow-sm">
+      <section className="overflow-hidden rounded-xl border border-border/50 bg-card/90 shadow-[0_18px_42px_-34px_hsl(var(--shadow-color)/0.55)]">
         <div className="border-b border-slate-200/70 p-4 dark:border-border/40">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">用例资产库</h3>
+                <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">{totalCaseCount} 条</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">按能力、输入类型与最近结果筛选，并可批量发起评测。</p>
+            </div>
+          </div>
           <div
             data-eval-cases-toolbar
             className="rounded-2xl border border-slate-200/80 bg-background/80 p-3 shadow-sm dark:border-border/40 dark:bg-card/70"
@@ -511,7 +511,7 @@ export function EvalCasesView({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1200px] text-sm">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20 text-left text-xs font-medium text-muted-foreground">
@@ -632,6 +632,60 @@ export function EvalCasesView({
               )}
             </tbody>
           </table>
+        </div>
+        <div className="divide-y divide-border/40 md:hidden">
+          {pagedCases.map((testCase) => {
+            const result = getCaseResult(testCase);
+            const isSelected = selectedCaseIdSet.has(testCase.id);
+            return (
+              <article key={testCase.id} className={cn('p-4 transition-colors', isSelected && 'bg-primary/5')}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleCaseSelection(testCase.id)}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border bg-background"
+                    aria-label={`选择 ${testCase.name}`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-semibold text-foreground">{testCase.name}</h4>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{testCase.id}</p>
+                      </div>
+                      {statusPill(result)}
+                    </div>
+                    <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">{testCase.question}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className="border-primary/20 bg-primary/5 text-[10px] text-primary">{testCase.capabilityLabel}</Badge>
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">{testCase.typeLabel}</Badge>
+                      {testCase.expectedSymbols.length > 0 && <Badge variant="secondary" className="font-mono text-[10px]">{testCase.expectedSymbols.slice(0, 2).join(', ')}</Badge>}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between border-t border-border/30 pt-3">
+                      <span className="text-[11px] text-muted-foreground">{result ? `最近运行 ${formatRelativeTime(latestRun?.createdAt)}` : '尚未运行'}</span>
+                      <div className="flex items-center gap-1">
+                        {latestRun && result && (
+                          <Button variant="ghost" size="sm" asChild className="h-8 px-2 text-xs">
+                            <Link href={`/eval-platform/runs/${latestRun.id}#case-${result.id}`}>查看结果</Link>
+                          </Button>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => onRunCase(testCase.id)} disabled={isStarting} className="h-8 gap-1 px-2.5 text-xs">
+                          <Play className="h-3 w-3" />运行
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {!pagedCases.length && (
+            <div className="px-4 py-12 text-center">
+              <Search className="mx-auto h-8 w-8 text-muted-foreground/45" />
+              <p className="mt-3 text-sm font-medium text-foreground">没有找到匹配用例</p>
+              <p className="mt-1 text-xs text-muted-foreground">调整搜索词或筛选条件后重试。</p>
+            </div>
+          )}
         </div>
         <EvalPagination
           page={currentPage}
