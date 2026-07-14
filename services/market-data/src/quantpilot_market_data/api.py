@@ -302,6 +302,11 @@ def create_app() -> FastAPI:
                         "change_percent",
                         "change_amount",
                         "turnover",
+                        "pe_ttm",
+                        "pb_mrq",
+                        "industry",
+                        "region",
+                        "concepts",
                     ],
                 },
             )

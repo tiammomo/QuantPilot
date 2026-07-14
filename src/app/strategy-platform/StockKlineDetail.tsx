@@ -434,6 +434,16 @@ function limitMarkerForBar(
   return null;
 }
 
+function svgPointFromPointer(event: PointerEvent<SVGSVGElement>) {
+  const svg = event.currentTarget;
+  const screenMatrix = svg.getScreenCTM();
+  if (!screenMatrix) return null;
+  const point = svg.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(screenMatrix.inverse());
+}
+
 function KlineMiniChart({
   bars,
   dividendEvents,
@@ -541,17 +551,18 @@ function KlineMiniChart({
     }, "");
   const rangeLeftPct = cleanBars.length ? (resolvedStartIndex / cleanBars.length) * 100 : 0;
   const rangeWidthPct = cleanBars.length ? (visibleBars.length / cleanBars.length) * 100 : 100;
-  const visibleIndexFromPointer = (event: PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!rect.width || !visibleBars.length) return -1;
-    const localX = ((event.clientX - rect.left) / rect.width) * width;
-    const localY = ((event.clientY - rect.top) / rect.height) * height;
+  const visibleIndexFromLocalPoint = (localPoint: { x: number; y: number } | null) => {
+    if (!localPoint || !visibleBars.length) return -1;
+    const localX = localPoint.x;
+    const localY = localPoint.y;
     if (localX < left || localX > width - right || localY < chartTop || localY > volumeTop + volumeHeight) {
       return -1;
     }
     const rawIndex = Math.round((localX - left - step / 2) / step);
     return clampNumber(rawIndex, 0, visibleBars.length - 1);
   };
+  const visibleIndexFromPointer = (event: PointerEvent<SVGSVGElement>) =>
+    visibleIndexFromLocalPoint(svgPointFromPointer(event));
   const selectBarFromPointer = (event: PointerEvent<SVGSVGElement>) => {
     const index = visibleIndexFromPointer(event);
     const bar = index >= 0 ? visibleBars[index] : null;
@@ -561,25 +572,40 @@ function KlineMiniChart({
       onResetSelection?.();
     }
   };
-  const moveByDelta = (clientX: number) => {
+  const moveByDelta = (localX: number) => {
     if (!dragRef.current || !maxStartIndex) return;
-    const pixelsPerBar = Math.max(8, step);
-    const deltaBars = Math.round((clientX - dragRef.current.x) / pixelsPerBar);
+    const deltaBars = Math.round((localX - dragRef.current.x) / Math.max(1, step));
     setStartIndex(clampNumber(dragRef.current.startIndex - deltaBars, 0, maxStartIndex));
   };
   const handlePointerDown = (event: PointerEvent<SVGSVGElement>) => {
-    selectBarFromPointer(event);
+    const localPoint = svgPointFromPointer(event);
+    const index = visibleIndexFromLocalPoint(localPoint);
+    const bar = index >= 0 ? visibleBars[index] : null;
+    if (bar) {
+      onSelectBar?.(bar);
+    } else {
+      onResetSelection?.();
+    }
     if (!maxStartIndex) return;
-    dragRef.current = { x: event.clientX, startIndex: resolvedStartIndex, hasMoved: false };
+    if (!localPoint || index < 0) return;
+    dragRef.current = { x: localPoint.x, startIndex: resolvedStartIndex, hasMoved: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const localPoint = svgPointFromPointer(event);
     if (dragRef.current && event.buttons === 1) {
-      dragRef.current.hasMoved = dragRef.current.hasMoved || Math.abs(event.clientX - dragRef.current.x) > 3;
-      moveByDelta(event.clientX);
+      if (!localPoint) return;
+      dragRef.current.hasMoved = dragRef.current.hasMoved || Math.abs(localPoint.x - dragRef.current.x) > 3;
+      moveByDelta(localPoint.x);
       return;
     }
-    selectBarFromPointer(event);
+    const index = visibleIndexFromLocalPoint(localPoint);
+    const bar = index >= 0 ? visibleBars[index] : null;
+    if (bar) {
+      onSelectBar?.(bar);
+    } else {
+      onResetSelection?.();
+    }
   };
   const handlePointerUp = (event: PointerEvent<SVGSVGElement>) => {
     if (dragRef.current && !dragRef.current.hasMoved) {

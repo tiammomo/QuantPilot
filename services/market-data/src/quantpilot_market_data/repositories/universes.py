@@ -196,7 +196,19 @@ async def list_research_universes() -> list[ResearchUniverse]:
                   ON securities.symbol = members.symbol
                  AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
                 LEFT JOIN LATERAL (
-                  SELECT sync_row.*
+                  SELECT
+                    min(sync_row.first_ts) AS first_ts,
+                    max(sync_row.last_ts) AS last_ts,
+                    (array_agg(
+                      sync_row.provider
+                      ORDER BY (
+                        sync_row.provider = COALESCE(
+                          universes.metadata->>'provider',
+                          'eastmoney'
+                        )
+                      ) DESC, sync_row.last_ts DESC NULLS LAST
+                    ))[1] AS provider,
+                    COALESCE(sum(sync_row.row_count), 0)::INT AS row_count
                   FROM quant.market_data_sync_state sync_row
                   WHERE sync_row.symbol = securities.symbol
                     AND sync_row.timeframe = COALESCE(
@@ -207,10 +219,6 @@ async def list_research_universes() -> list[ResearchUniverse]:
                       universes.metadata->>'default_adjustment',
                       'qfq'
                     )
-                  ORDER BY (
-                    sync_row.provider = COALESCE(universes.metadata->>'provider', 'eastmoney')
-                  ) DESC, sync_row.last_ts DESC NULLS LAST
-                  LIMIT 1
                 ) sync_state ON TRUE
                 LEFT JOIN LATERAL (
                   SELECT
@@ -342,67 +350,90 @@ async def list_research_universe_summaries() -> list[ResearchUniverseSummary]:
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
         await cursor.execute(
             """
-                SELECT
-                  universes.id,
-                  universes.name,
-                  universes.description,
-                  universes.status,
-                  universes.source,
-                  universes.tags,
-                  universes.metadata AS universe_metadata,
-                  universes.created_at,
-                  universes.updated_at,
-                  count(securities.symbol)::INT AS member_count,
-                  count(*) FILTER (WHERE securities.asset_type = 'stock')::INT AS stock_count,
-                  count(*) FILTER (WHERE securities.asset_type = 'etf')::INT AS etf_count,
-                  count(*) FILTER (WHERE securities.asset_type = 'index')::INT AS index_count,
-                  count(*) FILTER (WHERE securities.asset_type = 'fund')::INT AS fund_count,
-                  count(*) FILTER (
-                    WHERE COALESCE(sync_state.row_count, 0) > 0
-                      AND sync_state.last_ts IS NOT NULL
-                  )::INT AS ready_count,
-                  COALESCE(sum(sync_state.row_count), 0)::BIGINT AS bar_count,
-                  max(sync_state.last_ts) AS latest_ts
-                FROM quant.security_universes universes
-                LEFT JOIN quant.security_universe_members members
-                  ON members.universe_id = universes.id
-                 AND COALESCE(members.role, 'member') <> 'inactive'
-                LEFT JOIN quant.securities securities
-                  ON securities.symbol = members.symbol
-                 AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
-                LEFT JOIN LATERAL (
-                  SELECT sync_row.*
-                  FROM quant.market_data_sync_state sync_row
-                  WHERE sync_row.symbol = securities.symbol
-                    AND sync_row.timeframe = COALESCE(
+                WITH member_rows AS (
+                  SELECT
+                    universes.id,
+                    universes.name,
+                    universes.description,
+                    universes.status,
+                    universes.source,
+                    universes.tags,
+                    universes.metadata AS universe_metadata,
+                    universes.created_at,
+                    universes.updated_at,
+                    securities.symbol,
+                    securities.asset_type,
+                    COALESCE(
                       universes.metadata->>'default_timeframe',
                       'daily'
-                    )
-                    AND sync_row.adjustment = COALESCE(
+                    ) AS default_timeframe,
+                    COALESCE(
                       universes.metadata->>'default_adjustment',
                       'qfq'
-                    )
-                  ORDER BY (
-                    sync_row.provider = COALESCE(universes.metadata->>'provider', 'eastmoney')
-                  ) DESC, sync_row.last_ts DESC NULLS LAST
-                  LIMIT 1
-                ) sync_state ON TRUE
+                    ) AS default_adjustment
+                  FROM quant.security_universes universes
+                  LEFT JOIN quant.security_universe_members members
+                    ON members.universe_id = universes.id
+                   AND COALESCE(members.role, 'member') <> 'inactive'
+                  LEFT JOIN quant.securities securities
+                    ON securities.symbol = members.symbol
+                   AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
+                ),
+                bar_summary AS (
+                  SELECT
+                    member_rows.id,
+                    member_rows.symbol,
+                    min(sync_state.first_ts) AS first_ts,
+                    max(sync_state.last_ts) AS last_ts,
+                    COALESCE(sum(sync_state.row_count), 0)::INT AS row_count
+                  FROM member_rows
+                  JOIN quant.market_data_sync_state sync_state
+                    ON sync_state.symbol = member_rows.symbol
+                   AND sync_state.timeframe = member_rows.default_timeframe
+                   AND sync_state.adjustment = member_rows.default_adjustment
+                  GROUP BY member_rows.id, member_rows.symbol
+                )
+                SELECT
+                  member_rows.id,
+                  member_rows.name,
+                  member_rows.description,
+                  member_rows.status,
+                  member_rows.source,
+                  member_rows.tags,
+                  member_rows.universe_metadata,
+                  member_rows.created_at,
+                  member_rows.updated_at,
+                  count(member_rows.symbol)::INT AS member_count,
+                  count(*) FILTER (WHERE member_rows.asset_type = 'stock')::INT AS stock_count,
+                  count(*) FILTER (WHERE member_rows.asset_type = 'etf')::INT AS etf_count,
+                  count(*) FILTER (WHERE member_rows.asset_type = 'index')::INT AS index_count,
+                  count(*) FILTER (WHERE member_rows.asset_type = 'fund')::INT AS fund_count,
+                  count(*) FILTER (
+                    WHERE COALESCE(bar_summary.row_count, 0) > 0
+                      AND bar_summary.last_ts IS NOT NULL
+                  )::INT AS ready_count,
+                  COALESCE(sum(bar_summary.row_count), 0)::BIGINT AS bar_count,
+                  max(bar_summary.last_ts) AS latest_ts
+                FROM member_rows
+                LEFT JOIN bar_summary
+                  ON bar_summary.id = member_rows.id
+                 AND bar_summary.symbol = member_rows.symbol
                 GROUP BY
-                  universes.id,
-                  universes.name,
-                  universes.description,
-                  universes.status,
-                  universes.source,
-                  universes.tags,
-                  universes.metadata,
-                  universes.created_at,
-                  universes.updated_at
+                  member_rows.id,
+                  member_rows.name,
+                  member_rows.description,
+                  member_rows.status,
+                  member_rows.source,
+                  member_rows.tags,
+                  member_rows.universe_metadata,
+                  member_rows.created_at,
+                  member_rows.updated_at
                 ORDER BY
                   CASE
-                    WHEN universes.metadata->>'display_order' ~ '^[0-9]+$'
-                    THEN (universes.metadata->>'display_order')::INT
+                    WHEN member_rows.universe_metadata->>'display_order' ~ '^[0-9]+$'
+                    THEN (member_rows.universe_metadata->>'display_order')::INT
                   END NULLS LAST,
-                  universes.created_at
+                  member_rows.created_at
                 """,
         )
         rows = await cursor.fetchall()
@@ -568,7 +599,19 @@ async def list_research_universe_members_page(
                   factor_metrics.pcf_ncf_ttm
                 FROM filtered_members
                 LEFT JOIN LATERAL (
-                  SELECT sync_row.*
+                  SELECT
+                    min(sync_row.first_ts) AS first_ts,
+                    max(sync_row.last_ts) AS last_ts,
+                    (array_agg(
+                      sync_row.provider
+                      ORDER BY (
+                        sync_row.provider = COALESCE(
+                          filtered_members.universe_metadata->>'provider',
+                          'eastmoney'
+                        )
+                      ) DESC, sync_row.last_ts DESC NULLS LAST
+                    ))[1] AS provider,
+                    COALESCE(sum(sync_row.row_count), 0)::INT AS row_count
                   FROM quant.market_data_sync_state sync_row
                   WHERE sync_row.symbol = filtered_members.symbol
                     AND sync_row.timeframe = COALESCE(
@@ -579,13 +622,6 @@ async def list_research_universe_members_page(
                       filtered_members.universe_metadata->>'default_adjustment',
                       'qfq'
                     )
-                  ORDER BY (
-                    sync_row.provider = COALESCE(
-                      filtered_members.universe_metadata->>'provider',
-                      'eastmoney'
-                    )
-                  ) DESC, sync_row.last_ts DESC NULLS LAST
-                  LIMIT 1
                 ) sync_state ON TRUE
                 LEFT JOIN LATERAL (
                   SELECT

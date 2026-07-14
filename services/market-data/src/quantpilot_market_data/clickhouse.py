@@ -385,6 +385,59 @@ async def insert_daily_bars(rows: list[dict[str, Any]]) -> int:
     return await asyncio.to_thread(_insert_daily_bars_sync, rows)
 
 
+def _delete_daily_bars_sync(
+    *,
+    universe_id: str,
+    start: date | None,
+    end: date | None,
+    timeframe: str,
+    adjustment: str,
+) -> None:
+    table = _table_name(DAILY_BARS_TABLE)
+    clauses = [
+        "universe_id = {universe_id:String}",
+        "timeframe = {timeframe:String}",
+        "adjustment = {adjustment:String}",
+    ]
+    parameters: dict[str, Any] = {
+        "universe_id": universe_id,
+        "timeframe": timeframe,
+        "adjustment": adjustment,
+    }
+    if start is not None:
+        clauses.append("trade_date >= {start:Date}")
+        parameters["start"] = start
+    if end is not None:
+        clauses.append("trade_date <= {end:Date}")
+        parameters["end"] = end
+    _command(
+        f"""
+        ALTER TABLE {table}
+        DELETE WHERE {" AND ".join(clauses)}
+        SETTINGS mutations_sync = 1
+        """,
+        parameters,
+    )
+
+
+async def delete_daily_bars(
+    *,
+    universe_id: str,
+    start: date | None = None,
+    end: date | None = None,
+    timeframe: str = "daily",
+    adjustment: str = "qfq",
+) -> None:
+    await asyncio.to_thread(
+        _delete_daily_bars_sync,
+        universe_id=universe_id,
+        start=start,
+        end=end,
+        timeframe=timeframe,
+        adjustment=adjustment,
+    )
+
+
 def _parse_metadata(row: dict[str, Any]) -> dict[str, Any]:
     metadata = row.get("security_metadata")
     if isinstance(metadata, str):

@@ -106,6 +106,33 @@ def test_parse_quote_payload_scales_fields() -> None:
     assert quote.quote_time == datetime.fromtimestamp(1779437507, tz=UTC)
 
 
+def test_parse_quote_payload_treats_invalid_numeric_fields_as_missing() -> None:
+    quote = parse_quote_payload(
+        "1.600519",
+        {
+            "rc": 0,
+            "rt": 11,
+            "data": {
+                "total": 1,
+                "diff": [
+                    {
+                        "f2": "not-a-number",
+                        "f5": "NaN",
+                        "f12": "600519",
+                        "f13": 1,
+                        "f14": "贵州茅台",
+                        "f124": "bad-timestamp",
+                    }
+                ],
+            },
+        },
+    )
+
+    assert quote.price is None
+    assert quote.volume is None
+    assert quote.quote_time is None
+
+
 def test_infer_asset_type_for_index_and_etf() -> None:
     assert infer_asset_type(symbol="600519", secid="1.600519", name="贵州茅台") == "stock"
     assert infer_asset_type(symbol="000300", secid="1.000300", name="沪深300") == "index"
@@ -381,11 +408,37 @@ def test_build_technical_indicators_from_kline() -> None:
     assert len(indicators.points) == 21
     assert indicators.points[4].ma5 == Decimal("103.0000")
     assert indicators.points[19].ma20 == Decimal("110.5000")
+    assert indicators.points[-1].ma30 is None
+    assert indicators.points[-1].ma60 is None
     assert indicators.points[-1].return_pct is not None
     assert indicators.summary.latest_close == Decimal("121")
     assert indicators.summary.period_return_pct == Decimal("19.8020")
     assert indicators.summary.max_drawdown_pct == Decimal("0.0000")
     assert indicators.summary.volatility_annualized_pct is not None
+
+
+def test_build_technical_indicators_includes_ma30_and_ma60() -> None:
+    kline = parse_kline_payload(
+        "1.600519",
+        "daily",
+        "qfq",
+        {
+            "rc": 0,
+            "data": {
+                "code": "600519",
+                "market": 1,
+                "name": "贵州茅台",
+                "klines": [build_kline_test_row(day) for day in range(1, 65)],
+            },
+        },
+    )
+
+    indicators = build_technical_indicators(kline)
+
+    assert indicators.points[29].ma30 == Decimal("115.5000")
+    assert indicators.points[59].ma60 == Decimal("130.5000")
+    assert indicators.summary.ma30 == Decimal("149.5000")
+    assert indicators.summary.ma60 == Decimal("134.5000")
 
 
 def build_kline_test_row(day: int) -> str:

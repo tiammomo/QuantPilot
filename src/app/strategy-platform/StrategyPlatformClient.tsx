@@ -401,10 +401,10 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-surface text-slate-900">
+    <div className="platform-shell">
       <PageHeader
         title="策略平台"
-        badge={<Badge variant="outline" className="bg-white text-slate-500">{data.summary.templates} 个策略模板</Badge>}
+        badge={<Badge variant="outline" className="border-primary/15 bg-primary/5 text-primary">{data.summary.templates} 个策略模板</Badge>}
         subtitle={`股票池、策略目录、因子目录、板块资金和金融知识 · 生成于 ${formatDate(data.generatedAt)}`}
       />
 
@@ -422,7 +422,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         }
       />
 
-      <main className="mx-auto w-full max-w-[1900px] space-y-5 px-3 py-6 lg:px-4">
+      <main className="platform-content mx-auto w-full max-w-[1900px] space-y-5 px-3 py-6 lg:px-4">
         {toast && (
           <div className={cn("rounded-md border px-4 py-3 text-sm shadow-sm",
             toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"

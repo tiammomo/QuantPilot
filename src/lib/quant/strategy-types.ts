@@ -441,6 +441,11 @@ export interface StrategyRealtimeQuote {
   amount?: number | null;
   marketCap?: number | null;
   floatMarketCap?: number | null;
+  peTtm?: number | null;
+  pbMrq?: number | null;
+  industry?: string | null;
+  region?: string | null;
+  concepts: string[];
   quoteTime?: string | null;
   asOf?: string | null;
   fetchedAt: string;

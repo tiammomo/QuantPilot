@@ -941,14 +941,14 @@ export function UniverseView({
             <table className="w-full min-w-[1300px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  <th className="w-[9%] px-5 py-3 font-medium">标的名称</th>
+                  <th className="w-[10%] px-5 py-3 font-medium">标的名称</th>
                   <th className="w-[8%] px-3 py-3 font-medium">代码</th>
-                  <th className="w-[38%] px-3 py-3 font-medium">所属板块</th>
-                  <th className="w-[9%] px-3 py-3 font-medium">行情</th>
-                  <th className="w-[10%] px-3 py-3 font-medium">强弱</th>
-                  <th className="w-[9%] px-3 py-3 font-medium">趋势</th>
-                  <th className="w-[10%] px-3 py-3 font-medium">流动性</th>
-                  <th className="w-[7%] px-3 py-3 font-medium">估值</th>
+                  <th className="w-[18%] px-3 py-3 font-medium">所属板块</th>
+                  <th className="w-[10%] px-3 py-3 font-medium">行情</th>
+                  <th className="w-[12%] px-3 py-3 font-medium">强弱</th>
+                  <th className="w-[12%] px-3 py-3 font-medium">趋势</th>
+                  <th className="w-[16%] px-3 py-3 font-medium">流动性</th>
+                  <th className="w-[14%] px-3 py-3 font-medium">估值</th>
                 </tr>
               </thead>
               <tbody>

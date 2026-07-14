@@ -95,23 +95,26 @@ async def get_market_data_coverage_page(
                           )
                         )
                     ),
+                    bar_summary AS (
+                      SELECT
+                        target_members.symbol,
+                        max(sync_state.last_ts) AS last_ts,
+                        COALESCE(sum(sync_state.row_count), 0)::INT AS row_count
+                      FROM target_members
+                      JOIN quant.market_data_sync_state sync_state
+                        ON sync_state.symbol = target_members.symbol
+                       AND sync_state.timeframe = target_members.default_timeframe
+                       AND sync_state.adjustment = target_members.default_adjustment
+                      GROUP BY target_members.symbol
+                    ),
                     coverage_rows AS (
                       SELECT
                         target_members.symbol,
-                        coverage.last_ts,
-                        COALESCE(coverage.row_count, 0) AS row_count
+                        bar_summary.last_ts,
+                        COALESCE(bar_summary.row_count, 0) AS row_count
                       FROM target_members
-                      LEFT JOIN LATERAL (
-                        SELECT sync_state.*
-                        FROM quant.market_data_sync_state sync_state
-                        WHERE sync_state.symbol = target_members.symbol
-                          AND sync_state.timeframe = target_members.default_timeframe
-                          AND sync_state.adjustment = target_members.default_adjustment
-                        ORDER BY
-                          (sync_state.provider = target_members.default_provider) DESC,
-                          sync_state.last_ts DESC NULLS LAST
-                        LIMIT 1
-                      ) coverage ON TRUE
+                      LEFT JOIN bar_summary
+                        ON bar_summary.symbol = target_members.symbol
                     )
                     SELECT
                       COUNT(*)::INT AS total,
@@ -184,15 +187,22 @@ async def get_market_data_coverage_page(
                       COALESCE(coverage.row_count, 0) AS row_count
                     FROM paged_members
                     LEFT JOIN LATERAL (
-                      SELECT sync_state.*
+                      SELECT
+                        max(sync_state.timeframe) AS timeframe,
+                        max(sync_state.adjustment) AS adjustment,
+                        (array_agg(
+                          sync_state.provider
+                          ORDER BY
+                            (sync_state.provider = paged_members.default_provider) DESC,
+                            sync_state.last_ts DESC NULLS LAST
+                        ))[1] AS provider,
+                        min(sync_state.first_ts) AS first_ts,
+                        max(sync_state.last_ts) AS last_ts,
+                        COALESCE(sum(sync_state.row_count), 0)::INT AS row_count
                       FROM quant.market_data_sync_state sync_state
                       WHERE sync_state.symbol = paged_members.symbol
                         AND sync_state.timeframe = paged_members.default_timeframe
                         AND sync_state.adjustment = paged_members.default_adjustment
-                      ORDER BY
-                        (sync_state.provider = paged_members.default_provider) DESC,
-                        sync_state.last_ts DESC NULLS LAST
-                      LIMIT 1
                     ) coverage ON TRUE
                     ORDER BY
                       CASE
@@ -206,6 +216,24 @@ async def get_market_data_coverage_page(
         else:
             await cursor.execute(
                 """
+                    WITH coverage_rows AS (
+                      SELECT
+                        sync_state.symbol,
+                        sync_state.timeframe,
+                        sync_state.adjustment,
+                        (array_agg(
+                          sync_state.provider
+                          ORDER BY sync_state.last_ts DESC NULLS LAST
+                        ))[1] AS provider,
+                        min(sync_state.first_ts) AS first_ts,
+                        max(sync_state.last_ts) AS last_ts,
+                        COALESCE(sum(sync_state.row_count), 0)::INT AS row_count
+                      FROM quant.market_data_sync_state sync_state
+                      GROUP BY
+                        sync_state.symbol,
+                        sync_state.timeframe,
+                        sync_state.adjustment
+                    )
                     SELECT
                       COUNT(*)::INT AS total,
                       COUNT(*) FILTER (
@@ -217,29 +245,47 @@ async def get_market_data_coverage_page(
                       0::INT AS stale,
                       MAX(last_ts) AS latest_ts,
                       COALESCE(SUM(row_count), 0)::INT AS total_rows
-                    FROM quant.market_data_sync_state
+                    FROM coverage_rows
                     """,
             )
             summary = _summary_from_row(await cursor.fetchone())
             await cursor.execute(
                 """
+                    WITH coverage_rows AS (
+                      SELECT
+                        sync_state.symbol,
+                        sync_state.timeframe,
+                        sync_state.adjustment,
+                        (array_agg(
+                          sync_state.provider
+                          ORDER BY sync_state.last_ts DESC NULLS LAST
+                        ))[1] AS provider,
+                        min(sync_state.first_ts) AS first_ts,
+                        max(sync_state.last_ts) AS last_ts,
+                        COALESCE(sum(sync_state.row_count), 0)::INT AS row_count
+                      FROM quant.market_data_sync_state sync_state
+                      GROUP BY
+                        sync_state.symbol,
+                        sync_state.timeframe,
+                        sync_state.adjustment
+                    )
                     SELECT
-                      sync_state.symbol,
+                      coverage_rows.symbol,
                       securities.name,
-                      sync_state.timeframe,
-                      sync_state.adjustment,
-                      sync_state.provider,
-                      sync_state.first_ts,
-                      sync_state.last_ts,
-                      sync_state.row_count
-                    FROM quant.market_data_sync_state sync_state
+                      coverage_rows.timeframe,
+                      coverage_rows.adjustment,
+                      coverage_rows.provider,
+                      coverage_rows.first_ts,
+                      coverage_rows.last_ts,
+                      coverage_rows.row_count
+                    FROM coverage_rows
                     LEFT JOIN quant.securities securities
-                      ON securities.symbol = sync_state.symbol
+                      ON securities.symbol = coverage_rows.symbol
                     ORDER BY
-                      sync_state.symbol,
-                      sync_state.timeframe,
-                      sync_state.adjustment,
-                      sync_state.provider
+                      coverage_rows.symbol,
+                      coverage_rows.timeframe,
+                      coverage_rows.adjustment,
+                      coverage_rows.provider
                     LIMIT %s OFFSET %s
                     """,
                 (normalized_page_size, offset),

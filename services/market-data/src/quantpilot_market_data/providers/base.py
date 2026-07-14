@@ -20,7 +20,7 @@ ProviderMarket = Literal["a-share", "hk", "us", "global", "mixed", "index-etf"]
 
 @dataclass(frozen=True)
 class ProviderCapability:
-    """Provider metadata used by routers and the data-platform registry."""
+    """Provider metadata used by routers and the capability-support registry."""
 
     status: ProviderStatus
     markets: tuple[ProviderMarket, ...]

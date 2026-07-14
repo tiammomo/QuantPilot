@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 export function formatCompactDate(value: string | null | undefined) {
   if (!value) return '-';
   return new Date(value).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',

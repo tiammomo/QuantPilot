@@ -77,6 +77,8 @@ def build_technical_indicators(kline: KlineResponse) -> TechnicalIndicatorsRespo
                 ma5=_round(_rolling_mean(closes, index, 5), 4),
                 ma10=_round(_rolling_mean(closes, index, 10), 4),
                 ma20=_round(_rolling_mean(closes, index, 20), 4),
+                ma30=_round(_rolling_mean(closes, index, 30), 4),
+                ma60=_round(_rolling_mean(closes, index, 60), 4),
                 return_pct=_round(return_value, 4),
                 drawdown_pct=_round(_drawdown_pct(bar.close, peak_close), 4),
             )
@@ -97,6 +99,8 @@ def build_technical_indicators(kline: KlineResponse) -> TechnicalIndicatorsRespo
         ma5=points[-1].ma5 if points else None,
         ma10=points[-1].ma10 if points else None,
         ma20=points[-1].ma20 if points else None,
+        ma30=points[-1].ma30 if points else None,
+        ma60=points[-1].ma60 if points else None,
     )
 
     return TechnicalIndicatorsResponse(

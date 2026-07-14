@@ -83,6 +83,11 @@ class RealtimeQuote(BaseModel):
     amount: Decimal | None = Field(default=None, description="成交额")
     market_cap: Decimal | None = Field(default=None, description="总市值")
     float_market_cap: Decimal | None = Field(default=None, description="流通市值")
+    pe_ttm: Decimal | None = Field(default=None, description="TTM 市盈率")
+    pb_mrq: Decimal | None = Field(default=None, description="市净率 MRQ")
+    industry: str | None = Field(default=None, description="行业板块")
+    region: str | None = Field(default=None, description="地域板块")
+    concepts: list[str] = Field(default_factory=list, description="概念板块")
 
     quote_time: datetime | None = Field(default=None, description="行情时间")
     as_of: datetime | str | None = Field(default=None, description="数据对应时间")
@@ -855,7 +860,7 @@ class ClickHouseSyncRequest(BaseModel):
     end: date | None = None
     timeframe: KlinePeriod | str = "daily"
     adjustment: Adjustment | str = "qfq"
-    limit: int | None = Field(default=300_000, ge=1, le=2_000_000)
+    limit: int | None = Field(default=None, ge=1, le=2_000_000)
 
 
 class ClickHouseSyncResponse(BaseModel):
@@ -1187,6 +1192,8 @@ class TechnicalIndicatorPoint(BaseModel):
     ma5: Decimal | None = None
     ma10: Decimal | None = None
     ma20: Decimal | None = None
+    ma30: Decimal | None = None
+    ma60: Decimal | None = None
     return_pct: Decimal | None = Field(default=None, description="相对上一根 K 线收益率，单位：%")
     drawdown_pct: Decimal | None = Field(
         default=None,
@@ -1203,6 +1210,8 @@ class TechnicalIndicatorSummary(BaseModel):
     ma5: Decimal | None = None
     ma10: Decimal | None = None
     ma20: Decimal | None = None
+    ma30: Decimal | None = None
+    ma60: Decimal | None = None
 
 
 class TechnicalIndicatorsResponse(BaseModel):

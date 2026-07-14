@@ -227,14 +227,19 @@ def json_object(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+EMPTY_TEXT_VALUES = {"-", "--", "无", "暂无", "None", "none", "null", "NULL", "nan", "NaN"}
+
+
 def clean_sector_value(value: Any) -> str | None:
+    if value is None:
+        return None
     text = str(value).replace('\\"', '"').strip()
     while text and text[0] in {'[', '"', "'", "“", "‘"}:
         text = text[1:].strip()
     while text and text[-1] in {']', '"', "'", "”", "’"}:
         text = text[:-1].strip()
     text = SECTOR_HINT_LABELS.get(text, text)
-    if not text or text in {"-", "--", "无", "暂无"}:
+    if not text or text in EMPTY_TEXT_VALUES:
         return None
     return text
 
@@ -251,11 +256,11 @@ def first_text(*values: Any) -> str | None:
     for value in values:
         if isinstance(value, str):
             text = value.strip()
-            if text and text not in {"-", "--", "无", "暂无"}:
+            if text and text not in EMPTY_TEXT_VALUES:
                 return text
         elif value is not None:
             text = str(value).strip()
-            if text and text not in {"-", "--", "无", "暂无"}:
+            if text and text not in EMPTY_TEXT_VALUES:
                 return text
     return None
 

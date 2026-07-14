@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -114,6 +114,7 @@ QUOTE_FIELDS = ",".join(
         "f6",  # 成交额
         "f7",  # 振幅，单位：%
         "f8",  # 换手率，单位：%
+        "f9",  # 市盈率
         "f12",  # 代码
         "f13",  # 东方财富市场编号
         "f14",  # 名称
@@ -123,6 +124,10 @@ QUOTE_FIELDS = ",".join(
         "f18",  # 昨收
         "f20",  # 总市值
         "f21",  # 流通市值
+        "f23",  # 市净率
+        "f100",  # 行业
+        "f102",  # 地域
+        "f103",  # 概念
         "f124",  # 行情时间，Unix 秒
     ]
 )
@@ -1073,6 +1078,11 @@ def parse_quote_item(secid: str, data: dict[str, Any]) -> RealtimeQuote:
         amount=_to_decimal(data.get("f6")),
         market_cap=_to_decimal(data.get("f20")),
         float_market_cap=_to_decimal(data.get("f21")),
+        pe_ttm=_to_decimal(data.get("f9")),
+        pb_mrq=_to_decimal(data.get("f23")),
+        industry=_empty_to_none(data.get("f100")),
+        region=_empty_to_none(data.get("f102")),
+        concepts=_split_text_values(data.get("f103")),
         quote_time=quote_time,
         fetched_at=datetime.now(UTC),
     )
@@ -1084,10 +1094,39 @@ def _empty_to_none(value: Any) -> str | None:
     return str(value)
 
 
+def _split_text_values(value: Any) -> list[str]:
+    if value in (None, "-", ""):
+        return []
+    if isinstance(value, list):
+        candidates = value
+    else:
+        text = str(value)
+        for separator in ("，", "、", "；", ";", "|"):
+            text = text.replace(separator, ",")
+        candidates = text.split(",")
+
+    values: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        text = _empty_to_none(candidate)
+        if text is None:
+            continue
+        clean_text = text.strip()
+        if not clean_text or clean_text in seen:
+            continue
+        seen.add(clean_text)
+        values.append(clean_text)
+    return values
+
+
 def _to_decimal(value: Any) -> Decimal | None:
     if value in (None, "-", ""):
         return None
-    return Decimal(str(value))
+    try:
+        decimal = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return None
+    return decimal if decimal.is_finite() else None
 
 
 def _scale_decimal(value: Any, divisor: int) -> Decimal | None:
@@ -1100,7 +1139,13 @@ def _scale_decimal(value: Any, divisor: int) -> Decimal | None:
 def _to_int(value: Any) -> int | None:
     if value in (None, "-", ""):
         return None
-    return int(Decimal(str(value)))
+    decimal = _to_decimal(value)
+    if decimal is None:
+        return None
+    try:
+        return int(decimal)
+    except (OverflowError, ValueError):
+        return None
 
 
 def _timestamp_to_datetime(value: Any) -> datetime | None:

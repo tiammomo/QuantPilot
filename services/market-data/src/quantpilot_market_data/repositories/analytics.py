@@ -7,6 +7,7 @@ from psycopg.rows import dict_row
 
 from quantpilot_market_data.clickhouse import (
     ClickHouseError,
+    delete_daily_bars,
     initialize_clickhouse,
     insert_daily_bars,
     is_clickhouse_enabled,
@@ -26,7 +27,7 @@ async def sync_clickhouse_daily_bars(
     end: date | None = None,
     timeframe: str = "daily",
     adjustment: str = "qfq",
-    limit: int | None = 300_000,
+    limit: int | None = None,
 ) -> ClickHouseSyncResponse:
     if not is_clickhouse_enabled():
         return ClickHouseSyncResponse(
@@ -112,6 +113,17 @@ async def sync_clickhouse_daily_bars(
 
     try:
         await initialize_clickhouse()
+        can_replace_existing = bool(rows) and (
+            safe_limit is None or len(rows) < safe_limit
+        )
+        if can_replace_existing:
+            await delete_daily_bars(
+                universe_id=universe_id,
+                start=start,
+                end=end,
+                timeframe=timeframe,
+                adjustment=adjustment,
+            )
         written = await insert_daily_bars(rows)
     except ClickHouseError as error:
         return ClickHouseSyncResponse(
@@ -137,5 +149,9 @@ async def sync_clickhouse_daily_bars(
         end=end,
         rows_read=len(rows),
         rows_written=written,
-        message="已同步日线行情到 ClickHouse 分析表。",
+        message=(
+            "已同步日线行情到 ClickHouse 分析表。"
+            if safe_limit is None or len(rows) < safe_limit
+            else "已追加日线行情到 ClickHouse；本次结果达到 limit，未清理旧范围以避免误删。"
+        ),
     )

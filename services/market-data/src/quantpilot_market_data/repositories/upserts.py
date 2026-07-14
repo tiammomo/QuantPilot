@@ -24,6 +24,84 @@ from quantpilot_market_data.models import KlineResponse, RealtimeQuote
 
 __all__ = ["upsert_kline_response", "upsert_realtime_quote_snapshot"]
 
+async def _refresh_market_data_sync_state(
+    cursor,
+    *,
+    symbol: str,
+    timeframe: str,
+    adjustment: str,
+    metadata: dict[str, Any],
+) -> None:
+    await cursor.execute(
+        """
+            WITH rebuilt AS (
+              SELECT
+                symbol,
+                timeframe,
+                adjustment,
+                provider,
+                min(ts) AS first_ts,
+                max(ts) AS last_ts,
+                count(*)::INT AS row_count
+              FROM quant.stock_bars
+              WHERE symbol = %s
+                AND timeframe = %s
+                AND adjustment = %s
+              GROUP BY symbol, timeframe, adjustment, provider
+            ),
+            upserted AS (
+              INSERT INTO quant.market_data_sync_state (
+                symbol, timeframe, adjustment, provider, first_ts, last_ts, row_count,
+                last_success_at, last_error, metadata, created_at, updated_at
+              )
+              SELECT
+                symbol,
+                timeframe,
+                adjustment,
+                provider,
+                first_ts,
+                last_ts,
+                row_count,
+                now(),
+                NULL,
+                %s,
+                now(),
+                now()
+              FROM rebuilt
+              ON CONFLICT (symbol, timeframe, adjustment, provider) DO UPDATE SET
+                first_ts = EXCLUDED.first_ts,
+                last_ts = EXCLUDED.last_ts,
+                row_count = EXCLUDED.row_count,
+                last_success_at = now(),
+                last_error = NULL,
+                metadata = quant.market_data_sync_state.metadata || EXCLUDED.metadata,
+                updated_at = now()
+              RETURNING symbol, timeframe, adjustment, provider
+            )
+            DELETE FROM quant.market_data_sync_state sync_state
+            WHERE sync_state.symbol = %s
+              AND sync_state.timeframe = %s
+              AND sync_state.adjustment = %s
+              AND NOT EXISTS (
+                SELECT 1
+                FROM rebuilt
+                WHERE rebuilt.symbol = sync_state.symbol
+                  AND rebuilt.timeframe = sync_state.timeframe
+                  AND rebuilt.adjustment = sync_state.adjustment
+                  AND rebuilt.provider = sync_state.provider
+              )
+            """,
+        (
+            symbol,
+            timeframe,
+            adjustment,
+            Jsonb(metadata),
+            symbol,
+            timeframe,
+            adjustment,
+        ),
+    )
+
 async def upsert_kline_response(
     kline: KlineResponse,
     *,
@@ -222,50 +300,12 @@ async def upsert_kline_response(
                     """,
                 factor_rows,
             )
-        await cursor.execute(
-            """
-                INSERT INTO quant.market_data_sync_state (
-                  symbol, timeframe, adjustment, provider, first_ts, last_ts, row_count,
-                  last_success_at, last_error, metadata, created_at, updated_at
-                )
-                SELECT
-                  %s,
-                  %s,
-                  %s,
-                  %s,
-                  min(ts),
-                  max(ts),
-                  count(*)::INT,
-                  now(),
-                  NULL,
-                  %s,
-                  now(),
-                  now()
-                FROM quant.stock_bars
-                WHERE symbol = %s
-                  AND timeframe = %s
-                  AND adjustment = %s
-                  AND provider = %s
-                ON CONFLICT (symbol, timeframe, adjustment, provider) DO UPDATE SET
-                  first_ts = EXCLUDED.first_ts,
-                  last_ts = EXCLUDED.last_ts,
-                  row_count = EXCLUDED.row_count,
-                  last_success_at = now(),
-                  last_error = NULL,
-                  metadata = quant.market_data_sync_state.metadata || EXCLUDED.metadata,
-                  updated_at = now()
-                """,
-            (
-                symbol,
-                kline.period,
-                kline.adjustment,
-                kline.source,
-                Jsonb({"name": kline.name, "secid": kline.secid, "universe_id": universe_id}),
-                symbol,
-                kline.period,
-                kline.adjustment,
-                kline.source,
-            ),
+        await _refresh_market_data_sync_state(
+            cursor,
+            symbol=symbol,
+            timeframe=kline.period,
+            adjustment=kline.adjustment,
+            metadata={"name": kline.name, "secid": kline.secid, "universe_id": universe_id},
         )
 
     return symbol, len(bars), first_date, last_date
@@ -292,6 +332,33 @@ async def upsert_realtime_quote_snapshot(
     symbol = canonical_symbol(quote.symbol, quote.market)
     change_amount = quote.change_amount or decimal_subtract(quote.price, quote.previous_close)
     amplitude = quote.amplitude or amplitude_percent(quote.high, quote.low, quote.previous_close)
+    quote_concepts = quote.concepts or []
+    factor_rows: list[tuple[Any, ...]] = []
+    for factor_key, factor_value in (
+        ("pe_ttm", quote.pe_ttm),
+        ("pb_mrq", quote.pb_mrq),
+    ):
+        parsed_factor = decimal_or_none(factor_value)
+        if parsed_factor is None:
+            continue
+        factor_rows.append(
+            (
+                symbol,
+                ts,
+                factor_key,
+                float(parsed_factor),
+                quote.source,
+                Jsonb(
+                    {
+                        "source": quote.source,
+                        "source_strategy": "eastmoney-realtime-snapshot",
+                        "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
+                        "fetched_at": quote.fetched_at.isoformat(),
+                        "universe_id": universe_id,
+                    }
+                ),
+            )
+        )
     bar_metadata = {
         "secid": quote.secid,
         "name": quote.name,
@@ -304,6 +371,11 @@ async def upsert_realtime_quote_snapshot(
         "float_market_cap": (
             str(quote.float_market_cap) if quote.float_market_cap is not None else None
         ),
+        "pe_ttm": str(quote.pe_ttm) if quote.pe_ttm is not None else None,
+        "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
+        "industry": quote.industry,
+        "region": quote.region,
+        "concepts": quote_concepts or None,
         "source_bar": {
             "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
             "fetched_at": quote.fetched_at.isoformat(),
@@ -321,6 +393,11 @@ async def upsert_realtime_quote_snapshot(
             "float_market_cap": (
                 str(quote.float_market_cap) if quote.float_market_cap is not None else None
             ),
+            "pe_ttm": str(quote.pe_ttm) if quote.pe_ttm is not None else None,
+            "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
+            "industry": quote.industry,
+            "region": quote.region,
+            "concepts": quote_concepts or None,
         },
         "previous_close": str(quote.previous_close) if quote.previous_close is not None else None,
         "amplitude": str(amplitude) if amplitude is not None else None,
@@ -347,7 +424,7 @@ async def upsert_realtime_quote_snapshot(
                   currency = EXCLUDED.currency,
                   timezone = EXCLUDED.timezone,
                   secid = EXCLUDED.secid,
-                  metadata = quant.securities.metadata || EXCLUDED.metadata,
+                  metadata = quant.securities.metadata || jsonb_strip_nulls(EXCLUDED.metadata),
                   updated_at = now()
                 """,
             (
@@ -364,6 +441,9 @@ async def upsert_realtime_quote_snapshot(
                     {
                         "source": quote.source,
                         "fetched_at": quote.fetched_at.isoformat(),
+                        "industry": quote.industry,
+                        "region": quote.region,
+                        "concepts": quote_concepts or None,
                         "latest_quote": {
                             "quote_time": (
                                 quote.quote_time.isoformat() if quote.quote_time else None
@@ -387,6 +467,11 @@ async def upsert_realtime_quote_snapshot(
                             ),
                             "amount": str(quote.amount) if quote.amount is not None else None,
                             "volume": quote.volume,
+                            "pe_ttm": str(quote.pe_ttm) if quote.pe_ttm is not None else None,
+                            "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
+                            "industry": quote.industry,
+                            "region": quote.region,
+                            "concepts": quote_concepts or None,
                         },
                         "market_cap": (
                             str(quote.market_cap) if quote.market_cap is not None else None
@@ -451,48 +536,26 @@ async def upsert_realtime_quote_snapshot(
                 Jsonb(bar_metadata),
             ),
         )
-        await cursor.execute(
-            """
-                INSERT INTO quant.market_data_sync_state (
-                  symbol, timeframe, adjustment, provider, first_ts, last_ts, row_count,
-                  last_success_at, last_error, metadata, created_at, updated_at
-                )
-                SELECT
-                  %s,
-                  'daily',
-                  %s,
-                  %s,
-                  min(ts),
-                  max(ts),
-                  count(*)::INT,
-                  now(),
-                  NULL,
-                  %s,
-                  now(),
-                  now()
-                FROM quant.stock_bars
-                WHERE symbol = %s
-                  AND timeframe = 'daily'
-                  AND adjustment = %s
-                  AND provider = %s
-                ON CONFLICT (symbol, timeframe, adjustment, provider) DO UPDATE SET
-                  first_ts = EXCLUDED.first_ts,
-                  last_ts = EXCLUDED.last_ts,
-                  row_count = EXCLUDED.row_count,
-                  last_success_at = now(),
-                  last_error = NULL,
-                  metadata = quant.market_data_sync_state.metadata || EXCLUDED.metadata,
-                  updated_at = now()
-                """,
-            (
-                symbol,
-                adjustment,
-                quote.source,
-                Jsonb({"name": quote.name, "secid": quote.secid, "universe_id": universe_id}),
-                symbol,
-                adjustment,
-                quote.source,
-            ),
+        if factor_rows:
+            await cursor.executemany(
+                """
+                    INSERT INTO quant.stock_factors (
+                      symbol, ts, factor_key, factor_value, provider, metadata, created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, now())
+                    ON CONFLICT (symbol, factor_key, ts) DO UPDATE SET
+                      factor_value = EXCLUDED.factor_value,
+                      provider = EXCLUDED.provider,
+                      metadata = quant.stock_factors.metadata || EXCLUDED.metadata
+                    """,
+                factor_rows,
+            )
+        await _refresh_market_data_sync_state(
+            cursor,
+            symbol=symbol,
+            timeframe="daily",
+            adjustment=adjustment,
+            metadata={"name": quote.name, "secid": quote.secid, "universe_id": universe_id},
         )
 
     trade_date_text = local_trade_date.isoformat()
