@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
-  Boxes,
+  BriefcaseBusiness,
   CheckCircle2,
   Clock3,
   Gauge,
@@ -104,9 +104,9 @@ const CAPABILITY_ICON_COLORS: Record<string, string> = {
 
 const PLATFORM_NAV_ITEMS = [
   { href: "/strategy-platform", label: "策略", icon: BarChart3 },
-  { href: "/research-reports", label: "日报", icon: Newspaper },
-  { href: "/ops-platform", label: "运维", icon: ShieldCheck },
-  { href: "/data-platform", label: "数据", icon: Boxes },
+  { href: "/research-reports", label: "投研", icon: Newspaper },
+  { href: "/ops-platform", label: "治理", icon: ShieldCheck },
+  { href: "/business-knowledge", label: "业务", icon: BriefcaseBusiness },
   { href: "/eval-platform", label: "评测", icon: Gauge },
 ];
 
@@ -603,9 +603,9 @@ export default function HomePage() {
 
   // --- Render ---
   return (
-    <div className="relative flex min-h-screen flex-col bg-background text-foreground">
+    <div className="home-shell relative flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
       {/* Top navigation */}
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-3 backdrop-blur-xl md:px-6">
+      <header className="platform-header sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between px-3 md:px-6">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
             Q
@@ -703,7 +703,7 @@ export default function HomePage() {
       </AnimatePresence>
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col items-center px-4 pt-12 pb-16 md:pt-20 md:pb-24">
+      <main className="platform-content flex flex-1 flex-col items-center px-4 pb-16 pt-12 md:pb-24 md:pt-20">
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -780,7 +780,7 @@ export default function HomePage() {
                       onClick={() => !isPlanned && handleCapabilityCardClick(cap.id)}
                       disabled={isPlanned}
                       className={cn(
-                        "group relative flex flex-col items-start gap-2.5 rounded-xl border bg-gradient-to-br p-4 text-left transition-all",
+                        "group relative flex flex-col items-start gap-2.5 rounded-xl border bg-gradient-to-br p-4 text-left shadow-[0_12px_28px_-24px_hsl(var(--foreground)/0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-22px_hsl(var(--foreground)/0.32)]",
                         CAPABILITY_COLORS[cap.id],
                         isActive && "ring-2 ring-primary/30",
                         isPlanned && "opacity-60 cursor-not-allowed"

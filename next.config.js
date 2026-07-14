@@ -34,7 +34,7 @@ const nextConfig = {
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
   devIndicators: false,
-  allowedDevOrigins: ['127.0.0.1'],
+  allowedDevOrigins: ['127.0.0.1', 'host.docker.internal'],
   ...(isStandaloneBuild ? { output: 'standalone' } : {}),
   // Agent、数据库和本地进程管理只在 Node.js API Route 中运行，构建时保持外部依赖。
   serverExternalPackages: [
@@ -78,7 +78,17 @@ const nextConfig = {
   },
   // 注入项目根路径，供前端读取当前工作区信息。避免在配置里调用 process.cwd()，
   // 防止输出追踪误判为需要扫描整个仓库。
-  async redirects() { return [{ source: '/observability', destination: '/workspaces?view=trace', permanent: true }]; },
+  async redirects() {
+    return [
+      { source: '/observability', destination: '/ops-platform?view=trace', permanent: true },
+      { source: '/capabilities', destination: '/business-knowledge', permanent: true },
+      { source: '/data-platform', destination: '/business-knowledge', permanent: true },
+      { source: '/strategies', destination: '/strategy-platform', permanent: true },
+      { source: '/workspaces', destination: '/ops-platform', permanent: true },
+      { source: '/evals', destination: '/eval-platform', permanent: true },
+      { source: '/evals/runs/:runId', destination: '/eval-platform/runs/:runId', permanent: true },
+    ];
+  },
   env: {
     NEXT_PUBLIC_PROJECT_ROOT: process.env.NEXT_PUBLIC_PROJECT_ROOT || '',
   },

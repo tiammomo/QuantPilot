@@ -2,7 +2,6 @@ import './globals.css'
 import GlobalSettingsProvider from '@/contexts/GlobalSettingsContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
-import Header from '@/components/layout/Header'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,8 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>
             <GlobalSettingsProvider>
-              <Header />
-              <main>{children}</main>
+              {children}
             </GlobalSettingsProvider>
           </AuthProvider>
         </ThemeProvider>

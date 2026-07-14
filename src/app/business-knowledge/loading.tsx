@@ -3,8 +3,8 @@ import { PlatformRouteLoading } from '@/components/layout/PlatformRouteLoading';
 export default function Loading() {
   return (
     <PlatformRouteLoading
-      title="数据平台"
-      subtitle="正在检查数据源、能力域、接口契约和降级状态..."
+      title="量化业务知识中心"
+      subtitle="正在加载业务能力、场景知识与交付规范..."
     />
   );
 }
