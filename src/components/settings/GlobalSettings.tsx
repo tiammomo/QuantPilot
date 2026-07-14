@@ -29,67 +29,17 @@ interface GlobalSettingsProps {
 const CLI_OPTIONS: CLIOption[] = [
   {
     id: "claude",
-    name: "Claude Code",
+    name: "DeepSeek Agent",
     icon: "",
-    description: "Claude Code runtime with Anthropic-compatible model providers",
-    color: "from-orange-500 to-red-600",
-    brandColor: "#DE7356",
-    downloadUrl: "https://docs.anthropic.com/en/docs/claude-code/overview",
-    installCommand: "npm install -g @anthropic-ai/claude-code",
+    description: "仅通过 DeepSeek 官方 API 调用 V4 Flash",
+    color: "from-blue-600 to-indigo-600",
+    brandColor: "#2563EB",
+    downloadUrl: "https://api-docs.deepseek.com/guides/coding_agents",
+    installCommand: "npm install",
     enabled: true,
     models: getModelDefinitionsForCli("claude").map(({ id, name, description, provider, external }) => ({
       id, name, description, provider, external,
     })),
-  },
-  {
-    id: "codex",
-    name: "Codex CLI",
-    icon: "",
-    description: "OpenAI Codex agent with GPT-5 support",
-    color: "from-slate-900 to-slate-700",
-    brandColor: "#000000",
-    downloadUrl: "https://github.com/openai/codex",
-    installCommand: "npm install -g @openai/codex",
-    enabled: true,
-    models: getModelDefinitionsForCli("codex").map(({ id, name, description, provider, runtime, external }) => ({
-      id, name, description, provider, runtime, external,
-    })),
-  },
-  {
-    id: "cursor",
-    name: "Cursor Agent",
-    icon: "",
-    description: "Cursor CLI with multi-model router and autonomous tooling",
-    color: "from-slate-500 to-slate-600",
-    brandColor: "#6B7280",
-    downloadUrl: "https://docs.cursor.com/en/cli/overview",
-    installCommand: "curl https://cursor.com/install -fsS | bash",
-    enabled: true,
-    models: getModelDefinitionsForCli("cursor").map(({ id, name, description }) => ({ id, name, description })),
-  },
-  {
-    id: "qwen",
-    name: "Qwen Coder",
-    icon: "",
-    description: "Alibaba Qwen Code CLI with sandbox capabilities",
-    color: "from-emerald-500 to-teal-600",
-    brandColor: "#11A97D",
-    downloadUrl: "https://github.com/QwenLM/qwen-code",
-    installCommand: "npm install -g @qwen-code/qwen-code",
-    enabled: true,
-    models: getModelDefinitionsForCli("qwen").map(({ id, name, description }) => ({ id, name, description })),
-  },
-  {
-    id: "glm",
-    name: "GLM CLI",
-    icon: "",
-    description: "Zhipu GLM agent running on Claude Code runtime",
-    color: "from-blue-500 to-indigo-600",
-    brandColor: "#1677FF",
-    downloadUrl: "https://docs.z.ai/devpack/tool/claude",
-    installCommand: "zai devpack install claude",
-    enabled: true,
-    models: getModelDefinitionsForCli("glm").map(({ id, name, description }) => ({ id, name, description })),
   },
 ];
 
@@ -159,7 +109,6 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
   const [saveMessage, setSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const [selectedCLI, setSelectedCLI] = useState<CLIOption | null>(null);
-  const [apiKeyVisibility, setApiKeyVisibility] = useState<Record<string, boolean>>({});
   const [infrastructure, setInfrastructure] = useState<InfrastructureHealth | null>(null);
   const [infrastructureError, setInfrastructureError] = useState<string | null>(null);
   const [infrastructureLoading, setInfrastructureLoading] = useState(false);
@@ -280,45 +229,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
     }
   };
 
-  const setDefaultCLI = (cliId: string) => {
-    if (!cliStatus[cliId]?.installed) return;
-    setGlobalSettings((prev) => ({ ...prev, default_cli: cliId }));
-  };
-
-  const setDefaultModel = (cliId: string, modelId: string) => {
-    setGlobalSettings((prev) => ({
-      ...prev,
-      cli_settings: {
-        ...(prev?.cli_settings ?? {}),
-        [cliId]: { ...(prev?.cli_settings?.[cliId] ?? {}), model: normalizeModelId(cliId, modelId) },
-      },
-    }));
-  };
-
-  const setCliApiKey = (cliId: string, apiKey: string) => {
-    setGlobalSettings((prev) => {
-      const nextCliSettings = { ...(prev?.cli_settings ?? {}) };
-      const existing = { ...(nextCliSettings[cliId] ?? {}) };
-      const trimmed = apiKey.trim();
-      if (trimmed.length > 0) {
-        existing.apiKey = trimmed;
-        nextCliSettings[cliId] = existing;
-      } else {
-        delete existing.apiKey;
-        if (Object.keys(existing).length > 0) nextCliSettings[cliId] = existing;
-        else delete nextCliSettings[cliId];
-      }
-      return { ...prev, cli_settings: nextCliSettings };
-    });
-  };
-
-  const toggleApiKeyVisibility = (cliId: string) => {
-    setApiKeyVisibility((prev) => ({ ...prev, [cliId]: !prev[cliId] }));
-  };
-
   // Derived data
   const defaultCli = CLI_OPTIONS.find((c) => c.id === globalSettings.default_cli);
-  const defaultCliSettings = defaultCli ? globalSettings.cli_settings?.[defaultCli.id] || {} : {};
+  const defaultCliSettings = defaultCli ? globalSettings.cli_settings.claude : {};
   const defaultModel = defaultCli?.models.find((m) => m.id === defaultCliSettings.model);
   const installedAgentCount = CLI_OPTIONS.filter((c) => c.enabled !== false && cliStatus[c.id]?.installed).length;
   const configuredServiceCount = Object.values(tokens).filter(Boolean).length;
@@ -406,14 +319,8 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
               <AIAgentsTab
                 cliOptions={CLI_OPTIONS}
                 cliStatus={cliStatus}
-                globalSettings={globalSettings}
                 saveMessage={saveMessage}
                 isLoading={isLoading}
-                apiKeyVisibility={apiKeyVisibility}
-                onSetDefaultCli={setDefaultCLI}
-                onSetDefaultModel={setDefaultModel}
-                onSetCliApiKey={setCliApiKey}
-                onToggleApiKeyVisibility={toggleApiKeyVisibility}
                 onRefreshCliStatus={checkCLIStatus}
                 onSaveSettings={saveGlobalSettings}
                 onOpenInstallModal={(cli) => {

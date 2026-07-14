@@ -87,12 +87,9 @@ const sanitizeModel = (cli: string, model?: string | null) => normalizeModelForC
 const hexToFilter = (hex: string): string => {
   // For white source images, we need to invert and adjust
   const filters: { [key: string]: string } = {
-    '#DE7356': 'brightness(0) saturate(100%) invert(52%) sepia(73%) saturate(562%) hue-rotate(336deg) brightness(95%) contrast(91%)',
-    '#000000': 'brightness(0) saturate(100%)',
-    '#11A97D': 'brightness(0) saturate(100%) invert(57%) sepia(30%) saturate(747%) hue-rotate(109deg) brightness(90%) contrast(92%)',
-    '#1677FF': 'brightness(0) saturate(100%) invert(40%) sepia(86%) saturate(1806%) hue-rotate(201deg) brightness(98%) contrast(98%)',
+    '#2563EB': 'brightness(0) saturate(100%) invert(34%) sepia(91%) saturate(2269%) hue-rotate(214deg) brightness(96%) contrast(91%)',
   };
-  return filters[hex] || filters['#DE7356'];
+  return filters[hex] || filters['#2563EB'];
 };
 
 type Entry = { path: string; type: 'file'|'dir'; size?: number };

@@ -5,10 +5,8 @@ import { getDefaultModelForCli } from '@/lib/constants/cliModels';
 export type GlobalAISettings = {
   default_cli: string;
   cli_settings: {
-    [key: string]: {
+    claude: {
       model?: string;
-      apiKey?: string;
-      [key: string]: unknown;
     };
   };
 };
@@ -23,9 +21,6 @@ const defaultSettings: GlobalAISettings = {
   default_cli: 'claude',
   cli_settings: {
     claude: { model: getDefaultModelForCli('claude') },
-    codex: { model: getDefaultModelForCli('codex') },
-    qwen: { model: getDefaultModelForCli('qwen') },
-    glm: { model: getDefaultModelForCli('glm') },
   },
 };
 

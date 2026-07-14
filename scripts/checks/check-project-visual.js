@@ -10,8 +10,8 @@ const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
 const projectId = process.env.PROJECT_ID || process.argv[2] || '';
 const baseUrl = (process.env.QUANTPILOT_WEB_URL || 'http://localhost:3000').replace(/\/+$/, '');
-const cli = process.env.CLI || 'claude';
-const model = process.env.MODEL || 'mimo-v2.5-pro';
+const cli = 'claude';
+const model = 'deepseek-v4-flash';
 
 function fail(message, details = []) {
   console.error(`\n❌ 项目可视化截图检查失败：${message}`);

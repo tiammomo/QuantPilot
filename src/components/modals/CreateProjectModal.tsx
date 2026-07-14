@@ -25,12 +25,11 @@ const sanitizeModel = (cli: string, model?: string | null) => normalizeModelId(c
 const CLI_OPTIONS: CLIOption[] = [
   {
     id: 'claude',
-    name: 'Claude Code',
-    icon: '🤖',
-    description: 'Claude Code runtime with Anthropic-compatible model providers',
-    color: 'from-orange-500 to-red-600',
-    downloadUrl: 'https://github.com/anthropics/claude-code',
-    installCommand: 'npm install -g @anthropic-ai/claude-code',
+    name: 'DeepSeek Agent',
+    icon: '◈',
+    description: 'DeepSeek V4 Flash 官方 API 直连',
+    color: 'from-blue-600 to-indigo-600',
+    downloadUrl: 'https://api-docs.deepseek.com/guides/coding_agents',
     models: getModelDefinitionsForCli('claude').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
       id,
       name,
@@ -40,74 +39,7 @@ const CLI_OPTIONS: CLIOption[] = [
       runtime,
       external,
     })),
-    features: ['Anthropic-compatible runtime', 'External model routing', 'Code generation'],
-  },
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    icon: '🧠',
-    description: 'OpenAI Codex agent with GPT-5 support',
-    color: 'from-slate-900 to-slate-700',
-    downloadUrl: 'https://github.com/openai/codex',
-    installCommand: 'npm install -g @openai/codex',
-    models: getModelDefinitionsForCli('codex').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-      provider,
-      runtime,
-      external,
-    })),
-    features: ['Autonomous apply_patch', 'OpenAI GPT-5 access', 'Web search integration'],
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor Agent',
-    icon: '🖱️',
-    description: 'Cursor CLI with multi-model routing and session resume',
-    color: 'from-slate-500 to-slate-600',
-    downloadUrl: 'https://docs.cursor.com/en/cli/overview',
-    installCommand: 'curl https://cursor.com/install -fsS | bash',
-    models: getModelDefinitionsForCli('cursor').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Autonomous workflow', 'Multi-model router', 'Session resume support'],
-  },
-  {
-    id: 'qwen',
-    name: 'Qwen Coder',
-    icon: '🛠️',
-    description: 'Alibaba Qwen Code CLI with sandboxed tooling',
-    color: 'from-emerald-500 to-teal-600',
-    downloadUrl: 'https://github.com/QwenLM/qwen-code',
-    installCommand: 'npm install -g @qwen-code/qwen-code',
-    models: getModelDefinitionsForCli('qwen').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Edit/write tools', 'Sandbox approval modes', 'Great for open-source workflows'],
-  },
-  {
-    id: 'glm',
-    name: 'GLM CLI',
-    icon: '🌐',
-    description: 'Zhipu GLM agent running via Claude Code runtime',
-    color: 'from-blue-500 to-indigo-600',
-    downloadUrl: 'https://docs.z.ai/devpack/tool/claude',
-    installCommand: 'zai devpack install claude',
-    models: getModelDefinitionsForCli('glm').map(({ id, name, description, supportsImages }) => ({
-      id,
-      name,
-      description,
-      supportsImages,
-    })),
-    features: ['Claude-compatible runtime', 'GLM 4.6 reasoning', 'Text-only mode'],
+    features: ['DeepSeek 官方 API', 'V4 Flash', 'Agent 工具执行'],
   },
 ];
 
@@ -132,7 +64,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const [selectedCLI, setSelectedCLI] = useState<string>('claude');
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
   const [selectedCapability, setSelectedCapability] = useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
-  // Fallback is removed but kept for backward compatibility
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
   const [useDefaultSettings, setUseDefaultSettings] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -188,7 +119,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         const preferredCLI =
           effectiveCLIs.find((cli) => cli.id === defaultCLI)?.id ?? effectiveCLIs[0]?.id ?? 'claude';
         setSelectedCLI(preferredCLI);
-        setFallbackEnabled(settings.fallback_enabled ?? true);
+        setFallbackEnabled(false);
 
         const preferredModelSetting = settings.cli_settings?.[preferredCLI]?.model;
         if (preferredModelSetting) {
@@ -209,7 +140,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         setSelectedCLI(fallbackCLI);
         const fallbackModel = effectiveCLIs[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
         setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
-        setFallbackEnabled(true);
+        setFallbackEnabled(false);
       }
     } catch (error) {
       console.error('Failed to load global settings:', error);
@@ -220,7 +151,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       setSelectedCLI(fallbackCLI);
       const fallbackModel = available[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
       setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
-      setFallbackEnabled(true);
+      setFallbackEnabled(false);
     }
   }, []);
 
@@ -348,13 +279,13 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     // Reset to global defaults or fallback
     if (globalSettings) {
       setSelectedCLI(globalSettings.default_cli || 'claude');
-      setFallbackEnabled(globalSettings.fallback_enabled ?? true);
+      setFallbackEnabled(false);
       const cliSettings = globalSettings.cli_settings?.[globalSettings.default_cli || 'claude'];
       setSelectedModel(sanitizeModel(globalSettings.default_cli || 'claude', cliSettings?.model));
     } else {
       setSelectedCLI('claude');
       setSelectedModel(DEFAULT_MODEL_ID);
-      setFallbackEnabled(true);
+      setFallbackEnabled(false);
     }
 
     // Close modal and navigate to chat with initial prompt
@@ -785,7 +716,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                       className="text-slate-900 hover:underline"
                     >Global Settings</button>.</>
                   ) : (
-                    <>Quick start with Claude AI. Customize AI preferences in <button
+                    <>Quick start with DeepSeek V4 Flash. Review the locked API configuration in <button
                       onClick={() => {
                         onClose();
                         onOpenGlobalSettings?.();

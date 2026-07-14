@@ -23,7 +23,7 @@ function AboutTab() {
       <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6">
         <div className="text-center">
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-slate-700">
-            QuantPilot 是面向量化研发的 AI 工作台，支持通过 Claude Code 兼容运行时接入外部模型，
+            QuantPilot 是面向量化研发的 AI 工作台，当前仅通过 DeepSeek 官方 API 使用 V4 Flash，
             并串联 GitHub、Supabase 与 Vercel 等工程化服务。
           </p>
         </div>

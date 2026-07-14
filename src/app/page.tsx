@@ -176,7 +176,7 @@ export default function HomePage() {
 
   const [selectedAssistant, setSelectedAssistant] =
     useState<ActiveCliId>(DEFAULT_ASSISTANT);
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
   const [selectedCapability, setSelectedCapability] =
     useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
@@ -387,7 +387,7 @@ export default function HomePage() {
   const formatCliInfo = (cli?: string, model?: string) => {
     const normalizedCli = sanitizeAssistant(cli);
     const opt = ACTIVE_CLI_OPTIONS_MAP[normalizedCli];
-    const name = opt?.name ?? "Claude Code";
+    const name = opt?.name ?? "DeepSeek Agent";
     const modelId = normalizeModelForAssistant(normalizedCli, model);
     const label = getModelDisplayName(normalizedCli, modelId);
     return `${name} · ${label}`;

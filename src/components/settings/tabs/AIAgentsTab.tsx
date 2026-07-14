@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import type { CLIStatus } from "@/types/cli";
 
 interface CLIOption {
@@ -19,14 +18,8 @@ interface CLIOption {
 interface AIAgentsTabProps {
   cliOptions: CLIOption[];
   cliStatus: CLIStatus;
-  globalSettings: any;
   saveMessage: { type: "success" | "error"; text: string } | null;
   isLoading: boolean;
-  apiKeyVisibility: Record<string, boolean>;
-  onSetDefaultCli: (cliId: string) => void;
-  onSetDefaultModel: (cliId: string, modelId: string) => void;
-  onSetCliApiKey: (cliId: string, apiKey: string) => void;
-  onToggleApiKeyVisibility: (cliId: string) => void;
   onRefreshCliStatus: () => void;
   onSaveSettings: () => void;
   onOpenInstallModal: (cli: CLIOption) => void;
@@ -35,210 +28,95 @@ interface AIAgentsTabProps {
 function AIAgentsTab({
   cliOptions,
   cliStatus,
-  globalSettings,
   saveMessage,
   isLoading,
-  apiKeyVisibility,
-  onSetDefaultCli,
-  onSetDefaultModel,
-  onSetCliApiKey,
-  onToggleApiKeyVisibility,
   onRefreshCliStatus,
   onSaveSettings,
   onOpenInstallModal,
 }: AIAgentsTabProps) {
-  const enabledOptions = cliOptions.filter((cli) => cli.enabled !== false);
+  const runtime = cliOptions[0];
+  const status = runtime ? cliStatus[runtime.id] : undefined;
+  const model = runtime?.models[0];
+  const installed = Boolean(status?.installed);
+  const configured = Boolean(status?.configured);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div>
-            <h3 className="mb-1 text-lg font-medium text-slate-900">智能体运行时</h3>
-            <p className="text-sm text-slate-600">
-              管理生成工作空间和评测任务可使用的 CLI 智能体
-            </p>
-          </div>
-          {/* Inline Default CLI Selector */}
-          <div className="ml-6 flex items-center gap-2 border-l border-slate-200 pl-6">
-            <span className="text-sm text-slate-600">默认:</span>
-            <select
-              value={globalSettings.default_cli}
-              onChange={(e) => onSetDefaultCli(e.target.value)}
-              className="cursor-pointer rounded-full border border-slate-200/50 bg-transparent px-3 py-1.5 pl-3 pr-8 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300/50 hover:bg-slate-50 focus:outline-none focus:ring-0"
-            >
-              {enabledOptions
-                .filter((cli) => cliStatus[cli.id]?.installed)
-                .map((cli) => (
-                  <option key={cli.id} value={cli.id}>
-                    {cli.name}
-                  </option>
-                ))}
-            </select>
-          </div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Official API only</p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">DeepSeek 模型接入</h3>
+          <p className="mt-1 text-sm text-slate-600">平台仅保留 DeepSeek V4 Flash，且固定直连 DeepSeek 官方接口。</p>
         </div>
-        <div className="flex items-center gap-3">
-          {saveMessage && (
-            <div
-              className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ${
-                saveMessage.type === "success"
-                  ? "bg-green-100 text-green-700"
-                  : "bg-red-100 text-red-700"
-              }`}
-            >
-              {saveMessage.type === "success" ? (
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              )}
-              {saveMessage.text}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onRefreshCliStatus}
-              className="rounded-full border border-slate-200/50 bg-transparent px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300/50 hover:bg-slate-50"
-            >
-              刷新状态
-            </button>
-            <button
-              onClick={onSaveSettings}
-              disabled={isLoading}
-              className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
-            >
-              {isLoading ? "保存中..." : "保存设置"}
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onRefreshCliStatus}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+          >
+            刷新状态
+          </button>
+          <button
+            onClick={onSaveSettings}
+            disabled={isLoading}
+            className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            {isLoading ? "保存中..." : "确认配置"}
+          </button>
         </div>
       </div>
 
-      {/* Agent Cards Grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {enabledOptions.map((cli) => {
-          const status = cliStatus[cli.id];
-          const settings = globalSettings.cli_settings?.[cli.id] || {};
-          const isInstalled = status?.installed || false;
-          const isDefault = globalSettings.default_cli === cli.id;
+      {saveMessage && (
+        <div className={`rounded-xl border px-4 py-3 text-sm ${saveMessage.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+          {saveMessage.text}
+        </div>
+      )}
 
-          return (
-            <div
-              key={cli.id}
-              onClick={() => isInstalled && onSetDefaultCli(cli.id)}
-              className={`rounded-xl border py-4 pl-4 pr-8 transition-all ${
-                !isInstalled
-                  ? "cursor-not-allowed border-slate-200/50 bg-slate-50/50"
-                  : isDefault
-                    ? "cursor-pointer"
-                    : "cursor-pointer border-slate-200/50 hover:border-slate-300/50 hover:bg-slate-50"
-              }`}
-              style={
-                isDefault && isInstalled
-                  ? {
-                      borderColor: cli.brandColor,
-                      backgroundColor: `${cli.brandColor}08`,
-                    }
-                  : {}
-              }
-            >
-              <div className="mb-3 flex items-start gap-3">
-                <div className={`flex-shrink-0 ${!isInstalled ? "opacity-40" : ""}`}>
-                  {cli.id === "claude" && (
-                    <Image src="/claude.png" alt="Claude" width={32} height={32} className="h-8 w-8" />
-                  )}
-                  {cli.id === "cursor" && (
-                    <Image src="/cursor.png" alt="Cursor" width={32} height={32} className="h-8 w-8" />
-                  )}
-                  {cli.id === "codex" && (
-                    <Image src="/oai.png" alt="Codex" width={32} height={32} className="h-8 w-8" />
-                  )}
-                  {cli.id === "qwen" && (
-                    <Image src="/qwen.png" alt="Qwen" width={32} height={32} className="h-8 w-8" />
-                  )}
-                  {cli.id === "glm" && (
-                    <Image src="/glm.svg" alt="GLM" width={32} height={32} className="h-8 w-8" />
-                  )}
-                </div>
-                <div className={`min-w-0 flex-1 ${!isInstalled ? "opacity-40" : ""}`}>
-                  <div className="flex items-center gap-2">
-                    <h4 className="text-sm font-medium text-slate-900">{cli.name}</h4>
-                    {isDefault && isInstalled && (
-                      <span className="text-xs font-medium" style={{ color: cli.brandColor }}>
-                        默认
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-slate-600">{cli.description}</p>
-                </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-black text-white">D</span>
+              <div>
+                <h4 className="font-semibold text-slate-950">{runtime?.name ?? "DeepSeek Agent"}</h4>
+                <p className="mt-1 text-xs text-slate-600">{runtime?.description}</p>
               </div>
-
-              {isInstalled ? (
-                <div onClick={(e) => e.stopPropagation()} className="space-y-3">
-                  <select
-                    value={settings.model || ""}
-                    onChange={(e) => onSetDefaultModel(cli.id, e.target.value)}
-                    className="w-full cursor-pointer rounded-full border border-slate-200/50 bg-transparent px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-0"
-                  >
-                    <option value="">选择模型</option>
-                    {cli.models
-                      .filter((m) => m.id.trim().length > 0)
-                      .map((model) => (
-                        <option key={`${cli.id}-${model.id}`} value={model.id}>
-                          {model.external ? `${model.name} · 外部` : model.name}
-                        </option>
-                      ))}
-                  </select>
-
-                  {settings.model && cli.models.find((m) => m.id === settings.model)?.description && (
-                    <p className="text-[11px] leading-snug text-slate-500">
-                      {cli.models.find((m) => m.id === settings.model)?.description}
-                    </p>
-                  )}
-
-                  {(cli.id === "glm" || cli.id === "cursor") && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-slate-600">
-                        API Key{cli.id === "cursor" ? "（可选）" : ""}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type={apiKeyVisibility[cli.id] ? "text" : "password"}
-                          value={settings.apiKey ?? ""}
-                          onChange={(e) => onSetCliApiKey(cli.id, e.target.value)}
-                          placeholder={`输入 ${cli.name} API Key`}
-                          className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onToggleApiKeyVisibility(cli.id);
-                          }}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:text-slate-900"
-                        >
-                          {apiKeyVisibility[cli.id] ? "隐藏" : "显示"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div onClick={(e) => e.stopPropagation()}>
-                  <button
-                    onClick={() => onOpenInstallModal(cli)}
-                    className="w-full rounded-full border-2 border-slate-900 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:scale-105 hover:bg-slate-800"
-                  >
-                    查看安装指引
-                  </button>
-                </div>
-              )}
             </div>
-          );
-        })}
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${configured && installed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+              {configured && installed ? "已就绪" : "待配置"}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-5 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">唯一模型</p>
+            <p className="mt-2 font-semibold text-slate-950">{model?.name ?? "DeepSeek V4 Flash"}</p>
+            <code className="mt-2 block text-xs text-blue-700">deepseek-v4-flash</code>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">官方接口</p>
+            <p className="mt-2 font-semibold text-slate-950">DeepSeek Agent API</p>
+            <code className="mt-2 block break-all text-xs text-blue-700">api.deepseek.com/anthropic</code>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium text-slate-500">API Key</p>
+            <p className="mt-2 font-semibold text-slate-950">{configured ? "已从服务端环境读取" : "尚未配置"}</p>
+            <code className="mt-2 block text-xs text-blue-700">DEEPSEEK_API_KEY</code>
+          </div>
+        </div>
+
+        {!installed && runtime && (
+          <div className="border-t border-slate-100 px-5 py-4">
+            <button onClick={() => onOpenInstallModal(runtime)} className="text-sm font-semibold text-blue-700 hover:text-blue-800">
+              查看本地执行引擎修复指引
+            </button>
+          </div>
+        )}
+        {!configured && (
+          <div className="border-t border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            在 <code className="rounded bg-white/70 px-1.5 py-0.5">.env.local</code> 写入 <code className="rounded bg-white/70 px-1.5 py-0.5">DEEPSEEK_API_KEY</code> 后重启项目。Base URL 与模型不可自定义。
+          </div>
+        )}
       </div>
     </div>
   );

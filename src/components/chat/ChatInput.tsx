@@ -77,7 +77,7 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submissionLockRef = useRef(false);
-  const supportsImageUpload = preferredCli !== 'cursor' && preferredCli !== 'qwen' && preferredCli !== 'glm';
+  const supportsImageUpload = true;
 
   const modelOptionsForCli = useMemo(
     () => modelOptions.filter(option => option.cli === preferredCli),
@@ -196,12 +196,6 @@ export default function ChatInput({
       return;
     }
 
-    if (!supportsImageUpload) {
-      console.error('❌ Current CLI does not support image upload:', preferredCli);
-      alert(`Only Claude CLI supports image uploads.\nCurrent CLI: ${preferredCli}\nSwitch to Claude CLI.`);
-      return;
-    }
-
     console.log('📸 Starting image upload process:', {
       projectId,
       cli: preferredCli,
@@ -274,7 +268,7 @@ export default function ChatInput({
         fileInputRef.current.value = '';
       }
     }
-  }, [projectId, supportsImageUpload, preferredCli]);
+  }, [projectId, preferredCli]);
 
   useEffect(() => {
     adjustTextareaHeight();
@@ -445,42 +439,27 @@ export default function ChatInput({
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             {projectId && (
-              (!supportsImageUpload) ? (
-                <div
-                  className="flex h-8 w-8 items-center justify-center text-slate-300 cursor-not-allowed opacity-50 rounded-full"
-                  title={
-                    preferredCli === 'qwen'
-                      ? 'Qwen Coder 暂不支持图片输入，请使用 Claude Code。'
-                      : preferredCli === 'cursor'
-                      ? 'Cursor CLI 暂不支持图片输入，请使用 Claude Code。'
-                      : 'GLM CLI 仅支持文本输入，请使用 Claude Code。'
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={imageUploadTitle}
+                onClick={() => {
+                  if (fileInputRef.current) {
+                    fileInputRef.current.click();
                   }
-                >
-                  <ImageIcon className="h-4 w-4" />
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="flex h-8 w-8 items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={imageUploadTitle}
-                  onClick={() => {
-                    if (fileInputRef.current) {
-                      fileInputRef.current.click();
-                    }
-                  }}
-                >
-                  <ImageIcon className="h-4 w-4" />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleImageUpload}
-                    disabled={isUploading || disabled}
-                    className="hidden"
-                  />
-                </button>
-              )
+                }}
+              >
+                <ImageIcon className="h-4 w-4" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  disabled={isUploading || disabled}
+                  className="hidden"
+                />
+              </button>
             )}
             <select
               value={preferredCli}
