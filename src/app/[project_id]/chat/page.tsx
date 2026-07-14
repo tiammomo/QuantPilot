@@ -11,6 +11,7 @@ import ChatLog from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput from '@/components/chat/ChatInput';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
@@ -251,6 +252,7 @@ export default function ChatPage() {
     '';
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isVisualCheck = searchParams?.get('visualCheck') === '1';
 
   // NEW: UserRequests state management
   const {
@@ -843,7 +845,7 @@ const persistProjectPreferences = useCallback(
       const staleReport = Array.isArray(report?.checks)
         ? report.checks.some((check: any) => check?.id === 'validation_report_stale')
         : false;
-      if (staleReport) {
+      if (staleReport && !isVisualCheck) {
         setQuantValidationState('running');
         setQuantValidationMessage('生成产物已更新，正在重新执行自动验证。');
         setQuantRepairPlan(null);
@@ -889,7 +891,7 @@ const persistProjectPreferences = useCallback(
       console.warn('[Preview] failed to read quant validation report:', error);
     }
     return 'unknown';
-  }, [projectId]);
+  }, [isVisualCheck, projectId]);
 
   const start = useCallback(async (options: { requireValidation?: boolean } = {}) => {
     try {
@@ -1651,8 +1653,10 @@ const persistProjectPreferences = useCallback(
       } else {
         setProjectStatus('active');
         setIsInitializing(false);
-        startDependencyInstallation();
-        triggerInitialPromptIfNeeded();
+        if (!isVisualCheck) {
+          startDependencyInstallation();
+          triggerInitialPromptIfNeeded();
+        }
       }
 
       const normalizedModel = rawSelectedModel
@@ -1677,6 +1681,7 @@ const persistProjectPreferences = useCallback(
     }
   }, [
     projectId,
+    isVisualCheck,
     readQuantValidationStatus,
     startDependencyInstallation,
     triggerInitialPromptIfNeeded,
@@ -2247,12 +2252,16 @@ const persistProjectPreferences = useCallback(
       if (previousStatus === 'initializing') {
 
         // Start dependency installation
-        startDependencyInstallation();
+        if (!isVisualCheck) {
+          startDependencyInstallation();
+        }
         loadTreeRef.current?.('.');
       }
 
       // Initial prompt: trigger once with shared guard (handles active-via-WS case)
-      triggerInitialPromptIfNeeded();
+      if (!isVisualCheck) {
+        triggerInitialPromptIfNeeded();
+      }
     } else if (status === 'failed') {
       setIsInitializing(false);
     }
@@ -2403,16 +2412,15 @@ const persistProjectPreferences = useCallback(
         }
       `}</style>
 
-      <div className="h-screen bg-white flex relative overflow-hidden">
+      <div className="chat-workspace relative flex h-dvh overflow-hidden" role="main">
         <div className="h-full w-full flex">
           {/* Left: Chat window */}
           <div
-            style={{ width: '22%' }}
-            className="h-full border-r border-slate-200 flex flex-col"
+            className="chat-pane relative z-10 flex h-full shrink-0 flex-col border-r border-border/70 bg-background/94 backdrop-blur-xl"
           >
             {/* Chat header */}
-            <div className="bg-white border-b border-slate-200 p-4 h-[73px] flex items-center">
-              <div className="flex items-center gap-3">
+            <div className="platform-header flex h-16 shrink-0 items-center justify-between gap-3 px-3 sm:px-4">
+              <div className="flex min-w-0 items-center gap-3">
                 <button
                   onClick={() => router.push('/')}
                   className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
@@ -2422,15 +2430,17 @@ const persistProjectPreferences = useCallback(
                     <path d="M19 12H5M12 19L5 12L12 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
-                <div>
-                  <h1 className="text-lg font-semibold text-slate-900 ">{projectName || 'Loading...'}</h1>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">Q</div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-sm font-bold text-foreground">{projectName || '正在载入项目...'}</h1>
                   {projectDescription && (
-                    <p className="text-sm text-slate-500 ">
+                    <p className="truncate text-xs text-muted-foreground">
                       {projectDescription}
                     </p>
                   )}
                 </div>
               </div>
+              <ThemeToggle compact />
             </div>
 
             {/* Chat log area */}
@@ -2472,7 +2482,7 @@ const persistProjectPreferences = useCallback(
             </div>
 
             {/* Simple input area */}
-            <div className="p-4 rounded-bl-2xl">
+            <div className="shrink-0 border-t border-border/60 bg-background/80 p-3 backdrop-blur sm:p-4">
               <ChatInput
                 onSendMessage={(message, images) => {
                   // Pass images to runAct
@@ -2499,11 +2509,11 @@ const persistProjectPreferences = useCallback(
           </div>
 
           {/* Right: Preview/Code area */}
-          <div className="h-full flex flex-col bg-black" style={{ width: '78%' }}>
+          <div className="preview-pane flex h-full flex-col bg-slate-950">
             {/* Content area */}
             <div className="flex-1 min-h-0 flex flex-col">
               {/* Controls Bar */}
-              <div className="bg-white border-b border-slate-200 px-4 h-[73px] flex items-center justify-between">
+              <div className="platform-header flex h-16 shrink-0 items-center justify-between px-4">
                 <div className="flex items-center gap-3">
                   {/* Toggle switch */}
                   <div className="flex items-center bg-slate-100 rounded-lg p-1">

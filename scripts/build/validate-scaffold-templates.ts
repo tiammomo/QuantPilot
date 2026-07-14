@@ -11,9 +11,21 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
+import {
+  baseDashboardCssTemplate,
+  baseDashboardPageTemplate,
+} from '../../src/lib/utils/scaffold-base-templates';
+import {
+  comparisonCss,
+  comparisonPageTemplate,
+  holdingAnalysisCss,
+  holdingAnalysisPageTemplate,
+  stockSelectionCss,
+  stockSelectionPageTemplate,
+} from '../../src/lib/utils/scaffold-dashboard-templates';
 
-const SCAFFOLD_TS = path.join(process.cwd(), 'src', 'lib', 'utils', 'scaffold.ts');
+const ROOT = process.cwd();
 
 interface TemplateEntry {
   name: string;
@@ -21,45 +33,29 @@ interface TemplateEntry {
   cssContent: string;
 }
 
-async function extractTemplates(): Promise<TemplateEntry[]> {
-  const source = await fs.readFile(SCAFFOLD_TS, 'utf8');
-
-  const entries: TemplateEntry[] = [];
-
-  // Extract holdingAnalysisPageTemplate
-  const holdingMatch = source.match(/function holdingAnalysisPageTemplate\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-  if (holdingMatch) {
-    const cssMatch = source.match(/function holdingAnalysisCss\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-    entries.push({
+function extractTemplates(): TemplateEntry[] {
+  return [
+    {
+      name: 'marketDashboard',
+      pageContent: baseDashboardPageTemplate(),
+      cssContent: baseDashboardCssTemplate(),
+    },
+    {
       name: 'holdingAnalysis',
-      pageContent: holdingMatch[1],
-      cssContent: cssMatch ? cssMatch[1] : '',
-    });
-  }
-
-  // Extract comparisonPageTemplate
-  const comparisonMatch = source.match(/function comparisonPageTemplate\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-  if (comparisonMatch) {
-    const cssMatch = source.match(/function comparisonCss\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-    entries.push({
+      pageContent: holdingAnalysisPageTemplate(),
+      cssContent: holdingAnalysisCss(),
+    },
+    {
       name: 'comparison',
-      pageContent: comparisonMatch[1],
-      cssContent: cssMatch ? cssMatch[1] : '',
-    });
-  }
-
-  // Extract stockSelectionPageTemplate
-  const selectionMatch = source.match(/function stockSelectionPageTemplate\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-  if (selectionMatch) {
-    const cssMatch = source.match(/function stockSelectionCss\(\) \{\s*return `([\s\S]*?)`;\s*\}/);
-    entries.push({
+      pageContent: comparisonPageTemplate(),
+      cssContent: comparisonCss(),
+    },
+    {
       name: 'stockSelection',
-      pageContent: selectionMatch[1],
-      cssContent: cssMatch ? cssMatch[1] : '',
-    });
-  }
-
-  return entries;
+      pageContent: stockSelectionPageTemplate(),
+      cssContent: stockSelectionCss(),
+    },
+  ];
 }
 
 async function validateTemplate(entry: TemplateEntry, tmpDir: string): Promise<{ name: string; ok: boolean; error?: string }> {
@@ -160,10 +156,14 @@ th { font-weight: 600; color: var(--muted); }
     'utf8'
   );
 
-  // Install dependencies and build
+  // Reuse the platform dependency tree so the check is deterministic and offline-capable.
   try {
-    execSync('npm install --legacy-peer-deps', { cwd: projectDir, stdio: 'pipe', timeout: 60000 });
-    execSync('node node_modules/.bin/next build', { cwd: projectDir, stdio: 'pipe', timeout: 60000 });
+    await fs.symlink(path.join(ROOT, 'node_modules'), path.join(projectDir, 'node_modules'), 'dir');
+    execFileSync(
+      process.execPath,
+      [path.join(ROOT, 'node_modules', 'next', 'dist', 'bin', 'next'), 'build', '--webpack'],
+      { cwd: projectDir, stdio: 'pipe', timeout: 90_000 },
+    );
     return { name: entry.name, ok: true };
   } catch (err: unknown) {
     const stderr = err instanceof Error && 'stderr' in err ? String((err as { stderr?: Buffer }).stderr ?? '') : '';
@@ -174,8 +174,8 @@ th { font-weight: 600; color: var(--muted); }
 }
 
 async function main() {
-  console.log('[validate-scaffold-templates] Extracting templates from scaffold.ts...');
-  const entries = await extractTemplates();
+  console.log('[validate-scaffold-templates] Loading the dashboard template registry...');
+  const entries = extractTemplates();
   console.log(`Found ${entries.length} templates to validate: ${entries.map((e) => e.name).join(', ')}`);
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-template-check-'));

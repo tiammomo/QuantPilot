@@ -68,6 +68,10 @@ function hasEnvKey(contents, key) {
   return pattern.test(contents);
 }
 
+function isValidEncryptionKey(value) {
+  return /^[0-9a-f]{64}$/i.test(value);
+}
+
 function readEnvRawValue(contents, key) {
   if (!contents) return '';
   const pattern = new RegExp(`^${escapeRegExp(key)}=["']?([^"'\\n]+)["']?$`, 'm');
@@ -229,11 +233,45 @@ async function ensureEnvironment(options = {}) {
   if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_CACHE_ENABLED')) {
     envDefaults.QUANTPILOT_REDIS_CACHE_ENABLED = '1';
   }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_IMAGE')) {
+    envDefaults.CLICKHOUSE_IMAGE = '"clickhouse/clickhouse-server:25.8"';
+  }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_DB')) {
+    envDefaults.CLICKHOUSE_DB = '"quantpilot"';
+  }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_USER')) {
+    envDefaults.CLICKHOUSE_USER = '"quantpilot"';
+  }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_PASSWORD')) {
+    envDefaults.CLICKHOUSE_PASSWORD = '"quantpilot_dev_password"';
+  }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_HTTP_PORT')) {
+    const clickHouseHttpPort = await findAvailablePort(8_123, 8_199, 8_123);
+    envDefaults.CLICKHOUSE_HTTP_PORT = String(clickHouseHttpPort);
+    envDefaults.CLICKHOUSE_URL = `"http://127.0.0.1:${clickHouseHttpPort}"`;
+  } else if (!hasEnvKey(envContents, 'CLICKHOUSE_URL')) {
+    const clickHouseHttpPort = extractPort(envContents, ['CLICKHOUSE_HTTP_PORT']) ?? 8_123;
+    envDefaults.CLICKHOUSE_URL = `"http://127.0.0.1:${clickHouseHttpPort}"`;
+  }
+  if (!hasEnvKey(envContents, 'CLICKHOUSE_NATIVE_PORT')) {
+    const clickHouseNativePort = await findAvailablePort(9_000, 9_099, 9_000);
+    envDefaults.CLICKHOUSE_NATIVE_PORT = String(clickHouseNativePort);
+  }
   if (!hasEnvKey(envContents, 'PROJECTS_DIR')) {
     envDefaults.PROJECTS_DIR = '"./data/projects"';
   }
-  if (!hasEnvKey(envContents, 'ENCRYPTION_KEY')) {
+  const encryptionKey = readEnvRawValue(envContents, 'ENCRYPTION_KEY');
+  if (!isValidEncryptionKey(encryptionKey)) {
     envDefaults.ENCRYPTION_KEY = `"${crypto.randomBytes(32).toString('hex')}"`;
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_ENABLE_INTERNAL_TOKEN_API')) {
+    envDefaults.QUANTPILOT_ENABLE_INTERNAL_TOKEN_API = '0';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_INTERNAL_API_TOKEN')) {
+    envDefaults.QUANTPILOT_INTERNAL_API_TOKEN = '""';
+  }
+  if (!hasEnvKey(envContents, 'QUANTPILOT_MAX_IMAGE_UPLOAD_BYTES')) {
+    envDefaults.QUANTPILOT_MAX_IMAGE_UPLOAD_BYTES = String(10 * 1024 * 1024);
   }
   if (!hasEnvKey(envContents, 'QUANTPILOT_DEGRADATION_MODE')) {
     envDefaults.QUANTPILOT_DEGRADATION_MODE = '"auto"';

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 import {
   deleteServiceToken,
   getPlainServiceToken,
@@ -12,6 +13,21 @@ interface RouteContext {
 
 function isProvider(value: string): boolean {
   return value === 'github' || value === 'supabase' || value === 'vercel';
+}
+
+function internalTokenApiEnabled(): boolean {
+  return process.env.QUANTPILOT_ENABLE_INTERNAL_TOKEN_API === '1';
+}
+
+function internalTokenApiAuthorized(request: NextRequest): boolean {
+  const expected = process.env.QUANTPILOT_INTERNAL_API_TOKEN;
+  const provided = request.headers.get('x-quantpilot-internal-token');
+  if (!expected || !provided) {
+    return false;
+  }
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 export async function GET(request: NextRequest, { params }: RouteContext) {
@@ -35,6 +51,13 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
   }
 
   if (segments.length === 3 && segments[0] === 'internal' && segments[2] === 'token') {
+    if (!internalTokenApiEnabled()) {
+      return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
+    }
+    if (!internalTokenApiAuthorized(request)) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
     const provider = segments[1];
     if (!isProvider(provider)) {
       return NextResponse.json(

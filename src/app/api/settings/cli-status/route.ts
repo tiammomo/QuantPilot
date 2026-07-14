@@ -6,6 +6,8 @@
 import { NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import path from 'path';
 import { promisify } from 'util';
 import type { CLIStatus } from '@/types/backend';
 import {
@@ -20,6 +22,33 @@ import { buildCodexEnvironment, getCodexRuntimeConfig } from '@/lib/services/cli
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
+function getBundledClaudeExecutable(): string | null {
+  const executable = process.platform === 'win32' ? 'claude.exe' : 'claude';
+  const packageNames =
+    process.platform === 'linux'
+      ? process.arch === 'arm64'
+        ? ['@anthropic-ai/claude-agent-sdk-linux-arm64', '@anthropic-ai/claude-agent-sdk-linux-arm64-musl']
+        : ['@anthropic-ai/claude-agent-sdk-linux-x64', '@anthropic-ai/claude-agent-sdk-linux-x64-musl']
+      : process.platform === 'darwin'
+        ? process.arch === 'arm64'
+          ? ['@anthropic-ai/claude-agent-sdk-darwin-arm64']
+          : ['@anthropic-ai/claude-agent-sdk-darwin-x64']
+        : process.platform === 'win32'
+          ? process.arch === 'arm64'
+            ? ['@anthropic-ai/claude-agent-sdk-win32-arm64']
+            : ['@anthropic-ai/claude-agent-sdk-win32-x64']
+          : [];
+
+  for (const packageName of packageNames) {
+    const candidate = path.join(process.cwd(), 'node_modules', ...packageName.split('/'), executable);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Check Claude Code CLI installation
  */
@@ -27,18 +56,47 @@ async function checkClaudeCodeCLI(): Promise<{
   installed: boolean;
   version?: string;
   error?: string;
+  configured?: boolean;
+  bundled?: boolean;
 }> {
+  const configured = Boolean(
+    process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+      process.env.ANTHROPIC_API_KEY?.trim()
+  );
+
   try {
     const { stdout } = await execAsync('claude --version');
     const version = stdout.trim();
     return {
       installed: true,
       version,
+      configured,
     };
-  } catch (error) {
+  } catch (globalError) {
+    const bundledExecutable = getBundledClaudeExecutable();
+    if (bundledExecutable) {
+      try {
+        const { stdout } = await execFileAsync(bundledExecutable, ['--version']);
+        const version = stdout.trim();
+        return {
+          installed: true,
+          version: version ? `${version} (bundled SDK)` : 'bundled SDK',
+          configured,
+          bundled: true,
+        };
+      } catch (bundledError) {
+        return {
+          installed: false,
+          error: bundledError instanceof Error ? bundledError.message : 'Failed to check bundled Claude Code',
+          configured,
+        };
+      }
+    }
+
     return {
       installed: false,
-      error: error instanceof Error ? error.message : 'Failed to check CLI',
+      error: globalError instanceof Error ? globalError.message : 'Failed to check CLI',
+      configured,
     };
   }
 }
@@ -152,6 +210,8 @@ export async function GET() {
       version: claudeStatus.version,
       checking: false,
       error: claudeStatus.error,
+      configured: claudeStatus.configured,
+      available: claudeStatus.installed && claudeStatus.configured === true,
       models: CLAUDE_MODEL_DEFINITIONS.map((model) => model.id),
     };
 

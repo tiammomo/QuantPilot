@@ -1,7 +1,7 @@
 import { getPlainServiceToken } from '@/lib/services/tokens';
 import { upsertProjectServiceConnection, updateProjectServiceData, getProjectService } from '@/lib/services/project-services';
 import { getProjectById } from '@/lib/services/project';
-import { listEnvVars } from '@/lib/services/env';
+import { listPlainEnvVars } from '@/lib/services/env';
 import { validateProjectExists, getProjectGitHubRepo } from '@/lib/services/service-integration';
 import type {
   CheckResult,
@@ -232,7 +232,7 @@ export async function connectVercelProject(
     throw new VercelError('Failed to create or retrieve Vercel project', 500);
   }
 
-  const envVars = await listEnvVars(projectId);
+  const envVars = await listPlainEnvVars(projectId);
   for (const envVar of envVars) {
     try {
       await vercelFetch(

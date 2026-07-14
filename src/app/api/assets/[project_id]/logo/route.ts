@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
-import path from 'path';
 import { getProjectById } from '@/lib/services/project';
+import {
+  configuredMaxImageBytes,
+  decodeBase64Image,
+  ImageAssetError,
+  resolveProjectAssetPath,
+  resolveProjectAssetsPath,
+} from '@/lib/server/image-assets';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
 
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
+const MAX_IMAGE_UPLOAD_BYTES = configuredMaxImageBytes();
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
@@ -26,20 +29,25 @@ export async function POST(request: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'b64_png is required' }, { status: 400 });
     }
 
-    const buffer = Buffer.from(b64, 'base64');
-    const assetsPath = path.join(PROJECTS_DIR_ABSOLUTE, project_id, 'assets');
+    const buffer = decodeBase64Image(b64, {
+      requiredMimeType: 'image/png',
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+    });
+    const assetsPath = resolveProjectAssetsPath(project_id);
     await fs.mkdir(assetsPath, { recursive: true });
-    const logoPath = path.join(assetsPath, 'logo.png');
+    const logoPath = resolveProjectAssetPath(project_id, 'logo.png');
     await fs.writeFile(logoPath, buffer);
 
     return NextResponse.json({ success: true, path: 'assets/logo.png' });
   } catch (error) {
+    if (error instanceof ImageAssetError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     console.error('[Assets Logo] Failed:', error);
     return NextResponse.json(
       {
         success: false,
         error: 'Failed to save logo',
-        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 },
     );

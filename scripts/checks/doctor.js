@@ -329,7 +329,7 @@ async function main() {
       backend.ok ? [] : ['进入 services/market-data 后运行 uv run quantpilot-market-api。']
     );
   } else {
-    addCheck('量化数据后端 :8000', 'warn', '已按降级配置停用。', ['策略和数据平台会优先展示本地/内置兜底数据。']);
+    addCheck('量化数据后端 :8000', 'warn', '已按降级配置停用。', ['策略平台和业务知识中心会优先展示本地/内置兜底数据。']);
   }
 
   if (degradation.observability.enabled) {
@@ -338,11 +338,11 @@ async function main() {
     addCheck(
       'Loki 可观测性',
       loki.ok ? 'ok' : unavailableStatus(degradation.observability),
-      loki.ok ? `HTTP ${loki.statusCode}` : '未连接，运维平台将使用本地日志文件兜底。',
+      loki.ok ? `HTTP ${loki.statusCode}` : '未连接，运行治理中心将使用本地日志文件兜底。',
       loki.ok ? [] : ['运行 npm run obs:up。']
     );
   } else {
-    addCheck('Loki 可观测性', 'warn', '已按降级配置停用。', ['运维平台仍会读取本地日志文件。']);
+    addCheck('Loki 可观测性', 'warn', '已按降级配置停用。', ['运行治理中心仍会读取本地日志文件。']);
   }
 
   const projectsDir = readEnvValue('PROJECTS_DIR') || './data/projects';

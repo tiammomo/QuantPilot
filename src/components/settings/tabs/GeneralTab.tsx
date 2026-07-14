@@ -26,8 +26,8 @@ const GENERATION_POLICIES = [
   },
   {
     title: "失败修复",
-    description: "运维平台负责健康检查、生成链路观测和失败修复，这里只维护全局默认项。",
-    status: "运维台处理",
+    description: "运行治理中心负责健康检查、生成链路观测和失败修复，这里只维护全局默认项。",
+    status: "治理中心处理",
   },
 ];
 
@@ -68,7 +68,7 @@ function GeneralTab({
           <div>
             <h3 className="text-lg font-medium text-slate-900">生成链路默认配置</h3>
             <p className="mt-1 text-sm text-slate-600">
-              这里的配置会影响首页生成、项目会话和评测运行；具体工作空间健康与修复在运维平台处理。
+              这里的配置会影响首页生成、项目会话和评测运行；具体工作空间健康与修复在运行治理中心处理。
             </p>
           </div>
           <div className="flex gap-2">

@@ -707,9 +707,9 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   const pendingCount = payload.totals.warning + payload.totals.error;
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="platform-shell flex h-dvh flex-col">
       {/* Top navigation */}
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-xl md:px-6">
+      <header className="platform-header sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between px-4 md:px-6">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" asChild className="shrink-0 h-8 w-8">
             <Link href="/" aria-label="返回首页">
@@ -785,7 +785,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
       {/* Main content */}
       {viewMode === "catalog" ? (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="platform-content flex flex-1 overflow-hidden" role="main">
           {/* Catalog Grid */}
           <div className="flex-1 overflow-y-auto transition-all duration-300">
             <div className="p-6">
@@ -902,7 +902,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
         </div>
       ) : (
-      <div className="relative flex flex-1 overflow-hidden">
+      <div className="platform-content relative flex flex-1 overflow-hidden" role="main">
         {isSkillListCollapsed && (
           <Button
             type="button"

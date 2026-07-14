@@ -16,9 +16,15 @@ export interface EnvVarRecord {
   id: string;
   key: string;
   value: string;
+  value_preview: string;
+  valuePreview: string;
+  has_value: boolean;
+  hasValue: boolean;
   scope: string;
   var_type: string;
+  varType: string;
   is_secret: boolean;
+  isSecret: boolean;
   description?: string | null;
 }
 
@@ -51,14 +57,35 @@ async function ensureProject(projectId: string): Promise<Project> {
   return project;
 }
 
-function mapEnvVar(model: EnvVar): EnvVarRecord {
+function maskEnvValue(value: string): string {
+  if (!value) {
+    return '';
+  }
+  if (value.length <= 8) {
+    return '••••';
+  }
+  return `${value.slice(0, 2)}••••${value.slice(-2)}`;
+}
+
+function mapEnvVar(model: EnvVar, options: { revealSecretValues?: boolean } = {}): EnvVarRecord {
+  const plainValue = decrypt(model.valueEncrypted);
+  const canRevealValue = options.revealSecretValues === true || !model.isSecret;
+  const exposedValue = canRevealValue ? plainValue : '';
+  const valuePreview = model.isSecret ? maskEnvValue(plainValue) : plainValue;
+
   return {
     id: model.id,
     key: model.key,
-    value: decrypt(model.valueEncrypted),
+    value: exposedValue,
+    value_preview: valuePreview,
+    valuePreview,
+    has_value: plainValue.length > 0,
+    hasValue: plainValue.length > 0,
     scope: model.scope,
     var_type: model.varType,
+    varType: model.varType,
     is_secret: model.isSecret,
+    isSecret: model.isSecret,
     description: model.description,
   };
 }
@@ -72,6 +99,22 @@ export async function listEnvVars(projectId: string): Promise<EnvVarRecord[]> {
   for (const record of records) {
     try {
       result.push(mapEnvVar(record));
+    } catch (error) {
+      console.warn(`[EnvService] Failed to decrypt env var ${record.key}:`, error);
+    }
+  }
+  return result;
+}
+
+export async function listPlainEnvVars(projectId: string): Promise<EnvVarRecord[]> {
+  const records = await prisma.envVar.findMany({
+    where: { projectId },
+    orderBy: { key: 'asc' },
+  });
+  const result: EnvVarRecord[] = [];
+  for (const record of records) {
+    try {
+      result.push(mapEnvVar(record, { revealSecretValues: true }));
     } catch (error) {
       console.warn(`[EnvService] Failed to decrypt env var ${record.key}:`, error);
     }
@@ -304,7 +347,7 @@ export async function detectEnvConflicts(projectId: string) {
   }
 
   const fileVars = parseEnvFile(fileContents);
-  const dbVars = await listEnvVars(projectId);
+  const dbVars = await listPlainEnvVars(projectId);
 
   const conflicts: Array<{
     key: string;

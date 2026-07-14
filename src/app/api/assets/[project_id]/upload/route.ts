@@ -3,6 +3,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getProjectById } from '@/lib/services/project';
+import {
+  configuredMaxImageBytes,
+  ImageAssetError,
+  resolveProjectAssetPath,
+  resolveProjectAssetsPath,
+  SUPPORTED_IMAGE_MIME_TYPES,
+  validateImageBytes,
+} from '@/lib/server/image-assets';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -12,10 +20,7 @@ const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
   : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
-
-function resolveAssetsPath(projectId: string): string {
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId, 'assets');
-}
+const MAX_IMAGE_UPLOAD_BYTES = configuredMaxImageBytes();
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
@@ -32,21 +37,38 @@ export async function POST(request: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'File field is required' }, { status: 400 });
     }
 
-    if (!file.type.startsWith('image/')) {
-      return NextResponse.json({ success: false, error: 'File must be an image' }, { status: 400 });
+    if (!SUPPORTED_IMAGE_MIME_TYPES.has(file.type as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif')) {
+      return NextResponse.json(
+        { success: false, error: 'File must be a PNG, JPEG, WebP, or GIF image' },
+        { status: 400 },
+      );
     }
 
-    const projectAssetsPath = resolveAssetsPath(project_id);
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Image must be smaller than ${Math.floor(MAX_IMAGE_UPLOAD_BYTES / 1024 / 1024)}MB`,
+        },
+        { status: 413 },
+      );
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const detectedImage = validateImageBytes(buffer, {
+      declaredMimeType: file.type,
+      maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+    });
+
+    const projectAssetsPath = resolveProjectAssetsPath(project_id);
     await fs.mkdir(projectAssetsPath, { recursive: true });
 
     const originalName = file.name || 'image.png';
-    const extension = path.extname(originalName) || '.png';
-    const uniqueName = `${randomUUID()}${extension}`;
-    const absolutePath = path.join(projectAssetsPath, uniqueName);
-    const resolvedAbsolutePath = path.resolve(absolutePath);
+    const uniqueName = `${randomUUID()}${detectedImage.extension}`;
+    const resolvedAbsolutePath = resolveProjectAssetPath(project_id, uniqueName);
 
-    const arrayBuffer = await file.arrayBuffer();
-    await fs.writeFile(resolvedAbsolutePath, Buffer.from(arrayBuffer));
+    await fs.writeFile(resolvedAbsolutePath, buffer);
 
     let hostPublicPath: string | null = null;
     let projectPublicPath: string | null = null;
@@ -96,12 +118,14 @@ export async function POST(request: Request, { params }: RouteContext) {
       public_url: publicUrl,
     });
   } catch (error) {
+    if (error instanceof ImageAssetError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     console.error('[Assets Upload] Failed:', error);
     return NextResponse.json(
       {
         success: false,
         error: 'Failed to upload image',
-        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 },
     );

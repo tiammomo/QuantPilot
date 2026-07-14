@@ -14,7 +14,9 @@ interface ServiceConnectionModalProps {
 interface ServiceToken {
   id: string;
   provider: string;
-  token: string;
+  token: null;
+  token_preview?: string;
+  has_token?: boolean;
   name?: string;
   created_at: string;
   last_used?: string;
@@ -359,6 +361,7 @@ export default function ServiceConnectionModal({
                   <div className="text-sm text-slate-600 ">
                     <p>Name: {savedToken.name}</p>
                     <p>Provider: {savedToken.provider}</p>
+                    {savedToken.token_preview && <p>Token: {savedToken.token_preview}</p>}
                     <p className="text-xs mt-1">Added: {new Date(savedToken.created_at).toLocaleString()}</p>
                     {savedToken.last_used && (
                       <p className="text-xs">Last used: {new Date(savedToken.last_used).toLocaleString()}</p>
@@ -512,7 +515,7 @@ export default function ServiceConnectionModal({
                       disabled={isLoading}
                     />
                     <p className="text-xs text-slate-500 mt-2">
-                      Your token will be encrypted and stored securely. You can delete it anytime.
+                      Your token is stored locally and will not be shown again. You can delete it anytime.
                     </p>
                   </div>
 

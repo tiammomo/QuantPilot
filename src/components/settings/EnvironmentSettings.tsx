@@ -9,7 +9,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 interface EnvironmentVariable {
   key: string;
   value: string;
+  value_preview?: string;
+  valuePreview?: string;
+  has_value?: boolean;
+  hasValue?: boolean;
   isSecret?: boolean;
+  is_secret?: boolean;
 }
 
 interface EnvironmentSettingsProps {
@@ -24,13 +29,28 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  function normalizeEnvVariable(value: any): EnvironmentVariable {
+    const isSecret = Boolean(value?.isSecret ?? value?.is_secret);
+    const hasValue = Boolean(value?.hasValue ?? value?.has_value ?? value?.value);
+    return {
+      key: String(value?.key ?? ''),
+      value: typeof value?.value === 'string' ? value.value : '',
+      value_preview: typeof value?.value_preview === 'string' ? value.value_preview : value?.valuePreview,
+      valuePreview: typeof value?.valuePreview === 'string' ? value.valuePreview : value?.value_preview,
+      has_value: hasValue,
+      hasValue,
+      isSecret,
+      is_secret: isSecret,
+    };
+  }
+
   const loadEnvironmentVariables = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/env/${projectId}`);
       if (response.ok) {
         const data = await response.json();
-        setVariables(data || []);
+        setVariables(Array.isArray(data) ? data.map(normalizeEnvVariable) : []);
       }
     } catch (error) {
       console.error('Failed to load environment variables:', error);
@@ -66,7 +86,8 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
       });
 
       if (response.ok) {
-        setVariables([...variables, newVar]);
+        const payload = await response.json().catch(() => null);
+        setVariables([...variables, normalizeEnvVariable(payload?.data ?? newVar)]);
         setNewKey('');
         setNewValue('');
         setIsSecret(false);
@@ -77,6 +98,11 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
   };
 
   const handleUpdate = async (index: number, variable: EnvironmentVariable) => {
+    if (variable.isSecret && variable.hasValue && variable.value === '') {
+      alert('Enter a new value before saving this secret.');
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE}/api/env/${projectId}/${variable.key}`, {
         method: 'PUT',
@@ -86,7 +112,7 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
 
       if (response.ok) {
         const updated = [...variables];
-        updated[index] = variable;
+        updated[index] = normalizeEnvVariable({ ...variable, hasValue: true, has_value: true });
         setVariables(updated);
         setEditingIndex(null);
       }
@@ -150,6 +176,7 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
                         updated[index] = { ...variable, value: e.target.value };
                         setVariables(updated);
                       }}
+                      placeholder={variable.isSecret && variable.hasValue ? 'Enter a new secret value' : 'Value'}
                       className="flex-1 px-2 py-1 border border-slate-300 rounded "
                     />
                     <button
@@ -172,7 +199,9 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
                     </span>
                     <span className="text-slate-400">=</span>
                     <span className="flex-1 font-mono text-sm text-slate-600 ">
-                      {variable.isSecret ? '••••••••' : variable.value}
+                      {variable.isSecret
+                        ? variable.valuePreview ?? variable.value_preview ?? (variable.hasValue ? '••••••••' : '')
+                        : variable.value}
                     </span>
                     {variable.isSecret && (
                       <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded">

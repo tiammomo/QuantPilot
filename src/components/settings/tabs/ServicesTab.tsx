@@ -5,7 +5,9 @@ import type { ReactNode } from "react";
 interface ServiceToken {
   id: string;
   provider: string;
-  token: string;
+  token: null;
+  token_preview?: string;
+  has_token?: boolean;
   name?: string;
   created_at: string;
   last_used?: string;
