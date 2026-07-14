@@ -43,6 +43,19 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 22. 用户明确要求“相关性矩阵”“热力图”“相关性与分散风险图谱”时，必须绘制真实矩阵/热力图或等价矩阵表，包含行列标的、相关系数、颜色刻度和缺失样本说明。
 23. 未被用户明确要求时，不得新增短线交易计划、买入区、卖出区、止损、目标价、调仓指令或交易执行建议。投研对比页默认只输出事实、风险、排序依据、数据限制和下一步研究线索。
 24. 多标的投研对比任务优先级是：标的覆盖、指标矩阵、累计收益折线、收益/回撤/波动对比、相关性矩阵或流动性矩阵、数据信源。不要用单股行情页或持仓页结构承载。
+25. `.quantpilot/**` 全部属于平台只读产物，包括 run plan、manifest、generation state/queue、events、validation、repair plan、artifact contracts 和视觉报告。只能读取并据此修改 `app/**`、final 数据或 evidence，禁止编辑、删除、追加或伪造任何 `.quantpilot` 文件。
+
+## 平台预取模式
+
+当 `.quantpilot/run_plan.json` 为 `planned`，且 `data_file/final/dashboard-data.json`、`evidence/sources.json`、`evidence/data_quality.json` 已存在时，平台已完成规划和取数。此时执行以下低自由度流程：
+
+1. 把 run plan、final 数据和 evidence 当作权威输入，不重新调用 run-planner 或取数 skill。
+2. 只读 run plan；不修改 `capabilityId`、`symbols`、`visualization.templateId`、`visualization.variantId`。
+3. 优先在平台已有 `app/page.tsx` 和 `app/globals.css` 上增强，保留 `DATA_FILE`、`readDashboardData`、`getBars`、`TrendChart` 和 `data-source-file` 验证结构。
+4. 只有验证报告明确指向 `final_data_file`、`artifact_contracts` 或 `evidence_files` 时，才修复对应数据文件；不得用空对象或自定义 schema 覆盖。
+5. 单个证券的全称与简称是同一标的；`symbols.length === 1` 时不得因“和/与/及”改成选股或多标的模板。
+6. 用户没有明确要求交易执行时，不得添加买入区、止损、目标价、仓位或操作建议。
+7. 不创建 Task/Todo 列表，不自行运行 build 或预览；定向读取必要文件后直接编辑，由平台统一验证。
 
 ## 标准工作流
 
@@ -81,21 +94,31 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 
 1. 读取 `.quantpilot/validation.json`、`.quantpilot/validation-repair-plan.json`、`.quantpilot/run_plan.json`、`data_file/final/dashboard-data.json`、`evidence/sources.json`、`evidence/data_quality.json`、`app/page.tsx` 和 `app/globals.css`。
 2. 如果存在 `.quantpilot/visual-validation.json`，读取其中 failures、warnings、viewport metrics 和 screenshotPath；按截图问题调整首屏、图表、移动端和横向溢出。
-3. 针对失败项实际修复：
+3. 上述验证报告以及 `.quantpilot/artifact-contracts.json`、`.quantpilot/generation-state.json`、`.quantpilot/generation-queue.json` 均为平台只读产物。不得编辑、删除或伪造 viewport、截图、passed 状态或验证结果；修复完页面、final 数据或 evidence 后等待平台重新验证。
+4. 不得在生成 workspace 中安装 Playwright/Chromium 或修改依赖来规避视觉验收。浏览器缺失属于平台运行环境问题，不是看板源码修复项。
+5. 针对失败项实际修复：
    - `final_data_file`：补齐标准数据契约，保证 `symbol/name/source/as_of`、`quote`、`kline.bars[]` 或多标的 `requestedSymbols/assets[]/comparison.rows[]` 可被验证提取。
    - `dashboard_data_binding`：让页面读取 `data_file/final/dashboard-data.json` 或同源 `/api/market/**`，禁止页面只渲染静态文案。
    - `chart_presence`/`visual_presentation`：补齐足够尺寸的主图、矩阵或表格，首屏必须有真实金融数据和核心图表。
    - `artifact_policy`：移除 CDN、远程资源、mock/static 数据和敏感字段。
    - 模板不一致：同步 `.quantpilot/run_plan.json`、final 数据 `visualization.template_id/variant_id` 和页面结构。
-4. 修复后必须运行或触发平台验证：优先使用 QuantPilot 自动验证入口；在 CLI 环境中至少执行 `npm run build`，并检查 `.quantpilot/validation.json` 更新后的失败项。
-5. 如果验证仍失败，必须根据新的失败项继续改文件，直到通过或只剩真实外部环境不可达等明确不可修复限制。
-6. 回复用户前必须说明验证状态；不要让预览页停在“看板验证未通过”的兜底页。
+6. 修复后必须运行或触发平台验证：优先使用 QuantPilot 自动验证入口；在 CLI 环境中至少执行 `npm run build`，并只读检查平台重新生成的 `.quantpilot/validation.json`。
+7. 如果验证仍失败，必须根据新的失败项继续改文件，直到通过或只剩真实外部环境不可达等明确不可修复限制。
+8. 回复用户前必须说明验证状态；不要让预览页停在“看板验证未通过”的兜底页。
 
 ## TypeScript 稳定性规则
 
 生成 `app/page.tsx` 时必须按严格 TypeScript 写法处理动态金融数据：
 
 - 所有从 JSON 读取的数据先进入 `JsonRecord | null` 或 `JsonRecord[]`，不要直接把 `unknown` 当作具体对象访问。
+- 嵌套对象的每一层都必须单独经过 `asRecord()`；禁止在 `unknown` 字段上继续可选链，例如 `asRecord(data?.financials)?.summary?.latest_report_date` 仍然会触发 TypeScript 错误。应改为：
+
+```ts
+const financials = asRecord(data?.financials);
+const financialSummary = asRecord(financials?.summary);
+const latestReportDate = String(financialSummary?.latest_report_date ?? '—');
+```
+
 - `assets[]`、`comparison.rows[]`、`announcements.announcements[]`、`financials.reports[]` 等动态数组必须写成 `JsonRecord[]`：
 
 ```ts
@@ -164,7 +187,7 @@ references/visual_judgement.md
 
 为了让平台预取、验证和标准模板稳定工作，优先使用下面字段；字段可以补充，但不要改名或只写自定义结构：
 
-- `.quantpilot/run_plan.json` 的 `symbols` 必须是证券代码字符串数组，例如 `["600519"]`。如果需要保存名称、市场、secid，请放在 `resolvedSymbols[]` 或 final 数据中，不要把对象写进 `symbols`。
+- 只读 `.quantpilot/run_plan.json` 的 `symbols` 是权威证券代码字符串数组，例如 `["600519"]`。如果需要保存名称、市场、secid，请放在 `resolvedSymbols[]` 或 final 数据中，不得回写 run plan。
 - 单标的 final 数据必须包含：
   - `symbol`、`name`、`asset_type`、`source`、`as_of`
   - `quote.price`、`quote.change_percent`、`quote.quote_time`

@@ -22,6 +22,8 @@ interface ToolResultItemProps {
   toolName?: string;
   input?: string;
   output?: string;
+  outputOriginalChars?: number;
+  outputTruncated?: boolean;
   summary?: string;
   status?: 'executing' | 'done';
   isExpanded?: boolean;
@@ -295,6 +297,8 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
   toolName,
   input,
   output,
+  outputOriginalChars,
+  outputTruncated = false,
   summary,
   status = 'done',
   isExpanded: controlledExpanded,
@@ -436,6 +440,12 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
               </div>
 
               <div className="min-h-[260px] flex-1 space-y-5 overflow-auto px-5 py-5">
+                {activeTab === 'output' && outputTruncated && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                    输出过长，已保留开头和末尾诊断信息
+                    {outputOriginalChars ? `（原始 ${outputOriginalChars.toLocaleString()} 个字符）` : ''}。
+                  </div>
+                )}
                 {activeTab === 'input' ? (
                   <>
                     <DetailBlock title="args" value={detailInput} />

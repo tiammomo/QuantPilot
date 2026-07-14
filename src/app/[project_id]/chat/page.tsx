@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaSync, FaCog, FaRocket, FaFolder, FaFolderOpen, FaFile, FaFileCode, FaCss3Alt, FaHtml5, FaJs, FaReact, FaPython, FaDocker, FaGitAlt, FaMarkdown, FaDatabase, FaPhp, FaJava, FaRust, FaVuejs, FaLock, FaHome, FaChevronUp, FaChevronRight, FaChevronDown, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
 import { SiTypescript, SiGo, SiRuby, SiSvelte, SiJson, SiYaml, SiCplusplus } from 'react-icons/si';
 import { VscJson } from 'react-icons/vsc';
+import { ExternalLink, Files, MessageSquareText, MonitorPlay } from 'lucide-react';
 import ChatLog from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput from '@/components/chat/ChatInput';
@@ -27,6 +28,7 @@ import {
   type ActiveCliId,
   type ActiveModelOption,
 } from '@/lib/utils/cliOptions';
+import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -70,6 +72,9 @@ const VISIBLE_PROCESS_INSTRUCTIONS = `
 - 验证阶段必须逐项说明 build、HTTP 200、数据文件、图表存在性和 /api/market 代理检查结果。
 - Todo List 要持续更新，已完成项用 ✅，失败或待处理项用 ❌/⏳ 并写明原因。
 - 最终可视化页面和数据都准备完成后，再呈现或说明预览结果。`;
+
+type MobileWorkspaceView = 'chat' | 'preview' | 'files';
+type ProjectAvailability = 'checking' | 'available' | 'missing' | 'error';
 
 const appendVisibleProcessInstructions = (message: string) => {
   if (message.includes('可见的执行过程摘要')) {
@@ -261,8 +266,14 @@ export default function ChatPage() {
 
   const [projectName, setProjectName] = useState<string>('');
   const [projectDescription, setProjectDescription] = useState<string>('');
+  const [projectAvailability, setProjectAvailability] = useState<{
+    projectId: string;
+    status: ProjectAvailability;
+  }>(() => ({ projectId, status: 'checking' }));
+  const currentProjectAvailability = projectAvailability.projectId === projectId
+    ? projectAvailability.status
+    : 'checking';
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
   const [tree, setTree] = useState<Entry[]>([]);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [hasTreeLoaded, setHasTreeLoaded] = useState(false);
@@ -301,6 +312,7 @@ export default function ChatPage() {
   const [isPausingAgent, setIsPausingAgent] = useState(false);
   const [isSseFallbackActive, setIsSseFallbackActive] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
+  const [mobileWorkspaceView, setMobileWorkspaceView] = useState<MobileWorkspaceView>('chat');
   const [deviceMode, setDeviceMode] = useState<'desktop'|'mobile'>('desktop');
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<{name: string; url: string; base64?: string; path?: string}[]>([]);
@@ -321,6 +333,9 @@ export default function ChatPage() {
   const [deploymentStatus, setDeploymentStatus] = useState<'idle' | 'deploying' | 'ready' | 'error'>('idle');
   const deployPollRef = useRef<NodeJS.Timeout | null>(null);
   const [isStartingPreview, setIsStartingPreview] = useState(false);
+  const previewStartInFlightRef = useRef<string | null>(null);
+  const previewAutoRecoverySuppressedRef = useRef(false);
+  const previewTerminalFailureRef = useRef(false);
   const [previewInitializationMessage, setPreviewInitializationMessage] = useState('正在启动预览服务...');
   const [quantValidationState, setQuantValidationState] = useState<QuantValidationState>('unknown');
   const [quantValidationMessage, setQuantValidationMessage] = useState<string | null>(null);
@@ -347,6 +362,7 @@ export default function ChatPage() {
   const activeBrandColor =
     assistantBrandColors[preferredCli] || assistantBrandColors[DEFAULT_ACTIVE_CLI];
   const modelOptions = useMemo(() => buildModelOptions(cliStatuses), [cliStatuses]);
+  const generationBusy = isRunning || hasActiveRequests;
   const cliOptions = useMemo(
     () => CLI_ORDER.map(cli => ({
       id: cli,
@@ -372,10 +388,6 @@ export default function ChatPage() {
       sessionStorage.setItem('selectedModel', sanitized);
     }
   }, [preferredCli]);
-
-  useEffect(() => {
-    previewUrlRef.current = previewUrl;
-  }, [previewUrl]);
 
   const sendInitialPrompt = useCallback(async (initialPrompt: string) => {
     if (initialPromptSent) {
@@ -839,10 +851,39 @@ const persistProjectPreferences = useCallback(
       }
       const payload = await response.json();
       let report = payload?.data ?? null;
+      const generationState = payload?.generationState ?? null;
+      const generationRequestId =
+        typeof generationState?.requestId === 'string'
+          ? generationState.requestId
+          : null;
+      const validationRunId =
+        typeof report?.runId === 'string' ? report.runId : null;
+      const generationIsActive = ['pending', 'running', 'repairing'].includes(
+        String(generationState?.status ?? ''),
+      );
+      const validationMatchesGeneration = !generationRequestId
+        ? true
+        : validationRunId
+          ? validationRunId === generationRequestId
+          : ['completed', 'failed'].includes(String(generationState?.status ?? ''));
+
+      if (!validationMatchesGeneration) {
+        setQuantValidationState('running');
+        setQuantValidationMessage('正在等待当前生成任务的自动验证结果。');
+        setQuantRepairPlan(null);
+        return 'running';
+      }
+
       const staleReport = Array.isArray(report?.checks)
         ? report.checks.some((check: any) => check?.id === 'validation_report_stale')
         : false;
-      if (staleReport && !isVisualCheck) {
+      if (staleReport && generationIsActive) {
+        setQuantValidationState('running');
+        setQuantValidationMessage('当前产物仍在更新，正在等待本轮自动验证。');
+        setQuantRepairPlan(null);
+        return 'running';
+      }
+      if (staleReport && !isVisualCheck && !generationIsActive) {
         setQuantValidationState('running');
         setQuantValidationMessage('生成产物已更新，正在重新执行自动验证。');
         setQuantRepairPlan(null);
@@ -891,6 +932,14 @@ const persistProjectPreferences = useCallback(
   }, [isVisualCheck, projectId]);
 
   const start = useCallback(async (options: { requireValidation?: boolean } = {}) => {
+    if (previewStartInFlightRef.current) {
+      return false;
+    }
+
+    previewStartInFlightRef.current = projectId;
+    previewTerminalFailureRef.current = false;
+    let dependencyProgressTimer: ReturnType<typeof setTimeout> | null = null;
+    let buildProgressTimer: ReturnType<typeof setTimeout> | null = null;
     try {
       setIsStartingPreview(true);
       setPreviewInitializationMessage(
@@ -899,22 +948,26 @@ const persistProjectPreferences = useCallback(
 
       if (options.requireValidation) {
         const validationState = await readQuantValidationStatus();
+        if (previewStartInFlightRef.current !== projectId) {
+          return false;
+        }
         if (validationState !== 'passed') {
           setPreviewInitializationMessage(
             validationState === 'failed'
               ? '自动验证未通过，暂不展示可视化看板。'
               : '自动验证尚未完成，暂不展示可视化看板。'
           );
-          setIsStartingPreview(false);
-          return;
+          return false;
         }
       }
 
-      // Simulate progress updates
-      setTimeout(() => setPreviewInitializationMessage('正在检查依赖...'), 1000);
-      setTimeout(() => setPreviewInitializationMessage('正在构建和验证看板...'), 2500);
+      dependencyProgressTimer = setTimeout(() => setPreviewInitializationMessage('正在检查依赖...'), 1000);
+      buildProgressTimer = setTimeout(() => setPreviewInitializationMessage('正在构建和验证看板...'), 2500);
 
       const r = await fetch(`${API_BASE}/api/projects/${projectId}/preview/start`, { method: 'POST' });
+      if (previewStartInFlightRef.current !== projectId) {
+        return false;
+      }
       if (!r.ok) {
         let errorMessage = r.statusText || '预览启动失败';
         try {
@@ -927,8 +980,7 @@ const persistProjectPreferences = useCallback(
         }
         console.warn('[Preview] start failed:', errorMessage);
         setPreviewInitializationMessage(`预览启动失败：${errorMessage}`);
-        setTimeout(() => setIsStartingPreview(false), 2000);
-        return;
+        return false;
       }
       const payload = await r.json();
       const data = payload?.data ?? payload ?? {};
@@ -942,19 +994,144 @@ const persistProjectPreferences = useCallback(
           : typeof payload?.previewUrl === 'string'
           ? payload.previewUrl
           : null;
+      if (!nextPreviewUrl) {
+        throw new Error('预览服务未返回可用地址');
+      }
 
       setPreviewInitializationMessage('预览已就绪');
-      setTimeout(() => {
-        setPreviewUrl(nextPreviewUrl);
-        setIsStartingPreview(false);
-        setCurrentRoute('/'); // Reset to root route when starting
-      }, 1000);
+      previewAutoRecoverySuppressedRef.current = false;
+      previewTerminalFailureRef.current = false;
+      setPreviewUrl(nextPreviewUrl);
+      setShowPreview(true);
+      setMobileWorkspaceView('preview');
+      setCurrentRoute('/');
+      return true;
     } catch (error) {
+      previewTerminalFailureRef.current = true;
       console.warn('[Preview] start request failed:', error);
-      setPreviewInitializationMessage('预览启动异常');
-      setTimeout(() => setIsStartingPreview(false), 2000);
+      setPreviewInitializationMessage(
+        error instanceof Error ? `预览启动异常：${error.message}` : '预览启动异常'
+      );
+      return false;
+    } finally {
+      if (dependencyProgressTimer) clearTimeout(dependencyProgressTimer);
+      if (buildProgressTimer) clearTimeout(buildProgressTimer);
+      if (previewStartInFlightRef.current === projectId) {
+        previewStartInFlightRef.current = null;
+        setIsStartingPreview(false);
+      }
     }
   }, [projectId, readQuantValidationStatus]);
+
+  const revealValidatedPreview = useCallback(async () => {
+    previewAutoRecoverySuppressedRef.current = false;
+    setAgentWorkComplete(true);
+    localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
+    setShowPreview(true);
+    setMobileWorkspaceView('preview');
+    setPreviewInitializationMessage('自动验证通过，正在启动可视化看板...');
+    return start({ requireValidation: false });
+  }, [projectId, start]);
+
+  const reconcileGenerationTerminal = useCallback(async () => {
+    if (!projectId || isVisualCheck) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/projects/${projectId}/generation/status`,
+        { cache: 'no-store' },
+      );
+      if (!response.ok) {
+        return;
+      }
+      const payload = await response.json();
+      const snapshot = (payload?.data ?? null) as QuantGenerationTerminalSnapshot | null;
+      if (!snapshot) {
+        return;
+      }
+
+      if (snapshot.status === 'ready' && snapshot.previewUrl) {
+        previewAutoRecoverySuppressedRef.current = false;
+        previewTerminalFailureRef.current = false;
+        setQuantValidationState('passed');
+        setQuantValidationMessage('自动验证通过，看板预览已就绪。');
+        setAgentWorkComplete(true);
+        localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
+        setPreviewUrl(snapshot.previewUrl);
+        setShowPreview(true);
+        setMobileWorkspaceView('preview');
+        setIsStartingPreview(false);
+        setIsRunning(false);
+        setPreviewInitializationMessage('预览已就绪');
+        return;
+      }
+
+      if (snapshot.status === 'preview_pending') {
+        setQuantValidationState('passed');
+        setQuantValidationMessage('自动验证通过，正在恢复持久看板预览。');
+        setShowPreview(true);
+        setMobileWorkspaceView('preview');
+        if (
+          !previewAutoRecoverySuppressedRef.current &&
+          !previewTerminalFailureRef.current &&
+          !previewStartInFlightRef.current
+        ) {
+          void start({ requireValidation: false });
+        }
+        return;
+      }
+
+      if (snapshot.status === 'running') {
+        setIsRunning(true);
+        setAgentWorkComplete(false);
+        setQuantValidationState('running');
+        setQuantValidationMessage('当前生成任务尚未完成，正在等待验证和预览终态。');
+        if (snapshot.validationStatus === 'pending') {
+          setPreviewUrl(null);
+          if (!hasActiveRequests) {
+            void readQuantValidationStatus();
+          }
+        }
+        if (!previewUrl) {
+          setPreviewInitializationMessage('正在生成、验证并准备最终可视化看板...');
+        }
+        return;
+      }
+
+      if (snapshot.status === 'failed') {
+        setIsRunning(false);
+        setQuantValidationState('failed');
+        setQuantValidationMessage(
+          snapshot.errorMessage || '生成或自动验证最终失败，请查看执行摘要。',
+        );
+        setPreviewUrl(null);
+        setPreviewInitializationMessage(
+          snapshot.errorMessage || '生成终态失败，暂时无法展示看板。',
+        );
+        return;
+      }
+
+      if (
+        snapshot.status === 'cancelled' ||
+        snapshot.status === 'needs_clarification'
+      ) {
+        setIsRunning(false);
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[Generation] terminal reconciliation failed:', error);
+      }
+    }
+  }, [
+    hasActiveRequests,
+    isVisualCheck,
+    previewUrl,
+    projectId,
+    readQuantValidationStatus,
+    start,
+  ]);
 
   // Navigate to specific route in iframe
   const navigateToRoute = (route: string) => {
@@ -990,7 +1167,12 @@ const persistProjectPreferences = useCallback(
 
   const stop = useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/api/projects/${projectId}/preview/stop`, { method: 'POST' });
+      previewAutoRecoverySuppressedRef.current = true;
+      await fetch(`${API_BASE}/api/projects/${projectId}/preview/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent: 'explicit-user-stop' }),
+      });
       setPreviewUrl(null);
     } catch (error) {
       console.error('Error stopping preview:', error);
@@ -1009,10 +1191,20 @@ const persistProjectPreferences = useCallback(
   }, [projectId]);
 
   const loadTree = useCallback(async (dir = '.') => {
+    if (projectAvailability.projectId !== projectId || projectAvailability.status !== 'available') {
+      return;
+    }
+
     setIsTreeLoading(true);
     setTreeLoadError(null);
     try {
       const r = await fetch(`${API_BASE}/api/repo/${projectId}/tree?dir=${encodeURIComponent(dir)}`);
+      if (!r.ok) {
+        if (r.status === 404) {
+          return;
+        }
+        throw new Error(`文件树加载失败（HTTP ${r.status}）`);
+      }
       const data = await r.json();
 
       // Ensure data is an array
@@ -1052,7 +1244,7 @@ const persistProjectPreferences = useCallback(
     } finally {
       setIsTreeLoading(false);
     }
-  }, [projectId, loadSubdirectory]);
+  }, [projectAvailability, projectId, loadSubdirectory]);
 
   // Load subdirectory contents
 
@@ -1567,22 +1759,21 @@ const persistProjectPreferences = useCallback(
     }
   }, [preferredCli, selectedModel, updatePreferredCli, updateSelectedModel]);
 
-  const loadProjectInfo = useCallback(async (): Promise<{ cli?: string; model?: string; status?: ProjectStatus }> => {
+  const loadProjectInfo = useCallback(async (): Promise<{ cli?: string; model?: string; status?: ProjectStatus; missing?: boolean }> => {
     try {
       const r = await fetch(`${API_BASE}/api/projects/${projectId}`);
       if (!r.ok) {
-        setProjectName(`Project ${projectId.slice(0, 8)}`);
-        setProjectDescription('');
-        setHasInitialPrompt(false);
-        localStorage.setItem(`project_${projectId}_hasInitialPrompt`, 'false');
-        setProjectStatus('active');
-        setIsInitializing(false);
-        setUsingGlobalDefaults(true);
-        return {};
+        if (r.status === 404) {
+          setProjectAvailability({ projectId, status: 'missing' });
+          router.replace('/');
+          return { missing: true };
+        }
+        throw new Error(`项目加载失败（HTTP ${r.status}）`);
       }
 
       const payload = await r.json();
       const project = payload?.data ?? payload;
+      setProjectAvailability({ projectId, status: 'available' });
       const rawPreferredCli =
         typeof project?.preferredCli === 'string'
           ? project.preferredCli
@@ -1628,7 +1819,16 @@ const persistProjectPreferences = useCallback(
       if (validationState === 'passed') {
         setAgentWorkComplete(true);
         localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-        setPreviewUrl(loadedPreviewUrl);
+        if (loadedPreviewUrl) {
+          setPreviewUrl(loadedPreviewUrl);
+          setShowPreview(true);
+        }
+        // Always run the idempotent preview ensure step. It validates a saved
+        // URL, adopts a surviving process after a platform restart, or starts a
+        // new preview when the persisted URL is stale.
+        if (!isVisualCheck) {
+          void revealValidatedPreview();
+        }
       } else {
         setPreviewUrl(null);
         if (validationState === 'failed') {
@@ -1667,13 +1867,8 @@ const persistProjectPreferences = useCallback(
       };
     } catch (error) {
       console.error('Failed to load project info:', error);
-      setProjectName(`Project ${projectId.slice(0, 8)}`);
-      setProjectDescription('');
-      setHasInitialPrompt(false);
-      localStorage.setItem(`project_${projectId}_hasInitialPrompt`, 'false');
-      setProjectStatus('active');
+      setProjectAvailability({ projectId, status: 'error' });
       setIsInitializing(false);
-      setUsingGlobalDefaults(true);
       return {};
     }
   }, [
@@ -1685,6 +1880,8 @@ const persistProjectPreferences = useCallback(
     updatePreferredCli,
     updateSelectedModel,
     preferredCli,
+    revealValidatedPreview,
+    router,
   ]);
 
   const loadProjectInfoRef = useRef(loadProjectInfo);
@@ -1721,6 +1918,12 @@ const persistProjectPreferences = useCallback(
   }, [loadTree]);
 
   useEffect(() => {
+    previewStartInFlightRef.current = null;
+    previewAutoRecoverySuppressedRef.current = false;
+    previewTerminalFailureRef.current = false;
+    setIsStartingPreview(false);
+    setPreviewUrl(null);
+    setProjectAvailability({ projectId, status: 'checking' });
     setTree([]);
     setFolderContents(new Map());
     setExpandedFolders(new Set(['']));
@@ -1865,9 +2068,14 @@ const persistProjectPreferences = useCallback(
     }
 
     setIsRunning(true);
+    setAgentWorkComplete(false);
+    previewAutoRecoverySuppressedRef.current = false;
+    previewTerminalFailureRef.current = false;
+    setPreviewUrl(null);
     setPreviewInitializationMessage('正在准备数据和可视化看板，验证通过后自动展示...');
     const requestId = crypto.randomUUID();
     let tempUserMessageId: string | null = null;
+    let requestAccepted = false;
 
     // Add to pending requests
     pendingRequestsRef.current.add(requestFingerprint);
@@ -2086,6 +2294,9 @@ const persistProjectPreferences = useCallback(
       }
 
       const result = await r.json();
+      requestAccepted =
+        result?.status !== 'intent_clarification_required' &&
+        result?.status !== 'cancelled';
 
       console.log('📸 Act API response received:', {
         success: result.success,
@@ -2148,7 +2359,9 @@ const persistProjectPreferences = useCallback(
       const errorMessage = error?.message || String(error);
       alert(`Failed to send message: ${errorMessage}\n\nPlease try again. If the problem persists, check the console for details.`);
     } finally {
-      setIsRunning(false);
+      if (!requestAccepted) {
+        setIsRunning(false);
+      }
       // Remove from pending requests
       pendingRequestsRef.current.delete(requestFingerprint);
     }
@@ -2192,14 +2405,54 @@ const persistProjectPreferences = useCallback(
 
 
   // Handle project status updates via callback from ChatLog
-  const handleProjectStatusUpdate = (status: string, message?: string) => {
+  const handleProjectStatusUpdate = (
+    status: string,
+    message?: string,
+    metadata?: Record<string, unknown>,
+  ) => {
     const previousStatus = projectStatus;
 
     if (status === 'validation_running') {
+      setIsRunning(true);
       setQuantValidationState('running');
       setQuantValidationMessage(message ?? '正在执行自动验证。');
       setQuantRepairPlan(null);
       setPreviewInitializationMessage(message ?? '正在执行自动验证，验证通过后展示看板。');
+      return;
+    }
+
+    if (status === 'agent_execution_completed' || status === 'agent_execution_failed') {
+      setIsRunning(true);
+      setAgentWorkComplete(false);
+      setQuantValidationState('running');
+      setQuantValidationMessage(
+        status === 'agent_execution_failed'
+          ? 'Agent 执行异常结束，正在验证已生成产物并尝试自动修复。'
+          : 'Agent 代码执行完成，正在进行自动验证。',
+      );
+      setPreviewInitializationMessage(
+        status === 'agent_execution_failed'
+          ? 'Agent 执行异常，正在验证现有看板产物...'
+          : '代码生成完成，正在验证并准备最终看板...',
+      );
+      return;
+    }
+
+    if (status === 'validation_repairing' || status === 'validation_repair_failed') {
+      setIsRunning(true);
+      setQuantValidationState('running');
+      setQuantValidationMessage(message ?? '自动验证未通过，正在修复看板产物。');
+      setPreviewInitializationMessage(message ?? '正在自动修复并重新验证看板...');
+      return;
+    }
+
+    if (status === 'preview_starting') {
+      setIsRunning(true);
+      setQuantValidationState('passed');
+      setQuantValidationMessage('自动验证通过，正在确认持久看板预览。');
+      setPreviewInitializationMessage(message ?? '正在启动并确认持久看板预览...');
+      setShowPreview(true);
+      setMobileWorkspaceView('preview');
       return;
     }
 
@@ -2212,22 +2465,73 @@ const persistProjectPreferences = useCallback(
     }
 
     if (status === 'validation_failed') {
+      const terminalFailure = metadata?.terminalFailure === true;
+      previewStartInFlightRef.current = null;
       setQuantValidationState('failed');
-      setQuantValidationMessage(message ?? '自动验证未通过，请查看验证摘要。');
+      setQuantValidationMessage(
+        message ??
+          (terminalFailure
+            ? '自动验证最终未通过，请查看验证摘要。'
+            : '自动验证未通过，正在等待自动修复。'),
+      );
       setPreviewUrl(null);
       setIsStartingPreview(false);
-      setPreviewInitializationMessage(message ?? '自动验证未通过，暂不展示可视化看板。');
-      void readQuantValidationStatus();
+      setIsRunning(!terminalFailure);
+      setPreviewInitializationMessage(
+        message ??
+          (terminalFailure
+            ? '自动验证最终未通过，暂不展示可视化看板。'
+            : '自动验证未通过，正在自动修复看板。'),
+      );
+      return;
+    }
+
+    if (status === 'preview_failed') {
+      previewStartInFlightRef.current = null;
+      previewTerminalFailureRef.current = true;
+      setQuantValidationState('passed');
+      setQuantValidationMessage(
+        message ?? '自动验证已通过，但持久看板预览启动失败。',
+      );
+      setPreviewUrl(null);
+      setIsStartingPreview(false);
+      setIsRunning(false);
+      setPreviewInitializationMessage(
+        message ?? '看板代码已验证通过，但预览服务启动失败。请点击重试。',
+      );
       return;
     }
 
     if (status === 'validation_passed') {
+      const readyPreviewUrl =
+        typeof metadata?.previewUrl === 'string' && metadata.previewUrl.trim().length > 0
+          ? metadata.previewUrl.trim()
+          : null;
       setQuantValidationState('passed');
-      setQuantValidationMessage(message ?? '自动验证通过，可手动打开预览或发布后查看。');
+      setQuantValidationMessage(
+        message ?? (readyPreviewUrl ? '自动验证通过，看板预览已就绪。' : '自动验证通过，正在启动可视化看板。'),
+      );
       setQuantRepairPlan(null);
+      if (readyPreviewUrl) {
+        previewAutoRecoverySuppressedRef.current = false;
+        previewTerminalFailureRef.current = false;
+        setAgentWorkComplete(true);
+        localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
+        setPreviewUrl(readyPreviewUrl);
+        setShowPreview(true);
+        setMobileWorkspaceView('preview');
+        setCurrentRoute('/');
+        setIsStartingPreview(false);
+        setIsRunning(false);
+        setPreviewInitializationMessage('预览已就绪');
+        return;
+      }
+
       setPreviewUrl(null);
-      setIsStartingPreview(false);
-      setPreviewInitializationMessage(message ?? '自动验证通过，可手动打开预览或发布后查看。');
+      setPreviewInitializationMessage('自动验证通过，正在启动可视化看板...');
+      if (!isVisualCheck) {
+        void revealValidatedPreview();
+      }
       return;
     }
 
@@ -2332,6 +2636,7 @@ const persistProjectPreferences = useCallback(
       try {
         const projectSettings = await loadProjectInfoRef.current?.();
         if (canceled) return;
+        if (projectSettings?.missing) return;
 
         await loadSettingsRef.current?.(projectSettings);
         if (canceled) return;
@@ -2354,24 +2659,36 @@ const persistProjectPreferences = useCallback(
       loadDeployStatusRef.current?.();
     };
 
-    const handleBeforeUnload = () => {
-      navigator.sendBeacon(`${API_BASE}/api/projects/${projectId}/preview/stop`);
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('services-updated', handleServicesUpdate);
 
     return () => {
       canceled = true;
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('services-updated', handleServicesUpdate);
-
-      const currentPreview = previewUrlRef.current;
-      if (currentPreview) {
-        fetch(`${API_BASE}/api/projects/${projectId}/preview/stop`, { method: 'POST' }).catch(() => {});
-      }
     };
   }, [projectId]);
+
+  // Reconcile against durable generation/validation/preview state so a lost
+  // realtime event, tab refresh, or platform restart cannot strand the UI on
+  // the placeholder after a dashboard is actually ready.
+  useEffect(() => {
+    if (!projectId || isVisualCheck) {
+      return;
+    }
+
+    void reconcileGenerationTerminal();
+    const interval = window.setInterval(
+      () => void reconcileGenerationTerminal(),
+      generationBusy || !previewUrl ? 2_000 : 10_000,
+    );
+
+    return () => window.clearInterval(interval);
+  }, [
+    generationBusy,
+    isVisualCheck,
+    previewUrl,
+    projectId,
+    reconcileGenerationTerminal,
+  ]);
 
   // Cleanup pending requests on unmount
   useEffect(() => {
@@ -2401,6 +2718,32 @@ const persistProjectPreferences = useCallback(
 
   // Show loading UI if project is initializing
 
+  if (currentProjectAvailability !== 'available') {
+    const statusMessage = currentProjectAvailability === 'missing'
+      ? '项目不存在，正在返回首页…'
+      : currentProjectAvailability === 'error'
+        ? '项目暂时无法加载，请返回首页后重试。'
+        : '正在载入项目…';
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center">
+        <div>
+          {currentProjectAvailability === 'error' ? (
+            <button
+              type="button"
+              onClick={() => router.replace('/')}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              返回首页
+            </button>
+          ) : (
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-muted border-t-primary" aria-hidden="true" />
+          )}
+          <p className="mt-4 text-sm font-medium text-foreground">{statusMessage}</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <>
       <style jsx global>{`
@@ -2409,17 +2752,75 @@ const persistProjectPreferences = useCallback(
         }
       `}</style>
 
-      <div className="chat-workspace relative flex h-dvh overflow-hidden" role="main">
-        <div className="h-full w-full flex">
+      <div className="chat-workspace relative flex h-dvh flex-col overflow-hidden" role="main">
+        <nav
+          className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/95 px-2 backdrop-blur lg:hidden"
+          aria-label="移动端工作区视图"
+        >
+          {([
+            { id: 'chat', label: '对话', icon: MessageSquareText },
+            { id: 'preview', label: '看板', icon: MonitorPlay },
+            { id: 'files', label: '文件', icon: Files },
+          ] as const).map((item) => {
+            const Icon = item.icon;
+            const active = mobileWorkspaceView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => {
+                  setMobileWorkspaceView(item.id);
+                  if (item.id === 'preview') setShowPreview(true);
+                  if (item.id === 'files') {
+                    setShowPreview(false);
+                    if (!hasTreeLoaded && !isTreeLoading) void loadTree('.');
+                  }
+                }}
+                className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  active
+                    ? 'bg-primary/10 text-primary ring-1 ring-primary/20'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {item.label}
+              </button>
+            );
+          })}
+          <a
+            href={previewUrl ?? '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="在新窗口全屏打开看板"
+            aria-disabled={!previewUrl}
+            onClick={(event) => {
+              if (!previewUrl) event.preventDefault();
+            }}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+              previewUrl
+                ? 'border-border bg-card text-foreground hover:border-primary/40 hover:text-primary'
+                : 'cursor-not-allowed border-border/60 bg-muted/40 text-muted-foreground/40'
+            }`}
+            title={previewUrl ? '全屏打开看板' : '看板尚未就绪'}
+          >
+            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+          </a>
+        </nav>
+
+        <div className="flex min-h-0 w-full flex-1">
           {/* Left: Chat window */}
           <div
-            className="chat-pane relative z-10 flex h-full shrink-0 flex-col border-r border-border/70 bg-background/94 backdrop-blur-xl"
+            className={`chat-pane relative z-10 h-full shrink-0 flex-col border-r border-border/70 bg-background/94 backdrop-blur-xl ${
+              mobileWorkspaceView === 'chat' ? 'flex' : 'hidden lg:flex'
+            }`}
           >
             {/* Chat header */}
             <div className="platform-header flex h-16 shrink-0 items-center justify-between gap-3 px-3 sm:px-4">
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   onClick={() => router.push('/')}
+                  aria-label="返回项目首页"
                   className="flex items-center justify-center w-8 h-8 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
                   title="Back to home"
                 >
@@ -2456,16 +2857,9 @@ const persistProjectPreferences = useCallback(
                       // We don't replace it completely, just keep the reference to handlers
                     }
                   }}
-                  onSessionStatusChange={(isRunningValue) => {
+                onSessionStatusChange={(isRunningValue) => {
                   console.log('🔍 [DEBUG] Session status change:', isRunningValue);
                   setIsRunning(isRunningValue);
-                  // Track agent task completion and auto-start preview
-                  if (!isRunningValue && hasInitialPrompt && !agentWorkComplete && !previewUrl) {
-                    setAgentWorkComplete(true);
-                    // Save to localStorage
-                    localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-                    void readQuantValidationStatus();
-                  }
                 }}
                 onSseFallbackActive={(active) => {
                   console.log('🔄 [SSE] Fallback status:', active);
@@ -2485,7 +2879,7 @@ const persistProjectPreferences = useCallback(
                   // Pass images to runAct
                   runAct(message, images);
                 }}
-                disabled={isRunning}
+                disabled={generationBusy}
                 placeholder={mode === 'act' ? "向 QuantPilot 描述你的量化需求..." : "和 QuantPilot 讨论项目细节..."}
                 mode={mode}
                 onModeChange={setMode}
@@ -2498,7 +2892,7 @@ const persistProjectPreferences = useCallback(
                 cliOptions={cliOptions}
                 onCliChange={handleCliChange}
                 cliChangeDisabled={isUpdatingModel}
-                isRunning={isRunning}
+                isRunning={generationBusy}
                 onPause={pauseAgent}
                 isPausing={isPausingAgent}
               />
@@ -2506,7 +2900,7 @@ const persistProjectPreferences = useCallback(
           </div>
 
           {/* Right: Preview/Code area */}
-          <div className="preview-pane flex h-full flex-col bg-slate-950">
+          <div className={`preview-pane h-full flex-col bg-slate-950 ${mobileWorkspaceView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
             {/* Content area */}
             <div className="flex-1 min-h-0 flex flex-col">
               {/* Controls Bar */}
@@ -2520,7 +2914,11 @@ const persistProjectPreferences = useCallback(
                           ? 'bg-white text-slate-900 '
                           : 'text-slate-600 hover:text-slate-900 '
                       }`}
-                      onClick={() => setShowPreview(true)}
+                      onClick={() => {
+                        setShowPreview(true);
+                        setMobileWorkspaceView('preview');
+                      }}
+                      aria-label="显示看板预览"
                     >
                       <span className="w-4 h-4 flex items-center justify-center"><FaDesktop size={16} /></span>
                     </button>
@@ -2532,10 +2930,12 @@ const persistProjectPreferences = useCallback(
                       }`}
                       onClick={() => {
                         setShowPreview(false);
+                        setMobileWorkspaceView('files');
                         if (!hasTreeLoaded && !isTreeLoading) {
                           void loadTree('.');
                         }
                       }}
+                      aria-label="显示项目文件"
                     >
                       <span className="w-4 h-4 flex items-center justify-center"><FaCode size={16} /></span>
                     </button>
@@ -2553,6 +2953,7 @@ const persistProjectPreferences = useCallback(
                         <input
                           type="text"
                           value={currentRoute.startsWith('/') ? currentRoute.slice(1) : currentRoute}
+                          aria-label="看板预览路由"
                           onChange={(e) => {
                             const value = e.target.value;
                             setCurrentRoute(value ? `/${value}` : '/');
@@ -2567,6 +2968,7 @@ const persistProjectPreferences = useCallback(
                         />
                         <button
                           onClick={() => navigateToRoute(currentRoute)}
+                          aria-label="打开预览路由"
                           className="ml-2 text-slate-500 hover:text-slate-700 "
                         >
                           <FaArrowRight size={12} />
@@ -2577,6 +2979,7 @@ const persistProjectPreferences = useCallback(
                       <div className="flex items-center gap-1.5">
                         <button
                           className="h-9 w-9 flex items-center justify-center bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
+                          aria-label="刷新看板预览"
                           onClick={() => {
                             const iframe = document.querySelector('iframe');
                             if (iframe) {

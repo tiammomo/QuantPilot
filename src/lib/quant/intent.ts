@@ -111,6 +111,11 @@ const GENERIC_TARGET_WORDS = [
   '生成',
 ];
 
+const GENERIC_TARGET_PHRASE_PATTERN =
+  /^(?:(?:一个|这个|那个|某个|某|哪只|哪个)?(?:股票|个股|标的|证券|公司|资产|行业|板块|市场)|(?:这家|那家|某家|某某)(?:公司|证券|股份))$/;
+const GENERIC_TARGET_QUANTITY_PATTERN =
+  /^(?:几|多|若干|一些|数|多个|两|三|四|五|六|七|八|九|十)(?:只|支|个)?(?:股票|个股|标的|证券|公司|资产)?$/;
+
 const FINANCIAL_KEYWORD_PATTERN =
   /股票|个股|A股|港股|美股|证券|标的|行情|走势|K\s*线|技术指标|财务|基本面|公告|指数|ETF|基金|量化|回测|策略|风控|风险|仓位|涨跌|价格|大盘|板块|行业|买入|卖出|持有|推荐|估值/i;
 
@@ -145,7 +150,7 @@ function cleanTargetCandidate(value: string): string | null {
   let candidate = value
     .replace(/\s+/g, '')
     .replace(/^(请|麻烦|帮我|帮忙|补充|信息|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|比较|对比|一下)+/, '')
-    .replace(/(股票|个股|股份|公司)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '')
+    .replace(/(股票|个股)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '')
     .replace(/^(?:A股|港股|美股)/, '')
     .trim();
 
@@ -157,7 +162,11 @@ function cleanTargetCandidate(value: string): string | null {
     return null;
   }
 
-  if (GENERIC_TARGET_WORDS.some((word) => candidate === word || candidate.includes(word))) {
+  if (
+    GENERIC_TARGET_WORDS.includes(candidate) ||
+    GENERIC_TARGET_PHRASE_PATTERN.test(candidate) ||
+    GENERIC_TARGET_QUANTITY_PATTERN.test(candidate)
+  ) {
     return null;
   }
 
@@ -291,7 +300,7 @@ export function assessQuantIntentForClarification(
   const hasInvestmentConstraints = INVESTMENT_CONSTRAINT_PATTERN.test(instruction);
   const missing: ClarificationMissingField[] = [];
 
-  if (!hasTarget && (instruction.length <= 18 || isRecommendation || hasGoal)) {
+  if (!hasTarget && !isComparison && (instruction.length <= 18 || isRecommendation || hasGoal)) {
     missing.push('target');
   }
 

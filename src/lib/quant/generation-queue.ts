@@ -31,6 +31,14 @@ type QueueTask<T> = () => Promise<T>;
 
 const MAX_QUEUE_ITEMS = Number.parseInt(process.env.QUANTPILOT_GENERATION_QUEUE_HISTORY_LIMIT ?? '', 10) || 50;
 const projectLocks = new Map<string, Promise<void>>();
+const queueStateLocks = new Map<string, Promise<void>>();
+
+export class QuantGenerationCancelledError extends Error {
+  constructor(message = '生成任务已取消。') {
+    super(message);
+    this.name = 'QuantGenerationCancelledError';
+  }
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -75,7 +83,51 @@ async function readQueue(projectPath: string, projectId: string): Promise<QuantG
 
 async function writeQueue(projectPath: string, state: QuantGenerationQueueState) {
   await ensureQuantWorkspace(projectPath);
-  await fs.writeFile(queuePath(projectPath), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  const filePath = queuePath(projectPath);
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  await fs.rename(temporaryPath, filePath);
+}
+
+async function withQueueStateLock<T>(projectPath: string, task: () => Promise<T>): Promise<T> {
+  const key = path.resolve(projectPath);
+  const previous = queueStateLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current, () => current);
+  queueStateLocks.set(key, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (queueStateLocks.get(key) === queued) {
+      queueStateLocks.delete(key);
+    }
+  }
+}
+
+async function withProjectGenerationLock<T>(projectId: string, task: QueueTask<T>): Promise<T> {
+  const previous = projectLocks.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current, () => current);
+  projectLocks.set(projectId, queued);
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (projectLocks.get(projectId) === queued) {
+      projectLocks.delete(projectId);
+    }
+  }
 }
 
 function patchItem(
@@ -102,10 +154,12 @@ async function updateQueueItem(
   requestId: string,
   patch: Partial<QuantGenerationQueueItem>
 ) {
-  const state = await readQueue(projectPath, projectId);
-  const nextState = patchItem(state, requestId, patch);
-  await writeQueue(projectPath, nextState);
-  return nextState;
+  return withQueueStateLock(projectPath, async () => {
+    const state = await readQueue(projectPath, projectId);
+    const nextState = patchItem(state, requestId, patch);
+    await writeQueue(projectPath, nextState);
+    return nextState;
+  });
 }
 
 async function enqueueItem(params: {
@@ -117,29 +171,36 @@ async function enqueueItem(params: {
   selectedModel?: string | null;
 }) {
   const timestamp = nowIso();
-  const state = await readQueue(params.projectPath, params.projectId);
-  const existing = state.items.find((item) => item.requestId === params.requestId);
-  const item: QuantGenerationQueueItem = {
-    id: existing?.id ?? `${params.projectId}:${params.requestId}`,
-    projectId: params.projectId,
-    requestId: params.requestId,
-    status: 'queued',
-    cliPreference: params.cliPreference ?? null,
-    selectedModel: params.selectedModel ?? null,
-    instructionPreview: previewInstruction(params.instruction),
-    queuedAt: existing?.queuedAt ?? timestamp,
-    startedAt: null,
-    completedAt: null,
-    errorMessage: null,
-  };
-  const items = [item, ...state.items.filter((entry) => entry.requestId !== params.requestId)].slice(0, MAX_QUEUE_ITEMS);
-  const nextState: QuantGenerationQueueState = {
-    ...state,
-    activeRequestId: state.activeRequestId,
-    updatedAt: timestamp,
-    items,
-  };
-  await writeQueue(params.projectPath, nextState);
+  const item = await withQueueStateLock(params.projectPath, async () => {
+    const state = await readQueue(params.projectPath, params.projectId);
+    const existing = state.items.find((entry) => entry.requestId === params.requestId);
+    if (existing?.status === 'cancelled') {
+      return existing;
+    }
+    const nextItem: QuantGenerationQueueItem = {
+      id: existing?.id ?? `${params.projectId}:${params.requestId}`,
+      projectId: params.projectId,
+      requestId: params.requestId,
+      status: 'queued',
+      cliPreference: params.cliPreference ?? null,
+      selectedModel: params.selectedModel ?? null,
+      instructionPreview: previewInstruction(params.instruction),
+      queuedAt: existing?.queuedAt ?? timestamp,
+      startedAt: null,
+      completedAt: null,
+      errorMessage: null,
+    };
+    const items = [nextItem, ...state.items.filter((entry) => entry.requestId !== params.requestId)].slice(0, MAX_QUEUE_ITEMS);
+    await writeQueue(params.projectPath, {
+      ...state,
+      updatedAt: timestamp,
+      items,
+    });
+    return nextItem;
+  });
+  if (item.status === 'cancelled') {
+    return item;
+  }
   await appendQuantWorkspaceEvent(params.projectPath, {
     event_type: 'generation_queued',
     stage: 'queue',
@@ -154,21 +215,19 @@ async function enqueueItem(params: {
 
 async function markRunning(projectPath: string, projectId: string, requestId: string) {
   const timestamp = nowIso();
-  const state = await readQueue(projectPath, projectId);
-  const nextState = patchItem(
-    {
-      ...state,
-      activeRequestId: requestId,
-    },
-    requestId,
-    {
-      status: 'running',
-      startedAt: timestamp,
-      completedAt: null,
-      errorMessage: null,
-    }
-  );
-  await writeQueue(projectPath, nextState);
+  const started = await withQueueStateLock(projectPath, async () => {
+    const state = await readQueue(projectPath, projectId);
+    const item = state.items.find((entry) => entry.requestId === requestId);
+    if (!item || item.status === 'cancelled') return false;
+    const nextState = patchItem(
+      { ...state, activeRequestId: requestId },
+      requestId,
+      { status: 'running', startedAt: timestamp, completedAt: null, errorMessage: null }
+    );
+    await writeQueue(projectPath, nextState);
+    return true;
+  });
+  if (!started) return false;
   await appendQuantWorkspaceEvent(projectPath, {
     event_type: 'generation_queue_started',
     stage: 'queue',
@@ -178,6 +237,7 @@ async function markRunning(projectPath: string, projectId: string, requestId: st
     summary: '生成任务开始执行。',
     created_at: timestamp,
   });
+  return true;
 }
 
 async function markFinished(params: {
@@ -188,20 +248,49 @@ async function markFinished(params: {
   errorMessage?: string | null;
 }) {
   const timestamp = nowIso();
-  const state = await readQueue(params.projectPath, params.projectId);
-  const nextState = patchItem(
-    {
-      ...state,
-      activeRequestId: state.activeRequestId === params.requestId ? null : state.activeRequestId,
-    },
-    params.requestId,
-    {
-      status: params.status,
-      completedAt: timestamp,
-      errorMessage: params.errorMessage ?? null,
+  const changed = await withQueueStateLock(params.projectPath, async () => {
+    const state = await readQueue(params.projectPath, params.projectId);
+    const existing = state.items.find((item) => item.requestId === params.requestId);
+    if (existing?.status === 'cancelled' && params.status !== 'cancelled') {
+      return false;
     }
-  );
-  await writeQueue(params.projectPath, nextState);
+    const baseState = existing
+      ? state
+      : {
+          ...state,
+          items: [
+            {
+              id: `${params.projectId}:${params.requestId}`,
+              projectId: params.projectId,
+              requestId: params.requestId,
+              status: params.status,
+              cliPreference: null,
+              selectedModel: null,
+              instructionPreview: '',
+              queuedAt: timestamp,
+              startedAt: null,
+              completedAt: timestamp,
+              errorMessage: params.errorMessage ?? null,
+            },
+            ...state.items,
+          ].slice(0, MAX_QUEUE_ITEMS),
+        };
+    const nextState = patchItem(
+      {
+        ...baseState,
+        activeRequestId: baseState.activeRequestId === params.requestId ? null : baseState.activeRequestId,
+      },
+      params.requestId,
+      {
+        status: params.status,
+        completedAt: timestamp,
+        errorMessage: params.errorMessage ?? null,
+      }
+    );
+    await writeQueue(params.projectPath, nextState);
+    return true;
+  });
+  if (!changed) return false;
   await appendQuantWorkspaceEvent(params.projectPath, {
     event_type: 'generation_queue_finished',
     stage: 'queue',
@@ -215,6 +304,14 @@ async function markFinished(params: {
         : `生成任务失败：${params.errorMessage ?? '未知错误'}`,
     created_at: timestamp,
   });
+  return true;
+}
+
+export async function runQuantGenerationStageLocked<T>(params: {
+  projectId: string;
+  task: QueueTask<T>;
+}): Promise<T> {
+  return withProjectGenerationLock(params.projectId, params.task);
 }
 
 export async function runQuantGenerationQueued<T>(params: {
@@ -228,49 +325,41 @@ export async function runQuantGenerationQueued<T>(params: {
   completeOnTaskFailure?: boolean;
   task: QueueTask<T>;
 }): Promise<T> {
-  await enqueueItem(params);
-  const previous = projectLocks.get(params.projectId) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
+  const enqueued = await enqueueItem(params);
+  return withProjectGenerationLock(params.projectId, async () => {
+    if (enqueued.status === 'cancelled' || !(await markRunning(params.projectPath, params.projectId, params.requestId))) {
+      throw new QuantGenerationCancelledError(enqueued.errorMessage ?? '生成任务已取消。');
+    }
+    try {
+      const result = await params.task();
+      if (params.completeOnTaskSuccess !== false) {
+        await markFinished({
+          projectPath: params.projectPath,
+          projectId: params.projectId,
+          requestId: params.requestId,
+          status: 'completed',
+        });
+      }
+      return result;
+    } catch (error) {
+      const current = await readQueue(params.projectPath, params.projectId);
+      const cancelled = current.items.find((item) => item.requestId === params.requestId)?.status === 'cancelled';
+      if (!cancelled && params.completeOnTaskFailure !== false) {
+        await markFinished({
+          projectPath: params.projectPath,
+          projectId: params.projectId,
+          requestId: params.requestId,
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      } else if (!cancelled) {
+        await updateQueueItem(params.projectPath, params.projectId, params.requestId, {
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      }
+      throw error;
+    }
   });
-  const queued = previous.then(() => current, () => current);
-  projectLocks.set(params.projectId, queued);
-
-  await previous.catch(() => undefined);
-  await markRunning(params.projectPath, params.projectId, params.requestId);
-  try {
-    const result = await params.task();
-    if (params.completeOnTaskSuccess !== false) {
-      await markFinished({
-        projectPath: params.projectPath,
-        projectId: params.projectId,
-        requestId: params.requestId,
-        status: 'completed',
-      });
-    }
-    return result;
-  } catch (error) {
-    if (params.completeOnTaskFailure !== false) {
-      await markFinished({
-        projectPath: params.projectPath,
-        projectId: params.projectId,
-        requestId: params.requestId,
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    } else {
-      await updateQueueItem(params.projectPath, params.projectId, params.requestId, {
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    }
-    throw error;
-  } finally {
-    release();
-    if (projectLocks.get(params.projectId) === queued) {
-      projectLocks.delete(params.projectId);
-    }
-  }
 }
 
 export async function finishQuantGenerationQueueItem(params: {

@@ -4,6 +4,7 @@ import { markActiveUserRequestsAsCancelled, markUserRequestAsCancelled } from '@
 import { streamManager } from '@/lib/services/stream';
 import { getProjectById } from '@/lib/services/project';
 import { markQuantGenerationQueueCancelled } from '@/lib/quant/generation-queue';
+import { cancelQuantGenerationRun } from '@/lib/quant/generation-state';
 import path from 'path';
 
 interface RouteContext {
@@ -41,6 +42,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           reason,
         }).catch((error) => {
           console.warn('[API] Failed to mark generation queue item cancelled:', error);
+        });
+        await cancelQuantGenerationRun({
+          projectPath,
+          projectId: project_id,
+          requestId,
+          reason,
+        }).catch((error) => {
+          console.warn('[API] Failed to mark generation state cancelled:', error);
         });
       }
     } else {

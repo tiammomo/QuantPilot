@@ -6,15 +6,19 @@ import { createMessage } from '@/lib/services/message';
 import { streamManager } from '@/lib/services/stream';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
 import { prefetchQuantDataForRunPlan } from '@/lib/quant/data-prefetch';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import {
+  appendQuantWorkspaceEvent,
+  ensureQuantWorkspace,
+  writeInitialRunPlan,
+} from '@/lib/quant/workspace';
 import type { QuantRunPlan } from '@/lib/quant/workspace';
 import { validateQuantArtifactContracts } from '@/lib/quant/artifact-contracts';
 import { validateQuantVisualPresentation } from '@/lib/quant/visual-validation';
-import { generatedBuildScriptContents, scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import {
-  markActiveUserRequestsAsCompleted,
-  markUserRequestAsCompleted,
-} from '@/lib/services/user-requests';
+  generatedBuildScriptContents,
+  restoreQuantDashboardTemplate,
+  scaffoldBasicNextApp,
+} from '@/lib/utils/scaffold';
 
 export type QuantValidationCheckStatus = 'passed' | 'failed' | 'warning';
 export type QuantValidationStatus = 'passed' | 'failed';
@@ -41,6 +45,64 @@ export interface QuantValidationReport {
   updatedAt: string;
 }
 
+export type QuantValidationStaleReason =
+  | 'artifact_modified_after_report'
+  | 'run_id_mismatch';
+
+export interface QuantValidationArtifactMtime {
+  path: string;
+  mtimeMs: number;
+}
+
+export interface QuantValidationFreshness {
+  stale: boolean;
+  reasons: QuantValidationStaleReason[];
+  staleArtifactPaths: string[];
+  newestArtifactMtimeMs: number | null;
+  reportRunId: string | null;
+  currentRunId: string | null;
+}
+
+/**
+ * Pure validation-report freshness contract. A report belongs only to the
+ * generation run that produced it and only covers artifacts that are no newer
+ * than the report itself.
+ */
+export function assessQuantValidationReportFreshness(params: {
+  reportRunId?: string | null;
+  currentRunId?: string | null;
+  reportMtimeMs: number;
+  artifacts: QuantValidationArtifactMtime[];
+}): QuantValidationFreshness {
+  const reportRunId = params.reportRunId?.trim() || null;
+  const currentRunId = params.currentRunId?.trim() || null;
+  const staleArtifacts = params.artifacts.filter(
+    (artifact) =>
+      Number.isFinite(artifact.mtimeMs) &&
+      artifact.mtimeMs > params.reportMtimeMs,
+  );
+  const reasons: QuantValidationStaleReason[] = [];
+
+  if (staleArtifacts.length > 0) {
+    reasons.push('artifact_modified_after_report');
+  }
+  if (currentRunId && reportRunId !== currentRunId) {
+    reasons.push('run_id_mismatch');
+  }
+
+  return {
+    stale: reasons.length > 0,
+    reasons,
+    staleArtifactPaths: staleArtifacts.map((artifact) => artifact.path),
+    newestArtifactMtimeMs:
+      staleArtifacts.length > 0
+        ? Math.max(...staleArtifacts.map((artifact) => artifact.mtimeMs))
+        : null,
+    reportRunId,
+    currentRunId,
+  };
+}
+
 export interface QuantValidationRepairStep {
   checkId: string;
   checkName: string;
@@ -57,6 +119,12 @@ export interface QuantValidationRepairPlan {
   repairPlanPath: string;
   steps: QuantValidationRepairStep[];
   createdAt: string;
+}
+
+export interface QuantDashboardTemplateRestoreResult {
+  restored: boolean;
+  reason: string;
+  failedCheckIds: string[];
 }
 
 interface ValidateQuantProjectParams {
@@ -89,6 +157,19 @@ const VALIDATION_STALE_ARTIFACT_PATHS = [
   'evidence/image_extraction.json',
   'package.json',
 ];
+const DASHBOARD_TEMPLATE_RESTORE_CHECK_IDS = new Set([
+  'next_build',
+  'preview_http_200',
+  'visual_presentation',
+  'dashboard_data_binding',
+  'chart_presence',
+]);
+const DASHBOARD_TEMPLATE_PROTECTED_ARTIFACT_PATHS = [
+  '.quantpilot/run_plan.json',
+  'data_file/final/dashboard-data.json',
+  'evidence/sources.json',
+  'evidence/data_quality.json',
+] as const;
 const BUILD_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_BUILD_TIMEOUT_MS ?? '', 10) || 180_000;
 const PREVIEW_HTTP_TIMEOUT_MS = Number.parseInt(process.env.QUANTPILOT_VALIDATION_HTTP_TIMEOUT_MS ?? '', 10) || 45_000;
 const FETCH_TIMEOUT_MS = 5_000;
@@ -829,7 +910,8 @@ async function checkFinalDataFile(
       }
 
       const payloadInspection = inspectDashboardDataPayload(parsed);
-      if (!payloadInspection.hasUsableMarketData) {
+      const isEmptyScreenerResult = isStructuredEmptyScreenerResult(parsed);
+      if (!payloadInspection.hasUsableMarketData && !isEmptyScreenerResult) {
         errors.push(`${normalizeRelativePath(projectPath, filePath)} 未提取到可用实时行情或 K 线样本。`);
         continue;
       }
@@ -914,7 +996,7 @@ async function checkFinalDataFile(
         continue;
       }
 
-      if (plannedTemplateId === 'stock-selection') {
+      if (plannedTemplateId === 'stock-selection' && !isEmptyScreenerResult) {
         const selectionRanking = asRecord(record?.selectionRanking);
         const financialQuality = asRecord(record?.financialQuality);
         const rankingRows = Array.isArray(selectionRanking?.rows) ? selectionRanking.rows : [];
@@ -1377,6 +1459,26 @@ async function readRunPlan(projectPath: string): Promise<Record<string, unknown>
   }
 }
 
+async function readCurrentQuantRunId(projectPath: string): Promise<string | null> {
+  const generationStateRaw = await readTextFile(
+    path.join(projectPath, '.quantpilot', 'generation-state.json'),
+  );
+  if (generationStateRaw) {
+    try {
+      const generationState = asRecord(JSON.parse(generationStateRaw));
+      const requestId = pickString(generationState?.requestId);
+      if (requestId) {
+        return requestId;
+      }
+    } catch {
+      // Fall back to the run plan when generation state is unavailable.
+    }
+  }
+
+  const runPlan = await readRunPlan(projectPath);
+  return pickString(runPlan?.runId);
+}
+
 function extractPlannedSymbols(runPlan: Record<string, unknown> | null): string[] {
   const symbols = Array.isArray(runPlan?.symbols) ? runPlan.symbols : [];
   return Array.from(
@@ -1519,6 +1621,35 @@ function inspectDashboardDataPayload(data: unknown) {
   };
 }
 
+function isStructuredEmptyScreenerResult(data: unknown): boolean {
+  const record = asRecord(data);
+  const screener = asRecord(record?.screener);
+  const comparison = asRecord(record?.comparison);
+  const ranking = asRecord(record?.selectionRanking);
+  const financialQuality = asRecord(record?.financialQuality);
+  const tradingPlan = asRecord(record?.tradingPlan);
+  const assets = Array.isArray(record?.assets) ? record.assets : null;
+  const candidates = Array.isArray(screener?.candidates) ? screener.candidates : null;
+  const totalCandidates = numeric(screener?.total_candidates);
+
+  return Boolean(
+    record?.status === 'no_candidates' &&
+      assets &&
+      assets.length === 0 &&
+      candidates &&
+      candidates.length === 0 &&
+      totalCandidates === 0 &&
+      pickString(screener?.source) &&
+      pickString(screener?.fetched_at ?? screener?.as_of ?? screener?.trade_date) &&
+      Array.isArray(comparison?.rows) &&
+      Array.isArray(ranking?.rows) &&
+      Array.isArray(financialQuality?.rows) &&
+      Array.isArray(tradingPlan?.rows) &&
+      Array.isArray(record.warnings) &&
+      record.warnings.length > 0
+  );
+}
+
 async function ensurePrefetchedFinalData(projectPath: string) {
   const runPlan = await readRunPlan(projectPath);
   if (!runPlan) {
@@ -1536,7 +1667,7 @@ async function ensurePrefetchedFinalData(projectPath: string) {
   const inspection = inspectDashboardDataPayload(parsed);
   const plannedSymbols = extractPlannedSymbols(runPlan);
   const missingSymbols = plannedSymbols.filter((symbol) => !inspection.fetchedSymbols.includes(symbol));
-  if (raw && inspection.hasUsableMarketData && missingSymbols.length === 0) {
+  if (raw && (inspection.hasUsableMarketData || isStructuredEmptyScreenerResult(parsed)) && missingSymbols.length === 0) {
     return;
   }
 
@@ -1710,6 +1841,7 @@ async function checkDashboardBinding(
   const assetRows = Array.isArray(finalDataRecord?.assets) ? finalDataRecord.assets : [];
   const fetchedSymbols = extractFetchedSymbols(finalData);
   const payloadInspection = inspectDashboardDataPayload(finalData);
+  const isEmptyScreenerResult = isStructuredEmptyScreenerResult(finalData);
   const isMultiSymbolTask = plannedSymbols.length > 1 || assetRows.length > 1;
   const runPlanVisualization = asRecord(runPlan?.visualization);
   const plannedTemplateId = pickString(runPlanVisualization?.templateId);
@@ -1740,7 +1872,7 @@ async function checkDashboardBinding(
     };
   }
 
-  if (!payloadInspection.hasUsableMarketData) {
+  if (!payloadInspection.hasUsableMarketData && !isEmptyScreenerResult) {
     return {
       status: 'failed',
       summary: '页面数据入口存在，但最终数据无法映射出实时行情或 K 线样本。',
@@ -2011,6 +2143,30 @@ async function checkChartPresence(
     };
   }
 
+  if (plannedTemplateId === 'technical-timing') {
+    const hasMa60Graphic =
+      /legend-ma60|className=["'][^"']*ma60|(?:ma60|MA60)[\w]*\s*\.map\(|name\s*:\s*["']MA60/i.test(page);
+    const hasExplicitRiskConclusion = /风险结论|风险等级/.test(page);
+    const hasVolumeGraphic = /volume-chart|成交量副图|VolumeChart|volumeBars/.test(page);
+    if (!hasMa60Graphic || !hasExplicitRiskConclusion || !hasVolumeGraphic) {
+      return {
+        status: 'failed',
+        summary: '技术择时看板缺少完整的 MA60、成交量或风险结论。',
+        details: [
+          !hasMa60Graphic ? 'MA60 必须实际绘制到主图，不能只出现在文字或组件清单中。' : null,
+          !hasVolumeGraphic ? '必须绘制成交量副图。' : null,
+          !hasExplicitRiskConclusion ? '必须显式展示风险结论或风险等级。' : null,
+        ].filter(Boolean).join('\n'),
+        metadata: {
+          hasMa60Graphic,
+          hasVolumeGraphic,
+          hasExplicitRiskConclusion,
+          plannedTemplateId,
+        },
+      };
+    }
+  }
+
   return {
     status: 'passed',
     summary: '已检测到金融图表相关实现。',
@@ -2145,7 +2301,7 @@ async function writeValidationReport(projectPath: string, report: QuantValidatio
 
 function actionsForFailedCheck(check: QuantValidationCheck): string[] {
   const common = [
-    '只修改当前生成项目目录内的文件。',
+    '本轮只修改 app/**、data_file/final/** 和 evidence/**；.quantpilot/** 由平台维护，只能读取。',
     '保留已经获取到的真实数据，不要改成 mock 或静态样例。',
   ];
 
@@ -2178,7 +2334,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         ...common,
         '生成或修复 data_file/final/dashboard-data.json。',
         '读取 .quantpilot/run_plan.json 和现有 raw/final/evidence 数据，按真实数据重组 final 文件，不要只创建空 JSON。',
-        '如果原始需求、run_plan.symbols 或 final 数据显示是多标的对比/相关性/累计收益任务，但 run_plan 被误写成 portfolio_risk 或 holding-analysis，必须先把 .quantpilot/run_plan.json 修回 asset_comparison/stock-selection，再同步 final 数据和页面。',
+        '如果原始需求、平台只读 run_plan.symbols 或 final 数据显示是多标的对比/相关性/累计收益任务，按平台修正后的只读计划同步 final 数据和页面；不得自行改写 run_plan。',
         '确保 final 数据包含 symbol/name/source/as_of、quote.price/change_percent/quote_time，以及 kline.bars[] 或 history.bars[]；每根 K 线至少包含 date/open/high/low/close/volume 或 amount。',
         '多标的任务必须覆盖 run_plan.symbols 中的全部代码，并写入 requestedSymbols、assets[] 与 comparison.rows[]；comparison.rows[] 必须包含 symbol/name、价格或收益、回撤/波动/成交额等可排序字段。',
         'final 数据必须包含 visualization.template_id、variant_id、required_components 和 rendered_components，并与 run_plan.visualization.templateId 对齐。',
@@ -2195,7 +2351,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
       return [
         ...common,
         '查看 .quantpilot/artifact-contracts.json 中失败的契约项。',
-        '修复 .quantpilot/run_plan.json、.quantpilot/generation-state.json、evidence/*.json 或 data_file/final/dashboard-data.json 的结构字段。',
+        '只修复 evidence/*.json 或 data_file/final/dashboard-data.json 的结构字段；run_plan、generation-state 和其他 .quantpilot 结构由平台重建。',
         '不要只让页面 build 通过；关键 JSON 产物必须满足平台契约，后续健康检查和链路观测依赖这些字段。',
       ];
     case 'artifact_policy':
@@ -2222,7 +2378,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
               '不要只读取文件或解释计划；必须使用 Edit/MultiEdit/Write 工具完成删除，然后运行 npm run build。',
             ]
           : []),
-        '如果页面残留持仓矩阵、调仓优先级或 holding-analysis，但任务实际是多标的对比/相关性看板，先修 run_plan 和 final visualization.template_id，再把页面改回 stock-selection 多标的结构。',
+        '如果页面残留持仓矩阵、调仓优先级或 holding-analysis，但平台只读计划显示任务实际是多标的对比/相关性看板，只修 final visualization.template_id 和页面，将其改回 stock-selection 多标的结构。',
         '不要把完整行情、K 线、财务或公告对象内联到页面代码。',
         ];
       }
@@ -2320,6 +2476,159 @@ function truncateForPrompt(value: string, limit = 1_500): string {
   return `${trimmed.slice(0, limit)}\n...内容已截断...`;
 }
 
+export async function repairQuantPlatformOwnedArtifacts(params: {
+  projectPath: string;
+  requestId: string;
+  originalInstruction: string;
+  report: QuantValidationReport;
+}): Promise<{ runPlanRebuilt: boolean }> {
+  const platformFailureText = params.report.checks
+    .filter((check) => check.status === 'failed')
+    .map((check) => `${check.id}\n${check.summary}\n${check.details ?? ''}`)
+    .join('\n');
+  const runPlanNeedsPlatformRepair =
+    /(?:run_plan|运行计划).*(?:缺失|无效|契约|不一致|误写|template)|(?:template|模板).*(?:run_plan|运行计划)/i.test(
+      platformFailureText,
+    );
+
+  if (!runPlanNeedsPlatformRepair) {
+    return { runPlanRebuilt: false };
+  }
+
+  await writeInitialRunPlan({
+    projectPath: params.projectPath,
+    instruction: params.originalInstruction,
+    requestId: params.requestId,
+    capabilitySource: 'inferred',
+  });
+
+  await appendQuantWorkspaceEvent(params.projectPath, {
+    event_type: 'platform_artifact_repaired',
+    stage: 'validation_repair',
+    status: 'success',
+    run_id: params.requestId,
+    artifact_path: '.quantpilot/run_plan.json',
+    summary: '平台已根据原始请求重建只读 run_plan，Agent 无需且不得修改 .quantpilot。',
+  });
+
+  return { runPlanRebuilt: true };
+}
+
+/**
+ * Last-resort recovery for an exhausted Agent repair loop. The platform template
+ * may replace the generated page only when every blocking check is presentation
+ * related; data, evidence, contract, policy, or proxy failures must be repaired
+ * without overwriting the page.
+ */
+export async function restoreQuantDashboardTemplateAfterRepairExhaustion(params: {
+  projectPath: string;
+  report: QuantValidationReport;
+}): Promise<QuantDashboardTemplateRestoreResult> {
+  const failedCheckIds = Array.from(
+    new Set(
+      params.report.checks
+        .filter((check) => check.status === 'failed')
+        .map((check) => check.id),
+    ),
+  );
+
+  if (params.report.passed || params.report.status !== 'failed') {
+    return {
+      restored: false,
+      reason: '验证报告未处于失败状态，无需恢复平台看板模板。',
+      failedCheckIds,
+    };
+  }
+
+  if (failedCheckIds.length === 0) {
+    return {
+      restored: false,
+      reason: '验证报告没有阻断性失败项，未恢复平台看板模板。',
+      failedCheckIds,
+    };
+  }
+
+  const nonPresentationCheckIds = failedCheckIds.filter(
+    (checkId) => !DASHBOARD_TEMPLATE_RESTORE_CHECK_IDS.has(checkId),
+  );
+  if (nonPresentationCheckIds.length > 0) {
+    return {
+      restored: false,
+      reason: `存在非页面类失败项（${nonPresentationCheckIds.join('、')}），为避免覆盖有效页面，未恢复平台看板模板。`,
+      failedCheckIds,
+    };
+  }
+
+  const projectPath = path.resolve(/*turbopackIgnore: true*/ params.projectPath);
+  const protectedArtifacts = await Promise.all(
+    DASHBOARD_TEMPLATE_PROTECTED_ARTIFACT_PATHS.map(async (relativePath) => ({
+      relativePath,
+      content: await readTextFile(path.join(projectPath, relativePath)),
+    })),
+  );
+  const missingProtectedArtifacts = protectedArtifacts
+    .filter((artifact) => artifact.content === null)
+    .map((artifact) => artifact.relativePath);
+  if (missingProtectedArtifacts.length > 0) {
+    return {
+      restored: false,
+      reason: `缺少恢复所需的只读数据产物（${missingProtectedArtifacts.join('、')}），未恢复平台看板模板。`,
+      failedCheckIds,
+    };
+  }
+
+  let restoreFailure: string | null = null;
+  try {
+    await restoreQuantDashboardTemplate(projectPath);
+  } catch (error) {
+    restoreFailure = error instanceof Error ? error.message : String(error);
+  }
+
+  const changedProtectedArtifacts: Array<{ relativePath: string; content: string }> = [];
+  for (const artifact of protectedArtifacts) {
+    const content = artifact.content as string;
+    const currentContent = await readTextFile(path.join(projectPath, artifact.relativePath));
+    if (currentContent !== content) {
+      changedProtectedArtifacts.push({ relativePath: artifact.relativePath, content });
+    }
+  }
+
+  if (changedProtectedArtifacts.length > 0) {
+    const rollbackFailures: string[] = [];
+    for (const artifact of changedProtectedArtifacts) {
+      try {
+        const absolutePath = path.join(projectPath, artifact.relativePath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, artifact.content, 'utf8');
+      } catch {
+        rollbackFailures.push(artifact.relativePath);
+      }
+    }
+    const changedPaths = changedProtectedArtifacts.map((artifact) => artifact.relativePath).join('、');
+    return {
+      restored: false,
+      reason: rollbackFailures.length > 0
+        ? `模板恢复意外改动了受保护产物（${changedPaths}），且回滚失败：${rollbackFailures.join('、')}。`
+        : `模板恢复意外改动了受保护产物（${changedPaths}），已回滚数据产物并拒绝标记为恢复成功。`,
+      failedCheckIds,
+    };
+  }
+
+  if (restoreFailure) {
+    return {
+      restored: false,
+      reason: `平台看板模板恢复失败：${restoreFailure}`,
+      failedCheckIds,
+    };
+  }
+
+  return {
+    restored: true,
+    reason: `仅检测到页面类失败项（${failedCheckIds.join('、')}），已恢复平台看板模板；final 与 evidence 保持不变，需重新运行验证。`,
+    failedCheckIds,
+  };
+}
+
 export function buildQuantValidationRepairInstruction(
   report: QuantValidationReport,
   options: { originalInstruction?: string } = {}
@@ -2355,25 +2664,27 @@ ${VALIDATION_REPAIR_PLAN_RELATIVE_PATH}
 ${repairSteps || '请重新检查验证报告并补齐缺失产物。'}
 
 修复要求：
-1. 只修改当前生成项目目录内的文件，不要修改父级 QuantPilot 平台工程。
+1. 本轮只修改当前生成项目中的 app/**、data_file/final/** 和 evidence/**，不要修改其他目录或父级 QuantPilot 平台工程。
 2. 不要只回复说明，必须实际修改文件并让页面可访问。
 3. 必须先读取 .quantpilot/validation.json、.quantpilot/validation-repair-plan.json、.quantpilot/run_plan.json、data_file/final/dashboard-data.json、evidence/sources.json、evidence/data_quality.json、app/page.tsx 和 app/globals.css；如果存在 .quantpilot/visual-validation.json，也必须读取截图路径和 viewport metrics。
-4. 如果失败项包含“最终数据文件存在，但没有通过真实数据形态检查”，必须修复 final 数据契约：单标的包含 symbol/name/source/as_of、quote.price/change_percent/quote_time、kline.bars[]；多标的包含 requestedSymbols、assets[]、comparison.rows[]，且覆盖 run_plan.symbols 全部标的。
-5. 不允许把取到的行情、K 线、财务、公告数据整段硬编码到 app/page.tsx；即使是真实数据，整段内联到页面代码也视为失败。
-6. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
-7. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
-8. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
-9. 不得引用外部 CDN、远程脚本、远程样式或浏览器直连外部接口；页面资源必须本地化，浏览器取数只能走 final 数据文件或同源 /api/market/**。
-10. 不得留下 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据等 mock/static 产物，也不得写入任何鉴权凭据、会话凭据或密钥值。
-11. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-12. 移动端不能只在首屏展示标题、指标卡和说明；390x844 首屏内必须能看到核心图表、矩阵或表格的主体区域。
-13. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
-14. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，必须先根据原始用户需求、run_plan.symbols、requestedSymbols、assets[] 和 comparison 判断真实任务；多标的对比/相关性/累计收益任务应使用 asset_comparison + stock-selection，不要强行改成 holding-analysis。
-15. 如果用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”，必须绘制带日期轴、统一尺度和图例的折线图；如果要求“相关性矩阵/热力图”，必须绘制真实矩阵/热力图。
-16. 未被用户明确要求时，不得新增短线交易计划、买卖点、止损、目标价或调仓指令；可以只保留研究结论、风险和数据限制。
-17. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
-18. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
-19. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+4. 整个 \`.quantpilot/**\`（包括 run_plan、validation、repair plan、visual/artifact 报告、generation-state、queue 和 events）都是平台只读计划/报告/状态。绝对不得编辑、删除或伪造；结构修复和重新生成由平台负责。
+5. 不要安装 Playwright/Chromium、不要修改包依赖来规避视觉验收。若失败细节是浏览器运行时缺失，该项由平台处理；你只修复真实的页面、数据和 evidence 失败。
+6. 如果失败项包含“最终数据文件存在，但没有通过真实数据形态检查”，必须修复 final 数据契约：单标的包含 symbol/name/source/as_of、quote.price/change_percent/quote_time、kline.bars[]；多标的包含 requestedSymbols、assets[]、comparison.rows[]，且覆盖 run_plan.symbols 全部标的。
+7. 不允许把取到的行情、K 线、财务、公告数据整段硬编码到 app/page.tsx；即使是真实数据，整段内联到页面代码也视为失败。
+8. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
+9. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
+10. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
+11. 不得引用外部 CDN、远程脚本、远程样式或浏览器直连外部接口；页面资源必须本地化，浏览器取数只能走 final 数据文件或同源 /api/market/**。
+12. 不得留下 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据等 mock/static 产物，也不得写入任何鉴权凭据、会话凭据或密钥值。
+13. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
+14. 移动端不能只在首屏展示标题、指标卡和说明；390x844 首屏内必须能看到核心图表、矩阵或表格的主体区域。
+15. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
+16. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，平台会先重建只读 run_plan；你不得修改它，只需根据原始用户需求、平台计划、requestedSymbols、assets[] 和 comparison 修复 final 数据与页面。多标的对比/相关性/累计收益任务应呈现 stock-selection 多标的结构，不要强行改成 holding-analysis。
+17. 如果用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”，必须绘制带日期轴、统一尺度和图例的折线图；如果要求“相关性矩阵/热力图”，必须绘制真实矩阵/热力图。
+18. 未被用户明确要求时，不得新增短线交易计划、买卖点、止损、目标价或调仓指令；可以只保留研究结论、风险和数据限制。
+19. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
+20. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
+21. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
 }
 
 async function publishValidationSummary(
@@ -2499,9 +2810,10 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
 
   const passed = checks.every((check) => check.status !== 'failed');
   const updatedAt = new Date().toISOString();
+  const reportRunId = params.requestId ?? await readCurrentQuantRunId(projectPath);
   const report: QuantValidationReport = {
     schemaVersion: 1,
-    runId: params.requestId ?? undefined,
+    runId: reportRunId ?? undefined,
     status: passed ? 'passed' : 'failed',
     passed,
     projectId: params.projectId,
@@ -2527,7 +2839,7 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
     type: 'status',
     data: {
       status: passed ? 'validation_passed' : 'validation_failed',
-      message: passed ? '自动验证通过，可手动打开预览或发布后查看。' : '自动验证未通过，请查看验证摘要。',
+      message: passed ? '自动验证通过，正在准备看板预览。' : '自动验证未通过，请查看验证摘要。',
       requestId: params.requestId ?? undefined,
       metadata: {
         reportPath: VALIDATION_REPORT_RELATIVE_PATH,
@@ -2541,18 +2853,6 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
   });
 
   await publishValidationSummary(params, report);
-
-  if (passed) {
-    try {
-      if (params.requestId) {
-        await markUserRequestAsCompleted(params.requestId);
-      } else {
-        await markActiveUserRequestsAsCompleted(params.projectId);
-      }
-    } catch (error) {
-      console.warn('[QuantValidation] Failed to mark request as completed after validation:', error);
-    }
-  }
 
   return report;
 }
@@ -2570,32 +2870,61 @@ export async function readQuantValidationReport(projectPath: string): Promise<Qu
     if (!parsed || typeof parsed !== 'object') {
       return null;
     }
-    if (parsed.passed === false || parsed.status === 'failed') {
-      const reportStat = await fs.stat(reportPath).catch(() => null);
-      const artifactStats = await Promise.all(
-        VALIDATION_STALE_ARTIFACT_PATHS.map((relativePath) =>
-          fs.stat(path.join(resolvedProjectPath, relativePath)).catch(() => null)
-        )
-      );
-      const newestArtifactMtime = Math.max(
-        0,
-        ...artifactStats
-          .filter((stat): stat is NonNullable<typeof stat> => Boolean(stat?.isFile()))
-          .map((stat) => stat.mtimeMs)
-      );
-      if (reportStat && newestArtifactMtime > reportStat.mtimeMs + 1_000) {
+    const [reportStat, artifactStats, currentRunId] = await Promise.all([
+      fs.stat(reportPath).catch(() => null),
+      Promise.all(
+        VALIDATION_STALE_ARTIFACT_PATHS.map(async (relativePath) => {
+          const stat = await fs
+            .stat(path.join(resolvedProjectPath, relativePath))
+            .catch(() => null);
+          return stat?.isFile()
+            ? { path: relativePath, mtimeMs: stat.mtimeMs }
+            : null;
+        }),
+      ),
+      readCurrentQuantRunId(resolvedProjectPath),
+    ]);
+    if (reportStat) {
+      const freshness = assessQuantValidationReportFreshness({
+        reportRunId: parsed.runId,
+        currentRunId,
+        reportMtimeMs: reportStat.mtimeMs,
+        artifacts: artifactStats.filter(
+          (artifact): artifact is QuantValidationArtifactMtime => artifact !== null,
+        ),
+      });
+      if (freshness.stale) {
+        const staleBecauseRunChanged = freshness.reasons.includes('run_id_mismatch');
+        const staleBecauseArtifactsChanged = freshness.reasons.includes(
+          'artifact_modified_after_report',
+        );
         return {
           ...parsed,
           checks: [
-            ...parsed.checks,
+            ...(Array.isArray(parsed.checks) ? parsed.checks : []),
             {
               id: 'validation_report_stale',
               name: '验证报告已过期',
               status: 'warning',
-              summary: '生成产物在上次验证后发生变化，需要重新运行自动验证。',
+              summary:
+                staleBecauseRunChanged && staleBecauseArtifactsChanged
+                  ? '当前生成轮次和关键产物均已变化，需要重新运行自动验证。'
+                  : staleBecauseRunChanged
+                    ? '验证报告不属于当前生成轮次，需要重新运行自动验证。'
+                    : '生成产物在上次验证后发生变化，需要重新运行自动验证。',
               metadata: {
+                reasons: freshness.reasons,
                 reportUpdatedAt: reportStat.mtime.toISOString(),
-                newestArtifactUpdatedAt: new Date(newestArtifactMtime).toISOString(),
+                staleArtifactPaths: freshness.staleArtifactPaths,
+                reportRunId: freshness.reportRunId,
+                currentRunId: freshness.currentRunId,
+                ...(freshness.newestArtifactMtimeMs !== null
+                  ? {
+                      newestArtifactUpdatedAt: new Date(
+                        freshness.newestArtifactMtimeMs,
+                      ).toISOString(),
+                    }
+                  : {}),
               },
             },
           ],

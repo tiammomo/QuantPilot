@@ -12,14 +12,14 @@
     {
       "id": "run-planner",
       "name": "运行规划",
-      "version": "0.2.1",
+      "version": "0.2.3",
       "status": "stable",
       "scope": "workflow",
       "boundary": "意图澄清、澄清承接、二次对话上下文继承、任务拆解、run_plan 生成和执行顺序控制。",
       "inputs": ["用户问题", ".quantpilot/manifest.json", "上一轮 run_plan"],
       "outputs": [".quantpilot/run_plan.json", ".quantpilot/events.jsonl"],
       "scripts": ["scripts/intent_clarifier.py"],
-      "validation": ["不清晰任务必须停在 needs_clarification", "清晰任务必须进入 planned", "无新标的的页面修订必须继承上一轮 symbols/timeRange/template", "平台附加执行说明不得参与能力或模板判断"]
+      "validation": ["不清晰任务必须停在 needs_clarification", "清晰任务必须进入 planned", "可解析的证券名称不得仅因缺少代码而追问", "最近怎么样等泛化诊断必须使用默认范围继续", "无新标的的页面修订必须继承上一轮 symbols/timeRange/template", "平台附加执行说明不得参与能力或模板判断"]
     },
     {
       "id": "quant-data-registry",
@@ -47,13 +47,13 @@
     {
       "id": "quant-symbol-resolver",
       "name": "标的解析",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "status": "stable",
       "scope": "quant",
       "boundary": "把中文简称、代码、指数、ETF 转为标准证券代码、市场和资产类型。",
       "inputs": ["用户问题", "候选标的文本"],
       "outputs": ["symbols", "resolvedSymbols"],
-      "validation": ["run_plan.symbols 必须是代码字符串数组"]
+      "validation": ["run_plan.symbols 必须是代码字符串数组", "同名 A 股唯一时必须自动选择并继续", "只有多个同优先级候选时才允许追问"]
     },
     {
       "id": "image-extraction",
@@ -153,7 +153,7 @@
     {
       "id": "data-quality",
       "name": "数据质量",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "status": "stable",
       "scope": "evidence",
       "boundary": "证据文件、来源、时效、缺失字段、异常值和限制说明。",
@@ -175,13 +175,13 @@
     {
       "id": "dashboard-visualization",
       "name": "可视化看板",
-      "version": "0.4.2",
+      "version": "0.4.5",
       "status": "stable",
       "scope": "visualization",
       "boundary": "基于已验证 final 数据、模板族、自动匹配变体和金融指标判读生成 Next.js 金融分析看板，并在验证失败时自修复页面、数据契约和 evidence。",
       "inputs": ["data_file/final/dashboard-data.json", "evidence", "run_plan", ".quantpilot/validation.json", ".quantpilot/validation-repair-plan.json", ".quantpilot/visual-validation.json"],
       "outputs": ["app/page.tsx", "app/globals.css", "visualization.template_id", "visualization.variant_id"],
-      "validation": ["页面必须绑定真实数据", "生成前必须按 visual_judgement 判读时间/维度/指标字段和指标口径", "首屏必须呈现真实金融内容和核心图表/矩阵", "多标的任务不得降级成单股模板", "用户要求累计收益曲线时必须绘制带日期轴和统一尺度的折线图", "用户要求相关性矩阵时必须绘制真实矩阵/热力图", "未明确要求时不得新增交易计划、买卖点、止损或目标价", "迷你 sparkline 不能替代主图或对比矩阵", "缺数据时不得散落占位符，必须呈现专业待接入/待确认空态", "移动端不得出现页面级横向溢出", "指标卡必须说明时间窗口、覆盖对象和计算口径，不能裸写内部公式", "必须包含图表、来源、加载/错误/空状态", "必须按 visualization.templateId 选择模板族，并按 visualization.variantId/layout 覆盖具体页面结构", "动态 JSON 渲染必须使用 JsonRecord/asRecord/asArray 守卫并通过 Next.js build", "自动验证失败时必须读取 validation/repair/visual-validation 报告并实际修复", "最终数据形态失败必须修复 dashboard-data.json 标准契约和页面绑定", "不得引用外部 CDN/远程资源、不得保留 mock/static 数据、不得写入明文密钥"]
+      "validation": ["页面必须绑定真实数据", "生成前必须按 visual_judgement 判读时间/维度/指标字段和指标口径", "首屏必须呈现真实金融内容和核心图表/矩阵", "多标的任务不得降级成单股模板", "用户要求累计收益曲线时必须绘制带日期轴和统一尺度的折线图", "用户要求相关性矩阵时必须绘制真实矩阵/热力图", "未明确要求时不得新增交易计划、买卖点、止损或目标价", "迷你 sparkline 不能替代主图或对比矩阵", "缺数据时不得散落占位符，必须呈现专业待接入/待确认空态", "移动端不得出现页面级横向溢出", "指标卡必须说明时间窗口、覆盖对象和计算口径，不能裸写内部公式", "必须包含图表、来源、加载/错误/空状态", "必须按 visualization.templateId 选择模板族，并按 visualization.variantId/layout 覆盖具体页面结构", "动态 JSON 的每一层嵌套对象都必须分别使用 asRecord 守卫并通过 Next.js build", "自动验证失败时必须读取 validation/repair/visual-validation 报告并实际修复", "最终数据形态失败必须修复 dashboard-data.json 标准契约和页面绑定", ".quantpilot 全目录只读，Agent 不得改写计划、状态、事件或验证报告", "不得引用外部 CDN/远程资源、不得保留 mock/static 数据、不得写入明文密钥"]
     }
   ],
   "legacyAliases": {

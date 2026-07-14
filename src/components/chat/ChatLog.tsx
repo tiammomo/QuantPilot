@@ -6,6 +6,7 @@ import ToolResultItem from './ToolResultItem';
 import type { ChatMessage, RealtimeEvent, RealtimeStatus } from '@/types';
 import { toChatMessage, normalizeChatContent } from '@/lib/serializers/client/chat';
 import { toRelativePath } from '@/lib/utils/path';
+import { classifyRealtimeGenerationStatus } from '@/lib/quant/realtime-generation-status';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -374,6 +375,8 @@ const deriveToolInfoFromMetadata = (
   command?: string;
   input?: string;
   output?: string;
+  outputOriginalChars?: number;
+  outputTruncated?: boolean;
   summary?: string;
   status?: 'executing' | 'done';
 } => {
@@ -452,6 +455,11 @@ const deriveToolInfoFromMetadata = (
     command: pickFirstString(meta.command) ?? (toolInput && typeof toolInput === 'object' ? pickFirstString((toolInput as Record<string, unknown>).command) : undefined),
     input: stringifyToolDetail(toolInput),
     output: stringifyToolDetail(toolOutput),
+    outputOriginalChars:
+      typeof meta.toolOutputOriginalChars === 'number' && Number.isFinite(meta.toolOutputOriginalChars)
+        ? meta.toolOutputOriginalChars
+        : undefined,
+    outputTruncated: meta.toolOutputTruncated === true,
     summary,
     status: meta.isTransientToolMessage ? 'executing' : 'done',
   };
@@ -1314,6 +1322,8 @@ const ToolMessage = ({
       toolName={persistedToolName}
       input={persistedInput}
       output={persistedOutput}
+      outputOriginalChars={metadataInfo.outputOriginalChars}
+      outputTruncated={metadataInfo.outputTruncated}
       summary={persistedSummary}
       status={persistedStatus}
       isExpanded={isExpanded}
@@ -1586,7 +1596,11 @@ function renderLightMarkdown(content: string, options: { codeBreakAll?: boolean 
 interface ChatLogProps {
   projectId: string;
   onSessionStatusChange?: (isRunning: boolean) => void;
-  onProjectStatusUpdate?: (status: string, message?: string) => void;
+  onProjectStatusUpdate?: (
+    status: string,
+    message?: string,
+    metadata?: Record<string, unknown>,
+  ) => void;
   onSseFallbackActive?: (active: boolean) => void;
   startRequest?: (requestId: string) => void;
   completeRequest?: (requestId: string, isSuccessful: boolean, errorMessage?: string) => void;
@@ -2025,19 +2039,41 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     (status: string, payload?: RealtimeStatus | Record<string, unknown>, requestId?: string) => {
       const statusData = (payload as RealtimeStatus | undefined) ?? undefined;
       const resolvedStatus = statusData?.status ?? status;
-
-      if (statusData?.status && statusData.message && status === 'project_status') {
-        onProjectStatusUpdate?.(statusData.status, statusData.message);
+      const hasReadyPreview =
+        typeof statusData?.metadata?.previewUrl === 'string' &&
+        statusData.metadata.previewUrl.length > 0;
+      const lifecycle = classifyRealtimeGenerationStatus(
+        resolvedStatus,
+        statusData?.metadata,
+      );
+      const isWorkspaceLifecycleStatus =
+        lifecycle.workspaceLifecycle &&
+        (resolvedStatus !== 'validation_passed' || hasReadyPreview);
+      if (
+        statusData?.status &&
+        statusData.message &&
+        (status === 'project_status' || isWorkspaceLifecycleStatus)
+      ) {
+        onProjectStatusUpdate?.(
+          lifecycle.workspaceStatus,
+          statusData.message,
+          statusData.metadata,
+        );
       }
 
-      if (resolvedStatus === 'completed') {
+      if (lifecycle.terminal) {
         setActiveSession(null);
         onSessionStatusChange?.(false);
         setIsWaitingForResponse(false);
       }
 
-      if (resolvedStatus === 'starting' || resolvedStatus === 'running') {
+      if (
+        resolvedStatus === 'starting' ||
+        resolvedStatus === 'running' ||
+        lifecycle.keepsRequestActive
+      ) {
         setIsWaitingForResponse(true);
+        onSessionStatusChange?.(true);
       }
 
       const requestKey = statusData?.requestId ?? requestId;
@@ -2046,11 +2082,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         startRequest?.(requestKey);
       }
 
-      if (requestKey && resolvedStatus === 'completed') {
+      if (requestKey && lifecycle.terminal === 'success') {
         completeRequest?.(requestKey, true);
       }
 
-      if (requestKey && resolvedStatus === 'error') {
+      if (
+        requestKey &&
+        (lifecycle.terminal === 'failure' || lifecycle.terminal === 'cancelled')
+      ) {
         completeRequest?.(requestKey, false, statusData?.message);
       }
     },

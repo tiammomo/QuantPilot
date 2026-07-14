@@ -416,16 +416,18 @@ function buildLinePath(values: Array<number | null>, min: number, max: number): 
 function TrendChart({ bars }: { bars: JsonRecord[] }) {
   const visibleBars = bars.slice(-60);
   const hasBars = visibleBars.length > 0;
-  const closes = visibleBars.map((bar) => numeric(bar.close));
+  const allCloses = bars.map((bar) => numeric(bar.close));
+  const visibleOffset = Math.max(0, bars.length - visibleBars.length);
   const highs = visibleBars.map((bar) => numeric(bar.high) ?? numeric(bar.close)).filter((value): value is number => value !== null);
   const lows = visibleBars.map((bar) => numeric(bar.low) ?? numeric(bar.close)).filter((value): value is number => value !== null);
   const volumes = visibleBars.map((bar) => numeric(bar.volume) ?? 0);
   const minPrice = lows.length ? Math.min(...lows) : 0;
   const maxPrice = highs.length ? Math.max(...highs) : 1;
   const maxVolume = Math.max(1, ...volumes);
-  const ma5 = closes.map((_, index) => movingAverage(closes, 5, index));
-  const ma10 = closes.map((_, index) => movingAverage(closes, 10, index));
-  const ma20 = closes.map((_, index) => movingAverage(closes, 20, index));
+  const ma5 = allCloses.map((_, index) => movingAverage(allCloses, 5, index)).slice(visibleOffset);
+  const ma10 = allCloses.map((_, index) => movingAverage(allCloses, 10, index)).slice(visibleOffset);
+  const ma20 = allCloses.map((_, index) => movingAverage(allCloses, 20, index)).slice(visibleOffset);
+  const ma60 = allCloses.map((_, index) => movingAverage(allCloses, 60, index)).slice(visibleOffset);
   const priceTicks = [maxPrice, maxPrice - (maxPrice - minPrice) * 0.25, maxPrice - (maxPrice - minPrice) * 0.5, maxPrice - (maxPrice - minPrice) * 0.75, minPrice];
   const dateLabels = visibleBars.length > 0
     ? [
@@ -442,7 +444,7 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
       <div className="panel-heading">
         <div>
           <h2>K 线与量价结构</h2>
-          <p>OHLC 蜡烛图、MA5/MA10/MA20、成交量和阶段走势</p>
+          <p>OHLC 蜡烛图、MA5/MA10/MA20/MA60、成交量和阶段走势</p>
         </div>
         <span>{bars.length} 条样本</span>
       </div>
@@ -451,6 +453,7 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
         <span className="legend-ma5">MA5</span>
         <span className="legend-ma10">MA10</span>
         <span className="legend-ma20">MA20</span>
+        <span className="legend-ma60">MA60</span>
       </div>
       {!hasBars ? (
         <div className="chart-empty-state">
@@ -512,6 +515,7 @@ function TrendChart({ bars }: { bars: JsonRecord[] }) {
         <path d={buildLinePath(ma5, minPrice, maxPrice)} className="ma-line ma5" />
         <path d={buildLinePath(ma10, minPrice, maxPrice)} className="ma-line ma10" />
         <path d={buildLinePath(ma20, minPrice, maxPrice)} className="ma-line ma20" />
+        <path d={buildLinePath(ma60, minPrice, maxPrice)} className="ma-line ma60" />
       </svg>
 
       <svg className="volume-chart" viewBox="0 0 800 120" preserveAspectRatio="none" role="img" aria-label="成交量柱状图">
@@ -948,11 +952,24 @@ function SignalPanel({
   const latestPrice = numeric(quote?.price ?? latestBar?.close);
   const ma5 = numeric(summary?.ma5 ?? computedMetrics?.ma5);
   const ma20 = numeric(summary?.ma20 ?? computedMetrics?.ma20);
+  const ma60 = numeric(summary?.ma60 ?? computedMetrics?.ma60);
   const volume = numeric(latestBar?.volume);
   const avgVolume = numeric(computedMetrics?.avgVolume20d);
+  const maxDrawdown = numeric(summary?.max_drawdown_pct ?? computedMetrics?.maxDrawdown);
+  const volatility = numeric(
+    summary?.volatility_20d_annualized_pct ?? computedMetrics?.volatility20d
+  );
   const aboveMa20 = latestPrice !== null && ma20 !== null ? latestPrice >= ma20 : null;
   const maTrend = ma5 !== null && ma20 !== null ? ma5 >= ma20 : null;
   const volumeSignal = volume !== null && avgVolume !== null ? volume / Math.max(avgVolume, 1) : null;
+  const riskLevel =
+    maxDrawdown === null && volatility === null
+      ? '待确认'
+      : (maxDrawdown !== null && maxDrawdown <= -20) || (volatility !== null && volatility >= 35)
+        ? '高'
+        : (maxDrawdown !== null && maxDrawdown <= -10) || (volatility !== null && volatility >= 22)
+          ? '中'
+          : '低';
   const dataQuality = asRecord(data?.data_quality) ?? asRecord(asRecord(data?.kline)?.data_quality);
   const dataQualityStatus = String(dataQuality?.status ?? 'ok');
   const warnings = asArray(dataQuality?.warnings).map(String);
@@ -978,7 +995,7 @@ function SignalPanel({
           <span className="signal-label">均线结构</span>
           <span className={'signal-value ' + (maTrend === null ? '' : maTrend ? 'red' : 'green')}>
             {maTrend === null ? '待确认' : (maTrend ? '短多排列' : '短线偏弱')}
-            {ma5 != null && ma20 != null ? <span className="signal-detail"> · MA5 {formatNumber(ma5)} / MA20 {formatNumber(ma20)}</span> : null}
+            {ma5 != null && ma20 != null ? <span className="signal-detail"> · MA5 {formatNumber(ma5)} / MA20 {formatNumber(ma20)}{ma60 != null ? ' / MA60 ' + formatNumber(ma60) : ''}</span> : null}
           </span>
         </div>
         <div className={'signal-item ' + (volumeSignal === null ? '' : volumeSignal >= 1.2 ? 'signal-up' : volumeSignal <= 0.8 ? 'signal-down' : '')}>
@@ -986,6 +1003,13 @@ function SignalPanel({
           <span className="signal-value">
             {volumeSignal === null ? '待确认' : volumeSignal >= 1.2 ? '放量' : volumeSignal <= 0.8 ? '缩量' : '常态'}
             {volumeSignal != null ? <span className="signal-detail"> · {volumeSignal.toFixed(2)}x</span> : null}
+          </span>
+        </div>
+        <div className={'signal-item signal-risk risk-' + riskLevel}>
+          <span className="signal-label">风险结论</span>
+          <span className="signal-value">风险等级：{riskLevel}</span>
+          <span className="signal-detail">
+            最大回撤 {displayPercent(maxDrawdown)} · 20 日年化波动 {displayPercent(volatility)}
           </span>
         </div>
       </div>
@@ -1241,6 +1265,7 @@ export function baseDashboardCssTemplate(): string {
   --blue: #2b6de5;
   --gold: #b88719;
   --purple: #7c3aed;
+  --teal: #0f8f88;
   --amber-bg: #fff8e5;
   --red-bg: #fef2f2;
   --green-bg: #f0fdf4;
@@ -1690,6 +1715,7 @@ textarea {
 .legend-ma5 { color: var(--blue); }
 .legend-ma10 { color: var(--gold); }
 .legend-ma20 { color: var(--purple); }
+.legend-ma60 { color: var(--teal); }
 
 .chart-bg { fill: var(--surface-1); }
 
@@ -1755,6 +1781,7 @@ textarea {
 .ma5 { stroke: var(--blue); }
 .ma10 { stroke: var(--gold); }
 .ma20 { stroke: var(--purple); }
+.ma60 { stroke: var(--teal); stroke-width: 1.8; }
 
 .volume-up {
   fill: var(--volume-up-fill);
@@ -1829,6 +1856,16 @@ textarea {
 .signal-list .signal-item.signal-down {
   border-color: color-mix(in srgb, var(--green) 28%, var(--line));
   background: var(--green-bg);
+}
+
+.signal-list .signal-item.signal-risk {
+  border-color: color-mix(in srgb, var(--gold) 34%, var(--line));
+  background: var(--amber-bg);
+}
+
+.signal-list .signal-item.signal-risk.risk-高 {
+  border-color: color-mix(in srgb, var(--red) 36%, var(--line));
+  background: var(--red-bg);
 }
 
 .signal-list .signal-item .signal-label {

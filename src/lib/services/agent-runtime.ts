@@ -6,7 +6,8 @@ interface AgentRunRecord {
   projectId: string;
   requestId?: string;
   cli: string;
-  child: ChildProcess;
+  child?: ChildProcess;
+  cancel?: (reason: string) => void;
   status: AgentRuntimeStatus;
   startedAt: number;
   cancelReason?: string;
@@ -56,14 +57,19 @@ export function registerAgentRun(params: {
   projectId: string;
   requestId?: string;
   cli: string;
-  child: ChildProcess;
+  child?: ChildProcess;
+  cancel?: (reason: string) => void;
 }) {
+  if (!params.child && !params.cancel) {
+    throw new Error('Agent runtime registration requires a child process or cancel callback.');
+  }
   const key = runKey(params.projectId, params.requestId);
   agentRuns.set(key, {
     projectId: params.projectId,
     requestId: params.requestId,
     cli: params.cli,
     child: params.child,
+    cancel: params.cancel,
     status: 'running',
     startedAt: Date.now(),
   });
@@ -73,18 +79,24 @@ export function completeAgentRun(projectId: string, requestId?: string | null) {
   const key = runKey(projectId, requestId);
   const run = agentRuns.get(key);
   if (run) {
+    const completed = run.status !== 'cancelled';
     run.status = 'completed';
     agentRuns.delete(key);
+    return completed;
   }
+  return true;
 }
 
 export function failAgentRun(projectId: string, requestId?: string | null) {
   const key = runKey(projectId, requestId);
   const run = agentRuns.get(key);
   if (run) {
+    const failed = run.status !== 'cancelled';
     run.status = 'failed';
     agentRuns.delete(key);
+    return failed;
   }
+  return true;
 }
 
 export function isAgentRunCancelled(projectId: string, requestId?: string | null): boolean {
@@ -107,7 +119,14 @@ export function cancelAgentRuns(projectId: string, requestId?: string | null, re
     }
     run.status = 'cancelled';
     run.cancelReason = reason;
-    killProcessTree(run.child);
+    try {
+      run.cancel?.(reason);
+    } catch (error) {
+      console.error('[AgentRuntime] Cancel callback failed:', error);
+    }
+    if (run.child) {
+      killProcessTree(run.child);
+    }
     cancelled += 1;
   }
 

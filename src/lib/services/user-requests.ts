@@ -204,7 +204,11 @@ export async function upsertUserRequest({
 async function updateStatus(
   id: string,
   status: UserRequestStatus,
-  options: { errorMessage?: string | null; setCompletionTimestamp?: boolean } = {}
+  options: {
+    errorMessage?: string | null;
+    setCompletionTimestamp?: boolean;
+    allowedCurrentStatuses?: UserRequestStatus[];
+  } = {}
 ) {
   try {
     const data: Prisma.UserRequestUpdateInput = {
@@ -223,23 +227,36 @@ async function updateStatus(
       data.errorMessage = null;
     }
 
-    await prisma.userRequest.updateMany({
-      where: { id },
+    const result = await prisma.userRequest.updateMany({
+      where: {
+        id,
+        ...(options.allowedCurrentStatuses
+          ? { status: { in: options.allowedCurrentStatuses } }
+          : {}),
+      },
       data,
     });
+    return result.count > 0;
   } catch (error) {
     await handleNotFound(error, `update status to ${status}`);
+    return false;
   }
 }
 
-export async function markUserRequestAsRunning(id: string): Promise<void> {
-  await updateStatus(id, 'running');
-  trackRuntimeRequest(id);
+export async function markUserRequestAsRunning(id: string): Promise<boolean> {
+  const updated = await updateStatus(id, 'running', {
+    allowedCurrentStatuses: ACTIVE_STATUSES,
+  });
+  if (updated) trackRuntimeRequest(id);
+  return updated;
 }
 
-export async function markUserRequestAsProcessing(id: string): Promise<void> {
-  await updateStatus(id, 'processing');
-  trackRuntimeRequest(id);
+export async function markUserRequestAsProcessing(id: string): Promise<boolean> {
+  const updated = await updateStatus(id, 'processing', {
+    allowedCurrentStatuses: ACTIVE_STATUSES,
+  });
+  if (updated) trackRuntimeRequest(id);
+  return updated;
 }
 
 export async function isUserRequestCancelled(id: string): Promise<boolean> {
@@ -250,23 +267,27 @@ export async function isUserRequestCancelled(id: string): Promise<boolean> {
   return request?.status === 'cancelled';
 }
 
-export async function markUserRequestAsCompleted(id: string): Promise<void> {
-  await updateStatus(id, 'completed', {
+export async function markUserRequestAsCompleted(id: string): Promise<boolean> {
+  const updated = await updateStatus(id, 'completed', {
     errorMessage: null,
     setCompletionTimestamp: true,
+    allowedCurrentStatuses: ACTIVE_STATUSES,
   });
-  untrackRuntimeRequest(id);
+  if (updated) untrackRuntimeRequest(id);
+  return updated;
 }
 
 export async function markUserRequestAsCancelled(
   id: string,
   errorMessage = '用户暂停了当前任务',
-): Promise<void> {
-  await updateStatus(id, 'cancelled', {
+): Promise<boolean> {
+  const updated = await updateStatus(id, 'cancelled', {
     errorMessage,
     setCompletionTimestamp: true,
+    allowedCurrentStatuses: ACTIVE_STATUSES,
   });
-  untrackRuntimeRequest(id);
+  if (updated) untrackRuntimeRequest(id);
+  return updated;
 }
 
 export async function markActiveUserRequestsAsCancelled(
@@ -315,10 +336,12 @@ export async function markActiveUserRequestsAsCompleted(projectId: string): Prom
 export async function markUserRequestAsFailed(
   id: string,
   errorMessage?: string,
-): Promise<void> {
-  await updateStatus(id, 'failed', {
+): Promise<boolean> {
+  const updated = await updateStatus(id, 'failed', {
     errorMessage: errorMessage ?? 'Request failed',
     setCompletionTimestamp: true,
+    allowedCurrentStatuses: ACTIVE_STATUSES,
   });
-  untrackRuntimeRequest(id);
+  if (updated) untrackRuntimeRequest(id);
+  return updated;
 }

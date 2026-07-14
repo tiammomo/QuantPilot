@@ -79,6 +79,13 @@ function statusFromIssues(failures: string[], warnings: string[]): QuantVisualVa
   return 'passed';
 }
 
+export function isVisualValidationInfrastructureError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /Executable doesn't exist|playwright install|Cannot find (?:module|package).*playwright|browserType\.launch/i.test(
+    message
+  );
+}
+
 async function writeReport(projectPath: string, report: QuantVisualValidationReport) {
   await ensureQuantWorkspace(projectPath);
   await fs.writeFile(
@@ -356,22 +363,34 @@ export async function validateQuantVisualPresentation(params: {
   } catch (error) {
     const updatedAt = nowIso();
     const message = error instanceof Error ? error.message : String(error);
+    const infrastructureUnavailable = isVisualValidationInfrastructureError(error);
+    const warning =
+      '视觉截图验收已跳过：当前运行环境未安装 Playwright Chromium；运行 npx playwright install chromium 后可恢复桌面端和移动端截图验收。';
     const report: QuantVisualValidationReport = {
       schemaVersion: 1,
       projectId: params.projectId,
       requestId: params.requestId ?? null,
-      status: 'failed',
-      passed: false,
+      status: infrastructureUnavailable ? 'warning' : 'failed',
+      passed: infrastructureUnavailable,
       previewUrl: params.previewUrl,
       reportPath: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
       screenshotDir: SCREENSHOT_DIR,
       viewports: [],
-      failures: [`视觉验收执行异常：${message}`],
-      warnings: [],
+      failures: infrastructureUnavailable ? [] : [`视觉验收执行异常：${message}`],
+      warnings: infrastructureUnavailable ? [warning] : [],
       createdAt,
       updatedAt,
     };
     await writeReport(projectPath, report);
+    await appendQuantWorkspaceEvent(projectPath, {
+      event_type: 'visual_validation_completed',
+      stage: 'validation',
+      status: infrastructureUnavailable ? 'warning' : 'error',
+      run_id: params.requestId ?? undefined,
+      artifact_path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      summary: infrastructureUnavailable ? warning : '视觉验收执行异常。',
+      created_at: updatedAt,
+    });
     return report;
   } finally {
     if (browser) {

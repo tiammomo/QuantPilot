@@ -173,7 +173,6 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   // Create project directory
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
-  await ensureClaudeSkillsForProject(projectPath);
   const preferredCli = 'claude';
   const selectedModel = DEEPSEEK_MODEL_ID;
   const quantCapability = getQuantCapability(input.quantCapabilityId);
@@ -186,6 +185,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     quantCapabilityId: quantCapability.id,
     quantCapabilitySource: input.quantCapabilitySource,
   });
+  await ensureClaudeSkillsForProject(projectPath);
 
   // Create project in database
   const project = await prisma.project.create({

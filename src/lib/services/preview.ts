@@ -111,6 +111,7 @@ interface PreviewProcess {
   logs: string[];
   startedAt: Date;
   projectPath: string;
+  startOperationId?: symbol;
 }
 
 interface EnvOverrides {
@@ -312,6 +313,74 @@ function extractPidsFromSs(output: string): number[] {
   return Array.from(pids);
 }
 
+function extractListeningPortsFromSs(
+  output: string,
+  startPort: number,
+  endPort: number
+): Map<number, number[]> {
+  const pidsByPort = new Map<number, Set<number>>();
+
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    const columns = line.split(/\s+/);
+    if (columns[0] !== 'LISTEN' || columns.length < 4) {
+      continue;
+    }
+
+    // `ss -ltnpH` exposes the local endpoint in column four. Matching only
+    // its trailing numeric port avoids confusing process names or PIDs for a
+    // listener port, while covering IPv4, IPv6 and wildcard addresses.
+    const portMatch = columns[3].match(/:(\d+)$/);
+    if (!portMatch) {
+      continue;
+    }
+
+    const port = Number.parseInt(portMatch[1], 10);
+    if (!Number.isInteger(port) || port < startPort || port > endPort) {
+      continue;
+    }
+
+    const pids = extractPidsFromSs(line);
+    if (pids.length === 0) {
+      continue;
+    }
+
+    const owners = pidsByPort.get(port) ?? new Set<number>();
+    pids.forEach((pid) => owners.add(pid));
+    pidsByPort.set(port, owners);
+  }
+
+  return new Map(
+    Array.from(pidsByPort, ([port, pids]) => [port, Array.from(pids)])
+  );
+}
+
+async function findListeningPorts(
+  startPort: number,
+  endPort: number
+): Promise<Map<number, number[]>> {
+  if (process.platform === 'win32') {
+    return new Map();
+  }
+
+  try {
+    // Take one process-table snapshot for the entire preview range. Calling
+    // `ss` once per candidate port can add roughly a minute to preview startup
+    // across a large preview range even when the dev server is already ready.
+    const { stdout } = await execFileAsync('ss', ['-ltnpH']);
+    return extractListeningPortsFromSs(stdout, startPort, endPort);
+  } catch {
+    // `ss` may not exist (or process metadata may be unavailable). In that
+    // case adoption is skipped and normal available-port startup remains the
+    // safe fallback, matching the Windows behavior.
+    return new Map();
+  }
+}
+
 async function findListeningPids(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     return [];
@@ -451,12 +520,11 @@ async function findProjectPreviewPort(
     return null;
   }
 
-  for (let port = startPort; port <= endPort; port += 1) {
-    const listeningPids = await findListeningPids(port);
-    if (listeningPids.length === 0) {
-      continue;
-    }
-
+  const listeningPorts = await findListeningPorts(startPort, endPort);
+  const candidates = Array.from(listeningPorts.entries()).sort(
+    ([leftPort], [rightPort]) => leftPort - rightPort
+  );
+  for (const [port, listeningPids] of candidates) {
     const hasProjectListener = await Promise.all(
       listeningPids.map((pid) => isPidWithinProject(pid, projectPath))
     );
@@ -696,9 +764,10 @@ async function ensureProjectRootStructure(
 async function waitForPreviewReady(
   url: string,
   log: (chunk: Buffer | string) => void,
-  timeoutMs = PREVIEW_CONFIG.STARTUP_TIMEOUT,
-  intervalMs = PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
-  requestTimeoutMs = 3_000
+  timeoutMs: number = PREVIEW_CONFIG.STARTUP_TIMEOUT,
+  intervalMs: number = PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
+  requestTimeoutMs: number = 3_000,
+  shouldAbort?: () => boolean
 ) {
   const start = Date.now();
   let attempts = 0;
@@ -718,9 +787,16 @@ async function waitForPreviewReady(
   };
 
   while (Date.now() - start < timeoutMs) {
+    if (shouldAbort?.()) {
+      return false;
+    }
+
     attempts += 1;
     try {
       const response = await requestWithTimeout('HEAD');
+      if (shouldAbort?.()) {
+        return false;
+      }
       if (response.ok) {
         log(
           Buffer.from(
@@ -731,6 +807,9 @@ async function waitForPreviewReady(
       }
       if (response.status === 405 || response.status === 501) {
         const getResponse = await requestWithTimeout('GET');
+        if (shouldAbort?.()) {
+          return false;
+        }
         if (getResponse.ok) {
           log(
             Buffer.from(
@@ -824,9 +903,24 @@ export interface PreviewInfo {
   pid?: number;
 }
 
-class PreviewManager {
+interface PreviewStartOperation {
+  id: symbol;
+  cancelled: boolean;
+  promise: Promise<PreviewInfo>;
+}
+
+class PreviewStartCancelledError extends Error {
+  constructor(projectId: string) {
+    super(`Preview start cancelled for project ${projectId}.`);
+    this.name = 'PreviewStartCancelledError';
+  }
+}
+
+export class PreviewManager {
   private processes = new Map<string, PreviewProcess>();
   private installing = new Map<string, Promise<void>>();
+  private startOperations = new Map<string, PreviewStartOperation>();
+  private shutdownOperations = new Map<string, Promise<void>>();
 
   private getLogger(processInfo: PreviewProcess) {
     return (chunk: Buffer | string) => {
@@ -841,6 +935,106 @@ class PreviewManager {
         }
       });
     };
+  }
+
+  private assertStartActive(
+    projectId: string,
+    operation: PreviewStartOperation
+  ): void {
+    if (operation.cancelled) {
+      throw new PreviewStartCancelledError(projectId);
+    }
+  }
+
+  private async terminateTrackedProcess(projectId: string): Promise<void> {
+    const processInfo = this.processes.get(projectId);
+    if (!processInfo) {
+      return;
+    }
+
+    terminateProcessTree(processInfo.process);
+    await terminatePortListeners(processInfo.port, processInfo.projectPath);
+    if (this.processes.get(projectId) === processInfo) {
+      this.processes.delete(projectId);
+    }
+  }
+
+  private async settleCancelledStart(
+    projectId: string,
+    operation?: PreviewStartOperation
+  ): Promise<void> {
+    if (!operation) {
+      return;
+    }
+
+    // A start may currently be waiting for dependencies or preview readiness.
+    // Stop anything it has already registered, wait for it to observe the
+    // cancellation, then check once more in case it registered at the edge of
+    // an await boundary.
+    await this.terminateTrackedProcess(projectId);
+    await operation.promise.catch(() => undefined);
+    await this.terminateTrackedProcess(projectId);
+  }
+
+  private queueShutdown<T>(
+    projectId: string,
+    action: () => Promise<T>
+  ): Promise<T> {
+    const startOperation = this.startOperations.get(projectId);
+    if (startOperation) {
+      startOperation.cancelled = true;
+    }
+
+    const previousShutdown =
+      this.shutdownOperations.get(projectId) ?? Promise.resolve();
+    const result = (async () => {
+      await previousShutdown;
+      await this.settleCancelledStart(projectId, startOperation);
+      return action();
+    })();
+    const barrier = result.then(
+      () => undefined,
+      () => undefined
+    );
+
+    this.shutdownOperations.set(projectId, barrier);
+    void barrier.finally(() => {
+      if (this.shutdownOperations.get(projectId) === barrier) {
+        this.shutdownOperations.delete(projectId);
+      }
+    });
+
+    return result;
+  }
+
+  private async cleanupFailedStart(
+    projectId: string,
+    operation: PreviewStartOperation
+  ): Promise<void> {
+    const processInfo = this.processes.get(projectId);
+    if (processInfo && processInfo.startOperationId !== operation.id) {
+      return;
+    }
+
+    if (processInfo?.startOperationId === operation.id) {
+      terminateProcessTree(processInfo.process);
+      await terminatePortListeners(processInfo.port, processInfo.projectPath);
+      if (this.processes.get(projectId) === processInfo) {
+        this.processes.delete(projectId);
+      }
+    }
+
+    // A newer start owns project state now. Never let the failed operation
+    // erase the newer preview's URL or status.
+    if (this.startOperations.get(projectId) !== operation) {
+      return;
+    }
+
+    await updateProject(projectId, {
+      previewUrl: null,
+      previewPort: null,
+    });
+    await updateProjectStatus(projectId, 'idle');
   }
 
   public async installDependencies(projectId: string): Promise<{ logs: string[] }> {
@@ -919,7 +1113,11 @@ class PreviewManager {
     return { logs };
   }
 
-  public async cleanup(projectId: string): Promise<void> {
+  public cleanup(projectId: string): Promise<void> {
+    return this.queueShutdown(projectId, () => this.cleanupInternal(projectId));
+  }
+
+  private async cleanupInternal(projectId: string): Promise<void> {
     const project = await getProjectById(projectId);
     if (!project) {
       return;
@@ -950,8 +1148,62 @@ class PreviewManager {
     await updateProjectStatus(projectId, 'idle');
   }
 
-  public async start(projectId: string): Promise<PreviewInfo> {
+  public start(projectId: string): Promise<PreviewInfo> {
+    const existingOperation = this.startOperations.get(projectId);
+    if (existingOperation && !existingOperation.cancelled) {
+      return existingOperation.promise;
+    }
+
+    const operation: PreviewStartOperation = {
+      id: Symbol(`preview-start:${projectId}`),
+      cancelled: false,
+      promise: Promise.resolve({
+        port: null,
+        url: null,
+        status: 'starting',
+        logs: [],
+      }),
+    };
+
+    const run = Promise.resolve().then(async () => {
+      const shutdown = this.shutdownOperations.get(projectId);
+      if (shutdown) {
+        await shutdown;
+      }
+      this.assertStartActive(projectId, operation);
+      return this.startInternal(projectId, operation);
+    });
+
+    operation.promise = run
+      .catch(async (error) => {
+        if (!operation.cancelled) {
+          try {
+            await this.cleanupFailedStart(projectId, operation);
+          } catch (cleanupError) {
+            console.error(
+              '[PreviewManager] Failed to clean up unsuccessful preview start:',
+              cleanupError
+            );
+          }
+        }
+        throw error;
+      })
+      .finally(() => {
+        if (this.startOperations.get(projectId) === operation) {
+          this.startOperations.delete(projectId);
+        }
+      });
+
+    this.startOperations.set(projectId, operation);
+    return operation.promise;
+  }
+
+  private async startInternal(
+    projectId: string,
+    operation: PreviewStartOperation
+  ): Promise<PreviewInfo> {
     const project = await getProjectById(projectId);
+    this.assertStartActive(projectId, operation);
     if (!project) {
       throw new Error('Project not found');
     }
@@ -965,22 +1217,43 @@ class PreviewManager {
       const isSameProject =
         existingPath === expectedPath || existingPath.startsWith(`${expectedPath}${path.sep}`);
       const ownsPort = isSameProject && (await isPortOwnedByProject(existing.port, projectPath));
+      this.assertStartActive(projectId, operation);
 
-      if (ownsPort) {
+      const isHttpReady =
+        ownsPort &&
+        (await waitForPreviewReady(
+          existing.url,
+          this.getLogger(existing),
+          Math.min(PREVIEW_CONFIG.STARTUP_TIMEOUT, 5_000),
+          PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
+          1_500,
+          () => operation.cancelled || this.processes.get(projectId) !== existing,
+        ));
+      this.assertStartActive(projectId, operation);
+
+      if (ownsPort && isHttpReady) {
+        existing.status = 'running';
         await ensureQuantDashboardTemplate(projectPath).catch((error) => {
           console.warn('[PreviewManager] Failed to refresh Quant dashboard template for existing preview:', error);
         });
+        this.assertStartActive(projectId, operation);
         return this.toInfo(existing);
       }
 
+      if (ownsPort) {
+        terminateProcessTree(existing.process);
+        await terminatePortListeners(existing.port, existing.projectPath);
+      }
       this.processes.delete(projectId);
       await updateProject(projectId, {
         previewUrl: null,
         previewPort: null,
       });
+      this.assertStartActive(projectId, operation);
     }
 
     await fs.mkdir(projectPath, { recursive: true });
+    this.assertStartActive(projectId, operation);
 
     const pendingLogs: string[] = [];
     const queueLog = (message: string) => {
@@ -990,6 +1263,7 @@ class PreviewManager {
     };
 
     await ensureProjectRootStructure(projectPath, queueLog);
+    this.assertStartActive(projectId, operation);
 
     try {
       await fs.access(path.join(projectPath, 'package.json'));
@@ -1001,6 +1275,7 @@ class PreviewManager {
       await scaffoldBasicNextApp(projectPath, projectId);
     }
     await clearProjectPreviewArtifacts(projectPath, queueLog);
+    this.assertStartActive(projectId, operation);
 
     const previewBounds = resolvePreviewBounds();
     const adoptedPort = await findProjectPreviewPort(
@@ -1008,34 +1283,56 @@ class PreviewManager {
       previewBounds.start,
       previewBounds.end
     );
+    this.assertStartActive(projectId, operation);
     if (adoptedPort) {
-      const adoptedPreview: PreviewProcess = {
-        process: null,
-        port: adoptedPort,
-        url: `http://localhost:${adoptedPort}`,
-        status: 'running',
-        logs: [
-          ...pendingLogs,
-          `[PreviewManager] Adopted existing preview process on port ${adoptedPort}.`,
-        ].slice(-LOG_LIMIT),
-        startedAt: new Date(),
-        projectPath,
-      };
+      const adoptedUrl = `http://localhost:${adoptedPort}`;
+      const adoptedReady = await waitForPreviewReady(
+        adoptedUrl,
+        (chunk) => queueLog(chunk.toString()),
+        Math.min(PREVIEW_CONFIG.STARTUP_TIMEOUT, 5_000),
+        PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
+        1_500,
+        () => operation.cancelled,
+      );
+      this.assertStartActive(projectId, operation);
+      if (!adoptedReady) {
+        queueLog(
+          `Existing project listener on port ${adoptedPort} failed its HTTP readiness check; restarting it.`,
+        );
+        await terminatePortListeners(adoptedPort, projectPath);
+        this.assertStartActive(projectId, operation);
+      } else {
+        const adoptedPreview: PreviewProcess = {
+          process: null,
+          port: adoptedPort,
+          url: adoptedUrl,
+          status: 'running',
+          logs: [
+            ...pendingLogs,
+            `[PreviewManager] Adopted existing preview process on port ${adoptedPort}.`,
+          ].slice(-LOG_LIMIT),
+          startedAt: new Date(),
+          projectPath,
+          startOperationId: operation.id,
+        };
 
-      this.processes.set(projectId, adoptedPreview);
-      await updateProject(projectId, {
-        previewUrl: adoptedPreview.url,
-        previewPort: adoptedPreview.port,
-        status: 'running',
-      });
+        this.processes.set(projectId, adoptedPreview);
+        await updateProject(projectId, {
+          previewUrl: adoptedPreview.url,
+          previewPort: adoptedPreview.port,
+          status: 'running',
+        });
+        this.assertStartActive(projectId, operation);
 
-      return this.toInfo(adoptedPreview);
+        return this.toInfo(adoptedPreview);
+      }
     }
 
     const preferredPort = await findAvailablePort(
       previewBounds.start,
       previewBounds.end
     );
+    this.assertStartActive(projectId, operation);
 
     const initialUrl = `http://localhost:${preferredPort}`;
 
@@ -1054,6 +1351,7 @@ class PreviewManager {
       logs: [],
       startedAt: new Date(),
       projectPath,
+      startOperationId: operation.id,
     };
 
     const log = this.getLogger(previewProcess);
@@ -1093,15 +1391,19 @@ class PreviewManager {
     };
 
     await ensureWithLock();
+    this.assertStartActive(projectId, operation);
 
     const packageJson = await readPackageJson(projectPath);
+    this.assertStartActive(projectId, operation);
     const hasPredev = Boolean(packageJson?.scripts?.predev);
 
     if (hasPredev) {
       await appendCommandLogs(npmCommand, ['run', 'predev'], projectPath, env, log);
+      this.assertStartActive(projectId, operation);
     }
 
     const overrides = await collectEnvOverrides(projectPath);
+    this.assertStartActive(projectId, operation);
 
     if (overrides.port) {
       if (
@@ -1160,6 +1462,7 @@ class PreviewManager {
 
     env.NEXT_PUBLIC_APP_URL = resolvedUrl;
     previewProcess.url = resolvedUrl;
+    this.assertStartActive(projectId, operation);
 
     const child = spawn(
       npmCommand,
@@ -1178,9 +1481,6 @@ class PreviewManager {
 
     child.stdout?.on('data', (chunk) => {
       log(chunk);
-      if (previewProcess.status === 'starting') {
-        previewProcess.status = 'running';
-      }
     });
 
     child.stderr?.on('data', (chunk) => {
@@ -1189,16 +1489,18 @@ class PreviewManager {
 
     child.on('exit', (code, signal) => {
       previewProcess.status = code === 0 ? 'stopped' : 'error';
-      this.processes.delete(projectId);
-      updateProject(projectId, {
-        previewUrl: null,
-        previewPort: null,
-      }).catch((error) => {
-        console.error('[PreviewManager] Failed to reset project preview:', error);
-      });
-      updateProjectStatus(projectId, 'idle').catch((error) => {
-        console.error('[PreviewManager] Failed to reset project status:', error);
-      });
+      if (this.processes.get(projectId) === previewProcess) {
+        this.processes.delete(projectId);
+        updateProject(projectId, {
+          previewUrl: null,
+          previewPort: null,
+        }).catch((error) => {
+          console.error('[PreviewManager] Failed to reset project preview:', error);
+        });
+        updateProjectStatus(projectId, 'idle').catch((error) => {
+          console.error('[PreviewManager] Failed to reset project status:', error);
+        });
+      }
       log(
         Buffer.from(
           `Preview process exited (code: ${code ?? 'null'}, signal: ${
@@ -1214,12 +1516,28 @@ class PreviewManager {
     });
 
     await updateProject(projectId, {
-      previewUrl: previewProcess.url,
-      previewPort: previewProcess.port,
-      status: 'running',
+      // Do not expose a URL before the HTTP readiness probe succeeds. An
+      // iframe mounted during this window can cache a connection-error page
+      // even though the same URL becomes healthy moments later.
+      previewUrl: null,
+      previewPort: null,
+      status: 'idle',
     });
+    this.assertStartActive(projectId, operation);
 
-    const ready = await waitForPreviewReady(previewProcess.url, log);
+    const ready = await waitForPreviewReady(
+      previewProcess.url,
+      log,
+      PREVIEW_CONFIG.STARTUP_TIMEOUT,
+      PREVIEW_CONFIG.HEALTH_CHECK_INTERVAL,
+      3_000,
+      () =>
+        operation.cancelled ||
+        this.processes.get(projectId) !== previewProcess ||
+        previewProcess.status === 'error' ||
+        previewProcess.status === 'stopped'
+    );
+    this.assertStartActive(projectId, operation);
     if (ready) {
       previewProcess.status = 'running';
       await updateProject(projectId, {
@@ -1227,6 +1545,7 @@ class PreviewManager {
         previewPort: previewProcess.port,
         status: 'running',
       });
+      this.assertStartActive(projectId, operation);
     } else {
       previewProcess.status = 'error';
       terminateProcessTree(previewProcess.process);
@@ -1243,7 +1562,11 @@ class PreviewManager {
     return this.toInfo(previewProcess);
   }
 
-  public async stop(projectId: string): Promise<PreviewInfo> {
+  public stop(projectId: string): Promise<PreviewInfo> {
+    return this.queueShutdown(projectId, () => this.stopInternal(projectId));
+  }
+
+  private async stopInternal(projectId: string): Promise<PreviewInfo> {
     const processInfo = this.processes.get(projectId);
     if (!processInfo) {
       const project = await getProjectById(projectId);

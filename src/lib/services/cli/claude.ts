@@ -29,9 +29,18 @@ import {
 import { buildQuantPilotMcpServers } from '@/lib/services/quant-image-mcp';
 import {
   markUserRequestAsRunning,
-  markUserRequestAsCompleted,
-  markUserRequestAsFailed,
+  isUserRequestCancelled,
 } from '@/lib/services/user-requests';
+import {
+  completeAgentRun,
+  failAgentRun,
+  isAgentRunCancelled,
+  registerAgentRun,
+} from '@/lib/services/agent-runtime';
+import {
+  compactToolOutputPreview,
+  TOOL_OUTPUT_PREVIEW_LIMIT,
+} from '@/lib/utils/tool-output';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -77,6 +86,16 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   todo: 'Generated',
   plan_write: 'Generated',
 };
+
+/**
+ * Tool results are already delivered to the Agent SDK in full. The platform only
+ * needs a bounded preview for chat history and observability; persisting entire
+ * source files in both message content and metadata can otherwise multiply a
+ * single Read result into hundreds of kilobytes of database payload.
+ */
+export function compactToolOutputForPersistence(value: string): string {
+  return compactToolOutputPreview(value, TOOL_OUTPUT_PREVIEW_LIMIT);
+}
 
 function readPositiveMsEnv(name: string, fallback: number): number {
   const value = Number(process.env[name]);
@@ -126,6 +145,7 @@ async function inspectQuantDashboardArtifacts(projectPath: string): Promise<Quan
     'evidence/sources.json',
     'evidence/data_quality.json',
     'app/page.tsx',
+    'app/globals.css',
   ];
 
   const stats = await Promise.all(
@@ -238,8 +258,81 @@ function pickCommandFromToolInput(input: Record<string, unknown>): string | null
   return null;
 }
 
+function collectAbsolutePathsFromShellCommand(command: string): string[] {
+  const paths = new Set<string>();
+  const absolutePathPattern = /(?:^|[\s'"=:(])((?:\/(?!\/)[^\s'"`;&|()<>{}]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = absolutePathPattern.exec(command)) !== null) {
+    const candidate = match[1]?.replace(/[,:\]]+$/, '');
+    if (candidate) paths.add(candidate);
+  }
+  return Array.from(paths);
+}
+
+function collectShellPathCandidates(command: string): string[] {
+  const candidates = new Set<string>();
+  const tokenPattern = /"((?:\\.|[^"\\])*)"|'([^']*)'|([^\s;&|()<>{}]+)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenPattern.exec(command)) !== null) {
+    const raw = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+    if (!raw) continue;
+
+    // Bash removes a backslash used to quote the following character. Decode
+    // that small subset before resolving so `.\.\./secret` cannot hide `../`.
+    const decoded = raw.replace(/\\([^\n])/g, '$1').replace(/[,\]]+$/, '');
+    if (!decoded || decoded === '-' || decoded.startsWith('http://') || decoded.startsWith('https://')) {
+      continue;
+    }
+    candidates.add(decoded);
+
+    // Validate the value portion of environment assignments and option forms
+    // such as `--output=path`, not only the full shell token.
+    const equalsIndex = decoded.indexOf('=');
+    if (equalsIndex >= 0 && equalsIndex < decoded.length - 1) {
+      candidates.add(decoded.slice(equalsIndex + 1));
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function mutatesPlatformArtifacts(command: string): boolean {
+  if (!/(?:^|[\s'"=./])\.quantpilot(?:\/|\b)/i.test(command)) {
+    return false;
+  }
+
+  const hasKnownMutation =
+    /\b(?:rm|mv|cp|install|truncate|chmod|chown|touch|mkdir|rmdir|unlink|rename)\b/i.test(command) ||
+    /\b(?:sed\s+-[^\s]*i|perl\s+-[^\s]*i|find\b[^;&|]*(?:-delete|-exec\b|-ok\b))/i.test(command) ||
+    /(?:^|[^<])(?:>>?|\|\s*tee\b)/.test(command) ||
+    /\b(?:python(?:3)?|node)\b[^;&|]*(?:write|unlink|remove|rename|mkdir|rmdir|open\s*\([^)]*['"]?[wa+])/i.test(command) ||
+    /\b(?:git\s+(?:clean|reset|checkout|restore)|dd|rsync|patch|tar\s+[^;&|]*-[^\s]*x|unzip)\b/i.test(command);
+  if (hasKnownMutation) return true;
+
+  // When a command touches platform-owned state, allow only an explicit set of
+  // read-only shell operations. This closes alternate writers without trying
+  // to enumerate every possible interpreter or utility.
+  const readOnlyCommands = new Set([
+    'cat', 'cd', 'cut', 'false', 'find', 'grep', 'head', 'jq', 'ls', 'pwd',
+    'readlink', 'rg', 'sort', 'stat', 'tail', 'test', 'true', 'uniq', 'wc',
+  ]);
+  const segments = command
+    .split(/(?:&&|\|\||[;|])/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  return segments.some((segment) => {
+    const commandName = segment.match(/^(?:\([^)]*\)\s*)?(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*([A-Za-z0-9_./-]+)/)?.[1];
+    if (!commandName) return true;
+    return !readOnlyCommands.has(path.basename(commandName).toLowerCase());
+  });
+}
+
 function getBlockedBashReason(command: string): string | null {
   const compact = command.replace(/\s+/g, ' ').trim();
+  if (mutatesPlatformArtifacts(compact)) {
+    return '.quantpilot 是平台状态与验收目录，只能读取，不能由 Agent 命令改写。';
+  }
   const blockedPatterns: Array<{ pattern: RegExp; reason: string }> = [
     {
       pattern: /(^|[;&|]\s*|\bxargs\s+)kill\b|\bpkill\b|\bkillall\b|\bfuser\b[^;&|]*\s-k\b/i,
@@ -261,24 +354,95 @@ function getBlockedBashReason(command: string): string | null {
       pattern: /\b(?:cat|tee|echo|printf|python(?:3)?(?:\s+-c)?|node(?:\s+-e)?)\b[\s\S]*(?:>|>>|<<\s*['"]?\w+)|\btouch\s+.*\.(?:tsx?|jsx?|css|json|txt|md)\b/i,
       reason: '不能通过 Bash 重定向、heredoc、脚本或 touch 写入源码/数据文件，请使用 Write/Edit 工具修改文件。',
     },
+    {
+      pattern: /(?:^|[\s'"=:(;\/\\])\.\.(?=$|[\s'";&|)<>\],\/\\])|(?:^|[\s'"=:(;])~(?:[A-Za-z0-9._-]+)?(?=$|[\s'";&|)<>\],\/])|\/(?:etc|proc|sys|root|var\/run)\//i,
+      reason: '不能访问生成项目目录之外的宿主机路径。',
+    },
+    {
+      pattern: /(?:\$\(|`|[<>]\(|\$(?:\{[^}\n]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-]))/,
+      reason: '不能在 Bash 路径中使用环境变量、命令替换或进程替换；请使用当前工作空间内的静态相对路径。',
+    },
+    {
+      pattern: /(?:^|[;&|]\s*|\s)(?:ln|link)\s|\b(?:symlink|symlinkSync|linkSync)\s*\(/i,
+      reason: '不能通过 Bash 创建符号链接或硬链接；这可能绕过当前工作空间边界。',
+    },
+    {
+      pattern: /(^|[;&|]\s*)(?:env|printenv|set)(?:\s|$)|\b(?:cat|sed|awk|grep|rg)\b[^;&|]*(?:\.env|credentials|secret|token)/i,
+      reason: '不能枚举运行环境或读取凭据文件。',
+    },
+    {
+      pattern: /\b(?:wget|scp|ssh|nc|ncat|socat)\b|\bgit\s+(?:push|fetch|pull|clone)\b/i,
+      reason: '不能建立未授权的外部网络连接或修改远程仓库。',
+    },
+    {
+      pattern: /\bcurl\b(?![^;&|]*(?:127\.0\.0\.1|localhost)(?::8000)?\/api\/v1\/)/i,
+      reason: 'curl 只允许访问本机 market-data 的 /api/v1/ 接口。',
+    },
   ];
 
   return blockedPatterns.find(({ pattern }) => pattern.test(compact))?.reason ?? null;
 }
 
-async function guardClaudeToolUse(toolName: string, input: Record<string, unknown>): Promise<PermissionResult> {
+export async function guardClaudeToolUse(
+  toolName: string,
+  input: Record<string, unknown>,
+  projectPath: string,
+): Promise<PermissionResult> {
+  const requestedPaths = collectToolPaths(input);
+  for (const candidate of requestedPaths) {
+    if (!(await isToolPathWithinProject(projectPath, candidate))) {
+      return {
+        behavior: 'deny',
+        message: 'QuantPilot 已拦截跨工作空间文件访问。所有读写必须限定在当前生成项目目录内。',
+      };
+    }
+  }
   const normalizedToolName = toolName.toLowerCase();
   const isShellTool = normalizedToolName.includes('bash') || normalizedToolName.includes('shell');
+  const isMutatingFileTool = /(?:write|edit|patch|delete|remove|move|rename|create)/.test(
+    normalizedToolName.replaceAll(' ', '_'),
+  );
+
+  if (isMutatingFileTool) {
+    const root = path.resolve(projectPath);
+    const attemptsPlatformArtifactWrite = requestedPaths.some((candidate) => {
+      if (!candidate || /^(?:https?|data):/i.test(candidate)) return false;
+      const relative = path.relative(root, path.resolve(projectPath, candidate));
+      return relative === '.quantpilot' || relative.startsWith(`.quantpilot${path.sep}`);
+    });
+    if (attemptsPlatformArtifactWrite) {
+      return {
+        behavior: 'deny',
+        message: 'QuantPilot 已拦截平台产物改写：.quantpilot 下的计划、状态、事件和验证报告由平台维护，Agent 只能读取。',
+      };
+    }
+  }
 
   if (isShellTool) {
     const command = pickCommandFromToolInput(input);
     if (command) {
+      for (const candidate of collectAbsolutePathsFromShellCommand(command)) {
+        if (!(await isToolPathWithinProject(projectPath, candidate))) {
+          return {
+            behavior: 'deny',
+            message: 'QuantPilot 已拦截跨工作空间命令访问。Bash 中的绝对路径必须限定在当前生成项目目录内。',
+          };
+        }
+      }
       const blockedReason = getBlockedBashReason(command);
       if (blockedReason) {
         return {
           behavior: 'deny',
           message: `QuantPilot 已拦截该命令：${blockedReason} 请只修改生成项目文件并运行 npm run build；预览、HTTP 200 和端口管理由平台自动完成。`,
         };
+      }
+      for (const candidate of collectShellPathCandidates(command)) {
+        if (!(await isToolPathWithinProject(projectPath, candidate))) {
+          return {
+            behavior: 'deny',
+            message: 'QuantPilot 已拦截跨工作空间命令访问。Bash 参数解析到了当前生成项目目录之外，或经过符号链接指向宿主机路径。',
+          };
+        }
       }
     }
   }
@@ -710,14 +874,17 @@ const dispatchToolResultBlock = async ({
     return;
   }
 
-  metadata.toolOutput = resultText;
-  metadata.tool_output = resultText;
-  metadata.output = resultText;
+  const persistedResultText = compactToolOutputForPersistence(resultText);
+  metadata.toolOutput = persistedResultText;
+  if (persistedResultText.length !== resultText.length) {
+    metadata.toolOutputTruncated = true;
+    metadata.toolOutputOriginalChars = resultText.length;
+  }
 
   await dispatchToolMessage({
     projectId,
     metadata,
-    content: resultText,
+    content: persistedResultText,
     requestId,
     persist: true,
     isStreaming: false,
@@ -1016,25 +1183,41 @@ function resolveClaudeRuntimeModel(model?: string | null): ClaudeRuntimeModelRes
   };
 }
 
-function buildClaudeRuntimeEnv(runtimeModel: string): Record<string, string | undefined> {
+export function buildClaudeRuntimeEnv(runtimeModel: string): Record<string, string | undefined> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
-  const runtimeEnv: Record<string, string | undefined> = { ...process.env };
-  const blockedProviderEnv = [
-    /^ANTHROPIC_/,
-    /^OPENAI_/,
-    /^CODEX_/,
-    /^MINIMAX_/,
-    /^QWEN_/,
-    /^DASHSCOPE_/,
-    /^GLM_/,
-    /^ZHIPU_/,
-    /^GEMINI_/,
-    /^CLAUDE_CODE_MODEL_/,
+  const inheritedKeys = [
+    'PATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'SHELL',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LC_ALL',
+    'TERM',
+    'COLORTERM',
+    'CI',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_DATA_HOME',
+    'NODE_EXTRA_CA_CERTS',
+    'SSL_CERT_FILE',
+    'SSL_CERT_DIR',
   ];
-  for (const key of Object.keys(runtimeEnv)) {
-    if (blockedProviderEnv.some((pattern) => pattern.test(key))) {
-      delete runtimeEnv[key];
+  const runtimeEnv: Record<string, string | undefined> = {};
+  for (const key of inheritedKeys) {
+    if (process.env[key] !== undefined) {
+      runtimeEnv[key] = process.env[key];
     }
+  }
+  if (process.env.QUANTPILOT_AGENT_INHERIT_PROXY === '1') {
+    for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY']) {
+      if (process.env[key] !== undefined) runtimeEnv[key] = process.env[key];
+    }
+  } else {
+    runtimeEnv.NO_PROXY = '127.0.0.1,localhost';
   }
 
   return {
@@ -1048,9 +1231,104 @@ function buildClaudeRuntimeEnv(runtimeModel: string): Record<string, string | un
     ANTHROPIC_DEFAULT_OPUS_MODEL: runtimeModel,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: runtimeModel,
     CLAUDE_CODE_SUBAGENT_MODEL: runtimeModel,
+    CLAUDE_CODE_EFFORT_LEVEL: 'max',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_AGENT_SDK_CLIENT_APP: 'QuantPilot/1.0',
   };
+}
+
+async function realpathOfNearestExistingAncestor(candidate: string): Promise<string> {
+  let current = path.resolve(candidate);
+  while (true) {
+    try {
+      return await fs.realpath(current);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) throw new Error(`无法解析项目路径的现有父目录：${candidate}`);
+      current = parent;
+    }
+  }
+}
+
+function pathIsWithin(basePath: string, candidate: string): boolean {
+  const relative = path.relative(basePath, candidate);
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+export async function validateAgentProjectPath(projectPath: string, projectsDir: string): Promise<string> {
+  const absoluteBasePath = path.resolve(projectsDir);
+  const absoluteProjectPath = path.resolve(projectPath);
+  if (!pathIsWithin(absoluteBasePath, absoluteProjectPath)) {
+    throw new Error(`Security violation: Project path must be within ${absoluteBasePath}. Got: ${absoluteProjectPath}`);
+  }
+
+  const [canonicalBasePath, canonicalAncestor] = await Promise.all([
+    fs.realpath(absoluteBasePath),
+    realpathOfNearestExistingAncestor(absoluteProjectPath),
+  ]);
+  if (!pathIsWithin(canonicalBasePath, canonicalAncestor)) {
+    throw new Error(`Security violation: Project path resolves outside ${canonicalBasePath}. Got: ${canonicalAncestor}`);
+  }
+
+  try {
+    const canonicalProjectPath = await fs.realpath(absoluteProjectPath);
+    if (!pathIsWithin(canonicalBasePath, canonicalProjectPath)) {
+      throw new Error(`Security violation: Project path resolves outside ${canonicalBasePath}. Got: ${canonicalProjectPath}`);
+    }
+    return canonicalProjectPath;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Security violation:')) throw error;
+    return absoluteProjectPath;
+  }
+}
+
+async function isToolPathWithinProject(projectPath: string, candidate: string): Promise<boolean> {
+  if (!candidate || /^(?:https?|data):/i.test(candidate)) return true;
+  const root = await fs.realpath(projectPath).catch(() => path.resolve(projectPath));
+  const resolved = path.resolve(projectPath, candidate);
+  const lexicalRelative = path.relative(root, resolved);
+  if (lexicalRelative.startsWith('..') || path.isAbsolute(lexicalRelative)) return false;
+
+  let ancestor = resolved;
+  while (ancestor !== path.dirname(ancestor)) {
+    const realAncestor = await fs.realpath(ancestor).catch(() => null);
+    if (realAncestor) {
+      const realRelative = path.relative(root, realAncestor);
+      return !realRelative.startsWith('..') && !path.isAbsolute(realRelative);
+    }
+    ancestor = path.dirname(ancestor);
+  }
+  return false;
+}
+
+function collectToolPaths(input: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+  const seen = new Set<object>();
+  const pathKeys = new Set(['file', 'filepath', 'path', 'paths', 'dir', 'directory', 'projectpath', 'cwd', 'root']);
+
+  const visit = (value: unknown, key = '', depth = 0) => {
+    if (depth > 6) return;
+    const normalizedKey = key.toLowerCase().replaceAll('_', '').replaceAll('-', '');
+    if (pathKeys.has(normalizedKey)) {
+      if (typeof value === 'string') paths.push(value);
+      if (Array.isArray(value)) {
+        paths.push(...value.filter((item): item is string => typeof item === 'string'));
+      }
+    }
+    if (!value || typeof value !== 'object') return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, '', depth + 1));
+      return;
+    }
+    Object.entries(value as Record<string, unknown>).forEach(([nestedKey, nestedValue]) =>
+      visit(nestedValue, nestedKey, depth + 1),
+    );
+  };
+
+  visit(input);
+  return paths;
 }
 
 function inferImageMediaType(image: ClaudeImageAttachment): 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | null {
@@ -1150,11 +1428,11 @@ export async function executeClaude(
   const configuredMaxTokens = Number(process.env.DEEPSEEK_AGENT_MAX_OUTPUT_TOKENS);
   const maxOutputTokens = Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
     ? configuredMaxTokens
-    : 4000;
+    : 12000;
   const configuredMaxTurns = Number(process.env.DEEPSEEK_AGENT_MAX_TURNS);
   const maxTurns = Number.isFinite(configuredMaxTurns) && configuredMaxTurns > 0
     ? configuredMaxTurns
-    : 32;
+    : 48;
   const idleTimeoutMs = readPositiveMsEnv('DEEPSEEK_AGENT_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
   const totalTimeoutMs = readPositiveMsEnv('DEEPSEEK_AGENT_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
   const quantArtifactCheckIntervalMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_CHECK_INTERVAL_MS', 12 * 1000);
@@ -1166,9 +1444,10 @@ export async function executeClaude(
   let artifactCompletionTimer: NodeJS.Timeout | null = null;
   let abortReason: string | null = null;
   let gracefulAbortReason: string | null = null;
+  let runtimeRegistered = false;
+  let executionCompleted = false;
 
-  let hasMarkedTerminalStatus = false;
-  let emittedCompletedStatus = false;
+  let emittedAgentCompletedStatus = false;
 
   const safeMarkRunning = async () => {
     if (!requestId) return;
@@ -1176,28 +1455,6 @@ export async function executeClaude(
       await markUserRequestAsRunning(requestId);
     } catch (error) {
       console.error(`[ClaudeService] Failed to mark request ${requestId} as running:`, error);
-    }
-  };
-
-  const safeMarkCompleted = async () => {
-    if (!requestId || hasMarkedTerminalStatus) return;
-    try {
-      await markUserRequestAsCompleted(requestId);
-    } catch (error) {
-      console.error(`[ClaudeService] Failed to mark request ${requestId} as completed:`, error);
-    } finally {
-      hasMarkedTerminalStatus = true;
-    }
-  };
-
-  const safeMarkFailed = async (message?: string) => {
-    if (!requestId || hasMarkedTerminalStatus) return;
-    try {
-      await markUserRequestAsFailed(requestId, message);
-    } catch (error) {
-      console.error(`[ClaudeService] Failed to mark request ${requestId} as failed:`, error);
-    } finally {
-      hasMarkedTerminalStatus = true;
     }
   };
 
@@ -1227,11 +1484,13 @@ export async function executeClaude(
     }
   };
 
-  const abortClaudeExecution = (message: string) => {
+  const abortClaudeExecution = (message: string, status?: 'agent_paused') => {
     if (abortReason) return;
     abortReason = message;
     console.warn(`[ClaudeService] ${message}`);
-    publishStatus('agent_timeout', message);
+    if (status) {
+      publishStatus(status, message);
+    }
     try {
       abortController.abort(new Error(message));
     } catch {
@@ -1240,14 +1499,21 @@ export async function executeClaude(
     response?.close();
   };
 
+  registerAgentRun({
+    projectId,
+    requestId,
+    cli: 'claude',
+    cancel: (reason) => abortClaudeExecution(reason, 'agent_paused'),
+  });
+  runtimeRegistered = true;
+
   const completeClaudeExecutionFromArtifacts = async (message: string) => {
     if (abortReason) return;
     abortReason = message;
     gracefulAbortReason = message;
-    emittedCompletedStatus = true;
+    emittedAgentCompletedStatus = true;
     console.warn(`[ClaudeService] ${message}`);
-    await safeMarkCompleted();
-    publishStatus('completed', message);
+    publishStatus('agent_execution_completed', message);
     try {
       abortController.abort(new Error(message));
     } catch {
@@ -1267,17 +1533,20 @@ export async function executeClaude(
     idleTimer.unref?.();
   };
 
-  const startQuantArtifactCompletionWatch = (absoluteProjectPath: string) => {
+  const startQuantArtifactCompletionWatch = async (absoluteProjectPath: string) => {
     if (artifactCompletionTimer || quantArtifactCheckIntervalMs <= 0 || quantArtifactStableMs <= 0) {
       return;
     }
 
+    const baselineSnapshot = await inspectQuantDashboardArtifacts(absoluteProjectPath);
+    const baselineSignature = baselineSnapshot.signature;
+    let hasObservedAgentMutation = false;
     let firstCompleteAt: number | null = null;
     let lastSignature = '';
 
     artifactCompletionTimer = setInterval(() => {
       void (async () => {
-        if (abortReason || hasMarkedTerminalStatus) {
+        if (abortReason || emittedAgentCompletedStatus) {
           return;
         }
 
@@ -1286,6 +1555,15 @@ export async function executeClaude(
           firstCompleteAt = null;
           lastSignature = '';
           return;
+        }
+
+        if (!hasObservedAgentMutation) {
+          if (snapshot.signature === baselineSignature) {
+            return;
+          }
+          hasObservedAgentMutation = true;
+          firstCompleteAt = null;
+          lastSignature = '';
         }
 
         const now = Date.now();
@@ -1341,6 +1619,10 @@ export async function executeClaude(
   };
 
   try {
+    if (requestId && (await isUserRequestCancelled(requestId))) {
+      abortClaudeExecution('用户暂停了当前任务', 'agent_paused');
+      throw new Error('用户暂停了当前任务');
+    }
     if (!process.env.DEEPSEEK_API_KEY?.trim()) {
       throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
     }
@@ -1351,13 +1633,6 @@ export async function executeClaude(
     if (!project) {
       const errorMessage = `Project not found: ${projectId}. Cannot create messages for non-existent project.`;
       console.error(`[ClaudeService] ❌ ${errorMessage}`);
-
-      streamManager.publish(projectId, {
-        type: 'error',
-        error: errorMessage,
-        data: requestId ? { requestId } : undefined,
-      });
-
       throw new Error(errorMessage);
     }
 
@@ -1367,25 +1642,18 @@ export async function executeClaude(
     console.log(`[ClaudeService] 🔒 Validating project path...`);
 
     // Convert to absolute path
-    const absoluteProjectPath = path.isAbsolute(projectPath)
+    let absoluteProjectPath = path.isAbsolute(projectPath)
       ? path.resolve(projectPath)
       : path.resolve(process.cwd(), projectPath);
 
     // Security: Verify project path is within allowed directory
     const allowedBasePath = path.resolve(process.cwd(), process.env.PROJECTS_DIR || './data/projects');
-    const relativeToBase = path.relative(allowedBasePath, absoluteProjectPath);
-    const isWithinBase =
-      !relativeToBase.startsWith('..') && !path.isAbsolute(relativeToBase);
-    if (!isWithinBase) {
-      const errorMessage = `Security violation: Project path must be within ${allowedBasePath}. Got: ${absoluteProjectPath}`;
+    await fs.mkdir(allowedBasePath, { recursive: true });
+    try {
+      absoluteProjectPath = await validateAgentProjectPath(absoluteProjectPath, allowedBasePath);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[ClaudeService] ❌ ${errorMessage}`);
-
-      streamManager.publish(projectId, {
-        type: 'error',
-        error: errorMessage,
-        data: requestId ? { requestId } : undefined,
-      });
-
       throw new Error(errorMessage);
     }
 
@@ -1397,6 +1665,7 @@ export async function executeClaude(
       console.log(`[ClaudeService] 📁 Creating project directory: ${absoluteProjectPath}`);
       await fs.mkdir(absoluteProjectPath, { recursive: true });
     }
+    absoluteProjectPath = await validateAgentProjectPath(absoluteProjectPath, allowedBasePath);
 
     // Send ready notification via SSE
     publishStatus('ready', 'Project verified. Starting AI...');
@@ -1415,7 +1684,7 @@ export async function executeClaude(
       totalTimer.unref?.();
     }
     refreshIdleTimer();
-    startQuantArtifactCompletionWatch(absoluteProjectPath);
+    await startQuantArtifactCompletionWatch(absoluteProjectPath);
 
     const taskPrompt = await buildQuantPilotTaskPrompt(
       instruction,
@@ -1434,7 +1703,8 @@ export async function executeClaude(
         model: resolvedModel,
         resume: sessionId, // Resume previous session
         permissionMode: 'default',
-        canUseTool: guardClaudeToolUse,
+        canUseTool: (toolName: string, input: Record<string, unknown>) =>
+          guardClaudeToolUse(toolName, input, absoluteProjectPath),
         settingSources: [],
         skills: availableSkills,
         mcpServers: mcpServers as any,
@@ -1854,31 +2124,52 @@ export async function executeClaude(
           }
         }
       } else if (message.type === 'result') {
-        // Final result
+        // The SDK result terminates only the Agent execution stage. Validation,
+        // persistent preview startup, and the overall request terminal state are
+        // owned by the QuantPilot generation orchestrator.
         console.log('[ClaudeService] Task completed:', message.subtype);
-
-        publishStatus('completed');
-        emittedCompletedStatus = true;
-        await safeMarkCompleted();
+        if (message.subtype !== 'success' || message.is_error) {
+          const details = 'errors' in message && Array.isArray(message.errors)
+            ? message.errors.filter(Boolean).join('; ')
+            : '';
+          throw new Error(
+            details || `DeepSeek Agent 执行失败：${message.subtype}`
+          );
+        }
+        if (!emittedAgentCompletedStatus) {
+          publishStatus('agent_execution_completed');
+          emittedAgentCompletedStatus = true;
+        }
       }
     }
 
     console.log('[ClaudeService] Streaming completed');
     if (abortReason) {
       if (gracefulAbortReason) {
+        executionCompleted = true;
         return;
       }
       throw new Error(abortReason);
     }
-    await safeMarkCompleted();
-    if (!emittedCompletedStatus) {
-      publishStatus('completed');
-      emittedCompletedStatus = true;
+    executionCompleted = true;
+    if (!emittedAgentCompletedStatus) {
+      publishStatus('agent_execution_completed');
+      emittedAgentCompletedStatus = true;
     }
   } catch (error) {
     if (gracefulAbortReason) {
       console.log(`[ClaudeService] Claude execution ended after artifact completion: ${gracefulAbortReason}`);
+      executionCompleted = true;
       return;
+    }
+
+    const cancelled =
+      isAgentRunCancelled(projectId, requestId) ||
+      Boolean(requestId && (await isUserRequestCancelled(requestId)));
+    if (cancelled) {
+      const cancellationMessage = abortReason ?? '用户暂停了当前任务';
+      console.log(`[ClaudeService] Agent execution cancelled: ${cancellationMessage}`);
+      throw new Error(cancellationMessage);
     }
 
     console.error(`[ClaudeService] Failed to execute Claude:`, error);
@@ -1923,19 +2214,18 @@ export async function executeClaude(
       }
     }
 
-    await safeMarkFailed(errorMessage);
-    publishStatus('error', errorMessage);
-
-    // Send error via SSE
-    streamManager.publish(projectId, {
-      type: 'error',
-      error: errorMessage,
-      data: requestId ? { requestId } : undefined,
-    });
+    publishStatus('agent_execution_failed', errorMessage);
 
     throw new Error(errorMessage);
   } finally {
     clearExecutionTimers();
+    if (runtimeRegistered) {
+      if (executionCompleted) {
+        completeAgentRun(projectId, requestId);
+      } else {
+        failAgentRun(projectId, requestId);
+      }
+    }
   }
 }
 
@@ -1957,13 +2247,29 @@ export async function initializeNextJsProject(
 ): Promise<void> {
   console.log(`[ClaudeService] Initializing Next.js project: ${projectId}`);
 
-  // Next.js project creation command
+  // The platform has already scaffolded the app and prefetched quantitative data.
+  // Frame initial execution as a focused enhancement so the Agent does not reset
+  // the validation-safe workspace or introduce an unconfigured styling stack.
   const fullPrompt = `
-Create a new Next.js 16 application with the following requirements:
+Enhance the existing, platform-scaffolded Next.js 16 application for this requirement:
 ${initialPrompt}
 
-Use App Router, TypeScript, and Tailwind CSS.
-Set up the basic project structure and implement the requested features.
+Keep the existing App Router, TypeScript, package setup, local plain CSS, market proxy,
+platform-prefetched run plan, final data, evidence, and dashboard data binding.
+Do not recreate the project, reset package.json, add a styling framework, or replace
+platform-owned quantitative artifacts. Focus on the requested production dashboard.
+
+Preserve a validation-safe information order. At 390x844, the first viewport must
+show the instrument and price, at least two real metrics, and the body of the main
+chart/matrix/table. Do not stack every summary, source, disclaimer, or signal card
+above the main visualization. Keep document-level horizontal overflow at zero;
+wide tables may scroll only inside their own bounded wrapper and every grid child
+must allow min-width: 0. At 1440x900, keep the primary visualization above the fold.
+
+Inspect large JSON inputs with targeted Grep or bounded Read ranges instead of
+dumping whole files. Before finishing, audit the mobile breakpoint, DOM order, and
+chart dimensions against these viewport requirements. Let QuantPilot run build,
+preview, and validation after your edits.
 `.trim();
 
   await executeClaude(projectId, projectPath, fullPrompt, model, undefined, requestId);

@@ -11,6 +11,7 @@ export type QuantGenerationStepId =
   | 'validation'
   | 'repair'
   | 'final_validation'
+  | 'preview'
   | 'completed';
 
 export type QuantGenerationStepStatus = 'pending' | 'running' | 'success' | 'warning' | 'failed' | 'skipped';
@@ -63,6 +64,7 @@ const DEFAULT_MAX_REPAIR_ATTEMPTS =
   Number.isFinite(configuredMaxRepairAttempts) && configuredMaxRepairAttempts > 0
     ? configuredMaxRepairAttempts
     : 3;
+const stateLocks = new Map<string, Promise<void>>();
 
 const STEP_LABELS: Record<QuantGenerationStepId, string> = {
   request_received: '接收请求',
@@ -72,6 +74,7 @@ const STEP_LABELS: Record<QuantGenerationStepId, string> = {
   validation: '自动验证',
   repair: '自动修复',
   final_validation: '修复后验证',
+  preview: '持久看板预览',
   completed: '完成',
 };
 
@@ -108,7 +111,27 @@ async function readState(projectPath: string): Promise<QuantGenerationState | nu
 async function writeState(projectPath: string, state: QuantGenerationState) {
   const filePath = statePath(projectPath);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  await fs.rename(temporaryPath, filePath);
+}
+
+async function withStateLock<T>(projectPath: string, task: () => Promise<T>): Promise<T> {
+  const key = path.resolve(projectPath);
+  const previous = stateLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current, () => current);
+  stateLocks.set(key, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (stateLocks.get(key) === queued) stateLocks.delete(key);
+  }
 }
 
 function mergeStep(
@@ -170,7 +193,7 @@ function deriveRunStatus(params: {
   return 'running';
 }
 
-export async function startQuantGenerationRun(params: {
+async function startQuantGenerationRunUnlocked(params: {
   projectPath: string;
   projectId: string;
   requestId: string;
@@ -179,6 +202,10 @@ export async function startQuantGenerationRun(params: {
   selectedModel?: string | null;
   maxRepairAttempts?: number;
 }) {
+  const existing = await readState(params.projectPath);
+  if (existing?.requestId === params.requestId && existing.status === 'cancelled') {
+    return existing;
+  }
   const timestamp = nowIso();
   const state: QuantGenerationState = {
     schemaVersion: 1,
@@ -210,7 +237,13 @@ export async function startQuantGenerationRun(params: {
   return state;
 }
 
-export async function updateQuantGenerationStep(params: {
+export async function startQuantGenerationRun(
+  params: Parameters<typeof startQuantGenerationRunUnlocked>[0]
+) {
+  return withStateLock(params.projectPath, () => startQuantGenerationRunUnlocked(params));
+}
+
+async function updateQuantGenerationStepUnlocked(params: {
   projectPath: string;
   projectId: string;
   requestId: string;
@@ -222,6 +255,13 @@ export async function updateQuantGenerationStep(params: {
   errorMessage?: string | null;
 }) {
   const existing = await readState(params.projectPath);
+  if (
+    existing?.requestId === params.requestId &&
+    existing.status === 'cancelled' &&
+    params.runStatus !== 'cancelled'
+  ) {
+    return existing;
+  }
   const timestamp = nowIso();
   const state: QuantGenerationState =
     existing?.requestId === params.requestId
@@ -281,33 +321,62 @@ export async function updateQuantGenerationStep(params: {
   return nextState;
 }
 
+export async function updateQuantGenerationStep(
+  params: Parameters<typeof updateQuantGenerationStepUnlocked>[0]
+) {
+  return withStateLock(params.projectPath, () => updateQuantGenerationStepUnlocked(params));
+}
+
 export async function incrementQuantGenerationRepairAttempt(params: {
   projectPath: string;
   projectId: string;
   requestId: string;
 }) {
-  const existing = await readState(params.projectPath);
-  if (!existing || existing.requestId !== params.requestId) {
-    await updateQuantGenerationStep({
-      projectPath: params.projectPath,
-      projectId: params.projectId,
-      requestId: params.requestId,
-      stepId: 'repair',
-      status: 'running',
-      summary: '开始自动修复。',
-      runStatus: 'repairing',
-    });
-  }
-  const state = (await readState(params.projectPath))!;
-  const nextState = {
-    ...state,
-    repairAttemptCount: state.repairAttemptCount + 1,
-    updatedAt: nowIso(),
-  };
-  await writeState(params.projectPath, nextState);
-  return nextState.repairAttemptCount;
+  return withStateLock(params.projectPath, async () => {
+    const existing = await readState(params.projectPath);
+    if (!existing || existing.requestId !== params.requestId) {
+      await updateQuantGenerationStepUnlocked({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        stepId: 'repair',
+        status: 'running',
+        summary: '开始自动修复。',
+        runStatus: 'repairing',
+      });
+    }
+    const state = (await readState(params.projectPath))!;
+    if (state.status === 'cancelled') {
+      return state.repairAttemptCount;
+    }
+    const nextState = {
+      ...state,
+      repairAttemptCount: state.repairAttemptCount + 1,
+      updatedAt: nowIso(),
+    };
+    await writeState(params.projectPath, nextState);
+    return nextState.repairAttemptCount;
+  });
 }
 
 export async function readQuantGenerationState(projectPath: string) {
   return readState(projectPath);
+}
+
+export async function cancelQuantGenerationRun(params: {
+  projectPath: string;
+  projectId: string;
+  requestId: string;
+  reason?: string | null;
+}) {
+  return updateQuantGenerationStep({
+    projectPath: params.projectPath,
+    projectId: params.projectId,
+    requestId: params.requestId,
+    stepId: 'agent_execution',
+    status: 'failed',
+    summary: params.reason ?? '用户暂停了当前任务。',
+    runStatus: 'cancelled',
+    errorMessage: params.reason ?? '用户暂停了当前任务。',
+  });
 }

@@ -90,13 +90,19 @@ GENERIC_WORDS = {
     "页面",
     "生成",
 }
+GENERIC_TARGET_PHRASE = re.compile(
+    r"^(?:(?:一个|这个|那个|某个|某|哪只|哪个)?(?:股票|个股|标的|证券|公司|资产|行业|板块|市场)|(?:这家|那家|某家|某某)(?:公司|证券|股份))$"
+)
+GENERIC_TARGET_QUANTITY = re.compile(
+    r"^(?:几|多|若干|一些|数|多个|两|三|四|五|六|七|八|九|十)(?:只|支|个)?(?:股票|个股|标的|证券|公司|资产)?$"
+)
 
 
 def clean_candidate(value: str) -> str | None:
     candidate = re.sub(r"\s+", "", value)
     candidate = re.sub(r"^(请|麻烦|帮我|帮忙|补充|信息|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|比较|对比|一下)+", "", candidate)
     candidate = re.sub(
-        r"(股票|个股|股份|公司)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$",
+        r"(股票|个股)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$",
         "",
         candidate,
     )
@@ -105,7 +111,11 @@ def clean_candidate(value: str) -> str | None:
         candidate = candidate[:-2]
     if len(candidate) < 2 or len(candidate) > 12:
         return None
-    if any(word == candidate or word in candidate for word in GENERIC_WORDS):
+    if (
+        candidate in GENERIC_WORDS
+        or GENERIC_TARGET_PHRASE.fullmatch(candidate)
+        or GENERIC_TARGET_QUANTITY.fullmatch(candidate)
+    ):
         return None
     return candidate
 
@@ -169,7 +179,7 @@ def assess(question: str, capability: str | None = None) -> dict[str, Any]:
     has_constraints = bool(INVESTMENT_CONSTRAINT.search(text))
     missing: list[str] = []
 
-    if not has_target and (len(text) <= 18 or is_recommendation or has_goal):
+    if not has_target and not is_comparison and (len(text) <= 18 or is_recommendation or has_goal):
         missing.append("target")
     if is_comparison and target_count < 2:
         missing.append("comparison_universe")

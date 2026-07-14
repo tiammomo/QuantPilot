@@ -13,6 +13,7 @@ import { readQuantArtifactContractReport, type QuantArtifactContractReport } fro
 import { readQuantGenerationQueue, type QuantGenerationQueueState } from '@/lib/quant/generation-queue';
 import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantVisualValidationReport, type QuantVisualValidationReport } from '@/lib/quant/visual-validation';
+import { normalizeModelId } from '@/lib/constants/cliModels';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -367,14 +368,17 @@ function workspaceEventTitle(event: QuantWorkspaceEvent & JsonRecord) {
   return eventType || stringValue(event.stage) || '工作空间事件';
 }
 
-async function readWorkspaceEvents(projectPath: string): Promise<Array<QuantWorkspaceEvent & JsonRecord>> {
+async function readWorkspaceEvents(
+  projectPath: string,
+  limit = MAX_WORKSPACE_EVENTS,
+): Promise<Array<QuantWorkspaceEvent & JsonRecord>> {
   const filePath = path.join(projectPath, '.quantpilot', 'events.jsonl');
   const content = await fs.readFile(filePath, 'utf8').catch(() => '');
   return content
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(-MAX_WORKSPACE_EVENTS)
+    .slice(-Math.max(1, Math.min(MAX_WORKSPACE_EVENTS, limit)))
     .map((line) => {
       try {
         const parsed = JSON.parse(line);
@@ -425,21 +429,27 @@ function resolveProjectPath(project: Pick<ProjectWithTraceSources, 'id' | 'repoP
   return path.join(PROJECTS_DIR_ABSOLUTE, project.id);
 }
 
-async function loadProjectsWithTraceSources() {
+async function loadProjectsWithTraceSources(summaryOnly = false) {
   return prisma.project.findMany({
     orderBy: { lastActiveAt: 'desc' },
     include: {
       userRequests: {
         orderBy: { createdAt: 'desc' },
-        take: 40,
+        take: summaryOnly ? 5 : 40,
       },
       messages: {
         orderBy: { createdAt: 'desc' },
-        take: 180,
+        take: summaryOnly ? 16 : 180,
       },
       toolUsages: {
         orderBy: { createdAt: 'desc' },
-        take: 140,
+        take: summaryOnly ? 12 : 140,
+      },
+      _count: {
+        select: {
+          userRequests: true,
+          toolUsages: true,
+        },
       },
     },
   });
@@ -702,7 +712,7 @@ function buildGenerationQueueEvents(projectId: string, queue: QuantGenerationQue
         metadata: {
           queueStatus: item.status,
           cliPreference: item.cliPreference,
-          selectedModel: item.selectedModel,
+          selectedModel: normalizeModelId(item.cliPreference, item.selectedModel),
         },
       },
     ];
@@ -839,15 +849,32 @@ function isRepairPlanCurrent(repairPlan: QuantValidationRepairPlan | null, valid
 
 function buildTopTools(project: ProjectWithTraceSources): GenerationTraceProject['topTools'] {
   const grouped = new Map<string, { count: number; errorCount: number; durationTotal: number; durationCount: number }>();
-  for (const tool of project.toolUsages) {
-    const item = grouped.get(tool.toolName) ?? { count: 0, errorCount: 0, durationTotal: 0, durationCount: 0 };
-    item.count += 1;
-    if (tool.error) item.errorCount += 1;
-    if (tool.durationMs !== null) {
-      item.durationTotal += tool.durationMs;
-      item.durationCount += 1;
+  if (project.toolUsages.length > 0) {
+    for (const tool of project.toolUsages) {
+      const item = grouped.get(tool.toolName) ?? { count: 0, errorCount: 0, durationTotal: 0, durationCount: 0 };
+      item.count += 1;
+      if (tool.error) item.errorCount += 1;
+      if (tool.durationMs !== null) {
+        item.durationTotal += tool.durationMs;
+        item.durationCount += 1;
+      }
+      grouped.set(tool.toolName, item);
     }
-    grouped.set(tool.toolName, item);
+  } else {
+    for (const message of project.messages) {
+      if (message.messageType !== 'tool_use') continue;
+      const metadata = parseJsonRecord(message.metadataJson);
+      const toolName = stringValue(metadata.toolName) || stringValue(metadata.tool_name);
+      if (!toolName) continue;
+      const item = grouped.get(toolName) ?? { count: 0, errorCount: 0, durationTotal: 0, durationCount: 0 };
+      item.count += 1;
+      if (metadata.error || metadata.isError) item.errorCount += 1;
+      if (typeof message.durationMs === 'number') {
+        item.durationTotal += message.durationMs;
+        item.durationCount += 1;
+      }
+      grouped.set(toolName, item);
+    }
   }
   return [...grouped.entries()]
     .map(([name, item]) => ({
@@ -868,7 +895,9 @@ function buildTraceSummary(params: {
   latestEvent: GenerationTimelineEvent | null;
   validationPassed: boolean | null;
   repairStepCount: number;
+  awaitingInput?: boolean;
 }) {
+  if (params.awaitingInput) return '任务正在等待用户补充关键信息，尚未进入失败或修复状态。';
   if (params.status === 'error') return `${params.errorCount || 1} 个当前错误事件阻断生成链路。`;
   if (params.repairStepCount) return `验证修复计划待处理：${params.repairStepCount} 步。`;
   if (params.status === 'warning') return `${params.warningCount || 1} 个当前风险事件需要关注。`;
@@ -885,6 +914,9 @@ function buildNextActions(params: {
   repairPlan: GenerationTraceProject['repairPlan'];
   runPlanStatus: string | null;
 }) {
+  if (params.runPlanStatus === 'needs_clarification') {
+    return ['先补齐用户意图澄清问题，再继续执行生成链路。'];
+  }
   const actions: string[] = [];
   const latestError = [...params.currentTimeline].reverse().find((event) => event.status === 'error');
   const pending = [...params.currentTimeline].reverse().find((event) => event.status === 'pending');
@@ -900,9 +932,6 @@ function buildNextActions(params: {
   } else if (params.validation.passed === null) {
     actions.push('补一次自动验证，把生成结果纳入平台质量门禁。');
   }
-  if (params.runPlanStatus === 'needs_clarification') {
-    actions.push('先补齐用户意图澄清问题，再继续执行生成链路。');
-  }
   if (pending && !latestError) {
     actions.push(`确认 pending 阶段是否仍在运行：${pending.title}。`);
   }
@@ -912,10 +941,13 @@ function buildNextActions(params: {
   return actions.slice(0, 4);
 }
 
-async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<GenerationTraceProject> {
+async function inspectProjectTrace(
+  project: ProjectWithTraceSources,
+  options: { summaryOnly?: boolean; eventLimit?: number } = {},
+): Promise<GenerationTraceProject> {
   const projectPath = resolveProjectPath(project);
   const [workspaceEvents, runPlan, validationReport, repairPlan, generationState, generationQueue, artifactContracts, visualValidation] = await Promise.all([
-    readWorkspaceEvents(projectPath),
+    readWorkspaceEvents(projectPath, options.summaryOnly ? 20 : options.eventLimit ?? MAX_WORKSPACE_EVENTS),
     readQuantRunPlan(projectPath),
     readValidationReportForObservability(projectPath),
     readValidationRepairPlanForObservability(projectPath),
@@ -936,7 +968,7 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
     ...buildGenerationQueueEvents(project.id, generationQueue),
     ...buildArtifactContractEvents(project.id, artifactContracts),
     ...buildVisualValidationEvents(project.id, visualValidation),
-  ]);
+  ]).slice(-Math.max(20, Math.min(MAX_TIMELINE_EVENTS, options.eventLimit ?? MAX_TIMELINE_EVENTS)));
   const latestEvent = timeline.at(-1) ?? null;
   const validation = {
     status: validationReport ? (validationReport.passed ? 'success' : 'error') : 'unknown',
@@ -952,7 +984,10 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
   const currentErrorCount = currentTimeline.filter((event) => event.status === 'error').length;
   const currentWarningCount = currentTimeline.filter((event) => event.status === 'warning').length;
   const currentPendingCount = currentTimeline.filter((event) => event.status === 'pending').length;
-  const repairPlanNeeded = isRepairPlanCurrent(repairPlan, validationReport);
+  const awaitingInput =
+    generationState?.status === 'needs_clarification' ||
+    (!generationState && runPlan?.status === 'needs_clarification');
+  const repairPlanNeeded = !awaitingInput && isRepairPlanCurrent(repairPlan, validationReport);
   const repair = {
     needed: repairPlanNeeded,
     stepCount: repairPlan?.steps.length ?? 0,
@@ -970,7 +1005,7 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
       requestId: item.requestId,
       status: item.status,
       cliPreference: item.cliPreference,
-      selectedModel: item.selectedModel,
+      selectedModel: normalizeModelId(item.cliPreference, item.selectedModel),
       instructionPreview: item.instructionPreview,
       queuedAt: item.queuedAt,
       startedAt: item.startedAt,
@@ -1028,8 +1063,9 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
     failures: visualValidation?.failures ?? [],
     warnings: visualValidation?.warnings ?? [],
   } satisfies GenerationTraceProject['visualValidation'];
-  const traceStatus: GenerationTraceStatus =
-    validation.passed === false || currentErrorCount || contractsSummary.status === 'error' || visualSummary.status === 'error'
+  const traceStatus: GenerationTraceStatus = awaitingInput
+    ? 'warning'
+    : validation.passed === false || currentErrorCount || contractsSummary.status === 'error' || visualSummary.status === 'error'
       ? 'error'
       : repair.needed || currentWarningCount || contractsSummary.status === 'warning' || visualSummary.status === 'warning'
         ? 'warning'
@@ -1043,8 +1079,8 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
     latestEvent?.stage ??
     'system';
   const latestRequestRaw = project.userRequests[0] ?? null;
-  const requestCount = project.userRequests.length;
-  const toolCallCount = project.toolUsages.length;
+  const requestCount = project._count.userRequests;
+  const toolCallCount = project._count.toolUsages || project.messages.filter((message) => message.messageType === 'tool_use').length;
   const projectTrace: GenerationTraceProject = {
     id: project.id,
     name: project.name,
@@ -1052,7 +1088,7 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
     status: project.status,
     repoPath: path.relative(ROOT, projectPath),
     preferredCli: project.preferredCli ?? null,
-    selectedModel: project.selectedModel ?? null,
+    selectedModel: normalizeModelId(project.preferredCli, project.selectedModel),
     previewUrl: project.previewUrl ?? null,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
@@ -1067,6 +1103,7 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
         latestEvent,
         validationPassed: validation.passed,
         repairStepCount: repair.needed ? repair.stepCount : 0,
+        awaitingInput,
       }),
       activeStage,
       lastEventAt: latestEvent?.timestamp ?? null,
@@ -1130,16 +1167,28 @@ async function inspectProjectTrace(project: ProjectWithTraceSources): Promise<Ge
       currentTimeline,
       validation,
       repairPlan: repair,
-      runPlanStatus: runPlan?.status ?? null,
+      runPlanStatus: awaitingInput
+        ? 'needs_clarification'
+        : runPlan?.status === 'needs_clarification'
+          ? null
+          : runPlan?.status ?? null,
     }),
   };
 
   return projectTrace;
 }
 
-export async function getGenerationObservabilityDashboard(): Promise<GenerationObservabilityDashboard> {
-  const projects = await loadProjectsWithTraceSources();
-  const items = await Promise.all(projects.map((project) => inspectProjectTrace(project)));
+export async function getGenerationObservabilityDashboard(
+  options: { summaryOnly?: boolean; eventLimit?: number } = {},
+): Promise<GenerationObservabilityDashboard> {
+  const eventLimit = options.summaryOnly
+    ? 40
+    : Math.max(20, Math.min(MAX_TIMELINE_EVENTS, options.eventLimit ?? MAX_TIMELINE_EVENTS));
+  const projects = await loadProjectsWithTraceSources(Boolean(options.summaryOnly));
+  const items = await Promise.all(projects.map((project) => inspectProjectTrace(project, {
+    summaryOnly: options.summaryOnly,
+    eventLimit,
+  })));
   const dayAgo = Date.now() - 24 * 60 * 60 * 1_000;
   const summary = items.reduce(
     (acc, project) => {
@@ -1161,7 +1210,7 @@ export async function getGenerationObservabilityDashboard(): Promise<GenerationO
     generatedAt: new Date().toISOString(),
     projectsDir: path.relative(ROOT, PROJECTS_DIR_ABSOLUTE),
     summary,
-    projects: items.sort((a, b) => {
+    projects: options.summaryOnly ? [] : items.sort((a, b) => {
       const statusDiff = statusRank(b.trace.status) - statusRank(a.trace.status);
       if (statusDiff) return statusDiff;
       return (b.trace.lastEventAt ?? b.updatedAt).localeCompare(a.trace.lastEventAt ?? a.updatedAt);

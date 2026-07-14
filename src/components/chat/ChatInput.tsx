@@ -417,6 +417,7 @@ export default function ChatInput({
             onKeyDown={handleKeyDown}
             className="w-full ring-offset-background placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[15px] leading-6 md:text-sm bg-transparent focus:bg-transparent rounded-md px-2 py-2 text-slate-900 border-0"
             id="chatinput"
+            aria-label="向 QuantPilot 发送消息"
             placeholder={placeholder}
             disabled={disabled || isUploading || isSubmitting}
             style={{ minHeight: '84px' }}
@@ -443,6 +444,7 @@ export default function ChatInput({
                 type="button"
                 className="flex h-8 w-8 items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title={imageUploadTitle}
+                aria-label={imageUploadTitle}
                 onClick={() => {
                   if (fileInputRef.current) {
                     fileInputRef.current.click();
@@ -544,6 +546,7 @@ export default function ChatInput({
                 : disabled || isSubmitting || isUploading || (!message.trim() && uploadedImages.length === 0)
             }
             title={isRunning ? '暂停当前任务' : '发送'}
+            aria-label={isRunning ? '暂停当前任务' : '发送消息'}
           >
             {isRunning ? <Pause className="h-4 w-4" /> : <SendHorizontal className="h-4 w-4" />}
           </Button>
@@ -570,6 +573,7 @@ export default function ChatInput({
                   onClick={() => removeImage(image.id)}
                   className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Remove image"
+                  aria-label={`移除图片 ${image.filename}`}
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

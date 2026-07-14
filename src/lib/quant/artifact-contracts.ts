@@ -96,7 +96,7 @@ const generationStateSchema = z.object({
     completedAt: optionalString,
     summary: z.string(),
     metadata: z.record(z.string(), z.unknown()).optional(),
-  }).passthrough()).min(1),
+  }).passthrough()),
   error: z.object({
     step: nonEmptyString,
     message: nonEmptyString,
@@ -201,6 +201,31 @@ function hasArrayValue(record: JsonRecord | null, keys: string[]) {
   return Boolean(record && keys.some((key) => Array.isArray(record[key]) && (record[key] as unknown[]).length > 0));
 }
 
+function isStructuredEmptyScreenerResult(record: JsonRecord): boolean {
+  const screener = asRecord(record.screener);
+  const comparison = asRecord(record.comparison);
+  const ranking = asRecord(record.selectionRanking);
+  const financialQuality = asRecord(record.financialQuality);
+  const totalCandidates = Number(screener?.total_candidates);
+
+  return (
+    record.status === 'no_candidates' &&
+    Array.isArray(record.assets) &&
+    record.assets.length === 0 &&
+    Array.isArray(screener?.candidates) &&
+    screener.candidates.length === 0 &&
+    Number.isFinite(totalCandidates) &&
+    totalCandidates === 0 &&
+    hasPresentValue(screener, ['source']) &&
+    hasPresentValue(screener, ['fetched_at', 'as_of', 'trade_date']) &&
+    Array.isArray(comparison?.rows) &&
+    Array.isArray(ranking?.rows) &&
+    Array.isArray(financialQuality?.rows) &&
+    Array.isArray(record.warnings) &&
+    record.warnings.length > 0
+  );
+}
+
 function inspectDashboardData(value: unknown): string[] {
   const record = asRecord(value);
   const errors: string[] = [];
@@ -223,8 +248,8 @@ function inspectDashboardData(value: unknown): string[] {
     );
   });
 
-  if (!hasMarketPayload) {
-    errors.push('dashboard-data.json 至少需要包含标的和 quote.price 或 kline.bars/history 样本。');
+  if (!hasMarketPayload && !isStructuredEmptyScreenerResult(record)) {
+    errors.push('dashboard-data.json 至少需要包含可用行情样本，或包含可追溯的 no_candidates 空筛选结果。');
   }
 
   const visualization = asRecord(record.visualization);
@@ -385,8 +410,10 @@ async function checkContract(projectPath: string, definition: ContractDefinition
       label: definition.label,
       path: definition.relativePath,
       required: definition.required,
-      status: definition.required ? 'failed' : 'warning',
-      summary: payload.error,
+      status: definition.required ? 'failed' : 'passed',
+      summary: definition.required
+        ? payload.error
+        : `${definition.label}尚未生成（可选产物）。`,
     };
   }
 

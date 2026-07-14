@@ -1,6 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { assessQuantIntentForClarification, QuantIntentClarification } from '@/lib/quant/intent';
+import {
+  assessQuantIntentForClarification,
+  extractQuantTargetCandidates,
+  QuantIntentClarification,
+} from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
@@ -166,17 +170,39 @@ function inferTimeRange(instruction: string): string | null {
   return null;
 }
 
+function inferDefaultTimeRange(capabilityId: string): string | null {
+  if (capabilityId === 'fundamental_analysis') {
+    return '最近报告期';
+  }
+
+  if (
+    [
+      'stock_diagnosis',
+      'technical_analysis',
+      'asset_comparison',
+      'sector_rotation',
+      'strategy_research',
+      'backtest_review',
+    ].includes(capabilityId)
+  ) {
+    return '最近 120 个交易日';
+  }
+
+  return null;
+}
+
 function wantsVisualization(instruction: string): boolean {
   return /看板|可视化|图表|页面|dashboard|html/i.test(instruction);
 }
 
 function isQuantAnalysisTask(instruction: string): boolean {
-  return /股票|个股|行情|走势|K线|K 线|财务|基本面|公告|指数|对比|量化|分析|回测|策略|持仓|仓位|组合|调仓|盈亏|成本|账户|截图/i.test(instruction);
+  return /股票|个股|证券|行情|走势|K线|K 线|财务|基本面|公告|指数|对比|量化|分析|回测|策略|持仓|仓位|组合|调仓|盈亏|成本|账户|截图/i.test(instruction);
 }
 
 function shouldUseAssetComparison(instruction: string) {
   const normalized = normalizeForIntent(instruction);
-  const symbolCount = inferSymbols(instruction).length;
+  const inferredSymbols = inferSymbols(instruction);
+  const symbolCount = inferredSymbols.length;
   const broadStockScreenerIntent = isBroadStockScreenerInstruction(instruction);
   const comparisonIntent =
     /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(
@@ -184,7 +210,11 @@ function shouldUseAssetComparison(instruction: string) {
     );
   const multiNamedStocks =
     /、|，|,|和|与|及/.test(normalized) &&
-    KNOWN_SYMBOLS.filter((item) => normalized.includes(item.keyword)).length >= 2;
+    new Set(
+      KNOWN_SYMBOLS
+        .filter((item) => normalized.includes(item.keyword))
+        .map((item) => item.symbol)
+    ).size >= 2;
 
   return symbolCount >= 2 || comparisonIntent || multiNamedStocks || broadStockScreenerIntent;
 }
@@ -453,14 +483,19 @@ export async function writeInitialRunPlan(params: {
   const quantSettings = buildQuantProjectSettings(capability.id);
   const now = new Date().toISOString();
   const symbols = explicitSymbols.length > 0 ? explicitSymbols : inheritedSymbols;
-  const timeRange = inferTimeRange(planningInstruction) ?? (inheritPreviousPlan ? params.previousPlan?.timeRange ?? null : null);
+  const requestedTimeRange =
+    inferTimeRange(planningInstruction) ??
+    (inheritPreviousPlan ? params.previousPlan?.timeRange ?? null : null);
   const clarification = assessQuantIntentForClarification({
     instruction: planningInstruction,
     capabilityId: capability.id,
     symbols,
-    timeRange,
+    timeRange: requestedTimeRange,
     hasImageAttachments: params.hasImageAttachments,
   });
+  const timeRange = clarification.required
+    ? requestedTimeRange
+    : requestedTimeRange ?? inferDefaultTimeRange(capability.id);
   const shouldInheritManifest = !params.capabilityId || manifestQuant?.capabilityId === capability.id;
   const dataRequirements = Array.from(
     new Set([
@@ -486,7 +521,8 @@ export async function writeInitialRunPlan(params: {
   );
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id, {
     instruction: planningInstruction,
-    symbolCount: symbols.length,
+    symbolCount:
+      symbols.length > 0 ? symbols.length : extractQuantTargetCandidates(planningInstruction).length,
     requestedVariantId:
       inheritPreviousPlan && !hasExplicitVariantReselection(planningInstruction)
         ? params.previousPlan?.visualization?.variantId

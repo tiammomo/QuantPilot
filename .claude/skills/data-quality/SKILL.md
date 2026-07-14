@@ -91,7 +91,7 @@ evidence/data_quality.json
    - 外部数据源是否失败、降级或过旧。
 4. 写入 `evidence/sources.json`，记录每个数据集的来源、接口、时间戳和本地文件路径。
 5. 写入 `evidence/data_quality.json`，记录状态、检查项、缺失字段、警告和限制说明。
-6. 向 `.quantpilot/events.jsonl` 追加一条 `data_quality_checked` 事件。
+6. 在对话中输出数据质量摘要；`data_quality_checked` 事件由平台写入只读的 `.quantpilot/events.jsonl`。
 7. 然后再交给 `dashboard-visualization` 生成页面。
 
 ## 状态规则
@@ -105,4 +105,5 @@ evidence/data_quality.json
 - 不要编造 `fetched_at`、`quote_time`、报告期或数据来源。
 - 不要把接口失败伪装成成功。
 - 不要只在聊天里说明数据质量，必须写入 evidence 文件。
+- 不要修改 `.quantpilot/**`；计划、事件、状态和验证报告由平台维护。
 - 不要把 token、cookie、authorization header 或其他敏感信息写入 evidence。

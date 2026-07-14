@@ -91,7 +91,18 @@ function packageSkill(skillId) {
   const outputPath = path.join(packageDir, `${skillId}.tgz`);
   const result = spawnSync(
     'tar',
-    ['-czf', outputPath, '-C', skillsDir, skillId],
+    [
+      '--sort=name',
+      '--mtime=@0',
+      '--owner=0',
+      '--group=0',
+      '--numeric-owner',
+      '-czf',
+      outputPath,
+      '-C',
+      skillsDir,
+      skillId,
+    ],
     { cwd: root, stdio: 'inherit' }
   );
   if (result.status !== 0) {

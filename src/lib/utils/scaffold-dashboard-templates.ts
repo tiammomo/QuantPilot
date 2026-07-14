@@ -1,79 +1,9 @@
+import { DASHBOARD_DATA_READER, DASHBOARD_PAGE_RUNTIME_PRELUDE } from './scaffold-dashboard-runtime-template';
+
 export function comparisonPageTemplate() {
-  return `import fs from 'fs/promises';
-import path from 'path';
+  return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
 
-type JsonRecord = Record<string, unknown>;
-
-const DATA_FILE = 'data_file/final/dashboard-data.json';
-const SOURCES_FILE = 'evidence/sources.json';
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as JsonRecord;
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function numeric(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function formatNumber(value: unknown, digits = 2): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(number);
-}
-
-function formatPercent(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
-}
-
-function formatMoney(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  if (Math.abs(number) >= 100000000) return formatNumber(number / 100000000, 2) + ' 亿';
-  if (Math.abs(number) >= 10000) return formatNumber(number / 10000, 2) + ' 万';
-  return formatNumber(number);
-}
-
-function sourceDisplayName(source: unknown, datasetType?: unknown): string {
-  const normalized = String(source ?? '').toLowerCase();
-  const type = String(datasetType ?? '').toLowerCase();
-  if (normalized.includes('eastmoney')) {
-    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
-    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
-    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
-    return '东方财富实时行情接口';
-  }
-  if (normalized.includes('uploaded_image')) return '用户上传截图';
-  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端预取';
-  if (normalized.includes('tencent')) return '腾讯证券行情接口';
-  if (normalized.includes('sina')) return '新浪财经行情接口';
-  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
-  if (normalized.includes('local')) return '本地计算结果';
-  return String(source ?? '未知信源');
-}
-
-async function readDashboardData(): Promise<JsonRecord | null> {
-  try {
-    const content = await fs.readFile(
-      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
-      'utf8'
-    );
-    return asRecord(JSON.parse(content));
-  } catch {
-    return null;
-  }
-}
+${DASHBOARD_DATA_READER}
 
 function getAssets(data: JsonRecord | null): JsonRecord[] {
   return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -558,69 +488,7 @@ export default async function Home() {
 `;
 }
 export function stockSelectionPageTemplate() {
-  return `import fs from 'fs/promises';
-import path from 'path';
-
-type JsonRecord = Record<string, unknown>;
-
-const DATA_FILE = 'data_file/final/dashboard-data.json';
-const SOURCES_FILE = 'evidence/sources.json';
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as JsonRecord;
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function numeric(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function formatNumber(value: unknown, digits = 2): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(number);
-}
-
-function formatPercent(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
-}
-
-function formatMoney(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  if (Math.abs(number) >= 100000000) return formatNumber(number / 100000000, 2) + ' 亿';
-  if (Math.abs(number) >= 10000) return formatNumber(number / 10000, 2) + ' 万';
-  return formatNumber(number);
-}
-
-function sourceDisplayName(source: unknown, datasetType?: unknown): string {
-  const normalized = String(source ?? '').toLowerCase();
-  const type = String(datasetType ?? '').toLowerCase();
-  if (normalized.includes('eastmoney')) {
-    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
-    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
-    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
-    return '东方财富实时行情接口';
-  }
-  if (normalized.includes('uploaded_image')) return '用户上传截图';
-  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端预取';
-  if (normalized.includes('tencent')) return '腾讯证券行情接口';
-  if (normalized.includes('sina')) return '新浪财经行情接口';
-  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
-  if (normalized.includes('local')) return '本地计算结果';
-  return String(source ?? '未知信源');
-}
+  return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
 
 function tone(value: unknown): 'up' | 'down' | 'neutral' {
   const number = numeric(value);
@@ -628,17 +496,7 @@ function tone(value: unknown): 'up' | 'down' | 'neutral' {
   return number > 0 ? 'up' : 'down';
 }
 
-async function readDashboardData(): Promise<JsonRecord | null> {
-  try {
-    const content = await fs.readFile(
-      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
-      'utf8'
-    );
-    return asRecord(JSON.parse(content));
-  } catch {
-    return null;
-  }
-}
+${DASHBOARD_DATA_READER}
 
 function getAssets(data: JsonRecord | null): JsonRecord[] {
   return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -948,6 +806,9 @@ export default async function Home() {
   const financialRows = getRowsFrom(data, 'financialQuality');
   const conclusion = getConclusion(data);
   const leaders = asRecord(asRecord(data?.comparison)?.leaders);
+  const screener = asRecord(data?.screener);
+  const warnings = asArray(data?.warnings).map(String).filter(Boolean);
+  const noCandidates = data?.status === 'no_candidates' && assets.length === 0 && rows.length === 0;
   const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
   const topRanking = rankingRows[0] ?? rows.slice().sort((left, right) => (numeric(right.composite_score) ?? -1) - (numeric(left.composite_score) ?? -1))[0];
 
@@ -965,6 +826,24 @@ export default async function Home() {
           <em>统一口径读取真实数据与信源证据</em>
         </aside>
       </section>
+
+      {noCandidates ? (
+        <section className="selection-empty-result" role="status">
+          <div>
+            <p className="eyebrow">筛选已完成 · 结构化空结果</p>
+            <h2>本次没有满足安全条件的候选</h2>
+            <p>
+              已扫描 {formatNumber(screener?.scanned_symbols, 0)} 个标的，目标 {formatNumber(screener?.limit, 0)} 只；
+              平台没有为凑足数量而放宽过滤或编造推荐。
+            </p>
+          </div>
+          <ul>
+            {(warnings.length ? warnings : ['可补齐交易日覆盖或调整明确、可审计的筛选条件后重新运行。']).map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="summary-grid">
         <article><span>收益领先</span><strong>{String(asRecord(leaders?.best_return)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.best_return)?.value)}</em></article>
@@ -1282,6 +1161,33 @@ export function comparisonCss() {
 
 export function stockSelectionCss() {
   return `
+
+.selection-empty-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 20px;
+  margin-top: 14px; padding: 20px 22px;
+  border: 1px solid color-mix(in srgb, var(--gold) 42%, var(--line));
+  border-radius: 8px; background: color-mix(in srgb, var(--amber-bg) 78%, white);
+  box-shadow: var(--shadow-sm);
+}
+
+.selection-empty-result h2 {
+  margin: 5px 0 8px; font-size: clamp(21px, 2vw, 28px);
+}
+
+.selection-empty-result p {
+  margin-bottom: 0; color: var(--muted);
+}
+
+.selection-empty-result ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: #805600;
+  font-size: 13px;
+}
 
 .selection-shell {
   min-height: 100vh;
@@ -1617,6 +1523,10 @@ td small {
 }
 
 @media (max-width: 980px) {
+  .selection-empty-result {
+    grid-template-columns: 1fr;
+  }
+
   .selection-shell {
     padding: 10px;
   }
@@ -1714,69 +1624,7 @@ td small {
 }
 
 export function holdingAnalysisPageTemplate() {
-  return `import fs from 'fs/promises';
-import path from 'path';
-
-type JsonRecord = Record<string, unknown>;
-
-const DATA_FILE = 'data_file/final/dashboard-data.json';
-const SOURCES_FILE = 'evidence/sources.json';
-
-function asRecord(value: unknown): JsonRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as JsonRecord;
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function numeric(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function formatNumber(value: unknown, digits = 2): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits }).format(number);
-}
-
-function formatPercent(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
-}
-
-function formatMoney(value: unknown): string {
-  const number = numeric(value);
-  if (number === null) return '-';
-  if (Math.abs(number) >= 100000000) return formatNumber(number / 100000000, 2) + ' 亿';
-  if (Math.abs(number) >= 10000) return formatNumber(number / 10000, 2) + ' 万';
-  return formatNumber(number);
-}
-
-function sourceDisplayName(source: unknown, datasetType?: unknown): string {
-  const normalized = String(source ?? '').toLowerCase();
-  const type = String(datasetType ?? '').toLowerCase();
-  if (normalized.includes('eastmoney')) {
-    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
-    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
-    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
-    return '东方财富实时行情接口';
-  }
-  if (normalized.includes('uploaded_image')) return '用户上传截图';
-  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端预取';
-  if (normalized.includes('tencent')) return '腾讯证券行情接口';
-  if (normalized.includes('sina')) return '新浪财经行情接口';
-  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
-  if (normalized.includes('local')) return '本地计算结果';
-  return String(source ?? '未知信源');
-}
+  return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
 
 function tone(value: unknown): 'up' | 'down' | 'neutral' {
   const number = numeric(value);
@@ -1784,17 +1632,7 @@ function tone(value: unknown): 'up' | 'down' | 'neutral' {
   return number > 0 ? 'up' : 'down';
 }
 
-async function readDashboardData(): Promise<JsonRecord | null> {
-  try {
-    const content = await fs.readFile(
-      path.join(/*turbopackIgnore: true*/ process.cwd(), DATA_FILE),
-      'utf8'
-    );
-    return asRecord(JSON.parse(content));
-  } catch {
-    return null;
-  }
-}
+${DASHBOARD_DATA_READER}
 
 function getAssets(data: JsonRecord | null): JsonRecord[] {
   return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -1888,6 +1726,36 @@ function getSparklineBars(asset: JsonRecord): JsonRecord[] {
   return asArray(asRecord(asset.kline)?.bars).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
+function getPortfolioReturnSeries(assets: JsonRecord[]) {
+  const colors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2'];
+  return assets.map((asset, assetIndex) => {
+    const bars = getSparklineBars(asset).slice(-60);
+    const firstClose = bars.map((bar) => numeric(bar.close)).find((value): value is number => value !== null && value > 0) ?? null;
+    const points: Array<{ date: string; value: number }> = [];
+    if (firstClose !== null) {
+      for (const bar of bars) {
+        const close = numeric(bar.close);
+        if (close === null) continue;
+        points.push({
+          date: String(bar.date ?? bar.trade_date ?? bar.datetime ?? ''),
+          value: ((close / firstClose) - 1) * 100,
+        });
+      }
+    }
+    return {
+      name: String(asset.name ?? asRecord(asset.quote)?.name ?? asset.symbol ?? '标的'),
+      symbol: String(asset.symbol ?? asRecord(asset.quote)?.symbol ?? '-'),
+      color: colors[assetIndex % colors.length],
+      points,
+    };
+  }).filter((series) => series.points.length >= 2);
+}
+
+function shortChartDate(value: string): string {
+  const date = value.includes('T') ? value.split('T')[0] : value;
+  return date.length >= 10 ? date.slice(5, 10).replace('-', '/') : date || '-';
+}
+
 function weightBarWidth(weight: unknown, maxWeight: number): number {
   return Math.max(4, Math.min(100, ((numeric(weight) ?? 0) / Math.max(maxWeight, 0.01)) * 100));
 }
@@ -1908,6 +1776,93 @@ function Sparkline({ asset }: { asset: JsonRecord }) {
       <line x1="0" y1="34" x2="100" y2="34" className="axis" />
       {points ? <polyline points={points} fill="none" /> : null}
     </svg>
+  );
+}
+
+function PortfolioReturnChart({ assets }: { assets: JsonRecord[] }) {
+  const series = getPortfolioReturnSeries(assets);
+  const values = series.flatMap((item) => item.points.map((point) => point.value));
+  const rawMin = values.length ? Math.min(0, ...values) : -1;
+  const rawMax = values.length ? Math.max(0, ...values) : 1;
+  const rawRange = Math.max(rawMax - rawMin, 1);
+  const minValue = rawMin - rawRange * 0.1;
+  const maxValue = rawMax + rawRange * 0.1;
+  const range = Math.max(maxValue - minValue, 0.000001);
+  const left = 54;
+  const right = 744;
+  const top = 20;
+  const bottom = 218;
+  const chartWidth = right - left;
+  const chartHeight = bottom - top;
+  const yFor = (value: number) => bottom - ((value - minValue) / range) * chartHeight;
+  const yTicks = Array.from({ length: 5 }, (_, index) => maxValue - (range * index) / 4);
+  const reference = series[0]?.points ?? [];
+  const dateTicks = reference.length > 0
+    ? [reference[0], reference[Math.floor((reference.length - 1) / 2)], reference[reference.length - 1]]
+    : [];
+
+  return (
+    <section className="holding-panel portfolio-chart-panel" aria-labelledby="portfolio-return-heading">
+      <div className="panel-heading">
+        <div>
+          <h2 id="portfolio-return-heading">持仓累计收益对比主图</h2>
+          <p>以各标的近 60 个交易日首个收盘价归一为 0%，在统一尺度下比较收益路径与回撤压力。</p>
+        </div>
+        <span>统一基准</span>
+      </div>
+      {series.length > 0 ? (
+        <div className="portfolio-chart-wrap">
+          <svg className="portfolio-main-chart" viewBox="0 0 760 264" preserveAspectRatio="none" role="img" aria-labelledby="portfolio-chart-title portfolio-chart-description">
+            <title id="portfolio-chart-title">多标的近 60 个交易日累计收益对比主图</title>
+            <desc id="portfolio-chart-description">带百分比纵轴、日期横轴、零收益基准线和标的图例的累计收益折线图。</desc>
+            {yTicks.map((tick) => {
+              const y = yFor(tick);
+              return (
+                <g key={'y-' + tick.toFixed(4)} aria-hidden="true">
+                  <line x1={left} x2={right} y1={y} y2={y} className="portfolio-chart-grid" />
+                  <text x={left - 8} y={y + 4} textAnchor="end" className="portfolio-chart-axis-label">{formatPercent(tick)}</text>
+                </g>
+              );
+            })}
+            <line x1={left} x2={right} y1={yFor(0)} y2={yFor(0)} className="portfolio-chart-zero" aria-hidden="true" />
+            {dateTicks.map((point, index) => {
+              const x = left + (index / Math.max(dateTicks.length - 1, 1)) * chartWidth;
+              return (
+                <g key={'x-' + index} aria-hidden="true">
+                  <line x1={x} x2={x} y1={top} y2={bottom} className="portfolio-chart-grid portfolio-chart-grid-vertical" />
+                  <text x={x} y={bottom + 24} textAnchor={index === 0 ? 'start' : index === dateTicks.length - 1 ? 'end' : 'middle'} className="portfolio-chart-axis-label">{shortChartDate(point.date)}</text>
+                </g>
+              );
+            })}
+            {series.map((item) => {
+              const points = item.points.map((point, pointIndex) => {
+                const x = left + (pointIndex / Math.max(item.points.length - 1, 1)) * chartWidth;
+                return x.toFixed(2) + ',' + yFor(point.value).toFixed(2);
+              }).join(' ');
+              return (
+                <polyline key={item.symbol} points={points} className="portfolio-return-line" style={{ stroke: item.color }}>
+                  <title>{item.name + '（' + item.symbol + '）累计收益'}</title>
+                </polyline>
+              );
+            })}
+          </svg>
+          <div className="portfolio-chart-legend" aria-label="累计收益图例">
+            {series.map((item) => {
+              const latest = item.points[item.points.length - 1]?.value;
+              return (
+                <span key={item.symbol}>
+                  <i style={{ background: item.color }} aria-hidden="true" />
+                  <b>{item.name}</b>
+                  <em className={tone(latest)}>{formatPercent(latest)}</em>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="chart-empty">当前真实 K 线不足，暂不能计算累计收益路径。</p>
+      )}
+    </section>
   );
 }
 
@@ -2170,6 +2125,8 @@ export default async function Home() {
         </div>
       </section>
 
+      <PortfolioReturnChart assets={assets} />
+
       <HoldingCards holdings={holdings} assets={assets} />
 
       <section className="holding-main-grid">
@@ -2302,6 +2259,66 @@ export function holdingAnalysisCss() {
 .holding-card dd {
   margin: 2px 0 0;
   font-weight: 800;
+}
+
+.portfolio-chart-panel { margin-top: 14px; }
+.portfolio-chart-wrap {
+  min-width: 0; overflow: hidden;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px; background: var(--surface-1);
+}
+.portfolio-main-chart {
+  display: block; width: 100%; height: 300px;
+}
+.portfolio-chart-grid {
+  stroke: var(--line); stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.portfolio-chart-grid-vertical {
+  stroke-dasharray: 3 5; opacity: 0.7;
+}
+.portfolio-chart-zero {
+  stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+.portfolio-chart-axis-label {
+  fill: var(--muted); font-size: 11px; font-weight: 600;
+}
+.portfolio-return-line {
+  fill: none; stroke-width: 2.6;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.portfolio-chart-legend {
+  display: flex; flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 4px 6px 0 44px;
+}
+.portfolio-chart-legend span {
+  display: inline-flex; align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.portfolio-chart-legend i {
+  width: 9px; height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+}
+.portfolio-chart-legend b {
+  overflow: hidden; text-overflow: ellipsis;
+  max-width: 120px;
+  white-space: nowrap;
+}
+.portfolio-chart-legend em {
+  font-style: normal; font-weight: 800;
+}
+.chart-empty {
+  margin: 0;
+  padding: 28px;
+  border: 1px dashed var(--line); border-radius: 7px;
+  text-align: center;
 }
 
 .holding-main-grid {
@@ -2484,21 +2501,79 @@ td small {
 
 @media (max-width: 980px) {
   .holding-shell {
-    padding: 16px;
+    padding: 12px;
   }
 
-  .hero-summary,
+  .holding-hero {
+    gap: 12px; padding: 16px;
+  }
+
+  .holding-hero h1 {
+    margin: 3px 0 5px; font-size: clamp(25px, 8vw, 32px);
+  }
+
+  .holding-hero > div:first-child > p:last-child {
+    font-size: 13px; line-height: 1.55;
+  }
+
+  .hero-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  }
+
+  .hero-summary article {
+    padding: 10px;
+  }
+
+  .hero-summary span {
+    margin-bottom: 3px; font-size: 12px;
+  }
+
+  .hero-summary strong {
+    overflow: hidden; font-size: 18px; text-overflow: ellipsis;
+  }
+
+  .hero-meta {
+    gap: 6px 12px; font-size: 12px;
+  }
+
   .holding-grid,
   .holding-main-grid,
   .risk-grid {
     grid-template-columns: 1fr;
   }
 
-  .hero-summary > *,
   .holding-grid > *,
   .holding-main-grid > *,
   .risk-grid > * {
     min-width: 0;
+  }
+
+  .portfolio-chart-panel {
+    margin-top: 12px; padding: 14px;
+  }
+
+  .portfolio-chart-panel .panel-heading {
+    margin-bottom: 8px;
+  }
+
+  .portfolio-chart-panel .panel-heading p {
+    font-size: 12px; line-height: 1.5;
+  }
+
+  .portfolio-chart-wrap {
+    padding: 4px 4px 8px;
+  }
+
+  .portfolio-main-chart {
+    height: 238px;
+  }
+
+  .portfolio-chart-legend {
+    gap: 7px 10px; padding-left: 42px;
+  }
+
+  .portfolio-chart-legend span {
+    font-size: 11px;
   }
 
   .concentration-row {

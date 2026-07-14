@@ -11,12 +11,22 @@ import {
 } from '@/lib/quant/artifacts';
 import { readQuantArtifactContractReport } from '@/lib/quant/artifact-contracts';
 import { readQuantGenerationQueue } from '@/lib/quant/generation-queue';
+import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantVisualValidationReport } from '@/lib/quant/visual-validation';
 import type { Project } from '@/types/backend';
 
 type JsonRecord = Record<string, unknown>;
 
 export type WorkspaceHealthStatus = 'healthy' | 'warning' | 'failed' | 'unknown';
+export type WorkspaceLifecycleStatus =
+  | 'idle'
+  | 'awaiting_input'
+  | 'queued'
+  | 'running'
+  | 'repairing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 export type WorkspaceDeliverySegmentId = 'showcase' | 'at_risk' | 'needs_repair' | 'archive_candidate';
 
 export interface WorkspaceDeliverySegment {
@@ -54,6 +64,13 @@ export interface WorkspaceHealthItem {
     summary: string;
     blockers: number;
     warnings: number;
+  };
+  lifecycle: {
+    status: WorkspaceLifecycleStatus;
+    label: string;
+    active: boolean;
+    requestId: string | null;
+    updatedAt: string | null;
   };
   deliverySegment: WorkspaceDeliverySegment;
   validation: {
@@ -128,6 +145,7 @@ export interface WorkspaceHealthDashboard {
     activeTotal: number;
     activeAverageScore: number;
   };
+  lifecycle: Record<WorkspaceLifecycleStatus, number>;
   projects: WorkspaceHealthItem[];
 }
 
@@ -199,6 +217,67 @@ async function statFile(filePath: string) {
 
 function statusRank(status: WorkspaceHealthStatus) {
   return { healthy: 0, warning: 1, unknown: 2, failed: 3 }[status];
+}
+
+const LIFECYCLE_LABELS: Record<WorkspaceLifecycleStatus, string> = {
+  idle: '空闲',
+  awaiting_input: '等待补充',
+  queued: '排队中',
+  running: '生成中',
+  repairing: '修复中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+const ACTIVE_LIFECYCLES = new Set<WorkspaceLifecycleStatus>([
+  'awaiting_input',
+  'queued',
+  'running',
+  'repairing',
+]);
+
+export function deriveWorkspaceLifecycle(params: {
+  runPlanStatus?: string | null;
+  generationState?: Pick<QuantGenerationState, 'status' | 'requestId' | 'updatedAt'> | null;
+  queue?: {
+    activeRequestId?: string | null;
+    items?: Array<{ requestId: string; status: string; queuedAt?: string | null; startedAt?: string | null; completedAt?: string | null }>;
+    updatedAt?: string | null;
+  } | null;
+}): WorkspaceHealthItem['lifecycle'] {
+  const state = params.generationState;
+  const items = params.queue?.items ?? [];
+  const runningItem = items.find((item) => item.status === 'running');
+  const queuedItem = items.find((item) => item.status === 'queued');
+  let status: WorkspaceLifecycleStatus = 'idle';
+  let requestId = state?.requestId ?? params.queue?.activeRequestId ?? null;
+
+  if (state?.status === 'cancelled') {
+    status = 'cancelled';
+  } else if (state?.status === 'failed') {
+    status = 'failed';
+  } else if (state?.status === 'completed') {
+    status = 'completed';
+  } else if (state?.status === 'needs_clarification' || (!state && params.runPlanStatus === 'needs_clarification')) {
+    status = 'awaiting_input';
+  } else if (state?.status === 'repairing') {
+    status = 'repairing';
+  } else if (runningItem || state?.status === 'running' || state?.status === 'pending') {
+    status = 'running';
+    requestId = runningItem?.requestId ?? requestId;
+  } else if (queuedItem) {
+    status = 'queued';
+    requestId = queuedItem.requestId;
+  }
+
+  return {
+    status,
+    label: LIFECYCLE_LABELS[status],
+    active: ACTIVE_LIFECYCLES.has(status),
+    requestId,
+    updatedAt: state?.updatedAt ?? params.queue?.updatedAt ?? null,
+  };
 }
 
 function normalizeArtifactStatus(exists: boolean, id: string, validation: QuantValidationReport | null, dataQuality: JsonRecord | null): WorkspaceHealthStatus {
@@ -286,8 +365,21 @@ function buildNextActions(params: {
   contracts: WorkspaceHealthItem['artifactContracts'];
   visual: WorkspaceHealthItem['visualValidation'];
   queue: WorkspaceHealthItem['generationQueue'];
+  lifecycle: WorkspaceHealthItem['lifecycle'];
 }) {
   const actions: string[] = [];
+  if (params.lifecycle.status === 'awaiting_input') {
+    return ['补充当前任务缺失的标的、范围或时间信息，再继续生成。'];
+  }
+  if (params.lifecycle.status === 'queued') {
+    return ['任务已进入生成队列，等待前序任务完成。'];
+  }
+  if (params.lifecycle.status === 'running') {
+    return ['生成链路正在运行，完成后再按最新验证结果判断是否需要修复。'];
+  }
+  if (params.lifecycle.status === 'repairing') {
+    return ['自动修复正在执行，等待修复后验证完成。'];
+  }
   const missing = params.artifacts.filter((artifact) => !artifact.exists);
   if (missing.length) {
     actions.push(`补齐缺失产物：${missing.slice(0, 3).map((artifact) => artifact.label).join('、')}。`);
@@ -340,9 +432,24 @@ function classifyDeliverySegment(params: {
   score: number;
   queue: WorkspaceHealthItem['generationQueue'];
   repairPlanNeeded: boolean;
+  lifecycle: WorkspaceHealthItem['lifecycle'];
 }): WorkspaceDeliverySegment {
   const inactiveDays = daysSince(params.project.lastActiveAt ?? params.project.updatedAt);
   const hasActiveQueue = params.queue.running > 0 || params.queue.queued > 0;
+  if (params.lifecycle.status === 'awaiting_input') {
+    return {
+      id: 'at_risk',
+      label: '等待补充',
+      reason: '任务正在等待用户补齐关键信息，不属于生成失败或待修复。',
+    };
+  }
+  if (['queued', 'running', 'repairing'].includes(params.lifecycle.status)) {
+    return {
+      id: 'at_risk',
+      label: params.lifecycle.label,
+      reason: '生成链路仍在执行，完成后再按最新验证结果进入交付分层。',
+    };
+  }
   if (params.healthStatus === 'healthy' || (params.blockers === 0 && params.score >= 82)) {
     return {
       id: 'showcase',
@@ -392,35 +499,49 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
       ? project.repoPath
       : path.resolve(/*turbopackIgnore: true*/ process.cwd(), project.repoPath)
     : path.join(PROJECTS_DIR_ABSOLUTE, project.id);
-  const [validationReport, repairPlan, runPlan, events, dataQuality, sources, generationQueue, artifactContractReport, visualValidationReport] = await Promise.all([
+  const [validationReport, repairPlan, runPlan, events, dataQuality, sources, generationState, generationQueue, artifactContractReport, visualValidationReport] = await Promise.all([
     readValidationReport(projectPath),
     readValidationRepairPlan(projectPath),
     readQuantRunPlan(projectPath),
     readEvents(projectPath),
     readJsonRecord(path.join(projectPath, 'evidence', 'data_quality.json')),
     readJsonRecord(path.join(projectPath, 'evidence', 'sources.json')),
+    readQuantGenerationState(projectPath),
     readQuantGenerationQueue(projectPath, project.id),
     readQuantArtifactContractReport(projectPath),
     readQuantVisualValidationReport(projectPath),
   ]);
 
+  const lifecycle = deriveWorkspaceLifecycle({
+    runPlanStatus: runPlan?.status,
+    generationState,
+    queue: generationQueue,
+  });
+  const lifecycleInProgress = lifecycle.active;
   const artifacts = await Promise.all(
     REQUIRED_ARTIFACTS.map(async (artifact): Promise<WorkspaceHealthArtifact> => {
       const absolutePath = path.join(projectPath, artifact.path);
       const stat = await statFile(absolutePath);
-      const status = normalizeArtifactStatus(Boolean(stat), artifact.id, validationReport, dataQuality);
+      const rawStatus = normalizeArtifactStatus(Boolean(stat), artifact.id, validationReport, dataQuality);
+      const status = lifecycleInProgress && rawStatus === 'failed' ? 'unknown' : rawStatus;
       return {
         ...artifact,
         exists: Boolean(stat),
         status,
         updatedAt: stat?.mtime.toISOString() ?? null,
-        summary: stat ? '已生成' : '缺失',
+        summary: stat ? '已生成' : lifecycleInProgress ? '当前生命周期尚未生成' : '缺失',
       };
     })
   );
   const dataQualitySummary = buildDataQualitySummary(dataQuality, sources);
   const validationStatus: WorkspaceHealthItem['validation'] = {
-    status: validationReport ? (validationReport.passed ? 'healthy' : 'failed') : 'unknown',
+    status: validationReport
+      ? validationReport.passed
+        ? 'healthy'
+        : lifecycleInProgress
+          ? 'warning'
+          : 'failed'
+      : 'unknown',
     passed: validationReport?.passed ?? null,
     updatedAt: validationReport?.updatedAt ?? validationReport?.createdAt ?? null,
     failedChecks: countValidationChecks(validationReport, 'failed'),
@@ -439,7 +560,9 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
         ? 'healthy'
         : artifactContractReport.status === 'warning'
           ? 'warning'
-          : 'failed'
+          : lifecycleInProgress
+            ? 'warning'
+            : 'failed'
       : 'unknown',
     passed: artifactContractReport?.passed ?? null,
     failedChecks: artifactContractReport?.checks.filter((check) => check.status === 'failed').length ?? 0,
@@ -453,7 +576,9 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
         ? 'healthy'
         : visualValidationReport.status === 'warning'
           ? 'warning'
-          : 'failed'
+          : lifecycleInProgress
+            ? 'warning'
+            : 'failed'
       : 'unknown',
     passed: visualValidationReport?.passed ?? null,
     failedChecks: visualValidationReport?.failures.length ?? 0,
@@ -461,11 +586,12 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
     updatedAt: visualValidationReport?.updatedAt ?? null,
     path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
   };
-  const blockers =
-    artifacts.filter((artifact) => artifact.status === 'failed').length +
-    (validationStatus.status === 'failed' ? validationStatus.failedChecks || 1 : 0) +
-    (artifactContracts.status === 'failed' ? artifactContracts.failedChecks || 1 : 0) +
-    (visualValidation.status === 'failed' ? visualValidation.failedChecks || 1 : 0);
+  const blockers = lifecycleInProgress
+    ? 0
+    : artifacts.filter((artifact) => artifact.status === 'failed').length +
+      (validationStatus.status === 'failed' ? validationStatus.failedChecks || 1 : 0) +
+      (artifactContracts.status === 'failed' ? artifactContracts.failedChecks || 1 : 0) +
+      (visualValidation.status === 'failed' ? visualValidation.failedChecks || 1 : 0);
   const warnings =
     artifacts.filter((artifact) => artifact.status === 'warning' || artifact.status === 'unknown').length +
     validationStatus.warningChecks +
@@ -475,7 +601,15 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
     (queueSummary.running + queueSummary.queued > 0 ? 1 : 0);
   const worstStatus = [validationStatus.status, dataQualitySummary.status, artifactContracts.status, visualValidation.status, ...artifacts.map((artifact) => artifact.status)]
     .sort((a, b) => statusRank(b) - statusRank(a))[0] ?? 'unknown';
-  const healthStatus: WorkspaceHealthStatus = blockers ? 'failed' : worstStatus === 'failed' ? 'failed' : warnings ? 'warning' : 'healthy';
+  const healthStatus: WorkspaceHealthStatus = lifecycleInProgress
+    ? 'warning'
+    : blockers
+      ? 'failed'
+      : worstStatus === 'failed'
+        ? 'failed'
+        : warnings
+          ? 'warning'
+          : 'healthy';
   const score = Math.max(0, Math.min(100, 100 - blockers * 18 - warnings * 4));
   const repairPlanNeeded = Boolean(repairPlan?.steps?.length);
   const deliverySegment = classifyDeliverySegment({
@@ -486,6 +620,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
     score,
     queue: queueSummary,
     repairPlanNeeded,
+    lifecycle,
   });
 
   return {
@@ -508,6 +643,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
       blockers,
       warnings,
     },
+    lifecycle,
     deliverySegment,
     validation: validationStatus,
     dataQuality: dataQualitySummary,
@@ -535,6 +671,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
       contracts: artifactContracts,
       visual: visualValidation,
       queue: queueSummary,
+      lifecycle,
     }),
   };
 }
@@ -572,6 +709,22 @@ export async function getWorkspaceHealthDashboard(): Promise<WorkspaceHealthDash
       activeScore: 0,
     }
   );
+  const lifecycle = items.reduce<Record<WorkspaceLifecycleStatus, number>>(
+    (acc, item) => {
+      acc[item.lifecycle.status] += 1;
+      return acc;
+    },
+    {
+      idle: 0,
+      awaiting_input: 0,
+      queued: 0,
+      running: 0,
+      repairing: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+    }
+  );
 
   return {
     generatedAt: new Date().toISOString(),
@@ -590,6 +743,7 @@ export async function getWorkspaceHealthDashboard(): Promise<WorkspaceHealthDash
         ? Math.round(delivery.activeScore / delivery.activeTotal)
         : 0,
     },
+    lifecycle,
     projects: items.sort((a, b) => statusRank(b.health.status) - statusRank(a.health.status) || b.updatedAt.localeCompare(a.updatedAt)),
   };
 }

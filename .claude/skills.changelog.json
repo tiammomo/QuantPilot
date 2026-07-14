@@ -9,6 +9,26 @@
     "run-planner": {
       "releases": [
         {
+          "version": "0.2.3",
+          "date": "2026-07-14",
+          "summary": "统一平台只读运行计划与 Agent 执行边界。",
+          "changes": [
+            "明确 .quantpilot 下的计划、状态和事件由平台在 Agent 启动前维护。",
+            "run-planner 只解释权威计划和澄清状态，不再要求 Agent 改写 run_plan 或 events。",
+            "平台预取与非完整预取场景都使用同一只读计划契约。"
+          ]
+        },
+        {
+          "version": "0.2.2",
+          "date": "2026-07-14",
+          "summary": "修复含证券、股份或公司后缀的标的名称被误判为泛词的问题。",
+          "changes": [
+            "可解析的证券名称在没有 6 位代码时也应直接进入标的解析。",
+            "最近怎么样、走势如何等问法默认按 120 个交易日综合诊断和可验证看板继续。",
+            "调整意图脚本的泛词匹配，仅拦截真实占位语，不再拦截中信证券、杭钢股份、有研新材等名称。"
+          ]
+        },
+        {
           "version": "0.2.1",
           "date": "2026-06-04",
           "summary": "增强二次对话看板修订的上下文继承和意图去噪规则。",
@@ -64,6 +84,15 @@
     },
     "quant-symbol-resolver": {
       "releases": [
+        {
+          "version": "0.1.1",
+          "date": "2026-07-14",
+          "summary": "增加证券名称的自动优先级解析规则。",
+          "changes": [
+            "唯一同名 A 股优先于港股和债券候选，可直接继续生成。",
+            "以中信证券 600030.SH 作为同名跨市场解析示例。"
+          ]
+        },
         {
           "version": "0.1.0",
           "date": "2026-05-25",
@@ -172,6 +201,15 @@
     "data-quality": {
       "releases": [
         {
+          "version": "0.2.1",
+          "date": "2026-07-14",
+          "summary": "将数据质量事件记录统一交由平台维护。",
+          "changes": [
+            "Agent 继续维护 evidence/sources.json 与 evidence/data_quality.json。",
+            "data_quality_checked 事件由平台写入只读 events，不再要求 skill 修改 .quantpilot。"
+          ]
+        },
+        {
           "version": "0.2.0",
           "date": "2026-05-25",
           "summary": "增强证据文件、来源、时效、缺失字段和限制说明。",
@@ -208,6 +246,37 @@
     },
     "dashboard-visualization": {
       "releases": [
+        {
+          "version": "0.4.5",
+          "date": "2026-07-14",
+          "summary": "将平台量化状态目录提升为完整只读边界。",
+          "changes": [
+            "明确 .quantpilot 下计划、状态、队列、事件、契约与验证报告均由平台维护。",
+            "要求 Agent 只根据报告修改页面、final 数据或 evidence，不得追加事件或伪造验证状态。",
+            "与 Agent 工具权限层的只读拦截保持一致。"
+          ]
+        },
+        {
+          "version": "0.4.4",
+          "date": "2026-07-14",
+          "summary": "强化动态 JSON 嵌套对象的 TypeScript 守卫规则。",
+          "changes": [
+            "要求 financials.summary 等每一层嵌套对象都单独经过 asRecord。",
+            "增加 latest_report_date 的错误写法和可通过严格 TypeScript 的正确示例。",
+            "明确验证、视觉、契约、状态和队列报告由平台只读管理，禁止生成 workspace 伪造验证结果或安装浏览器规避验收。"
+          ]
+        },
+        {
+          "version": "0.4.3",
+          "date": "2026-07-14",
+          "summary": "固化平台预取模式，防止看板生成重写运行计划和权威数据。",
+          "changes": [
+            "run plan、final 数据和 evidence 齐备时直接进入看板增强，不再重复规划或取数。",
+            "平台预取模式下锁定 capability、symbols、templateId 和 variantId，避免单股别名被误判为多标的。",
+            "只允许根据具体验证失败修复 final/evidence，并继续禁止未经用户要求的交易执行建议。",
+            "平台预取模式禁止 Task/Todo 和 Agent 自行构建预览，减少无价值轮次。"
+          ]
+        },
         {
           "version": "0.4.2",
           "date": "2026-06-04",

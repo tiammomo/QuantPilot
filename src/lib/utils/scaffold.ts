@@ -55,12 +55,10 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
   }
 
   if (normalizedPath.endsWith('/app/globals.css')) {
-    const hasQuantDashboardStyles =
-      existing.includes('.dashboard-shell') ||
-      existing.includes('.quant-dashboard') ||
-      existing.includes('.chart-card');
-
-    return !hasQuantDashboardStyles && trimmed.length < 600;
+    // Existing styles can be intentionally small. Validation/scaffolding must
+    // not replace user-authored CSS merely because it does not use a platform
+    // class name; destructive recovery is an explicit repair operation.
+    return trimmed.length === 0;
   }
 
   if (normalizedPath.endsWith('/app/api/market/[...path]/route.ts')) {
@@ -159,9 +157,11 @@ child.on('error', (error) => {
 
 async function mergePackageJson(filePath: string, defaults: PackageJsonShape & Record<string, unknown>) {
   let packageJson = defaults;
+  let existingContents: string | null = null;
 
   try {
-    packageJson = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    existingContents = await fs.readFile(filePath, 'utf8');
+    packageJson = JSON.parse(existingContents);
   } catch {
     // 文件缺失或 JSON 异常时，回写默认配置。
   }
@@ -205,11 +205,12 @@ async function mergePackageJson(filePath: string, defaults: PackageJsonShape & R
   };
   delete packageJson.devDependencies['next-rspack'];
 
-  await fs.writeFile(
-    filePath,
-    `${JSON.stringify(packageJson, null, 2)}\n`,
-    'utf8'
-  );
+  const nextContents = `${JSON.stringify(packageJson, null, 2)}\n`;
+  if (existingContents === nextContents) {
+    return;
+  }
+
+  await fs.writeFile(filePath, nextContents, 'utf8');
 }
 
 async function ensureNextConfig(filePath: string) {
@@ -477,7 +478,7 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
     return;
   }
   const assets = Array.isArray(finalData?.assets) ? finalData.assets : [];
-  if (assets.length < 2) {
+  if (assets.length < 2 && effectiveTemplateId !== 'stock-selection') {
     return;
   }
 
@@ -523,6 +524,26 @@ async function ensureComparisonDashboardTemplate(projectPath: string) {
 
 export async function ensureQuantDashboardTemplate(projectPath: string) {
   await scaffoldBasicNextApp(projectPath, path.basename(projectPath));
+  await ensureComparisonDashboardTemplate(projectPath);
+}
+
+/**
+ * Restore a generated dashboard to the platform-owned, validation-safe template.
+ * This is intentionally separate from normal scaffolding so Agent enhancements are
+ * preserved unless automatic validation proves that the generated page is broken.
+ */
+export async function restoreQuantDashboardTemplate(projectPath: string) {
+  await scaffoldBasicNextApp(projectPath, path.basename(projectPath));
+  await fs.writeFile(
+    path.join(projectPath, 'app', 'page.tsx'),
+    baseDashboardPageTemplate(),
+    'utf8'
+  );
+  await fs.writeFile(
+    path.join(projectPath, 'app', 'globals.css'),
+    baseDashboardCssTemplate(),
+    'utf8'
+  );
   await ensureComparisonDashboardTemplate(projectPath);
 }
 

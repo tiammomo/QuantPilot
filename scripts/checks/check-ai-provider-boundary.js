@@ -50,7 +50,9 @@ if (!modelRegistry.includes(`DEEPSEEK_MODEL_ID = '${DEEPSEEK_MODEL}'`)) {
 }
 
 const adapterDirectory = path.join(ROOT, 'src/lib/services/cli');
-const adapters = fs.readdirSync(adapterDirectory).filter((name) => name.endsWith('.ts')).sort();
+const adapters = fs.readdirSync(adapterDirectory)
+  .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))
+  .sort();
 if (adapters.length !== 1 || adapters[0] !== 'claude.ts') {
   fail(`运行时适配器目录只允许保留内部执行引擎 claude.ts，当前为：${adapters.join(', ') || '空'}`);
 } else {
@@ -69,8 +71,8 @@ for (const input of forbiddenRuntimeInputs) {
 }
 if (!runtime.includes('process.env.DEEPSEEK_API_KEY')) {
   fail('运行时必须只读取 DEEPSEEK_API_KEY');
-} else if (!runtime.includes('blockedProviderEnv')) {
-  fail('运行时必须在启动执行引擎前清除旧供应商环境变量');
+} else if (!runtime.includes('const runtimeEnv: Record<string, string | undefined> = {}')) {
+  fail('运行时必须从空白白名单构造执行环境，禁止继承宿主供应商凭据');
 } else if (!runtime.includes('CLAUDE_CODE_SUBAGENT_MODEL: runtimeModel')) {
   fail('子 Agent 模型也必须锁定为 DeepSeek V4 Flash');
 } else {

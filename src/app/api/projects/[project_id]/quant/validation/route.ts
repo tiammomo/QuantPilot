@@ -1,7 +1,12 @@
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getProjectById } from '@/lib/services/project';
-import { updateQuantGenerationStep } from '@/lib/quant/generation-state';
+import {
+  readQuantGenerationState,
+  updateQuantGenerationStep,
+} from '@/lib/quant/generation-state';
+import { startPersistentValidatedPreview } from '@/lib/quant/generation-preview';
+import { streamManager } from '@/lib/services/stream';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -33,12 +38,16 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 
     const projectPath = resolveProjectPath(project_id, project.repoPath);
     const quantValidation = await loadQuantValidation();
-    const report = await quantValidation.readQuantValidationReport(projectPath);
-    const repairPlan = await quantValidation.readQuantValidationRepairPlan(projectPath);
+    const [report, repairPlan, generationState] = await Promise.all([
+      quantValidation.readQuantValidationReport(projectPath),
+      quantValidation.readQuantValidationRepairPlan(projectPath),
+      readQuantGenerationState(projectPath),
+    ]);
     return NextResponse.json({
       success: true,
       data: report,
       repairPlan,
+      generationState,
     });
   } catch (error) {
     console.error('[API] Failed to read quant validation report:', error);
@@ -84,6 +93,23 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       cliSource: 'validator',
     });
     const repairPlan = await quantValidation.readQuantValidationRepairPlan(projectPath);
+    let preview: Awaited<ReturnType<typeof startPersistentValidatedPreview>> | null = null;
+    if (report.passed) {
+      preview = await startPersistentValidatedPreview({ projectId: project_id });
+      streamManager.publish(project_id, {
+        type: 'status',
+        data: {
+          status: 'preview_ready',
+          message: '自动验证通过，看板预览已恢复。',
+          requestId,
+          metadata: {
+            previewUrl: preview.url,
+            previewPort: preview.port,
+            validationPassed: true,
+          },
+        },
+      });
+    }
     if (requestId) {
       await updateQuantGenerationStep({
         projectPath,
@@ -111,6 +137,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       success: true,
       data: report,
       repairPlan,
+      preview,
     });
   } catch (error) {
     console.error('[API] Failed to run quant validation:', error);

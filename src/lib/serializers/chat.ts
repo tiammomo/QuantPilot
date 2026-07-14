@@ -1,8 +1,10 @@
 import { randomUUID } from 'crypto';
 import type { Message, MessageMetadata } from '@/types/backend';
 import type { RealtimeMessage } from '@/types';
-
-const TOOL_DETAIL_PREVIEW_LIMIT = 12000;
+import {
+  compactToolOutputPreview,
+  TOOL_OUTPUT_PREVIEW_LIMIT,
+} from '@/lib/utils/tool-output';
 
 function parseMetadata(metadataJson?: string | null): MessageMetadata | null {
   if (!metadataJson) {
@@ -18,14 +20,6 @@ function parseMetadata(metadataJson?: string | null): MessageMetadata | null {
   }
 }
 
-function truncateText(value: string, limit = TOOL_DETAIL_PREVIEW_LIMIT): string {
-  if (value.length <= limit) {
-    return value;
-  }
-
-  return `${value.slice(0, limit)}\n\n... 已截断 ${value.length - limit} 个字符，完整输出仍保存在服务端消息记录中。`;
-}
-
 function compactMetadataForClient(metadata: MessageMetadata | null): MessageMetadata | null {
   if (!metadata) {
     return null;
@@ -33,13 +27,24 @@ function compactMetadataForClient(metadata: MessageMetadata | null): MessageMeta
 
   const compacted: MessageMetadata = { ...metadata };
   const keys = ['toolOutput', 'tool_output', 'output', 'result', 'content', 'diff', 'diffInfo', 'diff_info'];
+  let truncatedOriginalChars =
+    typeof compacted.toolOutputOriginalChars === 'number'
+      ? compacted.toolOutputOriginalChars
+      : 0;
 
   keys.forEach((key) => {
     const value = compacted[key];
     if (typeof value === 'string') {
-      compacted[key] = truncateText(value);
+      compacted[key] = compactToolOutputPreview(value);
+      if ((compacted[key] as string).length !== value.length) {
+        truncatedOriginalChars = Math.max(truncatedOriginalChars, value.length);
+      }
     }
   });
+  if (truncatedOriginalChars > 0) {
+    compacted.toolOutputTruncated = true;
+    compacted.toolOutputOriginalChars = truncatedOriginalChars;
+  }
 
   return compacted;
 }
@@ -48,11 +53,21 @@ export function serializeMessage(
   message: Message,
   overrides: Partial<RealtimeMessage> = {}
 ): RealtimeMessage {
-  const metadata = compactMetadataForClient(parseMetadata(message.metadataJson));
+  let metadata = compactMetadataForClient(parseMetadata(message.metadataJson));
   const content =
     message.messageType === 'tool_result'
-      ? truncateText(message.content, TOOL_DETAIL_PREVIEW_LIMIT)
+      ? compactToolOutputPreview(message.content, TOOL_OUTPUT_PREVIEW_LIMIT)
       : message.content;
+  if (message.messageType === 'tool_result' && content.length !== message.content.length) {
+    metadata = {
+      ...(metadata ?? {}),
+      toolOutputTruncated: true,
+      toolOutputOriginalChars: Math.max(
+        message.content.length,
+        typeof metadata?.toolOutputOriginalChars === 'number' ? metadata.toolOutputOriginalChars : 0,
+      ),
+    };
+  }
 
   return {
     id: message.id,
