@@ -76,18 +76,11 @@ export {
 
 let queueKickoffInProgress = false;
 const runningChildren = new Map<string, ChildProcess>();
+const EVAL_CLI = 'claude';
+const EVAL_MODEL = 'deepseek-v4-flash';
 
 function supportsReasoningEffort(cli: string | null | undefined): boolean {
   return EVAL_RUNTIME_OPTIONS.some((option) => option.cli === cli && option.supportsReasoningEffort);
-}
-
-function defaultModelForEvalCli(cli: string | null | undefined): string {
-  return EVAL_RUNTIME_OPTIONS.find((option) => option.cli === cli)?.defaultModel ?? EVAL_RUNTIME_OPTIONS[0].defaultModel;
-}
-
-function normalizeEvalReasoningEffort(cli: string | null | undefined, value: string | null | undefined): string {
-  if (!supportsReasoningEffort(cli)) return '';
-  return value || 'low';
 }
 
 function normalizeEvaluatorId(value: unknown): string {
@@ -152,7 +145,12 @@ async function listEvalRunsFromDatabase(limit: number): Promise<QuantEvalRun[]> 
 async function readQueue(): Promise<QuantEvalQueueItem[]> {
   const dbItems = await prisma.evalQueueItem
     .findMany({ orderBy: { createdAt: 'desc' }, take: 50 })
-    .then((items) => items.map(mapDbQueueItem))
+    .then((items) => items.map((item) => ({
+      ...mapDbQueueItem(item),
+      cli: EVAL_CLI,
+      model: EVAL_MODEL,
+      reasoningEffort: '',
+    })))
     .catch(() => []);
   const parsed = await readJson(QUEUE_PATH).catch(() => []);
   const items = Array.isArray(parsed) ? parsed : [];
@@ -164,9 +162,9 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       createdAt: stringValue(item.createdAt, new Date().toISOString()),
       startedAt: stringValue(item.startedAt) || null,
       finishedAt: stringValue(item.finishedAt) || null,
-      cli: stringValue(item.cli, 'claude'),
-      model: stringValue(item.model, defaultModelForEvalCli(stringValue(item.cli, 'claude'))),
-      reasoningEffort: normalizeEvalReasoningEffort(stringValue(item.cli, 'claude'), stringValue(item.reasoningEffort)),
+      cli: EVAL_CLI,
+      model: EVAL_MODEL,
+      reasoningEffort: '',
       evaluatorId: normalizeEvaluatorId(item.evaluatorId),
       concurrency: normalizeEvalConcurrency(item.concurrency),
       selectedCases: stringArray(item.selectedCases),
@@ -244,7 +242,6 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
 }
 
 function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQueueItem {
-  const cli = options.cli || 'claude';
   const selectedCases = Array.isArray(options.selectedCases)
     ? options.selectedCases.map(String).filter(Boolean)
     : [];
@@ -259,9 +256,9 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
-    cli,
-    model: options.model || defaultModelForEvalCli(cli),
-    reasoningEffort: normalizeEvalReasoningEffort(cli, options.reasoningEffort),
+    cli: EVAL_CLI,
+    model: EVAL_MODEL,
+    reasoningEffort: '',
     evaluatorId: normalizeEvaluatorId(options.evaluatorId),
     concurrency: normalizeEvalConcurrency(options.concurrency),
     selectedCases,
@@ -430,7 +427,12 @@ async function readScheduleConfig(): Promise<QuantEvalScheduleConfig> {
     .then((record) => record ? mapDbSchedule(record) : null)
     .catch(() => null);
   if (dbSchedule) {
-    return dbSchedule;
+    return {
+      ...dbSchedule,
+      cli: EVAL_CLI,
+      model: EVAL_MODEL,
+      reasoningEffort: '',
+    };
   }
 
   const parsed = await readJson(SCHEDULE_PATH).catch(() => null);
@@ -442,9 +444,9 @@ async function readScheduleConfig(): Promise<QuantEvalScheduleConfig> {
       typeof record.intervalHours === 'number' && Number.isFinite(record.intervalHours) && record.intervalHours > 0
         ? Math.min(168, Math.max(1, Math.floor(record.intervalHours)))
         : 24,
-    cli: stringValue(record.cli, 'claude'),
-    model: stringValue(record.model, 'mimo-v2.5-pro'),
-    reasoningEffort: normalizeEvalReasoningEffort(stringValue(record.cli, 'claude'), stringValue(record.reasoningEffort)),
+    cli: EVAL_CLI,
+    model: EVAL_MODEL,
+    reasoningEffort: '',
     selectedCases: stringArray(record.selectedCases),
     limit: typeof record.limit === 'number' ? record.limit : null,
     keepProjects: booleanValue(record.keepProjects),
@@ -456,16 +458,22 @@ async function readScheduleConfig(): Promise<QuantEvalScheduleConfig> {
 }
 
 async function writeScheduleConfig(config: QuantEvalScheduleConfig): Promise<QuantEvalScheduleConfig> {
+  const lockedConfig = {
+    ...config,
+    cli: EVAL_CLI,
+    model: EVAL_MODEL,
+    reasoningEffort: '',
+  };
   await Promise.all([
-    writeJson(SCHEDULE_PATH, config).catch(() => undefined),
+    writeJson(SCHEDULE_PATH, lockedConfig).catch(() => undefined),
     prisma.evalSchedule.upsert({
       where: { id: 'default' },
       update: {
         enabled: config.enabled,
         intervalHours: config.intervalHours,
-        cli: config.cli,
-        model: config.model,
-        reasoningEffort: config.reasoningEffort,
+        cli: lockedConfig.cli,
+        model: lockedConfig.model,
+        reasoningEffort: lockedConfig.reasoningEffort,
         selectedCases: jsonArray(config.selectedCases),
         limit: config.limit,
         keepProjects: config.keepProjects,
@@ -477,9 +485,9 @@ async function writeScheduleConfig(config: QuantEvalScheduleConfig): Promise<Qua
         id: 'default',
         enabled: config.enabled,
         intervalHours: config.intervalHours,
-        cli: config.cli,
-        model: config.model,
-        reasoningEffort: config.reasoningEffort,
+        cli: lockedConfig.cli,
+        model: lockedConfig.model,
+        reasoningEffort: lockedConfig.reasoningEffort,
         selectedCases: jsonArray(config.selectedCases),
         limit: config.limit,
         keepProjects: config.keepProjects,
@@ -489,7 +497,7 @@ async function writeScheduleConfig(config: QuantEvalScheduleConfig): Promise<Qua
       },
     }),
   ]);
-  return config;
+  return lockedConfig;
 }
 
 function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
@@ -849,9 +857,9 @@ export async function updateQuantEvalSchedule(input: UpdateQuantEvalScheduleInpu
     ...current,
     enabled,
     intervalHours,
-    cli: input.cli || current.cli,
-    model: input.model || (input.cli && input.cli !== current.cli ? defaultModelForEvalCli(input.cli) : current.model),
-    reasoningEffort: normalizeEvalReasoningEffort(input.cli || current.cli, input.reasoningEffort || current.reasoningEffort),
+    cli: EVAL_CLI,
+    model: EVAL_MODEL,
+    reasoningEffort: '',
     selectedCases: Array.isArray(input.selectedCases) ? input.selectedCases.map(String).filter(Boolean) : current.selectedCases,
     limit:
       input.limit === null

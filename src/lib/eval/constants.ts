@@ -7,32 +7,14 @@ export const MAX_EVAL_CONCURRENCY = 16;
 export const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
   {
     cli: 'claude',
-    label: 'Claude Code',
-    defaultModel: 'mimo-v2.5-pro',
+    label: 'DeepSeek Agent',
+    defaultModel: 'deepseek-v4-flash',
     supportsReasoningEffort: false,
     models: [
       {
-        id: 'mimo-v2.5-pro',
-        name: 'Mimo V2.5 Pro',
-        description: '通过 Anthropic 兼容协议接入 Claude Code 的 Mimo 模型',
-      },
-      {
-        id: 'MiniMax-M2.7',
-        name: 'MiniMax M2.7',
-        description: '保留的 MiniMax 兼容模型选项',
-      },
-    ],
-  },
-  {
-    cli: 'codex',
-    label: 'Codex CLI',
-    defaultModel: 'gpt-5.5',
-    supportsReasoningEffort: true,
-    models: [
-      {
-        id: 'gpt-5.5',
-        name: 'GPT-5.5',
-        description: '通过 OpenAI 兼容协议接入 Codex CLI 的第三方 GPT 模型',
+        id: 'deepseek-v4-flash',
+        name: 'DeepSeek V4 Flash',
+        description: '通过 DeepSeek 官方 API 直连的唯一评测模型',
       },
     ],
   },

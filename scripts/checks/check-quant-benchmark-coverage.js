@@ -24,7 +24,7 @@ function caseTags(testCase) {
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (testCase.visualCheck) tags.add('visual:playwright');
   if (testCase.expectedImageExtraction) tags.add('evidence:image_extraction');
-  if (testCase.type === 'runtime_registry') tags.add('runtime:codex_gpt55');
+  if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (testCase.expectedFinalFields?.includes('backtest')) tags.add('analysis:backtest');
@@ -75,7 +75,7 @@ function main() {
     'input:image_attachment',
     'evidence:image_extraction',
     'visual:playwright',
-    'runtime:codex_gpt55',
+    'runtime:deepseek_v4_flash',
     'validation:repair_plan',
     'data:source_degradation',
     'analysis:backtest',

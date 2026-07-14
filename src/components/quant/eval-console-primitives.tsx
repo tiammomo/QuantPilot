@@ -31,16 +31,15 @@ export type EvalSet = {
 export type EvalView = 'overview' | 'cases' | 'evalSets' | 'evaluator' | 'queue';
 
 export const CLI_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex CLI',
+  claude: 'DeepSeek Agent',
 };
 
 export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
   cli: 'claude',
-  label: 'Claude Code',
-  defaultModel: 'mimo-v2.5-pro',
+  label: 'DeepSeek Agent',
+  defaultModel: 'deepseek-v4-flash',
   supportsReasoningEffort: false,
-  models: [{ id: 'mimo-v2.5-pro', name: 'Mimo V2.5 Pro', description: null }],
+  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'DeepSeek 官方 API 直连' }],
 };
 
 export const selectClassName =

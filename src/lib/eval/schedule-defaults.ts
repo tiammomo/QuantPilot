@@ -5,7 +5,7 @@ export function defaultScheduleConfig(): QuantEvalScheduleConfig {
     enabled: false,
     intervalHours: 24,
     cli: 'claude',
-    model: 'mimo-v2.5-pro',
+    model: 'deepseek-v4-flash',
     reasoningEffort: '',
     selectedCases: [],
     limit: null,

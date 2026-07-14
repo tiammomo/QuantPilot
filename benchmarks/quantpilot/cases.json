@@ -252,10 +252,10 @@
     ]
   },
   {
-    "id": "runtime-registry-codex-gpt55",
-    "name": "Codex GPT-5.5 运行时注册表",
+    "id": "runtime-registry-deepseek-v4-flash",
+    "name": "DeepSeek V4 Flash 单模型运行时注册表",
     "type": "runtime_registry",
-    "question": "验证首页和平台只暴露 Codex gpt-5.5，并默认使用 low reasoning。",
+    "question": "验证平台只暴露 DeepSeek V4 Flash，并拒绝其他模型与中转配置。",
     "capabilityId": "technical_analysis"
   },
   {

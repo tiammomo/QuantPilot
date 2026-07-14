@@ -37,7 +37,7 @@ function buildCaseTags(testCase: JsonRecord): string[] {
   if (type === 'clarification_continuation') tags.add('intent:clarification_continuation');
   if (type === 'repair_plan') tags.add('validation:repair_plan');
   if (type === 'source_degradation_contract') tags.add('data:source_degradation');
-  if (type === 'runtime_registry') tags.add('runtime:codex_gpt55');
+  if (type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (stringArray(testCase.expectedSymbols).length > 1) tags.add('data:multi_symbol');
 
   return Array.from(tags);

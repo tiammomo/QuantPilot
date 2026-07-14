@@ -29,7 +29,6 @@ const {
   getModelDefinitionsForCli,
   normalizeModelId,
 } = jiti('../../src/lib/constants/cliModels.ts');
-const { getCodexRuntimeConfig, buildCodexConfigArgs } = jiti('../../src/lib/services/cli/codex-config.ts');
 
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
@@ -40,9 +39,6 @@ function parseArgs(argv) {
   const selected = new Set();
   let limit = null;
   let keepProjects = false;
-  let cli = process.env.QUANTPILOT_EVAL_CLI || 'claude';
-  let model = process.env.QUANTPILOT_EVAL_MODEL || 'mimo-v2.5-pro';
-  let reasoningEffort = process.env.QUANTPILOT_EVAL_REASONING_EFFORT || '';
   let trigger = process.env.QUANTPILOT_EVAL_TRIGGER || 'cli';
   let evaluatorId = process.env.QUANTPILOT_EVAL_EVALUATOR || 'rule-strict';
   let concurrency = Number.parseInt(process.env.QUANTPILOT_EVAL_CONCURRENCY || '1', 10);
@@ -71,30 +67,24 @@ function parseArgs(argv) {
       keepProjects = true;
     }
     if (arg === '--cli' && argv[index + 1]) {
-      cli = argv[index + 1];
       index += 1;
       continue;
     }
     if (arg.startsWith('--cli=')) {
-      cli = arg.slice('--cli='.length);
       continue;
     }
     if (arg === '--model' && argv[index + 1]) {
-      model = argv[index + 1];
       index += 1;
       continue;
     }
     if (arg.startsWith('--model=')) {
-      model = arg.slice('--model='.length);
       continue;
     }
     if (arg === '--reasoning-effort' && argv[index + 1]) {
-      reasoningEffort = argv[index + 1];
       index += 1;
       continue;
     }
     if (arg.startsWith('--reasoning-effort=')) {
-      reasoningEffort = arg.slice('--reasoning-effort='.length);
       continue;
     }
     if (arg === '--trigger' && argv[index + 1]) {
@@ -134,9 +124,9 @@ function parseArgs(argv) {
     selected,
     limit: Number.isFinite(limit) && limit > 0 ? limit : null,
     keepProjects,
-    cli,
-    model,
-    reasoningEffort,
+    cli: 'claude',
+    model: 'deepseek-v4-flash',
+    reasoningEffort: '',
     trigger,
     evaluatorId: evaluatorId || 'rule-strict',
     concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.min(16, Math.floor(concurrency)) : 1,
@@ -241,7 +231,7 @@ function caseCoverageTags(testCase) {
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (testCase.visualCheck) tags.add('visual:playwright');
   if (testCase.expectedImageExtraction) tags.add('evidence:image_extraction');
-  if (testCase.type === 'runtime_registry') tags.add('runtime:codex_gpt55');
+  if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (testCase.expectedFinalFields?.includes('backtest')) tags.add('analysis:backtest');
@@ -304,7 +294,7 @@ function buildCoverageSummary(cases, results) {
         'input:image_attachment',
         'intent:clarification_required',
         'intent:clarification_continuation',
-        'runtime:codex_gpt55',
+        'runtime:deepseek_v4_flash',
         'validation:repair_plan',
         'data:source_degradation',
         'visual:playwright',
@@ -319,7 +309,7 @@ async function ensureBenchmarkProject({ projectId, projectPath, testCase }) {
   await prisma.project.deleteMany({ where: { id: projectId } });
 
   await scaffoldBasicNextApp(projectPath, projectId);
-  const selectedModel = 'mimo-v2.5-pro';
+  const selectedModel = 'deepseek-v4-flash';
   await prisma.project.create({
     data: {
       id: projectId,
@@ -717,22 +707,12 @@ function runRuntimeRegistryCase(testCase) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
-  const codexModels = getModelDefinitionsForCli('codex');
-  const claudeModels = getModelDefinitionsForCli('claude');
-  const runtimeConfig = getCodexRuntimeConfig();
-  const configArgs = buildCodexConfigArgs();
+  const deepSeekModels = getModelDefinitionsForCli('claude');
 
-  assertCondition(codexModels.length === 1, `Codex 应只暴露 1 个模型，实际 ${codexModels.length} 个。`, failures);
-  assertCondition(codexModels[0]?.id === 'gpt-5.5', `Codex 模型应为 gpt-5.5，实际 ${codexModels[0]?.id}`, failures);
-  assertCondition(getDefaultModelForCli('codex') === 'gpt-5.5', `Codex 默认模型应为 gpt-5.5，实际 ${getDefaultModelForCli('codex')}`, failures);
-  assertCondition(normalizeModelId('codex', 'gpt-4o-mini') === 'gpt-5.5', 'Codex 非白名单模型应归一到 gpt-5.5。', failures);
-  assertCondition(runtimeConfig.reasoningEffort === 'low', `Codex 默认 reasoning effort 应为 low，实际 ${runtimeConfig.reasoningEffort}`, failures);
-    assertCondition(
-      configArgs.some((arg) => arg === 'model_reasoning_effort="low"'),
-      'Codex config args 应包含 model_reasoning_effort="low"。',
-      failures
-    );
-  assertCondition(claudeModels.some((model) => model.id === 'mimo-v2.5-pro'), 'Claude Code 模型列表应包含 mimo-v2.5-pro。', failures);
+  assertCondition(deepSeekModels.length === 1, `平台应只暴露 1 个模型，实际 ${deepSeekModels.length} 个。`, failures);
+  assertCondition(deepSeekModels[0]?.id === 'deepseek-v4-flash', `唯一模型应为 deepseek-v4-flash，实际 ${deepSeekModels[0]?.id}`, failures);
+  assertCondition(getDefaultModelForCli('claude') === 'deepseek-v4-flash', `默认模型应为 deepseek-v4-flash，实际 ${getDefaultModelForCli('claude')}`, failures);
+  assertCondition(normalizeModelId('codex', 'gpt-5.5') === 'deepseek-v4-flash', '任何旧供应商或模型输入都应收敛到 DeepSeek V4 Flash。', failures);
 
   return {
     id: testCase.id,
@@ -746,18 +726,12 @@ function runRuntimeRegistryCase(testCase) {
     symbols: [],
     prefetch: { skipped: true, summary: '运行时注册表用例不创建生成项目。' },
     artifacts: {
-      codexModels,
-      codexDefault: getDefaultModelForCli('codex'),
-      runtimeConfig: {
-        openAIBaseUrl: runtimeConfig.openAIBaseUrl,
-        reasoningEffort: runtimeConfig.reasoningEffort,
-        maxTurns: runtimeConfig.maxTurns,
-      },
-      configArgs,
+      deepSeekModels,
+      defaultModel: getDefaultModelForCli('claude'),
     },
     validation: {
       status: failures.length === 0 ? 'passed' : 'failed',
-      checks: [{ id: 'runtime_registry', status: failures.length === 0 ? 'passed' : 'failed', summary: 'CLI 模型注册与 Codex 运行时配置检查。' }],
+      checks: [{ id: 'runtime_registry', status: failures.length === 0 ? 'passed' : 'failed', summary: 'DeepSeek 单模型与官方直连边界检查。' }],
     },
   };
 }
@@ -1088,7 +1062,7 @@ async function runCase(testCase) {
     requestId,
     instruction: testCase.question,
     cliPreference: 'benchmark',
-    selectedModel: 'mimo-v2.5-pro',
+    selectedModel: 'deepseek-v4-flash',
   });
   if (testCase.imageAttachment) {
     await writeBenchmarkImageAttachment({
@@ -1307,7 +1281,7 @@ async function main() {
       runtime: {
         cli: args.cli,
         model: args.model,
-        reasoningEffort: args.cli === 'codex' ? args.reasoningEffort || 'low' : null,
+        reasoningEffort: null,
       },
       selection: {
         selectedCases: Array.from(args.selected),

@@ -16,8 +16,8 @@ describe('evaluation runtime mappers', () => {
     const item = mapDbQueueItem({
       id: 'queue-1',
       status: 'queued',
-      cli: 'codex',
-      model: 'gpt-test',
+      cli: 'claude',
+      model: 'deepseek-v4-flash',
       reasoningEffort: 'high',
       selectedCases: ['case-a'],
       limit: 1,
