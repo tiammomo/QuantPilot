@@ -138,7 +138,7 @@ function cleanCandidate(value: string): string | null {
   let candidate = value
     .replace(/\s+/g, '')
     .replace(/^(请|麻烦|帮我|帮忙|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|对比)+/, '')
-    .replace(/(股票|个股|股份|公司)?(最近|近期|近|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '');
+    .replace(/(股票|个股)?(最近|近期|近|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '');
 
   candidate = candidate.replace(/^(?:A股|港股|美股)/, '').trim();
 
@@ -146,7 +146,7 @@ function cleanCandidate(value: string): string | null {
     return null;
   }
 
-  if (GENERIC_QUESTION_WORDS.some((word) => candidate.includes(word))) {
+  if (GENERIC_QUESTION_WORDS.includes(candidate)) {
     return null;
   }
 
@@ -454,6 +454,7 @@ function calculateMetrics(kline: JsonRecord | null): JsonRecord {
     ma5: round(mean(closes.slice(-5))),
     ma10: round(mean(closes.slice(-10))),
     ma20: round(mean(closes.slice(-20))),
+    ma60: round(mean(closes.slice(-60))),
   };
 }
 
@@ -489,6 +490,7 @@ function ensureTechnicalSummary(asset: JsonRecord): JsonRecord {
   const ma5 = numeric(existingSummary.ma5) ?? numeric(metrics.ma5);
   const ma10 = numeric(existingSummary.ma10) ?? numeric(metrics.ma10);
   const ma20 = numeric(existingSummary.ma20) ?? numeric(metrics.ma20);
+  const ma60 = numeric(existingSummary.ma60) ?? numeric(metrics.ma60);
   const return20d = numeric(existingSummary.return_20d_pct) ?? numeric(metrics.return20d);
   const return60d = numeric(existingSummary.return_60d_pct) ?? numeric(metrics.return60d);
   const return120d =
@@ -503,11 +505,15 @@ function ensureTechnicalSummary(asset: JsonRecord): JsonRecord {
   const name = String(asset.name ?? quote?.name ?? symbol);
 
   let trendState = '趋势待确认：K 线或均线样本不足。';
-  if (latestClose !== null && ma5 !== null && ma10 !== null && ma20 !== null) {
-    if (latestClose >= ma5 && latestClose >= ma10 && latestClose >= ma20) {
-      trendState = '短中期强势：最新价站上 MA5/MA10/MA20。';
-    } else if (latestClose < ma5 && latestClose < ma10 && latestClose < ma20) {
-      trendState = '短中期偏弱：最新价低于 MA5/MA10/MA20。';
+  const availableMovingAverages = [ma5, ma10, ma20, ma60].filter(
+    (value): value is number => value !== null
+  );
+  if (latestClose !== null && availableMovingAverages.length >= 3) {
+    const averageLabel = ma60 === null ? 'MA5/MA10/MA20' : 'MA5/MA10/MA20/MA60';
+    if (availableMovingAverages.every((average) => latestClose >= average)) {
+      trendState = `趋势偏强：最新价站上 ${averageLabel}。`;
+    } else if (availableMovingAverages.every((average) => latestClose < average)) {
+      trendState = `趋势偏弱：最新价低于 ${averageLabel}。`;
     } else {
       trendState = '震荡观察：最新价处于均线区间内，需要等待方向确认。';
     }
@@ -528,6 +534,7 @@ function ensureTechnicalSummary(asset: JsonRecord): JsonRecord {
     ma5: round(ma5),
     ma10: round(ma10),
     ma20: round(ma20),
+    ma60: round(ma60),
     latest_close: round(latestClose),
     trend_state: String(existingSummary.trend_state ?? trendState),
     volume_note: avgVolume === null
@@ -860,7 +867,7 @@ async function syncRunPlanSymbols(params: {
   warnings: string[];
 }) {
   const symbols = uniqueSymbols(params.symbols);
-  if (symbols.length === 0) {
+  if (symbols.length === 0 && params.source !== 'screener') {
     return;
   }
 
@@ -1554,6 +1561,40 @@ function buildConclusion(params: {
   };
 }
 
+function buildVisualizationContract(plan: QuantRunPlan, symbolCount: number): JsonRecord {
+  const template = serializeQuantVisualizationTemplate(
+    plan.requestedCapabilityId ?? plan.capabilityId,
+    {
+      instruction: plan.question,
+      symbolCount,
+      requestedVariantId: plan.visualization?.variantId,
+      dataSignals: plan.visualization?.dataSignals,
+    }
+  );
+
+  return {
+    template_id: template.templateId,
+    name: template.name,
+    scenario: template.scenario,
+    variant_id: template.variantId,
+    variant_name: template.variantName,
+    variant_scenario: template.variantScenario,
+    layout: template.layout,
+    density: template.density,
+    first_viewport: template.firstViewport,
+    variant_guidance: template.variantGuidance,
+    match_reasons: template.matchReasons,
+    alternatives: template.alternatives,
+    pain_points: template.painPoints,
+    required_components: template.requiredComponents,
+    optional_components: template.optionalComponents,
+    data_signals: template.dataSignals,
+    final_data_contract: template.finalDataContract,
+    rendered_components: template.requiredComponents,
+    missing_components: [],
+  };
+}
+
 function buildHoldingRows(assets: JsonRecord[]): JsonRecord[] {
   const equalWeight = assets.length > 0 ? 1 / assets.length : 0;
   return assets.map((asset) => {
@@ -1598,6 +1639,103 @@ function buildPortfolioSummary(assets: JsonRecord[]): JsonRecord {
     warnings: [
       '平台只能从用户问题和行情接口预取标的，真实持仓数量、成本、现金和权重需要用户补充或由截图识别后确认。',
     ],
+  };
+}
+
+async function writeEmptyScreenerResult(params: {
+  projectPath: string;
+  plan: QuantRunPlan;
+  screener: JsonRecord;
+  rawFiles: string[];
+  warnings: string[];
+}): Promise<PrefetchResult> {
+  const now = new Date().toISOString();
+  const runId = params.plan.runId;
+  const requestedCount = numeric(params.screener.limit) ?? 0;
+  const scannedCount = numeric(params.screener.scanned_symbols) ?? 0;
+  const noCandidateWarning =
+    `筛选器扫描 ${scannedCount} 个标的后未返回满足安全条件的候选；平台不会为凑足 ${requestedCount || '指定'} 只而放宽过滤或编造推荐。`;
+  const warnings = Array.from(new Set([...params.warnings, noCandidateWarning]));
+
+  // Even with no candidates, preserve the batch-quote stage as an explicit
+  // non-executed artifact so downstream contracts can distinguish it from an
+  // interrupted or partially generated workspace.
+  const batchPath = path.join(params.projectPath, 'data_file', 'raw', runId, 'batch-quotes.json');
+  await writeJson(batchPath, {
+    schemaVersion: 1,
+    status: 'not_requested',
+    reason: 'screener_returned_no_candidates',
+    requested_symbols: [],
+    quotes: [],
+    fetched_at: now,
+    source: 'quantpilot-market-api',
+  });
+  params.rawFiles.push(path.relative(params.projectPath, batchPath).replaceAll(path.sep, '/'));
+
+  const assets: JsonRecord[] = [];
+  const comparison = buildComparisonSummary(assets);
+  const financialQuality = buildFinancialQualitySummary(assets);
+  const selectionRanking = buildSelectionRanking(comparison, assets);
+  const tradingPlan = {
+    ...buildTradingPlan(assets, selectionRanking),
+    status: 'unavailable',
+    reason: 'no_safe_candidates',
+  };
+  const visualization = buildVisualizationContract(params.plan, 0);
+  const finalData = {
+    schemaVersion: 1,
+    runId,
+    generatedAt: now,
+    status: 'no_candidates',
+    result: 'completed_without_candidates',
+    symbol: 'A_SHARE_UNIVERSE',
+    name: 'A 股短线候选池',
+    asset_type: 'stock_selection',
+    source: String(params.screener.source ?? 'quantpilot-market-api'),
+    as_of: params.screener.trade_date ?? params.screener.fetched_at ?? now,
+    requestedSymbols: [],
+    symbols: [],
+    assetCount: 0,
+    assets,
+    comparison,
+    selectionRanking,
+    financialQuality,
+    correlation: buildCorrelationSummary(assets),
+    liquidity: buildLiquiditySummary(assets),
+    tradingPlan,
+    screener: params.screener,
+    visualization,
+    conclusion: {
+      summary: [
+        `本次共扫描 ${scannedCount} 个标的，未发现满足当前安全筛选条件的候选。`,
+        '平台没有为满足推荐数量而放宽涨跌停、停牌、流动性或数据完整性约束，也没有生成虚构股票。',
+        '可在补齐目标交易日覆盖、放宽明确且可审计的研究条件后重新运行筛选。',
+      ],
+      primary_view: '当前没有可安全列入研究优先级的候选，结果应视为“空候选”而不是生成失败。',
+      risk_disclaimer: '筛选结果仅用于研究，不构成投资建议、收益承诺或即时交易指令。',
+    },
+    warnings,
+  };
+  const finalPath = path.join(params.projectPath, 'data_file', 'final', 'dashboard-data.json');
+  await writeJson(finalPath, finalData);
+  await ensureBaselineEvidenceFiles(params.projectPath, { force: true });
+
+  const finalDataPath = path.relative(params.projectPath, finalPath).replaceAll(path.sep, '/');
+  await appendQuantWorkspaceEvent(params.projectPath, {
+    event_type: 'data_prefetched',
+    stage: 'data_collection',
+    status: 'warning',
+    run_id: runId,
+    artifact_path: finalDataPath,
+    summary: `选股接口返回 0 个安全候选；已写入结构化空结果、证据文件和 ${finalDataPath}。`,
+  });
+
+  return {
+    skipped: false,
+    symbols: [],
+    finalDataPath,
+    rawFiles: params.rawFiles,
+    summary: '选股已完成但没有满足安全条件的候选；已生成可验证的空结果看板。',
   };
 }
 
@@ -1755,6 +1893,30 @@ export async function prefetchQuantDataForRunPlan(params: {
     }
   }
 
+  if (symbols.length === 0 && screenerData) {
+    await syncRunPlanSymbols({
+      projectPath: params.projectPath,
+      plan: params.plan,
+      symbols,
+      source: 'screener',
+      warnings,
+    });
+    await appendQuantWorkspaceEvent(params.projectPath, {
+      event_type: 'data_prefetch_started',
+      stage: 'data_collection',
+      status: 'pending',
+      run_id: runId,
+      summary: '平台已完成宽域 A 股筛选，正在固化零候选结果与证据。',
+    });
+    return writeEmptyScreenerResult({
+      projectPath: params.projectPath,
+      plan: params.plan,
+      screener: screenerData,
+      rawFiles,
+      warnings,
+    });
+  }
+
   if (symbols.length === 0) {
     return {
       skipped: true,
@@ -1831,36 +1993,7 @@ export async function prefetchQuantDataForRunPlan(params: {
   }
 
   const primaryAsset = assets[0];
-  const visualizationTemplate = serializeQuantVisualizationTemplate(
-    params.plan.requestedCapabilityId ?? params.plan.capabilityId,
-    {
-      instruction: params.plan.question,
-      symbolCount: assets.length || symbols.length,
-      requestedVariantId: params.plan.visualization?.variantId,
-      dataSignals: params.plan.visualization?.dataSignals,
-    }
-  );
-  const visualization = {
-    template_id: visualizationTemplate.templateId,
-    name: visualizationTemplate.name,
-    scenario: visualizationTemplate.scenario,
-    variant_id: visualizationTemplate.variantId,
-    variant_name: visualizationTemplate.variantName,
-    variant_scenario: visualizationTemplate.variantScenario,
-    layout: visualizationTemplate.layout,
-    density: visualizationTemplate.density,
-    first_viewport: visualizationTemplate.firstViewport,
-    variant_guidance: visualizationTemplate.variantGuidance,
-    match_reasons: visualizationTemplate.matchReasons,
-    alternatives: visualizationTemplate.alternatives,
-    pain_points: visualizationTemplate.painPoints,
-    required_components: visualizationTemplate.requiredComponents,
-    optional_components: visualizationTemplate.optionalComponents,
-    data_signals: visualizationTemplate.dataSignals,
-    final_data_contract: visualizationTemplate.finalDataContract,
-    rendered_components: visualizationTemplate.requiredComponents,
-    missing_components: [],
-  };
+  const visualization = buildVisualizationContract(params.plan, assets.length || symbols.length);
   const comparison = buildComparisonSummary(assets);
   const financialQuality = buildFinancialQualitySummary(assets);
   const selectionRanking = buildSelectionRanking(comparison, assets);

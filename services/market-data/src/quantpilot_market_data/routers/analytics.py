@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from quantpilot_market_data.clickhouse import ClickHouseError
 from quantpilot_market_data.database_core import DatabaseError
@@ -9,6 +9,7 @@ from quantpilot_market_data.models import (
     ClickHouseSyncRequest,
     ClickHouseSyncResponse,
 )
+from quantpilot_market_data.security import require_market_admin
 from quantpilot_market_data.services.analytics import (
     get_clickhouse_analytics_health,
     initialize_clickhouse_analytics,
@@ -29,6 +30,7 @@ async def get_clickhouse_health_endpoint() -> ClickHouseHealthResponse:
 @router.post(
     "/clickhouse/init",
     response_model=ClickHouseHealthResponse,
+    dependencies=[Depends(require_market_admin)],
 )
 async def initialize_clickhouse_endpoint() -> ClickHouseHealthResponse:
     try:
@@ -40,6 +42,7 @@ async def initialize_clickhouse_endpoint() -> ClickHouseHealthResponse:
 @router.post(
     "/clickhouse/sync",
     response_model=ClickHouseSyncResponse,
+    dependencies=[Depends(require_market_admin)],
 )
 async def sync_clickhouse_endpoint(
     request: ClickHouseSyncRequest,

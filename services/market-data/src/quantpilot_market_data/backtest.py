@@ -745,6 +745,7 @@ def build_strategy_backtest(
         summary=summary,
         as_of=kline.as_of,
         fetched_at=datetime.now(UTC),
+        metadata=kline.metadata,
     )
 
 

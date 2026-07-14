@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from psycopg.rows import dict_row
@@ -18,7 +19,110 @@ from quantpilot_market_data.models import (
     LocalKlineSummary,
 )
 
-__all__ = ["get_local_kline"]
+__all__ = [
+    "estimate_latest_completed_trade_date",
+    "get_expected_latest_trade_date",
+    "get_local_kline",
+    "get_market_latest_bar_ts",
+    "resolve_local_symbol",
+]
+
+DAILY_BAR_READY_TIME = time(hour=18)
+CN_CALENDAR_MARKETS = ("CN-A", "SSE", "SZSE", "BSE")
+
+
+def estimate_latest_completed_trade_date(now: datetime | None = None) -> date:
+    """Estimate the latest completed CN session when no maintained calendar is available."""
+    local_now = (now or datetime.now(SHANGHAI_TZ)).astimezone(SHANGHAI_TZ)
+    candidate = local_now.date()
+    if local_now.timetz().replace(tzinfo=None) < DAILY_BAR_READY_TIME:
+        candidate -= timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+async def get_expected_latest_trade_date(
+    *,
+    now: datetime | None = None,
+) -> tuple[date, str]:
+    """Resolve the latest completed trade date from a covered calendar or a safe estimate."""
+    estimated_date = estimate_latest_completed_trade_date(now)
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            SELECT
+              max(trade_date) FILTER (
+                WHERE is_open IS TRUE AND trade_date <= %s
+              ) AS latest_open_date,
+              max(trade_date) AS calendar_through
+            FROM quant.trading_calendars
+            WHERE market = ANY(%s::text[])
+              AND session = 'regular'
+            """,
+            (estimated_date, list(CN_CALENDAR_MARKETS)),
+        )
+        row = await cursor.fetchone()
+    latest_open_date = row["latest_open_date"] if row else None
+    calendar_through = row["calendar_through"] if row else None
+    if (
+        latest_open_date is not None
+        and calendar_through is not None
+        and calendar_through >= estimated_date
+    ):
+        return latest_open_date, "trading_calendar"
+    return estimated_date, "weekday_close_estimate"
+
+
+async def resolve_local_symbol(query: str) -> str | None:
+    """Resolve user-facing codes/secids to the canonical local security symbol."""
+    normalized = query.strip().upper()
+    if not normalized:
+        return None
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            SELECT symbol
+            FROM quant.securities
+            WHERE upper(symbol) = %s
+               OR upper(code) = %s
+               OR upper(COALESCE(secid, '')) = %s
+            ORDER BY
+              CASE
+                WHEN upper(symbol) = %s THEN 0
+                WHEN upper(code) = %s THEN 1
+                ELSE 2
+              END,
+              updated_at DESC
+            LIMIT 1
+            """,
+            (normalized, normalized, normalized, normalized, normalized),
+        )
+        row = await cursor.fetchone()
+    return str(row["symbol"]) if row else None
+
+
+async def get_market_latest_bar_ts(
+    *,
+    timeframe: str,
+    adjustment: str,
+    end_ts: datetime | None = None,
+) -> datetime | None:
+    """Return the latest canonical timestamp available for a market data basis."""
+    query_timeframe = "daily" if timeframe in {"weekly", "monthly"} else timeframe
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            SELECT max(ts) AS latest_ts
+            FROM quant.canonical_stock_bars
+            WHERE timeframe = %s
+              AND adjustment = %s
+              AND (%s::TIMESTAMPTZ IS NULL OR ts <= %s)
+            """,
+            (query_timeframe, adjustment, end_ts, end_ts),
+        )
+        row = await cursor.fetchone()
+    return row["latest_ts"] if row else None
 
 def calculate_return_pct(
     latest_close: Decimal | None,
@@ -118,6 +222,7 @@ async def get_local_kline(
     provider: str | None = None,
     limit: int = 240,
     include_metadata: bool = False,
+    end_ts: datetime | None = None,
 ) -> LocalKlineResponse:
     normalized_limit = max(1, min(limit, 2000))
     query_timeframe = "daily" if timeframe in {"weekly", "monthly"} else timeframe
@@ -142,11 +247,12 @@ async def get_local_kline(
                     END,
                     stock_bars.created_at DESC
                 ) AS provider_rank
-              FROM quant.stock_bars
+              FROM quant.canonical_stock_bars AS stock_bars
               WHERE stock_bars.symbol = %s
                 AND stock_bars.timeframe = %s
                 AND stock_bars.adjustment = %s
                 AND (COALESCE(%s::text, '') = '' OR stock_bars.provider = %s)
+                AND (%s::TIMESTAMPTZ IS NULL OR stock_bars.ts <= %s)
             ),
             matching_bars AS (
               SELECT ranked_bars.*
@@ -212,6 +318,8 @@ async def get_local_kline(
                 adjustment,
                 provider,
                 provider,
+                end_ts,
+                end_ts,
                 source_limit,
             ),
         )

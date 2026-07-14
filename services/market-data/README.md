@@ -38,7 +38,8 @@ cd services/market-data
 uv sync
 ```
 
-如果需要补 A 股历史 K 线的成交额、振幅、涨跌额和换手率，可安装 Baostock / AKShare 可选依赖：
+从项目根目录执行 `npm run dev` 或 `npm run dev:market` 时会自动启用
+Baostock / AKShare。仅在单独运行本服务时，需要手动安装这两个数据扩展：
 
 ```bash
 uv sync --extra baostock --extra akshare
@@ -62,6 +63,8 @@ http://127.0.0.1:8000
 # 服务监听地址
 export QUANTPILOT_MARKET_HOST=127.0.0.1
 export QUANTPILOT_MARKET_PORT=8000
+# strict 模式或非 loopback 监听时必填；配置后本机写接口也必须携带令牌
+export QUANTPILOT_MARKET_ADMIN_TOKEN=replace-with-a-long-random-token
 
 # 东方财富主备域名，按顺序失败重试
 export EASTMONEY_BASE_URLS=https://push2.eastmoney.com,https://push2delay.eastmoney.com
@@ -164,7 +167,9 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/quotes/realtime' \
 curl 'http://127.0.0.1:8000/api/v1/quotes/history/600519?period=daily&adjustment=qfq&limit=120'
 ```
 
-说明：东方财富历史 K 线外部源可能偶发断连。策略平台的长期本地研究优先读取 `quant.stock_bars`，缺失字段通过 Baostock / AKShare 补数端点补齐。
+说明：日/周/月 K 线、技术指标和回测统一先读 `quant.stock_bars`；只有覆盖不足或显式 `refresh=true` 才访问外部历史源。响应的 `metadata.data_basis`、`coverage` 和 `freshness` 会说明实际口径。实时快照隔离写入 `quant.realtime_quote_snapshots`，不会覆盖正式复权日线。
+
+所有补数、同步、质量扫描等写接口接受 `Authorization: Bearer ...` 或 `X-QuantPilot-Admin-Token`。本机非 strict 且未配置令牌时保持开发兼容；strict 或非 loopback 监听未配置令牌时写接口关闭。
 
 ### 历史 K 线字段补数
 
@@ -186,10 +191,15 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/ingestion/baostock/history' \
 curl 'http://127.0.0.1:8000/api/v1/foundation/status'
 curl 'http://127.0.0.1:8000/api/v1/foundation/factors'
 curl 'http://127.0.0.1:8000/api/v1/foundation/trading-calendar?market=CN-A&limit=30'
+curl -X POST 'http://127.0.0.1:8000/api/v1/foundation/trading-calendar/refresh' \
+  -H 'Content-Type: application/json' \
+  -d '{"start":"2021-01-01","end":"2026-07-14"}'
 curl -X POST 'http://127.0.0.1:8000/api/v1/foundation/data-quality/scan' \
   -H 'Content-Type: application/json' \
   -d '{"universe_id":"a-share-sample-research-pool","lookback_years":5,"timeframe":"daily","adjustment":"qfq"}'
 ```
+
+交易日历刷新复用 Baostock 进程级共享会话，幂等写入 `CN-A / regular` 的开市与休市日；省略日期时默认覆盖近 5 年至上海时区今天。该写接口遵循统一管理员令牌要求。
 
 对应 SQL 位于根目录 `sqls/007-quant-foundation-components.sql`，包括交易日历、因子定义、数据质量扫描和通用平台任务表。
 

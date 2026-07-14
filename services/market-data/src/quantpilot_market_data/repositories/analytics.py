@@ -86,7 +86,7 @@ async def sync_clickhouse_daily_bars(
               bars.limit_down,
               COALESCE(securities.metadata, '{{}}'::jsonb) AS security_metadata,
               bars.provider
-            FROM quant.stock_bars bars
+            FROM quant.canonical_stock_bars bars
             JOIN quant.security_universe_members members
               ON members.symbol = bars.symbol
               AND members.universe_id = %s

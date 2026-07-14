@@ -33,6 +33,7 @@ __all__ = [
     "list_foundation_components",
     "list_trading_calendar_days",
     "run_data_quality_scan",
+    "upsert_trading_calendar_days",
 ]
 
 
@@ -44,6 +45,7 @@ def _coverage_missing_fields(
     if coverage.row_count <= 0 or coverage.rows_since_cutoff <= 0:
         return False, ["kline"]
     expected_rows = max(1, coverage.expected_rows_since_cutoff or 0)
+    observed_rows = coverage.rows_since_cutoff
     if coverage.benchmark_last_ts is not None and (
         coverage.last_ts is None or coverage.last_ts < coverage.benchmark_last_ts
     ):
@@ -52,20 +54,17 @@ def _coverage_missing_fields(
         missing.append("kline")
     if coverage.rows_since_cutoff <= 0:
         missing.append("kline")
-    if require_fields and coverage.complete_rows_since_cutoff < expected_rows:
-        missing.extend(
-            field
-            for field in require_fields
-            if field
-            in {
-                "amount",
-                "turnover",
-                "trade_status",
-                "is_st",
-                "limit_up",
-                "limit_down",
-            }
-        )
+    field_count_by_key = {
+        "amount": coverage.amount_count,
+        "turnover": coverage.turnover_count,
+        "trade_status": coverage.trade_status_count,
+        "is_st": coverage.is_st_count,
+        "limit_up": coverage.limit_up_count,
+        "limit_down": coverage.limit_down_count,
+    }
+    for key, count in field_count_by_key.items():
+        if key in require_fields and count < observed_rows:
+            missing.append(key)
     factor_count_by_key = {
         "pe_ttm": coverage.pe_ttm_count,
         "pb_mrq": coverage.pb_mrq_count,
@@ -73,10 +72,11 @@ def _coverage_missing_fields(
         "pcf_ncf_ttm": coverage.pcf_ncf_ttm_count,
     }
     for key, count in factor_count_by_key.items():
-        if key in require_fields and count < expected_rows:
+        if key in require_fields and count < observed_rows:
             missing.append(key)
     missing = list(dict.fromkeys(missing))
     return not missing, missing
+
 
 async def list_foundation_components() -> list[FoundationComponentStatus]:
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
@@ -329,7 +329,7 @@ async def list_trading_calendar_days(
         await cursor.execute(
             """
             SELECT DISTINCT bars.ts::date AS trade_date
-            FROM quant.stock_bars bars
+            FROM quant.canonical_stock_bars bars
             JOIN quant.securities securities
               ON securities.symbol = bars.symbol
             WHERE bars.timeframe = 'daily'
@@ -372,6 +372,95 @@ async def list_trading_calendar_days(
     ]
 
 
+async def upsert_trading_calendar_days(
+    days: list[TradingCalendarDay],
+) -> dict[str, int]:
+    if not days:
+        return {
+            "received_days": 0,
+            "inserted_days": 0,
+            "updated_days": 0,
+            "unchanged_days": 0,
+            "written_days": 0,
+        }
+    payload = [day.model_dump(mode="json") for day in days]
+    async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            WITH incoming AS MATERIALIZED (
+              SELECT DISTINCT ON (market, trade_date, session)
+                market,
+                trade_date,
+                is_open,
+                session,
+                source,
+                COALESCE(metadata, '{}'::JSONB) AS metadata
+              FROM jsonb_to_recordset(%s::JSONB) AS item(
+                market TEXT,
+                trade_date DATE,
+                is_open BOOLEAN,
+                session TEXT,
+                source TEXT,
+                metadata JSONB
+              )
+              ORDER BY market, trade_date, session
+            ),
+            comparison AS MATERIALIZED (
+              SELECT
+                incoming.*,
+                calendars.market IS NULL AS is_new,
+                calendars.market IS NOT NULL AND (
+                  calendars.is_open IS DISTINCT FROM incoming.is_open
+                  OR calendars.source IS DISTINCT FROM incoming.source
+                  OR calendars.metadata IS DISTINCT FROM incoming.metadata
+                ) AS is_changed
+              FROM incoming
+              LEFT JOIN quant.trading_calendars calendars
+                ON calendars.market = incoming.market
+               AND calendars.trade_date = incoming.trade_date
+               AND calendars.session = incoming.session
+            ),
+            upserted AS (
+              INSERT INTO quant.trading_calendars (
+                market, trade_date, is_open, session, source, metadata,
+                created_at, updated_at
+              )
+              SELECT
+                market, trade_date, is_open, session, source, metadata,
+                now(), now()
+              FROM comparison
+              ON CONFLICT (market, trade_date, session) DO UPDATE SET
+                is_open = EXCLUDED.is_open,
+                source = EXCLUDED.source,
+                metadata = EXCLUDED.metadata,
+                updated_at = now()
+              WHERE quant.trading_calendars.is_open IS DISTINCT FROM EXCLUDED.is_open
+                 OR quant.trading_calendars.source IS DISTINCT FROM EXCLUDED.source
+                 OR quant.trading_calendars.metadata IS DISTINCT FROM EXCLUDED.metadata
+              RETURNING 1
+            )
+            SELECT
+              count(*)::INT AS received_days,
+              count(*) FILTER (WHERE is_new)::INT AS inserted_days,
+              count(*) FILTER (WHERE NOT is_new AND is_changed)::INT AS updated_days,
+              count(*) FILTER (WHERE NOT is_new AND NOT is_changed)::INT
+                AS unchanged_days,
+              (SELECT count(*)::INT FROM upserted) AS written_days
+            FROM comparison
+            """,
+            (Jsonb(payload),),
+        )
+        row = await cursor.fetchone()
+    row = row or {}
+    return {
+        "received_days": int(row.get("received_days") or 0),
+        "inserted_days": int(row.get("inserted_days") or 0),
+        "updated_days": int(row.get("updated_days") or 0),
+        "unchanged_days": int(row.get("unchanged_days") or 0),
+        "written_days": int(row.get("written_days") or 0),
+    }
+
+
 async def run_data_quality_scan(
     request: DataQualityScanRequest,
 ) -> DataQualityScanResponse:
@@ -381,7 +470,18 @@ async def run_data_quality_scan(
         field.strip()
         for field in request.required_fields
         if field.strip()
-        in {"amount", "turnover", "trade_status", "is_st", "limit_up", "limit_down"}
+        in {
+            "amount",
+            "turnover",
+            "trade_status",
+            "is_st",
+            "limit_up",
+            "limit_down",
+            "pe_ttm",
+            "pb_mrq",
+            "ps_ttm",
+            "pcf_ncf_ttm",
+        }
     ]
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
         if request.symbols:

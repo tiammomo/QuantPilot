@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache, ttl_from_env
@@ -48,6 +48,7 @@ from quantpilot_market_data.routers.provider_candidates import (
 from quantpilot_market_data.routers.quotes import create_quotes_router
 from quantpilot_market_data.routers.registry import create_registry_router
 from quantpilot_market_data.routers.research import create_research_router
+from quantpilot_market_data.security import require_market_admin
 from quantpilot_market_data.services.ingestion_support import (
     baostock_required_fields,
     fetch_akshare_kline_for_ingestion,
@@ -150,7 +151,11 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/api/v1/ingestion/eastmoney/history", response_model=HistoryIngestionResponse)
+    @app.post(
+        "/api/v1/ingestion/eastmoney/history",
+        response_model=HistoryIngestionResponse,
+        dependencies=[Depends(require_market_admin)],
+    )
     async def ingest_eastmoney_history(
         request: HistoryIngestionRequest,
     ) -> HistoryIngestionResponse:
@@ -258,7 +263,11 @@ def create_app() -> FastAPI:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
-    @app.post("/api/v1/ingestion/akshare/history", response_model=HistoryIngestionResponse)
+    @app.post(
+        "/api/v1/ingestion/akshare/history",
+        response_model=HistoryIngestionResponse,
+        dependencies=[Depends(require_market_admin)],
+    )
     async def ingest_akshare_history(
         request: HistoryIngestionRequest,
     ) -> HistoryIngestionResponse:
@@ -382,7 +391,11 @@ def create_app() -> FastAPI:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
-    @app.post("/api/v1/ingestion/baostock/history", response_model=HistoryIngestionResponse)
+    @app.post(
+        "/api/v1/ingestion/baostock/history",
+        response_model=HistoryIngestionResponse,
+        dependencies=[Depends(require_market_admin)],
+    )
     async def ingest_baostock_history(
         request: HistoryIngestionRequest,
     ) -> HistoryIngestionResponse:
@@ -525,6 +538,7 @@ def create_app() -> FastAPI:
     @app.post(
         "/api/v1/ingestion/baostock/history/batch",
         response_model=HistoryIngestionResponse,
+        dependencies=[Depends(require_market_admin)],
     )
     async def ingest_baostock_history_batch(
         request: HistoryBatchIngestionRequest,
@@ -1221,6 +1235,7 @@ def create_app() -> FastAPI:
     @app.post(
         "/api/v1/ingestion/baostock/history/autofill",
         response_model=AutoFillIngestionStartResponse,
+        dependencies=[Depends(require_market_admin)],
     )
     async def start_baostock_history_autofill(
         request: HistoryAutoFillIngestionRequest,
@@ -1317,6 +1332,7 @@ def create_app() -> FastAPI:
     @app.post(
         "/api/v1/ingestion/eastmoney/realtime-snapshot",
         response_model=HistoryIngestionResponse,
+        dependencies=[Depends(require_market_admin)],
     )
     async def ingest_eastmoney_realtime_snapshot(
         request: RealtimeSnapshotIngestionRequest,
@@ -1356,7 +1372,7 @@ def create_app() -> FastAPI:
                     "batch_size": request.batch_size,
                     "next_offset": next_offset,
                     "universe_total_symbols": len(all_targets),
-                    "source_strategy": "eastmoney-realtime-snapshot-daily-bar",
+                    "source_strategy": "eastmoney-realtime-snapshot-isolated",
                     "field_contract": [
                         "open",
                         "high",

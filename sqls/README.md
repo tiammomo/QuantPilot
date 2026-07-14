@@ -13,6 +13,8 @@
 | `005-enrich-stock-bars-daily-context.sql` | 日频上下文增强 | 将前收盘、交易状态、ST、涨跌停标记提升为正式列，并补齐估值因子查询索引 |
 | `006-enrich-security-sector-metadata.sql` | 证券主数据增强 | 将行业、地区、概念和板块标签提升为证券 metadata 的稳定字段 |
 | `007-quant-foundation-components.sql` | 基础组件 | 创建交易日历、因子定义、数据质量扫描和通用平台任务表，并登记核心因子口径 |
+| `008-realtime-quote-snapshots.sql` | 实时行情隔离 | 创建未复权实时快照表，防止盘中观察值覆盖正式复权日线 |
+| `009-canonical-stock-bars-repair.sql` | 正式 K 线治理 | 归档并迁移历史快照污染，建立正式 K 线统一视图并重建覆盖状态 |
 
 主业务表由 Prisma 维护，不在这里手写：
 

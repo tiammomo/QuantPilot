@@ -116,4 +116,5 @@ def build_technical_indicators(kline: KlineResponse) -> TechnicalIndicatorsRespo
         summary=summary,
         as_of=kline.as_of,
         fetched_at=kline.fetched_at,
+        metadata=kline.metadata,
     )

@@ -119,6 +119,7 @@ def missing_preflight_fields(
     if coverage is None or coverage.rows_since_cutoff <= 0:
         return ["kline"]
     expected_rows = max(1, getattr(coverage, "expected_rows_since_cutoff", 0) or 0)
+    observed_rows = coverage.rows_since_cutoff
     if (
         coverage.benchmark_last_ts is not None
         and (coverage.last_ts is None or coverage.last_ts < coverage.benchmark_last_ts)
@@ -126,20 +127,17 @@ def missing_preflight_fields(
         missing.append("latest_trade_date")
     if coverage.rows_since_cutoff < expected_rows:
         missing.append("kline")
-    if coverage.complete_rows_since_cutoff < expected_rows:
-        missing.extend(
-            field
-            for field in require_fields
-            if field
-            in {
-                "amount",
-                "turnover",
-                "trade_status",
-                "is_st",
-                "limit_up",
-                "limit_down",
-            }
-        )
+    field_count_by_key = {
+        "amount": getattr(coverage, "amount_count", 0),
+        "turnover": getattr(coverage, "turnover_count", 0),
+        "trade_status": getattr(coverage, "trade_status_count", 0),
+        "is_st": getattr(coverage, "is_st_count", 0),
+        "limit_up": getattr(coverage, "limit_up_count", 0),
+        "limit_down": getattr(coverage, "limit_down_count", 0),
+    }
+    for key, count in field_count_by_key.items():
+        if key in require_fields and count < observed_rows:
+            missing.append(key)
     factor_count_by_key = {
         "pe_ttm": getattr(coverage, "pe_ttm_count", 0),
         "pb_mrq": getattr(coverage, "pb_mrq_count", 0),
@@ -147,7 +145,7 @@ def missing_preflight_fields(
         "pcf_ncf_ttm": getattr(coverage, "pcf_ncf_ttm_count", 0),
     }
     for key, count in factor_count_by_key.items():
-        if key in require_fields and count < expected_rows:
+        if key in require_fields and count < observed_rows:
             missing.append(key)
     return list(dict.fromkeys(missing))
 

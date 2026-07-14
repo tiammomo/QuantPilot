@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.models import (
@@ -26,6 +26,7 @@ from quantpilot_market_data.models import (
 )
 from quantpilot_market_data.providers.base import ResearchUniverseProvider
 from quantpilot_market_data.providers.eastmoney import EastMoneyError
+from quantpilot_market_data.security import require_market_admin
 from quantpilot_market_data.services.research import (
     add_research_universe_member,
     clean_research_universe_members,
@@ -58,7 +59,11 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
         except DatabaseError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
-    @router.post("/a-share/import-batch", response_model=AShareUniverseBatchImportResponse)
+    @router.post(
+        "/a-share/import-batch",
+        response_model=AShareUniverseBatchImportResponse,
+        dependencies=[Depends(require_market_admin)],
+    )
     async def import_a_share_universe_batch_endpoint(
         request: AShareUniverseBatchImportRequest,
     ) -> AShareUniverseBatchImportResponse:
@@ -69,7 +74,11 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
         except EastMoneyError as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
 
-    @router.post("/etf/import-batch", response_model=ETFUniverseBatchImportResponse)
+    @router.post(
+        "/etf/import-batch",
+        response_model=ETFUniverseBatchImportResponse,
+        dependencies=[Depends(require_market_admin)],
+    )
     async def import_etf_universe_batch_endpoint(
         request: ETFUniverseBatchImportRequest,
     ) -> ETFUniverseBatchImportResponse:
@@ -139,6 +148,7 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
     @router.post(
         "/universes/{universe_id}/hygiene",
         response_model=ResearchUniverseHygieneResponse,
+        dependencies=[Depends(require_market_admin)],
     )
     async def clean_research_universe_members_endpoint(
         universe_id: str,
@@ -200,6 +210,7 @@ def create_research_router(client: ResearchUniverseProvider) -> APIRouter:
     @router.post(
         "/universes/{universe_id}/members",
         response_model=ResearchUniverseMemberCreateResponse,
+        dependencies=[Depends(require_market_admin)],
     )
     async def add_research_universe_member_endpoint(
         universe_id: str,

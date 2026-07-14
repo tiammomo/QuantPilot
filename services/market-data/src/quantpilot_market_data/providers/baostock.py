@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
+import threading
+from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -10,6 +14,7 @@ from quantpilot_market_data.models import (
     KlineBar,
     KlinePeriod,
     KlineResponse,
+    TradingCalendarDay,
 )
 from quantpilot_market_data.providers.base import ProviderCapability
 from quantpilot_market_data.providers.eastmoney import (
@@ -19,10 +24,25 @@ from quantpilot_market_data.providers.eastmoney import (
 )
 
 PERCENT_QUANT = Decimal("0.00000001")
+BAOSTOCK_HISTORY_FIELDS = (
+    "date,code,open,high,low,close,preclose,volume,amount,"
+    "adjustflag,turn,pctChg,tradestatus,isST,peTTM,pbMRQ,psTTM,pcfNcfTTM"
+)
+_BAOSTOCK_SESSION_LOCK = threading.RLock()
+_BAOSTOCK_SESSION_MODULE: Any | None = None
+_BAOSTOCK_SESSION_ACTIVE = False
 
 
 class BaoStockError(RuntimeError):
     """Baostock SDK 不可用、登录失败或返回字段不符合契约。"""
+
+
+class _BaoStockLoginFailure(RuntimeError):
+    """Internal retry signal for login failures."""
+
+
+class _BaoStockQueryFailure(RuntimeError):
+    """Internal retry signal for query/socket failures."""
 
 
 class BaoStockClient:
@@ -68,6 +88,8 @@ class BaoStockClient:
                 "当前 Python 环境未安装 baostock；请在 services/market-data 中执行 "
                 "`uv sync --extra baostock` 或 `uv pip install baostock` 后重试。"
             ) from error
+        except BaoStockError:
+            raise
         except Exception as error:
             raise BaoStockError(f"Baostock 历史行情请求失败：{error}") from error
 
@@ -106,30 +128,188 @@ def fetch_baostock_history_records(
 ) -> list[dict[str, Any]]:
     import baostock as bs
 
-    login = bs.login()
-    if login.error_code != "0":
-        raise BaoStockError(f"Baostock 登录失败：{login.error_msg}")
+    return _run_baostock_query_with_reconnect(
+        bs,
+        operation=lambda: _query_baostock_history_locked(
+            bs,
+            code=code,
+            frequency=frequency,
+            start_date=start_date,
+            end_date=end_date,
+            adjustflag=adjustflag,
+        ),
+        failure_label="历史行情",
+    )
+
+
+def fetch_baostock_trade_dates(
+    start_date: str,
+    end_date: str,
+) -> list[TradingCalendarDay]:
+    """Fetch CN-A open/closed calendar days through the shared Baostock socket."""
+    import baostock as bs
+
+    records = _run_baostock_query_with_reconnect(
+        bs,
+        operation=lambda: _query_baostock_trade_dates_locked(
+            bs,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        failure_label="交易日历",
+    )
+    return parse_baostock_trade_dates(records)
+
+
+def _run_baostock_query_with_reconnect[T](
+    bs: Any,
+    *,
+    operation: Callable[[], T],
+    failure_label: str,
+) -> T:
+    with _BAOSTOCK_SESSION_LOCK:
+        last_error: _BaoStockLoginFailure | _BaoStockQueryFailure | None = None
+        for attempt in range(2):
+            try:
+                _ensure_baostock_session_locked(bs)
+                return operation()
+            except (_BaoStockLoginFailure, _BaoStockQueryFailure) as error:
+                last_error = error
+                _close_baostock_session_locked()
+                if attempt == 0:
+                    continue
+
+        if isinstance(last_error, _BaoStockLoginFailure):
+            raise BaoStockError(f"Baostock 登录失败：{last_error}（已重试 1 次）") from last_error
+        raise BaoStockError(
+            f"Baostock {failure_label}请求失败：{last_error or '未知错误'}"
+            "（已重连重试 1 次）"
+        ) from last_error
+
+
+def _ensure_baostock_session_locked(bs: Any) -> None:
+    global _BAOSTOCK_SESSION_ACTIVE, _BAOSTOCK_SESSION_MODULE
+
+    if _BAOSTOCK_SESSION_ACTIVE and _BAOSTOCK_SESSION_MODULE is bs:
+        return
+    if _BAOSTOCK_SESSION_ACTIVE:
+        _close_baostock_session_locked()
+    # Baostock owns a module-global socket. Record the module before login so a partial/failed
+    # login can still be cleaned up with a best-effort logout before retrying.
+    _BAOSTOCK_SESSION_MODULE = bs
     try:
-        fields = (
-            "date,code,open,high,low,close,preclose,volume,amount,"
-            "adjustflag,turn,pctChg,tradestatus,isST,peTTM,pbMRQ,psTTM,pcfNcfTTM"
-        )
+        login = bs.login()
+    except Exception as error:
+        raise _BaoStockLoginFailure(str(error)) from error
+    if str(getattr(login, "error_code", "")) != "0":
+        message = str(getattr(login, "error_msg", "未知登录错误"))
+        raise _BaoStockLoginFailure(message)
+    _BAOSTOCK_SESSION_MODULE = bs
+    _BAOSTOCK_SESSION_ACTIVE = True
+
+
+def _query_baostock_history_locked(
+    bs: Any,
+    *,
+    code: str,
+    frequency: str,
+    start_date: str,
+    end_date: str,
+    adjustflag: str,
+) -> list[dict[str, Any]]:
+    try:
         result = bs.query_history_k_data_plus(
             code,
-            fields,
+            BAOSTOCK_HISTORY_FIELDS,
             start_date=start_date,
             end_date=end_date,
             frequency=frequency,
             adjustflag=adjustflag,
         )
-        if result.error_code != "0":
-            raise BaoStockError(result.error_msg)
-        rows: list[dict[str, Any]] = []
-        while result.next():
-            rows.append(dict(zip(result.fields, result.get_row_data(), strict=False)))
-        return rows
-    finally:
-        bs.logout()
+        return _collect_baostock_result_rows(result)
+    except _BaoStockQueryFailure:
+        raise
+    except Exception as error:
+        raise _BaoStockQueryFailure(str(error)) from error
+
+
+def _query_baostock_trade_dates_locked(
+    bs: Any,
+    *,
+    start_date: str,
+    end_date: str,
+) -> list[dict[str, Any]]:
+    try:
+        result = bs.query_trade_dates(
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return _collect_baostock_result_rows(result)
+    except _BaoStockQueryFailure:
+        raise
+    except Exception as error:
+        raise _BaoStockQueryFailure(str(error)) from error
+
+
+def _collect_baostock_result_rows(result: Any) -> list[dict[str, Any]]:
+    if str(getattr(result, "error_code", "")) != "0":
+        raise _BaoStockQueryFailure(str(getattr(result, "error_msg", "未知查询错误")))
+    fields = list(getattr(result, "fields", []))
+    rows: list[dict[str, Any]] = []
+    while result.next():
+        rows.append(dict(zip(fields, result.get_row_data(), strict=False)))
+    return rows
+
+
+def _close_baostock_session_locked() -> None:
+    global _BAOSTOCK_SESSION_ACTIVE, _BAOSTOCK_SESSION_MODULE
+
+    module = _BAOSTOCK_SESSION_MODULE
+    _BAOSTOCK_SESSION_ACTIVE = False
+    _BAOSTOCK_SESSION_MODULE = None
+    if module is None:
+        return
+    # Shutdown/reconnect cleanup must never hide the original request error.
+    with suppress(Exception):
+        module.logout()
+
+
+def close_baostock_session() -> None:
+    """Idempotently close the shared SDK socket during shutdown or maintenance."""
+    with _BAOSTOCK_SESSION_LOCK:
+        _close_baostock_session_locked()
+
+
+atexit.register(close_baostock_session)
+
+
+def parse_baostock_trade_dates(
+    records: list[dict[str, Any]],
+) -> list[TradingCalendarDay]:
+    days_by_date: dict[date, TradingCalendarDay] = {}
+    for record in records:
+        raw_date = text_from_record(record, "calendar_date")
+        raw_is_open = text_from_record(record, "is_trading_day")
+        try:
+            trade_date = date.fromisoformat(raw_date or "")
+        except ValueError as error:
+            raise BaoStockError(
+                f"Baostock 交易日历字段不符合契约：calendar_date={raw_date!r}"
+            ) from error
+        if raw_is_open not in {"0", "1"}:
+            raise BaoStockError(
+                "Baostock 交易日历字段不符合契约："
+                f"is_trading_day={raw_is_open!r}"
+            )
+        days_by_date[trade_date] = TradingCalendarDay(
+            market="CN-A",
+            trade_date=trade_date,
+            is_open=raw_is_open == "1",
+            session="regular",
+            source="baostock",
+            metadata={"raw": normalize_record(record)},
+        )
+    return [days_by_date[key] for key in sorted(days_by_date)]
 
 
 def parse_baostock_records(records: list[dict[str, Any]]) -> list[KlineBar]:

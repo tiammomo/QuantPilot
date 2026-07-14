@@ -395,9 +395,26 @@ async def get_history_ingestion_preflight(
                 WITH target_symbols(symbol) AS (
                   SELECT unnest(%s::text[])
                 ),
+                normalized_target_bars AS (
+                  SELECT
+                    bars.symbol,
+                    bars.ts,
+                    bars.timeframe,
+                    bars.adjustment,
+                    bars.amount,
+                    bars.turnover,
+                    bars.trade_status,
+                    bars.is_st,
+                    bars.limit_up,
+                    bars.limit_down,
+                    BTRIM(COALESCE(bars.trade_status, '')) = '0' AS is_suspended
+                  FROM quant.canonical_stock_bars bars
+                  JOIN target_symbols
+                    ON target_symbols.symbol = bars.symbol
+                ),
                 benchmark_dates AS (
                   SELECT DISTINCT bars.ts
-                  FROM quant.stock_bars bars
+                  FROM quant.canonical_stock_bars bars
                   WHERE bars.timeframe = %s
                     AND bars.adjustment = %s
                     AND bars.ts >= %s
@@ -425,16 +442,48 @@ async def get_history_ingestion_preflight(
                     count(*) FILTER (
                       WHERE bars.ts >= %s
                         AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
-                        AND (%s::BOOLEAN IS FALSE OR bars.amount IS NOT NULL)
-                        AND (%s::BOOLEAN IS FALSE OR bars.turnover IS NOT NULL)
+                        AND (bars.amount IS NOT NULL OR bars.is_suspended)
+                    )::INT AS amount_count,
+                    count(*) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                        AND (bars.turnover IS NOT NULL OR bars.is_suspended)
+                    )::INT AS turnover_count,
+                    count(bars.trade_status) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                    )::INT AS trade_status_count,
+                    count(bars.is_st) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                    )::INT AS is_st_count,
+                    count(bars.limit_up) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                    )::INT AS limit_up_count,
+                    count(bars.limit_down) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                    )::INT AS limit_down_count,
+                    count(*) FILTER (
+                      WHERE bars.ts >= %s
+                        AND (%s::TIMESTAMPTZ IS NULL OR bars.ts <= %s)
+                        AND (
+                          %s::BOOLEAN IS FALSE
+                          OR bars.amount IS NOT NULL
+                          OR bars.is_suspended
+                        )
+                        AND (
+                          %s::BOOLEAN IS FALSE
+                          OR bars.turnover IS NOT NULL
+                          OR bars.is_suspended
+                        )
                         AND (%s::BOOLEAN IS FALSE OR bars.trade_status IS NOT NULL)
                         AND (%s::BOOLEAN IS FALSE OR bars.is_st IS NOT NULL)
                         AND (%s::BOOLEAN IS FALSE OR bars.limit_up IS NOT NULL)
                         AND (%s::BOOLEAN IS FALSE OR bars.limit_down IS NOT NULL)
                     )::INT AS complete_rows_since_cutoff
-                  FROM quant.stock_bars bars
-                  JOIN target_symbols
-                    ON target_symbols.symbol = bars.symbol
+                  FROM normalized_target_bars bars
                   WHERE bars.timeframe = %s
                     AND bars.adjustment = %s
                   GROUP BY bars.symbol
@@ -485,6 +534,12 @@ async def get_history_ingestion_preflight(
                     bar_summary.complete_rows_since_cutoff,
                     0
                   ) AS complete_rows_since_cutoff,
+                  COALESCE(bar_summary.amount_count, 0) AS amount_count,
+                  COALESCE(bar_summary.turnover_count, 0) AS turnover_count,
+                  COALESCE(bar_summary.trade_status_count, 0) AS trade_status_count,
+                  COALESCE(bar_summary.is_st_count, 0) AS is_st_count,
+                  COALESCE(bar_summary.limit_up_count, 0) AS limit_up_count,
+                  COALESCE(bar_summary.limit_down_count, 0) AS limit_down_count,
                   COALESCE(factor_summary.pe_ttm_count, 0) AS pe_ttm_count,
                   COALESCE(factor_summary.pb_mrq_count, 0) AS pb_mrq_count,
                   COALESCE(factor_summary.ps_ttm_count, 0) AS ps_ttm_count,
@@ -503,6 +558,24 @@ async def get_history_ingestion_preflight(
                 adjustment,
                 cutoff,
                 end_cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
+                end_cutoff,
+                end_cutoff,
+                cutoff,
                 end_cutoff,
                 end_cutoff,
                 cutoff,
@@ -546,6 +619,12 @@ async def get_history_ingestion_preflight(
             rows_since_cutoff=int(row["rows_since_cutoff"] or 0),
             expected_rows_since_cutoff=int(row["expected_rows_since_cutoff"] or 0),
             complete_rows_since_cutoff=int(row["complete_rows_since_cutoff"] or 0),
+            amount_count=int(row["amount_count"] or 0),
+            turnover_count=int(row["turnover_count"] or 0),
+            trade_status_count=int(row["trade_status_count"] or 0),
+            is_st_count=int(row["is_st_count"] or 0),
+            limit_up_count=int(row["limit_up_count"] or 0),
+            limit_down_count=int(row["limit_down_count"] or 0),
             pe_ttm_count=int(row["pe_ttm_count"] or 0),
             pb_mrq_count=int(row["pb_mrq_count"] or 0),
             ps_ttm_count=int(row["ps_ttm_count"] or 0),

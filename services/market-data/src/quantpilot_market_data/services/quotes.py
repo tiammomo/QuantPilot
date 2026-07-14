@@ -22,6 +22,10 @@ from quantpilot_market_data.providers.base import (
 )
 from quantpilot_market_data.providers.eastmoney import EastMoneyError
 from quantpilot_market_data.services.caching import cache_response, read_cached_response
+from quantpilot_market_data.services.kline_gateway import (
+    get_kline_local_first,
+    get_local_kline_if_ready,
+)
 
 CN_TZ = ZoneInfo("Asia/Shanghai")
 INTRADAY_CACHE_EXPIRE_HOUR = 9
@@ -106,6 +110,17 @@ async def get_history_quote(
             refresh=refresh,
         )
 
+    if not refresh:
+        local = await get_local_kline_if_ready(
+            symbol=symbol,
+            period=period,
+            adjustment=adjustment,
+            limit=normalized_limit,
+            end=end,
+        )
+        if local is not None:
+            return local
+
     cache_key = cache.build_key(
         "quote-history",
         {
@@ -116,16 +131,19 @@ async def get_history_quote(
             "end": end,
         },
     )
-    cached = read_cached_response(cache, cache_key, KlineResponse)
-    if cached is not None:
-        return cached
+    if not refresh:
+        cached = read_cached_response(cache, cache_key, KlineResponse)
+        if cached is not None:
+            return cached
 
-    response = await client.get_kline(
-        symbol,
+    response = await get_kline_local_first(
+        client,
+        symbol=symbol,
         period=period,
         adjustment=adjustment,
         limit=normalized_limit,
         end=end,
+        bypass_local=True,
     )
     return cache_response(cache, cache_key, ttl_seconds, response, KlineResponse)
 

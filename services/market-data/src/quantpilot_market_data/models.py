@@ -217,6 +217,41 @@ class TradingCalendarResponse(BaseModel):
         return self
 
 
+class TradingCalendarRefreshRequest(BaseModel):
+    start: date | None = Field(
+        default=None,
+        description="刷新起始日；为空时从结束日向前覆盖 5 年",
+    )
+    end: date | None = Field(
+        default=None,
+        description="刷新结束日；为空时使用上海时区今天",
+    )
+
+    @model_validator(mode="after")
+    def validate_range(self) -> Self:
+        if self.start is not None and self.end is not None and self.start > self.end:
+            raise ValueError("start 不能晚于 end")
+        return self
+
+
+class TradingCalendarRefreshResponse(BaseModel):
+    market: str = "CN-A"
+    source: str = "baostock"
+    start: date
+    end: date
+    requested_days: int = 0
+    received_days: int = 0
+    inserted_days: int = 0
+    updated_days: int = 0
+    unchanged_days: int = 0
+    written_days: int = 0
+    open_days: int = 0
+    closed_days: int = 0
+    first_date: date | None = None
+    last_date: date | None = None
+    refreshed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class FactorDefinition(BaseModel):
     factor_key: str
     name: str
@@ -803,7 +838,9 @@ class AShareScreenerCandidate(BaseModel):
     limit_up_count_10d: int = 0
     latest_limit_up_date: date | None = None
     is_limit_up: bool | None = None
+    is_limit_down: bool | None = None
     is_st: bool | None = None
+    trade_status: str | None = None
     sample_count: int = 0
     score: Decimal | None = None
     signals: list[str] = Field(default_factory=list)
@@ -814,7 +851,7 @@ class AShareScreenerCandidate(BaseModel):
 class AnalyticsExecutionMetadata(BaseModel):
     engine: Literal["clickhouse", "timescaledb"] = "timescaledb"
     status: Literal["hit", "fallback", "disabled", "error"] = "disabled"
-    basis: str = "timescaledb.stock_bars"
+    basis: str = "timescaledb.canonical_stock_bars"
     target_trade_date: date | None = None
     clickhouse_trade_date: date | None = None
     auto_sync_status: Literal["not_needed", "synced", "skipped", "error"] = "not_needed"
@@ -828,11 +865,32 @@ class AShareScreenerResponse(BaseModel):
     trade_date: date | None = None
     timeframe: KlinePeriod | str = "daily"
     adjustment: Adjustment | str = "qfq"
-    scanned_symbols: int = 0
+    scanned_symbols: int = Field(default=0, description="目标股票池实际扫描的活跃股票总数")
+    total_symbols: int = Field(default=0, description="目标股票池活跃股票总数")
+    eligible_symbols: int = Field(default=0, description="满足数据与交易安全门槛的标的数")
+    excluded_symbols: int = Field(default=0, description="未满足筛选资格门槛的标的数")
+    excluded_reasons: dict[str, int] = Field(
+        default_factory=dict,
+        description="排除原因计数；同一标的可能命中多个原因",
+    )
+    safety_complete_symbols: int = Field(
+        default=0,
+        description="最新日线具备全部交易安全字段的标的数",
+    )
+    safety_coverage_pct: float = Field(
+        default=0,
+        ge=0,
+        le=100,
+        description="交易安全字段完整覆盖率",
+    )
+    coverage_warning: str | None = Field(
+        default=None,
+        description="覆盖不足时的可执行告警",
+    )
     total_candidates: int = 0
     limit: int = 20
     candidates: list[AShareScreenerCandidate] = Field(default_factory=list)
-    data_basis: str = "timescaledb.stock_bars"
+    data_basis: str = "timescaledb.canonical_stock_bars"
     analytics: AnalyticsExecutionMetadata = Field(default_factory=AnalyticsExecutionMetadata)
     source: str = "quantpilot-market-api"
     notes: list[str] = Field(default_factory=list)
@@ -844,6 +902,15 @@ class AShareScreenerResponse(BaseModel):
     @model_validator(mode="after")
     def fill_contract_fields(self) -> Self:
         self.total_candidates = len(self.candidates)
+        self.total_symbols = max(self.total_symbols, self.scanned_symbols)
+        self.scanned_symbols = self.total_symbols
+        self.excluded_symbols = max(0, self.total_symbols - self.eligible_symbols)
+        if self.coverage_warning:
+            self.data_quality = _merge_data_quality(
+                self.data_quality,
+                warnings=[self.coverage_warning],
+                status="warning",
+            )
         if not self.candidates:
             self.data_quality = _merge_data_quality(
                 self.data_quality,
@@ -1021,7 +1088,10 @@ class RealtimeSnapshotIngestionRequest(BaseModel):
         default=None,
         description="写入的交易日，YYYY-MM-DD；为空时使用行情 quote_time 对应的上海日期。",
     )
-    adjustment: Adjustment = Field(default="qfq", description="写入复权口径，默认 qfq")
+    adjustment: Adjustment = Field(
+        default="qfq",
+        description="仅记录调用方期望口径；实时快照始终按未复权观察值隔离存储。",
+    )
     batch_size: int = Field(default=100, ge=1, le=200, description="单批最多处理标的数。")
     offset: int = Field(default=0, ge=0, description="从股票池成员列表的第几个标的开始。")
     request_delay_seconds: float = Field(
@@ -1076,6 +1146,12 @@ class IngestionPreflightCoverage(BaseModel):
     rows_since_cutoff: int = 0
     expected_rows_since_cutoff: int = 0
     complete_rows_since_cutoff: int = 0
+    amount_count: int = 0
+    turnover_count: int = 0
+    trade_status_count: int = 0
+    is_st_count: int = 0
+    limit_up_count: int = 0
+    limit_down_count: int = 0
     pe_ttm_count: int = 0
     pb_mrq_count: int = 0
     ps_ttm_count: int = 0
@@ -1229,6 +1305,7 @@ class TechnicalIndicatorsResponse(BaseModel):
     summary: TechnicalIndicatorSummary
     as_of: datetime | str | None = None
     fetched_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict, description="行情口径与新鲜度元信息")
     fetch: FetchMetadata = Field(default_factory=FetchMetadata)
     data_quality: DataQuality = Field(default_factory=DataQuality)
 
@@ -1462,6 +1539,7 @@ class BacktestResponse(BaseModel):
     summary: BacktestSummary
     as_of: datetime | str | None = None
     fetched_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict, description="回测行情口径与新鲜度元信息")
     fetch: FetchMetadata = Field(default_factory=FetchMetadata)
     data_quality: DataQuality = Field(default_factory=DataQuality)
 

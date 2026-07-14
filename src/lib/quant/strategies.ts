@@ -390,6 +390,11 @@ async function fetchMarketApiJson<T>(
   }
 }
 
+function marketAdminHeaders(): Record<string, string> {
+  const token = process.env.QUANTPILOT_MARKET_ADMIN_TOKEN?.trim();
+  return token ? { 'X-QuantPilot-Admin-Token': token } : {};
+}
+
 export async function getStrategyUniverseMembersPage(params: {
   universeId?: string;
   page?: number;
@@ -459,7 +464,7 @@ export async function controlStrategyIngestionJob(params: {
     `${MARKET_API_BASE_URL}/api/v1/ingestion/jobs/${encodeURIComponent(jobId)}/control`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
       body: JSON.stringify({ action: params.action, reason: params.reason }),
       cache: 'no-store',
     }
@@ -482,7 +487,7 @@ export async function runStrategyDataQualityScan(params: {
   assertMarketApiEnabled();
   const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/foundation/data-quality/scan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
     body: JSON.stringify({
       universe_id: params.universeId || SAMPLE_UNIVERSE_ID,
       symbols: params.symbols?.length ? params.symbols : undefined,
@@ -744,7 +749,7 @@ export async function ingestStrategyUniverseHistory(params: {
   };
   const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/ingestion/eastmoney/history`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
     body: JSON.stringify(body),
     cache: 'no-store',
   });
@@ -783,7 +788,7 @@ export async function ingestStrategyUniverseHistoryBatch(params: {
   };
   const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/ingestion/baostock/history/batch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
     body: JSON.stringify(body),
     cache: 'no-store',
   });
@@ -825,7 +830,7 @@ export async function startStrategyUniverseHistoryAutoFill(params: {
   };
   const response = await fetch(`${MARKET_API_BASE_URL}/api/v1/ingestion/baostock/history/autofill`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
     body: JSON.stringify(body),
     cache: 'no-store',
   });
@@ -847,7 +852,7 @@ export async function addStrategyUniverseMember(params: {
     `${MARKET_API_BASE_URL}/api/v1/research/universes/${encodeURIComponent(universeId)}/members`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...marketAdminHeaders() },
       body: JSON.stringify({ query: params.query }),
       cache: 'no-store',
     }

@@ -32,6 +32,8 @@ SCREENER_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_SCREENER_CACHE_TTL_SECONDS
 _SCREENER_CACHE: dict[tuple[str, str, str, int], tuple[datetime, AShareScreenerResponse]] = {}
 _SCREENER_TRADE_DATE_CACHE: dict[tuple[str, str], tuple[datetime, date | None]] = {}
 _SCREENER_REDIS_CACHE = RedisJsonCache()
+SAFE_TRADE_STATUSES = {"1", "active", "normal", "trading", "正常", "正常交易"}
+SCREENER_MIN_SAFETY_COVERAGE_PCT = 95.0
 
 __all__ = ["screen_a_share_short_term_candidates"]
 
@@ -48,8 +50,159 @@ def _screener_missing_fields(row: dict[str, Any]) -> list[str]:
         "ma20": row.get("ma20"),
         "ma30": row.get("ma30"),
         "ma60": row.get("ma60"),
+        "trade_status": row.get("latest_trade_status"),
+        "is_st": row.get("latest_is_st"),
+        "limit_up": row.get("latest_limit_up"),
+        "limit_down": row.get("latest_limit_down"),
     }
     return [key for key, value in required.items() if value is None]
+
+
+def _is_known_tradable(row: dict[str, Any]) -> bool:
+    """Unknown safety flags are unsafe: only an explicit normal state may execute."""
+    status = str(row.get("latest_trade_status") or "").strip().lower()
+    return bool(
+        bool_or_none(row.get("latest_is_st")) is False
+        and bool_or_none(row.get("latest_limit_up")) is False
+        and bool_or_none(row.get("latest_limit_down")) is False
+        and status in SAFE_TRADE_STATUSES
+    )
+
+
+def _row_trade_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value in {None, ""}:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _safety_fields_complete(row: dict[str, Any]) -> bool:
+    status = row.get("latest_trade_status")
+    return bool(
+        row.get("latest_is_st") is not None
+        and row.get("latest_limit_up") is not None
+        and row.get("latest_limit_down") is not None
+        and status is not None
+        and str(status).strip()
+    )
+
+
+def _screener_exclusion_reasons(
+    row: dict[str, Any],
+    *,
+    target_trade_date: date,
+) -> list[str]:
+    reasons: list[str] = []
+    code = str(row.get("code") or "")
+    name = str(row.get("name") or "")
+    exchange = str(row.get("exchange") or "UNKNOWN").upper()
+    latest_trade_date = _row_trade_date(row.get("latest_trade_date"))
+    if exchange == "BJ":
+        reasons.append("unsupported_exchange")
+    if code.startswith(("688", "8", "4")):
+        reasons.append("unsupported_board")
+    if "ST" in name.upper():
+        reasons.append("name_st_marker")
+    if latest_trade_date is None:
+        reasons.append("missing_latest_bar")
+    elif latest_trade_date != target_trade_date:
+        reasons.append("stale_latest_bar")
+    if int(row.get("sample_count") or 0) < 20:
+        reasons.append("insufficient_history")
+    if row.get("latest_close") is None:
+        reasons.append("missing_close")
+
+    is_st = bool_or_none(row.get("latest_is_st"))
+    limit_up = bool_or_none(row.get("latest_limit_up"))
+    limit_down = bool_or_none(row.get("latest_limit_down"))
+    trade_status = str(row.get("latest_trade_status") or "").strip().lower()
+    if row.get("latest_is_st") is None:
+        reasons.append("missing_is_st")
+    elif is_st is True:
+        reasons.append("is_st")
+    if row.get("latest_limit_up") is None:
+        reasons.append("missing_limit_up")
+    elif limit_up is True:
+        reasons.append("is_limit_up")
+    if row.get("latest_limit_down") is None:
+        reasons.append("missing_limit_down")
+    elif limit_down is True:
+        reasons.append("is_limit_down")
+    if not trade_status:
+        reasons.append("missing_trade_status")
+    elif trade_status not in SAFE_TRADE_STATUSES:
+        reasons.append("unsafe_trade_status")
+    return reasons
+
+
+def _merge_feature_rows_with_members(
+    rows: list[dict[str, Any]],
+    members: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows_by_symbol = {str(row.get("symbol")): dict(row) for row in rows}
+    merged: list[dict[str, Any]] = []
+    for member in members:
+        symbol = str(member["symbol"])
+        row = rows_by_symbol.pop(symbol, {})
+        merged.append(
+            {
+                **row,
+                "symbol": symbol,
+                "code": row.get("code") or member.get("code") or symbol.split(".", 1)[0],
+                "name": row.get("name") or member.get("name"),
+                "exchange": row.get("exchange") or member.get("exchange") or "UNKNOWN",
+                "security_metadata": row.get("security_metadata")
+                or member.get("security_metadata")
+                or {},
+            }
+        )
+    return merged
+
+
+def _screener_coverage(
+    rows: list[dict[str, Any]],
+    *,
+    total_symbols: int,
+    target_trade_date: date,
+) -> tuple[list[dict[str, Any]], dict[str, int], int, float, str | None]:
+    eligible_rows: list[dict[str, Any]] = []
+    excluded_reasons: dict[str, int] = {}
+    safety_complete_symbols = 0
+    for row in rows:
+        if _safety_fields_complete(row):
+            safety_complete_symbols += 1
+        reasons = _screener_exclusion_reasons(
+            row,
+            target_trade_date=target_trade_date,
+        )
+        if not reasons:
+            eligible_rows.append(row)
+        for reason in set(reasons):
+            excluded_reasons[reason] = excluded_reasons.get(reason, 0) + 1
+
+    safety_coverage_pct = (
+        round(safety_complete_symbols / total_symbols * 100, 2) if total_symbols else 0.0
+    )
+    coverage_warning = None
+    if total_symbols and safety_coverage_pct < SCREENER_MIN_SAFETY_COVERAGE_PCT:
+        coverage_warning = (
+            f"交易安全字段仅覆盖 {safety_complete_symbols}/{total_symbols} 个标的"
+            f"（{safety_coverage_pct:.2f}%），低于 {SCREENER_MIN_SAFETY_COVERAGE_PCT:.0f}% "
+            "可用阈值；未知状态已按不可交易排除，请先完成正式日线字段增强。"
+        )
+    return (
+        eligible_rows,
+        dict(sorted(excluded_reasons.items())),
+        safety_complete_symbols,
+        safety_coverage_pct,
+        coverage_warning,
+    )
 
 
 def _screener_score(row: dict[str, Any]) -> Decimal:
@@ -234,13 +387,30 @@ def _screener_cache_set(
 
 
 def _screener_cached_response_is_usable(response: AShareScreenerResponse) -> bool:
+    if response.scanned_symbols != response.total_symbols:
+        return False
+    if (
+        response.total_symbols > response.eligible_symbols
+        and not response.excluded_reasons
+    ):
+        return False
+    if any(
+        candidate.is_st is not False
+        or candidate.is_limit_up is not False
+        or candidate.is_limit_down is not False
+        or str(candidate.trade_status or "").strip().lower() not in SAFE_TRADE_STATUSES
+        for candidate in response.candidates
+    ):
+        return False
     if not is_clickhouse_enabled():
-        return True
+        return response.data_basis.startswith("timescaledb.")
     return response.data_basis.startswith("clickhouse.")
 
 
 def _screener_redis_key(key: tuple[str, str, str, int]) -> str:
-    return _SCREENER_REDIS_CACHE.key(":".join(str(part) for part in ("screener", *key)))
+    return _SCREENER_REDIS_CACHE.key(
+        ":".join(str(part) for part in ("screener-v2", *key))
+    )
 
 
 async def _screener_redis_get(
@@ -298,6 +468,28 @@ async def screen_a_share_short_term_candidates(
             return cached
 
     async with await connect() as connection, connection.cursor(row_factory=dict_row) as cursor:
+        await cursor.execute(
+            """
+            SELECT
+              securities.symbol,
+              securities.code,
+              securities.name,
+              securities.exchange,
+              securities.metadata AS security_metadata
+            FROM quant.security_universe_members members
+            JOIN quant.securities securities
+              ON securities.symbol = members.symbol
+            WHERE members.universe_id = %s
+              AND securities.asset_type = 'stock'
+              AND COALESCE(members.role, 'member') <> 'inactive'
+              AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
+            ORDER BY securities.symbol
+            """,
+            (universe_id,),
+        )
+        universe_members = [dict(row) for row in await cursor.fetchall()]
+        total_symbols = len(universe_members)
+
         if trade_date_cache_hit:
             resolved_trade_date = cached_trade_date
         else:
@@ -330,15 +522,13 @@ async def screen_a_share_short_term_candidates(
                           'delisted'
                         )
                     )
-                    SELECT max((sync_state.last_ts AT TIME ZONE 'Asia/Shanghai')::date)
+                    SELECT max((bars.ts AT TIME ZONE 'Asia/Shanghai')::date)
                       AS trade_date
                     FROM target_members
-                    JOIN quant.market_data_sync_state sync_state
-                      ON sync_state.symbol = target_members.symbol
-                     AND sync_state.timeframe = target_members.timeframe
-                     AND sync_state.adjustment = target_members.adjustment
-                    WHERE sync_state.row_count > 0
-                      AND sync_state.last_ts IS NOT NULL
+                    JOIN quant.canonical_stock_bars bars
+                      ON bars.symbol = target_members.symbol
+                     AND bars.timeframe = target_members.timeframe
+                     AND bars.adjustment = target_members.adjustment
                     """,
                     (universe_id, universe_id),
                 )
@@ -362,7 +552,7 @@ async def screen_a_share_short_term_candidates(
                       ON universe_config.id = members.universe_id
                     JOIN quant.securities securities
                       ON securities.symbol = members.symbol
-                    JOIN quant.stock_bars bars
+                    JOIN quant.canonical_stock_bars bars
                       ON bars.symbol = members.symbol
                      AND bars.timeframe = universe_config.timeframe
                      AND bars.adjustment = universe_config.adjustment
@@ -382,11 +572,24 @@ async def screen_a_share_short_term_candidates(
             _screener_trade_date_cache_set(trade_date_cache_key, resolved_trade_date)
 
         if resolved_trade_date is None:
+            coverage_warning = (
+                f"股票池包含 {total_symbols} 个活跃股票，但没有任何正式日线可供筛选。"
+                if total_symbols
+                else "股票池没有可扫描的活跃股票。"
+            )
             return AShareScreenerResponse(
                 universe_id=universe_id,
                 mode=mode,
                 trade_date=None,
-                scanned_symbols=0,
+                scanned_symbols=total_symbols,
+                total_symbols=total_symbols,
+                eligible_symbols=0,
+                excluded_reasons={"missing_latest_bar": total_symbols}
+                if total_symbols
+                else {},
+                safety_complete_symbols=0,
+                safety_coverage_pct=0,
+                coverage_warning=coverage_warning,
                 limit=safe_limit,
                 candidates=[],
                 notes=["本地股票池尚未找到可筛选的交易日。"],
@@ -406,7 +609,7 @@ async def screen_a_share_short_term_candidates(
             _screener_cache_set(cache_key, cached)
             return cached
 
-        data_basis = "timescaledb.stock_bars"
+        data_basis = "timescaledb.canonical_stock_bars"
         clickhouse_note: str | None = None
         analytics = AnalyticsExecutionMetadata(
             engine="timescaledb",
@@ -534,9 +737,6 @@ async def screen_a_share_short_term_candidates(
                     AND securities.asset_type = 'stock'
                     AND COALESCE(members.role, 'member') <> 'inactive'
                     AND COALESCE(securities.status, 'active') NOT IN ('inactive', 'delisted')
-                    AND securities.exchange <> 'BJ'
-                    AND securities.code !~ '^(688|8|4)'
-                    AND securities.name NOT ILIKE '%%ST%%'
                 ),
                 features AS (
                   SELECT
@@ -574,9 +774,15 @@ async def screen_a_share_short_term_candidates(
                     bool_or(recent_bars.limit_up) FILTER (
                       WHERE recent_bars.rn = 1
                     ) AS latest_limit_up,
+                    bool_or(recent_bars.limit_down) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_limit_down,
                     bool_or(recent_bars.is_st) FILTER (
                       WHERE recent_bars.rn = 1
                     ) AS latest_is_st,
+                    max(recent_bars.trade_status) FILTER (
+                      WHERE recent_bars.rn = 1
+                    ) AS latest_trade_status,
                     avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 5) AS ma5,
                     avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 10) AS ma10,
                     avg(recent_bars.close) FILTER (WHERE recent_bars.rn <= 20) AS ma20,
@@ -614,9 +820,11 @@ async def screen_a_share_short_term_candidates(
                         bars.turnover,
                         bars.change_percent,
                         bars.limit_up,
+                        bars.limit_down,
                         bars.is_st,
+                        bars.trade_status,
                         bars.provider
-                      FROM quant.stock_bars bars
+                      FROM quant.canonical_stock_bars bars
                       WHERE bars.symbol = members.symbol
                         AND bars.timeframe = members.timeframe
                         AND bars.adjustment = members.adjustment
@@ -641,14 +849,8 @@ async def screen_a_share_short_term_candidates(
                 )
                 SELECT
                   features.*,
-                  %s::date AS requested_trade_date,
-                  count(*) OVER ()::INT AS scanned_symbols
+                  %s::date AS requested_trade_date
                 FROM features
-                WHERE features.latest_trade_date = %s::date
-                  AND COALESCE(features.latest_is_st, FALSE) IS FALSE
-                  AND COALESCE(features.latest_limit_up, FALSE) IS FALSE
-                  AND features.latest_close IS NOT NULL
-                  AND features.sample_count >= 20
                 """,
                 (
                     universe_id,
@@ -656,12 +858,18 @@ async def screen_a_share_short_term_candidates(
                     resolved_trade_date,
                     resolved_trade_date,
                     resolved_trade_date,
-                    resolved_trade_date,
                 ),
             )
-            rows = await cursor.fetchall()
+            rows = [dict(row) for row in await cursor.fetchall()]
+
+        rows = _merge_feature_rows_with_members(
+            [dict(row) for row in rows],
+            universe_members,
+        )
 
     def passes_mode(row: dict[str, Any]) -> bool:
+        if not _is_known_tradable(row):
+            return False
         close = decimal_or_none(row.get("latest_close"))
         open_price = decimal_or_none(row.get("latest_open"))
         previous_close = decimal_or_none(row.get("previous_close"))
@@ -730,7 +938,18 @@ async def screen_a_share_short_term_candidates(
             )
         )
 
-    filtered_rows = [row for row in rows if passes_mode(row)]
+    (
+        eligible_rows,
+        excluded_reasons,
+        safety_complete_symbols,
+        safety_coverage_pct,
+        coverage_warning,
+    ) = _screener_coverage(
+        rows,
+        total_symbols=total_symbols,
+        target_trade_date=resolved_trade_date,
+    )
+    filtered_rows = [row for row in eligible_rows if passes_mode(row)]
     filtered_rows.sort(key=_screener_score, reverse=True)
     candidates: list[AShareScreenerCandidate] = []
     for row in filtered_rows[:safe_limit]:
@@ -768,7 +987,13 @@ async def screen_a_share_short_term_candidates(
             limit_up_count_10d=int(row.get("limit_up_count_10d") or 0),
             latest_limit_up_date=row.get("latest_limit_up_date"),
             is_limit_up=bool_or_none(row.get("latest_limit_up")),
+            is_limit_down=bool_or_none(row.get("latest_limit_down")),
             is_st=bool_or_none(row.get("latest_is_st")),
+            trade_status=(
+                str(row["latest_trade_status"])
+                if row.get("latest_trade_status") is not None
+                else None
+            ),
             sample_count=int(row.get("sample_count") or 0),
             score=_screener_score(row),
             signals=_screener_signals(row),
@@ -777,10 +1002,7 @@ async def screen_a_share_short_term_candidates(
         )
         candidates.append(candidate)
 
-    response_trade_date = next(
-        (row.get("latest_trade_date") for row in rows if row.get("latest_trade_date")),
-        resolved_trade_date,
-    )
+    response_trade_date = resolved_trade_date
     notes = [
         (
             "本接口通过 QuantPilot market-data API 读取 ClickHouse 分析表；"
@@ -795,6 +1017,12 @@ async def screen_a_share_short_term_candidates(
     ]
     if clickhouse_note:
         notes.append(clickhouse_note)
+    notes.append(
+        f"股票池共扫描 {total_symbols} 个活跃股票，其中 {len(eligible_rows)} 个满足"
+        f"数据与交易安全门槛，{max(0, total_symbols - len(eligible_rows))} 个被排除。"
+    )
+    if coverage_warning:
+        notes.append(coverage_warning)
     if requested_trade_date_input is not None and response_trade_date != requested_trade_date_input:
         notes.append(
             f"用户请求交易日 {requested_trade_date_input.isoformat()} 本地没有完整股票池覆盖，"
@@ -804,7 +1032,13 @@ async def screen_a_share_short_term_candidates(
         universe_id=universe_id,
         mode=mode,
         trade_date=response_trade_date,
-        scanned_symbols=int(rows[0]["scanned_symbols"] or len(rows)) if rows else 0,
+        scanned_symbols=total_symbols,
+        total_symbols=total_symbols,
+        eligible_symbols=len(eligible_rows),
+        excluded_reasons=excluded_reasons,
+        safety_complete_symbols=safety_complete_symbols,
+        safety_coverage_pct=safety_coverage_pct,
+        coverage_warning=coverage_warning,
         limit=safe_limit,
         candidates=candidates,
         data_basis=data_basis,

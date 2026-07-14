@@ -437,7 +437,7 @@ async def list_sector_capital_flow(
                   bars.limit_up,
                   bars.limit_down,
                   row_number() OVER (ORDER BY bars.ts DESC) AS rn
-                FROM quant.stock_bars bars
+                FROM quant.canonical_stock_bars bars
                 WHERE bars.symbol = universe_members.symbol
                   AND bars.timeframe = universe_members.timeframe
                   AND bars.adjustment = universe_members.adjustment
@@ -689,7 +689,7 @@ async def build_sector_capital_flow_detail(
                 bars.change_percent,
                 bars.limit_up,
                 dense_rank() OVER (ORDER BY bars.ts DESC) AS day_rank
-              FROM quant.stock_bars bars
+              FROM quant.canonical_stock_bars bars
               CROSS JOIN universe_config
               WHERE bars.symbol = ANY(%s)
                 AND bars.timeframe = universe_config.timeframe

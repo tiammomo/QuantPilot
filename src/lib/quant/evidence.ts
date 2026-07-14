@@ -195,6 +195,39 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
     });
   }
 
+  const screener = asRecord(data.screener);
+  if (assets.length === 0 && screener && Array.isArray(screener.candidates)) {
+    const quality = asRecord(screener.data_quality);
+    const qualityWarnings = Array.isArray(quality?.warnings)
+      ? quality.warnings.filter((warning): warning is string => typeof warning === 'string')
+      : [];
+    const missingFields = Array.isArray(quality?.missing_fields)
+      ? quality.missing_fields.filter((field): field is string => typeof field === 'string')
+      : [];
+    const fetchedAt = pickString(screener.fetched_at, data.generatedAt, data.generated_at);
+    const tradeDate = pickString(screener.trade_date, screener.as_of, fetchedAt);
+    const mode = pickString(screener.mode, 'short_term') ?? 'short_term';
+
+    return [
+      buildDataset({
+        id: 'a_share_screener',
+        name: 'A 股候选筛选',
+        record: {
+          ...screener,
+          fetched_at: fetchedAt,
+          as_of: tradeDate,
+        },
+        rowCount: screener.candidates.length,
+        source: pickString(screener.source, data.source, 'quantpilot-market-api') ?? 'quantpilot-market-api',
+        endpoint: `GET /api/v1/research/screeners/a-share/short-term-candidates?mode=${mode}`,
+        critical: false,
+        generatedAt: fetchedAt,
+        missingFields,
+        warnings: qualityWarnings,
+      }),
+    ];
+  }
+
   const generatedAt = pickString(data.generatedAt, data.generated_at, data.fetched_at);
   const symbol = pickString(data.symbol, asRecord(data.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';
   const rootSource = pickString(data.source, asRecord(data.quote)?.source, 'unknown') ?? 'unknown';

@@ -257,7 +257,7 @@ async def list_research_universes() -> list[ResearchUniverse]:
                       bars.limit_up,
                       bars.limit_down,
                       row_number() OVER (ORDER BY bars.ts DESC) AS rn
-                    FROM quant.stock_bars bars
+                    FROM quant.canonical_stock_bars bars
                     WHERE bars.symbol = securities.symbol
                       AND bars.timeframe = COALESCE(
                         universes.metadata->>'default_timeframe',
@@ -660,7 +660,7 @@ async def list_research_universe_members_page(
                       bars.limit_up,
                       bars.limit_down,
                       row_number() OVER (ORDER BY bars.ts DESC) AS rn
-                    FROM quant.stock_bars bars
+                    FROM quant.canonical_stock_bars bars
                     WHERE bars.symbol = filtered_members.symbol
                       AND bars.timeframe = COALESCE(
                         filtered_members.universe_metadata->>'default_timeframe',

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.models import (
@@ -8,6 +8,7 @@ from quantpilot_market_data.models import (
     IngestionJobControlResponse,
     IngestionJobsResponse,
 )
+from quantpilot_market_data.security import require_market_admin
 from quantpilot_market_data.services.ingestion_jobs import (
     control_market_data_ingestion_job,
     get_market_data_ingestion_jobs,
@@ -30,7 +31,11 @@ async def get_market_data_ingestion_jobs_endpoint(
         raise HTTPException(status_code=503, detail=str(error)) from error
 
 
-@router.post("/jobs/{job_id}/control", response_model=IngestionJobControlResponse)
+@router.post(
+    "/jobs/{job_id}/control",
+    response_model=IngestionJobControlResponse,
+    dependencies=[Depends(require_market_admin)],
+)
 async def control_market_data_ingestion_job_endpoint(
     job_id: str,
     request: IngestionJobControlRequest,

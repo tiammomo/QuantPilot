@@ -68,8 +68,11 @@ def load_local_env_if_needed() -> None:
             key, value = stripped.split("=", 1)
             key = key.strip()
             value = value.strip().strip('"').strip("'")
-            if key:
+            # This helper exists only to locate the database. Loading every project
+            # secret into the market-data process violates least privilege.
+            if key == "DATABASE_URL":
                 os.environ.setdefault(key, value)
+                return
 
 
 def database_url_from_env() -> str:

@@ -18,11 +18,14 @@ from quantpilot_market_data.database_core import (
     json_object,
     lookback_cutoff_datetime,
     parse_bar_datetime,
-    trade_date_datetime,
 )
 from quantpilot_market_data.models import KlineResponse, RealtimeQuote
 
-__all__ = ["upsert_kline_response", "upsert_realtime_quote_snapshot"]
+__all__ = [
+    "upsert_kline_response",
+    "upsert_realtime_quote_snapshot",
+    "validate_realtime_snapshot",
+]
 
 async def _refresh_market_data_sync_state(
     cursor,
@@ -43,7 +46,7 @@ async def _refresh_market_data_sync_state(
                 min(ts) AS first_ts,
                 max(ts) AS last_ts,
                 count(*)::INT AS row_count
-              FROM quant.stock_bars
+              FROM quant.canonical_stock_bars
               WHERE symbol = %s
                 AND timeframe = %s
                 AND adjustment = %s
@@ -311,6 +314,29 @@ async def upsert_kline_response(
     return symbol, len(bars), first_date, last_date
 
 
+def validate_realtime_snapshot(
+    quote: RealtimeQuote,
+    trade_date: date | str | None,
+) -> tuple[date, Any]:
+    """Validate provenance/date and return the immutable snapshot basis."""
+    if quote.source.strip().lower() != "eastmoney":
+        raise ValueError("实时快照只接受 eastmoney 来源，拒绝把未知来源写入正式数据域。")
+    quote_time = quote.quote_time or quote.fetched_at
+    actual_trade_date = quote_time.astimezone(SHANGHAI_TZ).date()
+    requested_trade_date = (
+        date.fromisoformat(trade_date)
+        if isinstance(trade_date, str)
+        else trade_date
+        if trade_date is not None
+        else actual_trade_date
+    )
+    if requested_trade_date != actual_trade_date:
+        raise ValueError(
+            "trade_date 必须与 quote_time 的上海交易日一致；实时快照禁止回填或改写历史日期。"
+        )
+    return actual_trade_date, quote_time
+
+
 async def upsert_realtime_quote_snapshot(
     quote: RealtimeQuote,
     *,
@@ -321,52 +347,18 @@ async def upsert_realtime_quote_snapshot(
     if quote.open is None or quote.high is None or quote.low is None or quote.price is None:
         return canonical_symbol(quote.symbol, quote.market), 0, None, None
 
-    local_trade_date = (
-        date.fromisoformat(trade_date)
-        if isinstance(trade_date, str)
-        else trade_date
-        if trade_date is not None
-        else (quote.quote_time or quote.fetched_at).astimezone(SHANGHAI_TZ).date()
-    )
-    ts = trade_date_datetime(local_trade_date)
+    local_trade_date, quote_time = validate_realtime_snapshot(quote, trade_date)
     symbol = canonical_symbol(quote.symbol, quote.market)
     change_amount = quote.change_amount or decimal_subtract(quote.price, quote.previous_close)
     amplitude = quote.amplitude or amplitude_percent(quote.high, quote.low, quote.previous_close)
-    quote_concepts = quote.concepts or []
-    factor_rows: list[tuple[Any, ...]] = []
-    for factor_key, factor_value in (
-        ("pe_ttm", quote.pe_ttm),
-        ("pb_mrq", quote.pb_mrq),
-    ):
-        parsed_factor = decimal_or_none(factor_value)
-        if parsed_factor is None:
-            continue
-        factor_rows.append(
-            (
-                symbol,
-                ts,
-                factor_key,
-                float(parsed_factor),
-                quote.source,
-                Jsonb(
-                    {
-                        "source": quote.source,
-                        "source_strategy": "eastmoney-realtime-snapshot",
-                        "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
-                        "fetched_at": quote.fetched_at.isoformat(),
-                        "universe_id": universe_id,
-                    }
-                ),
-            )
-        )
-    bar_metadata = {
+    metadata = {
         "secid": quote.secid,
         "name": quote.name,
         "market": quote.market,
         "asset_type": quote.asset_type,
         "currency": quote.currency,
         "timezone": quote.timezone,
-        "source": quote.source,
+        "universe_id": universe_id,
         "market_cap": str(quote.market_cap) if quote.market_cap is not None else None,
         "float_market_cap": (
             str(quote.float_market_cap) if quote.float_market_cap is not None else None
@@ -375,187 +367,63 @@ async def upsert_realtime_quote_snapshot(
         "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
         "industry": quote.industry,
         "region": quote.region,
-        "concepts": quote_concepts or None,
-        "source_bar": {
-            "quote_time": quote.quote_time.isoformat() if quote.quote_time else None,
-            "fetched_at": quote.fetched_at.isoformat(),
-            "price": str(quote.price) if quote.price is not None else None,
-            "previous_close": (
-                str(quote.previous_close) if quote.previous_close is not None else None
-            ),
-            "amplitude": str(amplitude) if amplitude is not None else None,
-            "change_percent": (
-                str(quote.change_percent) if quote.change_percent is not None else None
-            ),
-            "change_amount": str(change_amount) if change_amount is not None else None,
-            "turnover": str(quote.turnover) if quote.turnover is not None else None,
-            "market_cap": str(quote.market_cap) if quote.market_cap is not None else None,
-            "float_market_cap": (
-                str(quote.float_market_cap) if quote.float_market_cap is not None else None
-            ),
-            "pe_ttm": str(quote.pe_ttm) if quote.pe_ttm is not None else None,
-            "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
-            "industry": quote.industry,
-            "region": quote.region,
-            "concepts": quote_concepts or None,
+        "concepts": quote.concepts or None,
+        "safety": {
+            "canonical_kline_write": False,
+            "adjustment_applied": False,
+            "reason": "realtime snapshots are unadjusted observations",
         },
-        "previous_close": str(quote.previous_close) if quote.previous_close is not None else None,
-        "amplitude": str(amplitude) if amplitude is not None else None,
-        "change_percent": str(quote.change_percent) if quote.change_percent is not None else None,
-        "change_amount": str(change_amount) if change_amount is not None else None,
-        "turnover": str(quote.turnover) if quote.turnover is not None else None,
-        "universe_id": universe_id,
-        "ingestion_mode": "realtime_snapshot",
     }
 
     async with await connect() as connection, connection.cursor() as cursor:
         await cursor.execute(
             """
-                INSERT INTO quant.securities (
-                  symbol, code, name, exchange, asset_type, currency, timezone,
-                  secid, provider, metadata, created_at, updated_at
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), now())
-                ON CONFLICT (symbol) DO UPDATE SET
-                  code = EXCLUDED.code,
-                  name = COALESCE(EXCLUDED.name, quant.securities.name),
-                  exchange = EXCLUDED.exchange,
-                  asset_type = EXCLUDED.asset_type,
-                  currency = EXCLUDED.currency,
-                  timezone = EXCLUDED.timezone,
-                  secid = EXCLUDED.secid,
-                  metadata = quant.securities.metadata || jsonb_strip_nulls(EXCLUDED.metadata),
-                  updated_at = now()
-                """,
+            INSERT INTO quant.realtime_quote_snapshots (
+              symbol, quote_time, trade_date, requested_adjustment,
+              open, high, low, price, previous_close, volume, amount,
+              amplitude, change_percent, change_amount, turnover,
+              provider, metadata, fetched_at, created_at
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s, %s, %s, now()
+            )
+            ON CONFLICT (symbol, quote_time, provider) DO UPDATE SET
+              requested_adjustment = EXCLUDED.requested_adjustment,
+              open = EXCLUDED.open,
+              high = EXCLUDED.high,
+              low = EXCLUDED.low,
+              price = EXCLUDED.price,
+              previous_close = EXCLUDED.previous_close,
+              volume = EXCLUDED.volume,
+              amount = EXCLUDED.amount,
+              amplitude = EXCLUDED.amplitude,
+              change_percent = EXCLUDED.change_percent,
+              change_amount = EXCLUDED.change_amount,
+              turnover = EXCLUDED.turnover,
+              metadata = quant.realtime_quote_snapshots.metadata || EXCLUDED.metadata,
+              fetched_at = EXCLUDED.fetched_at
+            """,
             (
                 symbol,
-                quote.symbol,
-                quote.name,
-                quote.market,
-                quote.asset_type,
-                quote.currency,
-                quote.timezone,
-                quote.secid,
-                quote.source,
-                Jsonb(
-                    {
-                        "source": quote.source,
-                        "fetched_at": quote.fetched_at.isoformat(),
-                        "industry": quote.industry,
-                        "region": quote.region,
-                        "concepts": quote_concepts or None,
-                        "latest_quote": {
-                            "quote_time": (
-                                quote.quote_time.isoformat() if quote.quote_time else None
-                            ),
-                            "price": str(quote.price) if quote.price is not None else None,
-                            "previous_close": (
-                                str(quote.previous_close)
-                                if quote.previous_close is not None
-                                else None
-                            ),
-                            "change_percent": (
-                                str(quote.change_percent)
-                                if quote.change_percent is not None
-                                else None
-                            ),
-                            "change_amount": (
-                                str(change_amount) if change_amount is not None else None
-                            ),
-                            "turnover": (
-                                str(quote.turnover) if quote.turnover is not None else None
-                            ),
-                            "amount": str(quote.amount) if quote.amount is not None else None,
-                            "volume": quote.volume,
-                            "pe_ttm": str(quote.pe_ttm) if quote.pe_ttm is not None else None,
-                            "pb_mrq": str(quote.pb_mrq) if quote.pb_mrq is not None else None,
-                            "industry": quote.industry,
-                            "region": quote.region,
-                            "concepts": quote_concepts or None,
-                        },
-                        "market_cap": (
-                            str(quote.market_cap) if quote.market_cap is not None else None
-                        ),
-                        "float_market_cap": (
-                            str(quote.float_market_cap)
-                            if quote.float_market_cap is not None
-                            else None
-                        ),
-                    }
-                ),
-            ),
-        )
-        await cursor.execute(
-            """
-                INSERT INTO quant.stock_bars (
-                  symbol, ts, timeframe, adjustment, open, high, low, close, previous_close,
-                  volume, amount, amplitude, change_percent, change_amount, turnover,
-                  trade_status, is_st, limit_up, limit_down, provider, metadata, created_at
-                )
-                VALUES (
-                  %s, %s, 'daily', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                  NULL, NULL, NULL, NULL, %s, %s, now()
-                )
-                ON CONFLICT (symbol, timeframe, adjustment, ts) DO UPDATE SET
-                  open = EXCLUDED.open,
-                  high = EXCLUDED.high,
-                  low = EXCLUDED.low,
-                  close = EXCLUDED.close,
-                  previous_close = COALESCE(
-                    EXCLUDED.previous_close,
-                    quant.stock_bars.previous_close
-                  ),
-                  volume = EXCLUDED.volume,
-                  amount = COALESCE(EXCLUDED.amount, quant.stock_bars.amount),
-                  amplitude = COALESCE(EXCLUDED.amplitude, quant.stock_bars.amplitude),
-                  change_percent = COALESCE(
-                    EXCLUDED.change_percent,
-                    quant.stock_bars.change_percent
-                  ),
-                  change_amount = COALESCE(EXCLUDED.change_amount, quant.stock_bars.change_amount),
-                  turnover = COALESCE(EXCLUDED.turnover, quant.stock_bars.turnover),
-                  provider = EXCLUDED.provider,
-                  metadata = quant.stock_bars.metadata || jsonb_strip_nulls(EXCLUDED.metadata)
-                """,
-            (
-                symbol,
-                ts,
+                quote_time,
+                local_trade_date,
                 adjustment,
                 quote.open,
                 quote.high,
                 quote.low,
                 quote.price,
                 decimal_or_none(quote.previous_close),
-                decimal_or_zero(quote.volume),
+                quote.volume,
                 decimal_or_none(quote.amount),
                 decimal_or_none(amplitude),
                 decimal_or_none(quote.change_percent),
                 decimal_or_none(change_amount),
                 decimal_or_none(quote.turnover),
                 quote.source,
-                Jsonb(bar_metadata),
+                Jsonb(metadata),
+                quote.fetched_at,
             ),
-        )
-        if factor_rows:
-            await cursor.executemany(
-                """
-                    INSERT INTO quant.stock_factors (
-                      symbol, ts, factor_key, factor_value, provider, metadata, created_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, now())
-                    ON CONFLICT (symbol, factor_key, ts) DO UPDATE SET
-                      factor_value = EXCLUDED.factor_value,
-                      provider = EXCLUDED.provider,
-                      metadata = quant.stock_factors.metadata || EXCLUDED.metadata
-                    """,
-                factor_rows,
-            )
-        await _refresh_market_data_sync_state(
-            cursor,
-            symbol=symbol,
-            timeframe="daily",
-            adjustment=adjustment,
-            metadata={"name": quote.name, "secid": quote.secid, "universe_id": universe_id},
         )
 
     trade_date_text = local_trade_date.isoformat()

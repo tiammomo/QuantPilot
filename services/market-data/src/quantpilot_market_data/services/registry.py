@@ -32,7 +32,7 @@ def build_data_providers(ttls: ProviderRegistryTtls) -> list[DataProviderInfo]:
             cache_ttl_seconds=ttls.quote,
             limitations=[
                 "实时行情使用短 TTL 缓存，盘中价格可能存在数秒延迟。",
-                "可在收盘后通过 /api/v1/ingestion/eastmoney/realtime-snapshot 写入当日日线快照。",
+                "可通过 /api/v1/ingestion/eastmoney/realtime-snapshot 隔离保存实时观察值。",
             ],
         ),
         DataProviderInfo(
@@ -179,11 +179,12 @@ def build_data_providers(ttls: ProviderRegistryTtls) -> list[DataProviderInfo]:
             name="东方财富实时行情快照入库",
             category="ingestion",
             status="available",
-            description="把东方财富实时行情快照写入 TimescaleDB 当日日线，用于补最新交易日。",
+            description="把东方财富实时行情写入隔离快照表，不覆盖正式复权日线。",
             endpoints=["/api/v1/ingestion/eastmoney/realtime-snapshot"],
             cache_ttl_seconds=None,
             limitations=[
-                "适合收盘后补最新交易日；盘中执行会写入盘中快照。",
+                "trade_date 必须与 quote_time 的上海日期一致，禁止借实时接口回填历史。",
+                "快照是未复权观察值，不写 quant.stock_bars/stock_factors。",
                 "实时行情不稳定提供全部 ETF 换手率时，换手率字段会保留为空。",
             ],
         ),

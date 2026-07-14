@@ -549,9 +549,7 @@ def _query_screener_feature_rows_sync(
           {trade_date:Date} AS target_date,
           target_date - 260 AS start_date,
           toDate('1970-01-01') AS empty_limit_up_date
-        SELECT
-          feature_rows.*,
-          count(*) OVER () AS scanned_symbols
+        SELECT feature_rows.*
         FROM (
           SELECT
             symbol,
@@ -571,8 +569,10 @@ def _query_screener_feature_rows_sync(
             bars[1].13 AS latest_turnover,
             bars[1].14 AS latest_change_percent,
             if(length(bars) > 1, bars[2].14, NULL) AS previous_change_percent,
-            coalesce(bars[1].15, false) AS latest_limit_up,
-            coalesce(bars[1].16, false) AS latest_is_st,
+            bars[1].15 AS latest_limit_up,
+            bars[1].16 AS latest_is_st,
+            bars[1].17 AS latest_limit_down,
+            bars[1].18 AS latest_trade_status,
             arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 5)) AS ma5,
             arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 10)) AS ma10,
             arrayAvg(x -> toFloat64(x.10), arraySlice(bars, 1, 20)) AS ma20,
@@ -620,7 +620,9 @@ def _query_screener_feature_rows_sync(
                     turnover,
                     change_percent,
                     limit_up,
-                    is_st
+                    is_st,
+                    limit_down,
+                    trade_status
                   ))
                 ),
                 1,
@@ -644,7 +646,9 @@ def _query_screener_feature_rows_sync(
                 turnover,
                 change_percent,
                 limit_up,
-                is_st
+                is_st,
+                limit_down,
+                trade_status
               FROM (
                 SELECT
                   symbol,
@@ -664,6 +668,8 @@ def _query_screener_feature_rows_sync(
                   change_percent,
                   limit_up,
                   is_st,
+                  limit_down,
+                  trade_status,
                   row_number() OVER (
                     PARTITION BY symbol, trade_date
                     ORDER BY synced_at DESC
@@ -673,11 +679,6 @@ def _query_screener_feature_rows_sync(
                   AND timeframe = {timeframe:String}
                   AND adjustment = {adjustment:String}
                   AND asset_type = 'stock'
-                  AND exchange != 'BJ'
-                  AND NOT startsWith(code, '688')
-                  AND NOT startsWith(code, '8')
-                  AND NOT startsWith(code, '4')
-                  AND positionCaseInsensitiveUTF8(coalesce(name, ''), 'ST') = 0
                   AND trade_date >= start_date
                   AND trade_date <= target_date
               ) daily_latest
@@ -685,11 +686,6 @@ def _query_screener_feature_rows_sync(
             ) deduplicated
             GROUP BY symbol
           ) grouped
-          WHERE bars[1].1 = target_date
-            AND coalesce(bars[1].16, false) = false
-            AND coalesce(bars[1].15, false) = false
-            AND isNotNull(bars[1].10)
-            AND length(bars) >= 20
         ) feature_rows
         """,
         {
