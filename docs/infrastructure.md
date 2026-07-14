@@ -31,28 +31,31 @@ npm run dev
 默认连接信息：
 
 ```env
-DATABASE_URL="postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:5432/quantpilot?schema=public"
+DATABASE_URL="postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public"
 TIMESCALEDB_IMAGE="timescale/timescaledb:2.27.1-pg18"
 POSTGRES_DB="quantpilot"
 POSTGRES_USER="quantpilot"
 POSTGRES_PASSWORD="quantpilot_dev_password"
-POSTGRES_PORT=5432
-REDIS_URL="redis://127.0.0.1:6379/0"
+POSTGRES_PORT=35433
+REDIS_URL="redis://127.0.0.1:36380/0"
 REDIS_IMAGE="redis:8-alpine"
-REDIS_PORT=6379
+REDIS_PORT=36380
 REDIS_NAMESPACE="quantpilot"
 QUANTPILOT_REDIS_CACHE_ENABLED=1
-LOKI_URL="http://127.0.0.1:3100"
-GRAFANA_URL="http://127.0.0.1:3001"
+LOKI_URL="http://127.0.0.1:33100"
+GRAFANA_URL="http://127.0.0.1:33012"
 QUANTPILOT_DEGRADATION_MODE="auto"
 QUANTPILOT_MARKET_API_REQUIRED=0
 QUANTPILOT_OBSERVABILITY_REQUIRED=0
 QUANTPILOT_REDIS_REQUIRED=0
 PORT=3000
 WEB_PORT=3000
+QUANTPILOT_WEB_HOST="127.0.0.1"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 PREVIEW_PORT_START=4100
 PREVIEW_PORT_END=4999
+QUANTPILOT_ADMIN_TOKEN=""
+QUANTPILOT_MARKET_ADMIN_TOKEN=""
 ```
 
 ## 组件分工
@@ -114,7 +117,7 @@ npm run obs:logs
 - `deploy/observability/alloy/config.alloy`：采集 Docker 容器日志、`tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志。
 - `deploy/observability/grafana/provisioning/datasources/loki.yaml`：自动注册 Grafana Loki 数据源。
 
-Loki 宿主机端口默认使用标准 `3100`，生成项目预览端口池从 `4100` 开始，避免二者互相抢端口；Grafana 默认是 `http://localhost:3001`。运行治理中心的日志页会先查询 Loki，Loki 未启动时仍展示本地文件日志。
+Loki 宿主机端口默认使用 `33100`，生成项目预览端口池从 `4100` 开始，避免二者互相抢端口；Grafana 默认是 `http://localhost:33012`。运行治理中心的日志页会先查询 Loki，Loki 未启动时仍展示本地文件日志。
 
 ## 降级模式
 
@@ -132,8 +135,17 @@ Loki 宿主机端口默认使用标准 `3100`，生成项目预览端口池从 `
 | `QUANTPILOT_REDIS_CACHE_ENABLED` | `1` | 是否启用 Redis 缓存；Redis 不可用时后端会自动直读/文件缓存兜底。 |
 | `QUANTPILOT_SCREENER_CACHE_TTL_SECONDS` | `60` | A 股选股筛选接口的短 TTL；skills/首页重复调用同一日期和模式时优先返回缓存结果。 |
 | `QUANTPILOT_REDIS_REQUIRED` | `0` | Redis 不可用时是否作为健康失败。 |
+| `QUANTPILOT_ADMIN_TOKEN` | 空 | Skills 发布、评测启动等宿主写接口令牌；生产/strict 模式必须配置。 |
+| `QUANTPILOT_MARKET_ADMIN_TOKEN` | 空 | 补数、同步、质量扫描等 market-data 写接口令牌；非 loopback 或 strict 模式必须配置。 |
+| `QUANTPILOT_ALLOW_SKILLS_REGISTRY_FALLBACK` | `0` | 是否允许 Skills registry 损坏时使用内置降级表；默认 fail closed，生产不得开启。 |
+| `QUANTPILOT_AGENT_INHERIT_PROXY` | `0` | 是否允许生成 Agent 继承宿主代理变量；默认隔离，避免把代理凭据带入工作空间进程。 |
+| `QUANTPILOT_WEB_HOST` | `127.0.0.1` | 主前端开发服务监听地址；本地默认仅回环可访问，需要受控局域网访问时再显式覆盖。 |
 
 推荐本地开发保持 `auto`，只在 CI、演示环境或生产巡检中切到 `strict`。完全离线看页面结构、Skills、日志文件时可切到 `offline`。
+
+Docker 暴露的 PostgreSQL、Redis、ClickHouse、Loki、Grafana 和 Alloy 端口默认只绑定 `127.0.0.1`。生产部署不要通过修改 Compose 端口直接公开数据库或管理接口，应通过受控网络、认证网关和最小权限令牌接入。
+
+生成 Agent 使用最小化环境变量白名单，不继承数据库、GitHub、云服务令牌等宿主凭据；Shell 工具只能在当前工作空间内读写，并默认只允许访问本机 market-data API。需要代理的受控环境可以显式开启 `QUANTPILOT_AGENT_INHERIT_PROXY=1`，同时应使用不含长期凭据的专用代理配置。
 
 开发启动脚本会做一次轻量恢复探测：如果上一次是通过 `SKIP_DB_SYNC=1`、`offline` 或关闭组件的方式降级启动，但本次启动时 PostgreSQL/TimescaleDB、market-data、Redis 或 Loki 已经恢复可用，脚本会在当前进程内把这些组件切回启用状态，并把模式恢复为 `auto`。这不会改写 `.env`，只是避免“组件已经拉起来了，前端仍沿用旧的降级环境”。如果确实想强制保持降级，可临时设置：
 

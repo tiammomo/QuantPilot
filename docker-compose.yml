@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantpilot_dev_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "${POSTGRES_PORT:-35433}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-35433}:5432"
     volumes:
       - quantpilot_timescaledb_data:/var/lib/postgresql/data
       - ./sqls:/docker-entrypoint-initdb.d:ro
@@ -34,7 +34,7 @@ services:
       - "60"
       - "1000"
     ports:
-      - "${REDIS_PORT:-36380}:6379"
+      - "127.0.0.1:${REDIS_PORT:-36380}:6379"
     volumes:
       - quantpilot_redis_data:/data
     healthcheck:
@@ -54,8 +54,8 @@ services:
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-quantpilot_dev_password}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ports:
-      - "${CLICKHOUSE_HTTP_PORT:-38123}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT:-39023}:9000"
+      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT:-38123}:8123"
+      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT:-39023}:9000"
     volumes:
       - quantpilot_clickhouse_data:/var/lib/clickhouse
       - quantpilot_clickhouse_logs:/var/log/clickhouse-server
@@ -78,7 +78,7 @@ services:
     command:
       - -config.file=/etc/loki/config.yaml
     ports:
-      - "${LOKI_PORT:-33100}:3100"
+      - "127.0.0.1:${LOKI_PORT:-33100}:3100"
     volumes:
       - ./deploy/observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
       - quantpilot_loki_data:/loki
@@ -94,7 +94,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS_ENABLED:-true}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
-      - "${GRAFANA_PORT:-33012}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-33012}:3000"
     volumes:
       - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - quantpilot_grafana_data:/var/lib/grafana
@@ -111,7 +111,7 @@ services:
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
     ports:
-      - "${GRAFANA_ALLOY_PORT:-33145}:12345"
+      - "127.0.0.1:${GRAFANA_ALLOY_PORT:-33145}:12345"
     volumes:
       - ./deploy/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - ./tmp:/var/log/quantpilot/tmp:ro

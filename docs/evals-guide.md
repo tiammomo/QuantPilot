@@ -87,11 +87,20 @@ action=simulate-flow
 
 ## 命令行运行
 
+评测分为两条明确隔离的链路：
+
+| 模式 | 命令 | 含义 |
+| --- | --- | --- |
+| 确定性契约 | `benchmark:quant:contract` | 使用平台标准模板验证规划、数据、证据、构建、视觉和产物契约；不计作模型生成成绩 |
+| 真实 E2E | `benchmark:quant:e2e` | 真实调用 DeepSeek V4 Flash，验证从用户问题到最终看板的完整生成链路 |
+
 ```bash
 npm run benchmark:quant
-npm run benchmark:quant -- --case stock-fundamental-maotai
-npm run benchmark:quant -- --case runtime-registry-deepseek-v4-flash
+npm run benchmark:quant:contract -- --case stock-fundamental-maotai
+npm run benchmark:quant:e2e -- --case stock-diagnosis-citic-no-false-clarification
 ```
+
+`benchmark:quant` 是确定性契约模式的兼容别名。真实 E2E 报告会写入 `agentExecuted=true`，CI 不接受用契约报告冒充 E2E 报告。每份报告同时记录 commit、用例与 prompt 哈希、Skills lock 版本和实际执行模式。
 
 相关检查：
 
@@ -99,6 +108,7 @@ npm run benchmark:quant -- --case runtime-registry-deepseek-v4-flash
 npm run check:benchmark-coverage
 npm run check:eval-schedule
 npm run eval:ci
+npm run eval:ci:e2e
 ```
 
 ## 报告目录
@@ -126,11 +136,13 @@ POST /api/evals action=check-schedule
 
 ## CI 阻断策略
 
-CI 侧建议至少保留：
+CI 固定保留：
 
 - benchmark 覆盖检查。
 - eval schedule 检查。
-- eval ci gate。
+- 全量确定性契约 benchmark 与 100% 通过率 gate。
 - lint 和 type-check。
+
+仓库的 Quality workflow 会启动本地 TimescaleDB、Redis 和 market-data，运行全量确定性契约并上传 14 天证据；夜间 workflow 在配置 `DEEPSEEK_API_KEY` 后运行真实 DeepSeek 回归集，并保留 30 天报告、截图和市场数据日志。真实失败问题应先加入固定用例，再修 Skills 或平台代码。
 
 如果某次改动涉及 skills、生成契约、验证逻辑或数据后端，应优先补跑相关 benchmark。

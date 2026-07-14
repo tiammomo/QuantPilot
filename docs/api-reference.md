@@ -90,7 +90,16 @@
 | `/api/v1/foundation/status` | `GET` | 基础组件状态 |
 | `/api/v1/foundation/factors` | `GET` | 因子定义 |
 | `/api/v1/foundation/trading-calendar` | `GET` | 交易日历 |
+| `/api/v1/foundation/trading-calendar/refresh` | `POST` | 管理员从 Baostock 刷新 CN-A 开市与休市日，默认近 5 年至今天 |
 | `/api/v1/foundation/data-quality/scan` | `POST` | 数据质量扫描 |
+
+`POST /api/v1/foundation/trading-calendar/refresh` 的请求体可选传入 ISO 日期
+`start`、`end`；两者均省略时刷新上海时区今天往前 5 年的日历，`end` 不允许晚于今天。
+服务复用 Baostock 共享会话调用 `query_trade_dates`，将每个自然日按
+`CN-A / regular / baostock` 幂等写入 `quant.trading_calendars`。响应会分别返回
+`requested_days`、`received_days`、`inserted_days`、`updated_days`、
+`unchanged_days`、`written_days`、`open_days`、`closed_days` 以及实际首尾日期。该接口属于写接口，
+遵循市场数据管理员令牌校验。
 
 ### 股票池、ETF/指数池和本地研究数据
 

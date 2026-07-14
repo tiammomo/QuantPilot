@@ -39,13 +39,8 @@ npm run db:init
 npm run obs:up
 ```
 
-```bash
-cd services/market-data
-uv sync --extra baostock --extra akshare
-cd ../..
-```
-
-在项目根目录启动完整开发栈；命令会自动启动或复用 market-data：
+在项目根目录启动完整开发栈；命令会自动启用 Baostock / AKShare 数据扩展，
+并启动或复用 market-data：
 
 ```bash
 npm run dev

@@ -94,19 +94,23 @@ async function startMarketApiIfNeeded() {
     .join(',');
 
   console.log(`🚀 Starting market-data service on ${url}`);
-  const child = spawn('uv', ['run', 'quantpilot-market-api'], {
-    cwd: marketDataDir,
-    stdio: 'inherit',
-    shell: isWindows,
-    detached: !isWindows,
-    env: {
-      ...process.env,
-      NO_PROXY: noProxy,
-      no_proxy: noProxy,
-      QUANTPILOT_MARKET_HOST: host,
-      QUANTPILOT_MARKET_PORT: port,
-    },
-  });
+  const child = spawn(
+    'uv',
+    ['run', '--extra', 'baostock', '--extra', 'akshare', 'quantpilot-market-api'],
+    {
+      cwd: marketDataDir,
+      stdio: 'inherit',
+      shell: isWindows,
+      detached: !isWindows,
+      env: {
+        ...process.env,
+        NO_PROXY: noProxy,
+        no_proxy: noProxy,
+        QUANTPILOT_MARKET_HOST: host,
+        QUANTPILOT_MARKET_PORT: port,
+      },
+    }
+  );
 
   child.once('error', (error) => {
     console.error(`❌ Failed to start market-data: ${error.message}`);

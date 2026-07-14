@@ -72,6 +72,15 @@ function parseCliArgs(argv) {
   return { preferredPort, passthrough };
 }
 
+function hasHostnameArg(args) {
+  return args.some((arg) => (
+    arg === '--hostname' ||
+    arg === '-H' ||
+    arg.startsWith('--hostname=') ||
+    arg.startsWith('-H=')
+  ));
+}
+
 function runPrismaDbPush() {
   return new Promise((resolve, reject) => {
     console.log('🗃️  Synchronizing Prisma schema (prisma db push)...');
@@ -369,7 +378,9 @@ async function startWebDevServer({
 
   console.log(`🚀 Starting Next.js dev server on ${resolvedUrl}`);
 
-  const devArgs = ['next', 'dev', '--port', resolvedPort.toString(), ...passthrough];
+  const defaultHost = process.env.QUANTPILOT_WEB_HOST?.trim() || '127.0.0.1';
+  const hostArgs = hasHostnameArg(passthrough) ? [] : ['--hostname', defaultHost];
+  const devArgs = ['next', 'dev', ...hostArgs, '--port', resolvedPort.toString(), ...passthrough];
 
   const child = spawn(
     'npx',
@@ -444,6 +455,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  hasHostnameArg,
   parseCliArgs,
   startWebDevServer,
 };
