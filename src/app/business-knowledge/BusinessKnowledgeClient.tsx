@@ -27,7 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
+import { SubNav, subNavPanelId, subNavTabId, type SubNavItem } from "@/components/layout/SubNav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -409,7 +409,7 @@ function CapabilitiesView({ data, groupNameById, keyword, groupFilter, statusFil
       <SectionHeader eyebrow="CAPABILITY CATALOG" title="量化业务能力目录" description="按业务领域和成熟度检索能力，查看适用场景、分析关注点和交付标准。" />
       <div className="rounded-xl border border-border/60 bg-card/85 p-3 shadow-[0_16px_38px_-32px_hsl(var(--shadow-color)/0.55)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1 lg:max-w-[420px]"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="搜索业务能力、场景或关注点..." className="h-10 bg-background pl-9" /></div>
+          <div className="relative min-w-0 flex-1 lg:max-w-[420px]"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="搜索业务能力、场景或关注点..." aria-label="搜索业务能力、场景或关注点" className="h-10 bg-background pl-9" /></div>
           <div className="platform-nav-scroll flex min-w-0 gap-2 overflow-x-auto">
             <button type="button" onClick={() => onGroupFilterChange("all")} className={cn("h-9 shrink-0 rounded-full border px-3 text-xs font-medium", groupFilter === "all" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground")}>全部领域</button>
             {data.groups.map((group) => <button key={group.id} type="button" onClick={() => onGroupFilterChange(group.id)} className={cn("h-9 shrink-0 rounded-full border px-3 text-xs font-medium", groupFilter === group.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground")}>{group.name}</button>)}
@@ -515,7 +515,7 @@ export default function BusinessKnowledgeClient({ initialData }: Props) {
     const url = new URL(window.location.href);
     if (view === "overview") url.searchParams.delete("view");
     else url.searchParams.set("view", view);
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   useEffect(() => {
@@ -563,13 +563,14 @@ export default function BusinessKnowledgeClient({ initialData }: Props) {
         subtitle={`业务场景、分析方法与交付规范 · 更新于 ${formatDate(data.generatedAt)}`}
       />
       <SubNav
+        ariaLabel="业务知识视图"
         items={VIEW_ITEMS}
         activeId={activeView}
         onChange={(id) => changeView(id as ViewId)}
-        actions={<Button variant="outline" size="sm" onClick={refresh} disabled={isRefreshing} className="gap-1.5"><RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新知识状态</span></Button>}
+        actions={<Button aria-label="刷新知识状态" title="刷新知识状态" variant="outline" size="sm" onClick={refresh} disabled={isRefreshing} className="gap-1.5"><RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新知识状态</span></Button>}
       />
 
-      <main className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+      <main id={subNavPanelId(activeView)} role="tabpanel" aria-labelledby={subNavTabId(activeView)} tabIndex={0} className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
         {error && <div role="alert" className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</div>}
         {activeView === "overview" && <OverviewView data={data} groupNameById={groupNameById} onViewChange={changeView} onOpenCapability={openCapability} onOpenGroup={openGroup} />}
         {activeView === "capabilities" && <CapabilitiesView data={data} groupNameById={groupNameById} keyword={keyword} groupFilter={groupFilter} statusFilter={statusFilter} onKeywordChange={setKeyword} onGroupFilterChange={setGroupFilter} onStatusFilterChange={setStatusFilter} onOpen={openCapability} />}

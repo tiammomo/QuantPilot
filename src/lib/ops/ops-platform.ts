@@ -272,6 +272,54 @@ async function tailLogSource(id: string, label: string, filePath: string | null,
   }
 }
 
+async function inspectLogSourceMetadata(id: string, label: string, filePath: string | null): Promise<OpsLogSource> {
+  const emptyPath = filePath ?? path.join(ROOT, '<missing>');
+  if (!filePath) {
+    return {
+      id,
+      label,
+      path: '<未发现日志文件>',
+      type: 'file',
+      exists: false,
+      sizeBytes: 0,
+      modifiedAt: null,
+      lineCount: 0,
+      lines: [],
+      entries: [],
+      error: '没有匹配的日志文件',
+    };
+  }
+  try {
+    const stat = await fs.stat(filePath);
+    return {
+      id,
+      label,
+      path: relativePath(filePath),
+      type: 'file',
+      exists: true,
+      sizeBytes: stat.size,
+      modifiedAt: stat.mtime.toISOString(),
+      lineCount: 0,
+      lines: [],
+      entries: [],
+    };
+  } catch (error) {
+    return {
+      id,
+      label,
+      path: relativePath(emptyPath),
+      type: 'file',
+      exists: false,
+      sizeBytes: 0,
+      modifiedAt: null,
+      lineCount: 0,
+      lines: [],
+      entries: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 function parseDateToken(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.includes('T') ? value : value.replace(' ', 'T');
@@ -435,7 +483,23 @@ async function queryLokiLogSource(maxLines = 220): Promise<OpsLogSource> {
   }
 }
 
-async function collectLogSources(): Promise<OpsLogSource[]> {
+async function inspectLokiMetadata(): Promise<OpsLogSource> {
+  const degradation = getRuntimeDegradationConfig();
+  if (!degradation.components.observability.enabled) {
+    return buildLokiLogSource({
+      path: `配置停用 · ${LOKI_QUERY}`,
+      error: 'Loki 已按降级配置停用，本地文件日志仍可作为兜底。',
+    });
+  }
+  const probe = await probeUrl(`${LOKI_BASE_URL.replace(/\/$/, '')}/ready`, 600);
+  return buildLokiLogSource({
+    exists: probe.ok,
+    modifiedAt: probe.ok ? new Date().toISOString() : null,
+    error: probe.ok ? undefined : probe.error ?? `HTTP ${probe.status ?? '-'}`,
+  });
+}
+
+async function collectLogSources(includeEntries: boolean): Promise<OpsLogSource[]> {
   const latestEvalLog = await findLatestLogFile(path.join(ROOT, 'tmp', 'quantpilot-eval-queue', 'logs'));
   const sources: Array<{ id: string; label: string; filePath: string | null }> = [
     { id: 'next-dev', label: '前端 Next.js dev', filePath: path.join(ROOT, '.next', 'dev', 'logs', 'next-development.log') },
@@ -444,8 +508,10 @@ async function collectLogSources(): Promise<OpsLogSource[]> {
     { id: 'eval-queue', label: '评测队列最新运行', filePath: latestEvalLog },
   ];
   const [fileSources, lokiSource] = await Promise.all([
-    Promise.all(sources.map((source) => tailLogSource(source.id, source.label, source.filePath))),
-    queryLokiLogSource(),
+    Promise.all(sources.map((source) => includeEntries
+      ? tailLogSource(source.id, source.label, source.filePath)
+      : inspectLogSourceMetadata(source.id, source.label, source.filePath))),
+    includeEntries ? queryLokiLogSource() : inspectLokiMetadata(),
   ]);
   return [lokiSource, ...fileSources];
 }
@@ -699,6 +765,7 @@ function buildStrategyHealthProfile(strategy: Awaited<ReturnType<typeof getStrat
 
 export async function getOpsPlatformDashboard(params: {
   workspaceHealth?: WorkspaceHealthDashboard | Promise<WorkspaceHealthDashboard>;
+  includeLogEntries?: boolean;
 } = {}): Promise<OpsPlatformDashboard> {
   const degradation = getRuntimeDegradationConfig();
   const serviceCatalog = getResolvedServiceCatalog();
@@ -726,7 +793,7 @@ export async function getOpsPlatformDashboard(params: {
     hasBundledAgentRuntime(),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
-    collectLogSources(),
+    collectLogSources(params.includeLogEntries === true),
   ]);
 
   const projectsDir = path.resolve(
@@ -831,7 +898,9 @@ export async function getOpsPlatformDashboard(params: {
       label: 'Loki 集中日志',
       status: lokiStatus,
       summary: lokiSource?.exists
-        ? `${lokiSource.lineCount} 行集中日志 · ${LOKI_BASE_URL}`
+        ? lokiSource.entries.length
+          ? `${lokiSource.lineCount} 行集中日志 · ${LOKI_BASE_URL}`
+          : `集中日志服务可达 · ${LOKI_BASE_URL}`
         : componentUnavailableSummary(observability, 'Loki'),
       detail: lokiSource?.exists
         ? `查询 ${lokiSource.query ?? LOKI_QUERY}`

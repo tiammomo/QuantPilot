@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Clock3,
   ExternalLink,
@@ -19,6 +19,7 @@ import { formatBytes, OpsMetricCard, OpsSectionHeader, OpsStatusBadge } from "./
 
 type TimeRange = "all" | "5m" | "30m" | "1h" | "6h" | "24h";
 type LevelFilter = "all" | "error" | "warning" | "info";
+const LOG_RENDER_BATCH = 300;
 
 const TIME_RANGES: Array<{ id: TimeRange; label: string; minutes: number | null }> = [
   { id: "all", label: "全部", minutes: null },
@@ -72,6 +73,7 @@ export function OpsLogsView({ data }: { data: OpsPlatformDashboard }) {
   const [keyword, setKeyword] = useState("");
   const [range, setRange] = useState<TimeRange>("all");
   const [level, setLevel] = useState<LevelFilter>("all");
+  const [renderLimit, setRenderLimit] = useState(LOG_RENDER_BATCH);
   const active = data.logSources.find((source) => source.id === activeId) ?? firstAvailable;
   const entries = useMemo(() => normalizeEntries(active), [active]);
   const filtered = useMemo(() => {
@@ -89,9 +91,18 @@ export function OpsLogsView({ data }: { data: OpsPlatformDashboard }) {
     });
   }, [entries, keyword, level, range]);
   const readableSources = data.logSources.filter((source) => source.exists);
+  const visibleEntries = useMemo(
+    () => filtered.slice(Math.max(0, filtered.length - renderLimit)),
+    [filtered, renderLimit],
+  );
+  const hiddenEntryCount = Math.max(0, filtered.length - visibleEntries.length);
   const totalLines = readableSources.reduce((sum, source) => sum + source.lineCount, 0);
   const errorCount = entries.filter((entry) => normalizeLevel(entry.level) === "error").length;
   const approximateCount = filtered.filter((entry) => entry.timestampSource === "source-modified").length;
+
+  useEffect(() => {
+    setRenderLimit(LOG_RENDER_BATCH);
+  }, [activeId, keyword, level, range]);
 
   return (
     <div className="space-y-7">
@@ -127,14 +138,21 @@ export function OpsLogsView({ data }: { data: OpsPlatformDashboard }) {
               <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索内容、级别、时间或行号" className="h-10 bg-background pl-9" aria-label="搜索日志" /></div>
               <div className="flex flex-wrap gap-1.5">{(["all", "error", "warning", "info"] as LevelFilter[]).map((item) => { const labels: Record<LevelFilter, string> = { all: "全部级别", error: "错误", warning: "警告", info: "信息" }; return <button key={item} type="button" onClick={() => setLevel(item)} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold", level === item ? "border-primary/30 bg-primary/10 text-primary" : "border-border/60 bg-background text-muted-foreground")}>{labels[item]}</button>; })}</div>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">{TIME_RANGES.map((item) => <button key={item.id} type="button" onClick={() => setRange(item.id)} className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", range === item.id ? "border-primary/30 bg-primary/10 text-primary" : "border-border/60 bg-background text-muted-foreground")}>{item.label}</button>)}<span className="ml-auto text-xs text-muted-foreground">匹配 {filtered.length}/{entries.length} 行</span></div>
+            <div className="flex flex-wrap items-center gap-1.5">{TIME_RANGES.map((item) => <button key={item.id} type="button" onClick={() => setRange(item.id)} className={cn("rounded-full border px-2.5 py-1 text-[11px] font-medium", range === item.id ? "border-primary/30 bg-primary/10 text-primary" : "border-border/60 bg-background text-muted-foreground")}>{item.label}</button>)}<span className="ml-auto text-xs text-muted-foreground">匹配 {filtered.length}/{entries.length} 行 · 已渲染 {visibleEntries.length}</span></div>
             {approximateCount > 0 && range !== "all" && <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">{approximateCount} 行缺少原始时间，已按文件更新时间近似筛选。</p>}
           </div>
           {active?.exists && entries.length ? (
             filtered.length ? (
               <div className="max-h-[68vh] overflow-auto bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+                {hiddenEntryCount > 0 && (
+                  <div className="sticky top-0 z-10 mb-2 flex justify-center bg-slate-950/95 py-1 backdrop-blur">
+                    <button type="button" onClick={() => setRenderLimit((value) => value + LOG_RENDER_BATCH)} className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-sky-300 hover:border-sky-700">
+                      加载更早 {Math.min(LOG_RENDER_BATCH, hiddenEntryCount)} 行（尚有 {hiddenEntryCount} 行）
+                    </button>
+                  </div>
+                )}
                 <div className="min-w-[680px] space-y-0.5">
-                  {filtered.map((entry) => <div key={entry.id} className="grid grid-cols-[42px_72px_52px_minmax(0,1fr)] gap-2 rounded px-2 py-0.5 hover:bg-white/5"><span className="text-right text-slate-600">{entry.lineNumber}</span><span className={entry.timestampSource === "line" || entry.timestampSource === "loki" ? "text-slate-300" : "text-slate-600"}>{formatLogTimestamp(entry.timestamp)}</span><span className={logLevelClass(entry.level)}>{entry.level ?? "-"}</span><span className="whitespace-pre-wrap break-words text-slate-100">{entry.raw}</span></div>)}
+                  {visibleEntries.map((entry) => <div key={entry.id} className="grid grid-cols-[42px_72px_52px_minmax(0,1fr)] gap-2 rounded px-2 py-0.5 hover:bg-white/5"><span className="text-right text-slate-600">{entry.lineNumber}</span><span className={entry.timestampSource === "line" || entry.timestampSource === "loki" ? "text-slate-300" : "text-slate-600"}>{formatLogTimestamp(entry.timestamp)}</span><span className={logLevelClass(entry.level)}>{entry.level ?? "-"}</span><span className="whitespace-pre-wrap break-words text-slate-100">{entry.raw}</span></div>)}
                 </div>
               </div>
             ) : <EmptyState title="没有匹配的日志" description="调整搜索、级别或时间范围后再试。" className="border-0 py-16" />

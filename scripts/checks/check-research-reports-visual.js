@@ -9,7 +9,7 @@ const baseUrl = (process.env.QUANTPILOT_WEB_URL || 'http://localhost:3000').repl
 const outputDir = path.join(rootDir, 'tmp', 'visual-checks', 'research-reports');
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const views = [
-  { id: 'overview', query: '', label: '研究总览', expected: '研究链路已经就绪' },
+  { id: 'overview', query: '', label: '研究总览', expected: ['研究链路已经就绪', '从证据出发'] },
   { id: 'reports', query: '?view=reports', label: '报告库', expected: '研究报告库' },
   { id: 'insights', query: '?view=insights', label: '主题洞察', expected: '主题洞察与证据地图' },
   { id: 'automation', query: '?view=automation', label: '源与自动化', expected: '研究源与自动化链路' },
@@ -41,7 +41,8 @@ async function inspectProfile(browser, profile) {
         continue;
       }
       await page.waitForFunction(
-        ({ label, expected }) => document.body.innerText.includes(label) && document.body.innerText.includes(expected),
+        ({ label, expected }) => document.body.innerText.includes(label)
+          && (Array.isArray(expected) ? expected.some((item) => document.body.innerText.includes(item)) : document.body.innerText.includes(expected)),
         { label: view.label, expected: view.expected },
         { timeout: 20_000 },
       );

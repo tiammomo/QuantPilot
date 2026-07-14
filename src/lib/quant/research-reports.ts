@@ -129,6 +129,7 @@ export interface RunDailyResearchReportOptions {
 export interface SendResearchReportOptions {
   reportId?: string;
   dryRun?: boolean;
+  idempotencyKey?: string;
 }
 
 interface MarketProbe<T = unknown> {
@@ -928,12 +929,71 @@ export async function sendResearchReport(
     throw new Error('No notification channel available');
   }
 
-  await createNotificationDeliveries({
-    runId: null,
-    report: mapNotificationReport(report),
-    channels: deliveryChannels.map(mapNotificationChannel),
-    dryRun: options.dryRun ?? false,
-  });
+  const dryRun = options.dryRun ?? false;
+  const idempotencyKey = options.idempotencyKey?.trim();
+  const reservationKey = !dryRun && idempotencyKey
+    ? `research-delivery-idempotency:${idempotencyKey.slice(0, 160)}`
+    : null;
+  if (!dryRun && !reservationKey) {
+    throw new Error('Real research report delivery requires an idempotency key');
+  }
+
+  if (reservationKey) {
+    try {
+      await prisma.platformSetting.create({
+        data: {
+          key: reservationKey,
+          value: {
+            status: 'reserved',
+            reportId: report.id,
+            requestedAt: new Date().toISOString(),
+          },
+        },
+      });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+        return getResearchAutomationDashboard();
+      }
+      throw error;
+    }
+  }
+
+  try {
+    const deliveries = await createNotificationDeliveries({
+      runId: null,
+      report: mapNotificationReport(report),
+      channels: deliveryChannels.map(mapNotificationChannel),
+      dryRun,
+    });
+    if (reservationKey) {
+      await prisma.platformSetting.update({
+        where: { key: reservationKey },
+        data: {
+          value: {
+            status: 'completed',
+            reportId: report.id,
+            completedAt: new Date().toISOString(),
+            deliveryIds: deliveries.map((delivery) => delivery.id),
+          },
+        },
+      });
+    }
+  } catch (error) {
+    if (reservationKey) {
+      await prisma.platformSetting.update({
+        where: { key: reservationKey },
+        data: {
+          value: {
+            status: 'failed',
+            reportId: report.id,
+            failedAt: new Date().toISOString(),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        },
+      }).catch(() => undefined);
+    }
+    throw error;
+  }
 
   return getResearchAutomationDashboard();
 }

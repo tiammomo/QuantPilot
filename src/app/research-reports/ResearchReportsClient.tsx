@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -17,12 +17,23 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
+  TriangleAlert,
   Workflow,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
+import { SubNav, subNavPanelId, subNavTabId, type SubNavItem } from "@/components/layout/SubNav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type {
   ResearchAutomationDashboard,
@@ -151,12 +162,14 @@ export default function ResearchReportsClient({ initialData, initialView = "over
   const [isRunning, setIsRunning] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [pendingDelivery, setPendingDelivery] = useState<{ reportId?: string } | null>(null);
+  const sendInFlightRef = useRef(false);
 
   const updateUrl = useCallback((nextView: ResearchView) => {
     const url = new URL(window.location.href);
     if (nextView === "overview") url.searchParams.delete("view");
     else url.searchParams.set("view", nextView);
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   const changeView = useCallback((nextView: ResearchView) => {
@@ -207,11 +220,29 @@ export default function ResearchReportsClient({ initialData, initialView = "over
     }
   };
 
+  const requestReportDelivery = (reportId?: string) => {
+    if (sendInFlightRef.current || isSending) return;
+    setPendingDelivery({ reportId });
+  };
+
   const sendReport = async (reportId?: string) => {
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
     setIsSending(true);
+    setPendingDelivery(null);
     setFeedback(null);
     try {
-      const response = await fetch("/api/research/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send-latest-report", reportId, dryRun: false }) });
+      const response = await fetch("/api/research/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "send-latest-report",
+          reportId,
+          dryRun: false,
+          confirmed: true,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
       const payload = await response.json() as ApiResponse<ResearchAutomationDashboard>;
       if (!response.ok || !payload.success || !payload.data) throw new Error(payload.message || payload.error || "推送失败");
       setData(payload.data);
@@ -219,24 +250,70 @@ export default function ResearchReportsClient({ initialData, initialView = "over
     } catch (error) {
       setFeedback({ type: "error", message: error instanceof Error ? error.message : String(error) });
     } finally {
+      sendInFlightRef.current = false;
       setIsSending(false);
     }
   };
 
   const latestRun = data.recentRuns[0] ?? null;
   const generatedAt = data.generatedAt ?? latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
+  const pendingReport = pendingDelivery
+    ? data.latestReports.find((report) => report.id === pendingDelivery.reportId) ?? data.latestReports[0] ?? null
+    : null;
+  const liveChannels = data.notificationChannels.filter((channel) => !channel.isDryRun);
   return (
     <div className="platform-shell">
       <PageHeader compactOnMobile title="投研情报中心" badge={<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">{data.summary.reports} 份研究报告</Badge>} subtitle={`观察池、证据、报告与交付闭环 · 更新于 ${formatResearchTime(generatedAt)}`} />
-      <SubNav compactOnMobile items={VIEW_ITEMS} activeId={view} onChange={(id) => changeView(id as ResearchView)} actions={<div className="flex items-center gap-2"><Button aria-label="刷新研究状态" title="刷新研究状态" variant="outline" size="sm" onClick={refresh} disabled={isRefreshing || isRunning || isSending}><RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新</span></Button><Button aria-label="生成研究日报" title="生成研究日报" size="sm" onClick={runDailyReport} disabled={isRunning || isRefreshing || isSending}>{isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}<span className="hidden sm:inline">生成日报</span></Button></div>} />
-      <main className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+      <SubNav ariaLabel="投研报告视图" compactOnMobile items={VIEW_ITEMS} activeId={view} onChange={(id) => changeView(id as ResearchView)} actions={<div className="flex items-center gap-2"><Button aria-label="刷新研究状态" title="刷新研究状态" variant="outline" size="sm" onClick={refresh} disabled={isRefreshing || isRunning || isSending}><RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新</span></Button><Button aria-label="生成研究日报" title="生成研究日报" size="sm" onClick={runDailyReport} disabled={isRunning || isRefreshing || isSending}>{isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}<span className="hidden sm:inline">生成日报</span></Button></div>} />
+      <main id={subNavPanelId(view)} role="tabpanel" aria-labelledby={subNavTabId(view)} tabIndex={0} className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
         {feedback && <div role="status" className={cn("rounded-xl border px-4 py-3 text-sm", feedback.type === "success" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500" : "border-red-500/25 bg-red-500/10 text-red-500")}>{feedback.message}</div>}
-        {view === "overview" && <OverviewView data={data} onViewChange={changeView} onSend={sendReport} isSending={isSending} />}
-        {view === "reports" && <ResearchReportLibrary reports={data.latestReports} onOpenAutomation={() => changeView("automation")} onSend={(id) => sendReport(id)} isSending={isSending} />}
+        {view === "overview" && <OverviewView data={data} onViewChange={changeView} onSend={requestReportDelivery} isSending={isSending} />}
+        {view === "reports" && <ResearchReportLibrary reports={data.latestReports} onOpenAutomation={() => changeView("automation")} onSend={requestReportDelivery} isSending={isSending} />}
         {view === "insights" && <ResearchInsightsView data={data} />}
-        {view === "automation" && <ResearchAutomationView data={data} onSend={sendReport} isSending={isSending} />}
+        {view === "automation" && <ResearchAutomationView data={data} onSend={requestReportDelivery} isSending={isSending} />}
         {latestRun?.status === "running" && <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-xl border border-blue-500/25 bg-card px-4 py-3 text-sm text-blue-500 shadow-xl"><Loader2 className="h-4 w-4 animate-spin" />日报正在运行</div>}
       </main>
+
+      <AlertDialog
+        open={Boolean(pendingDelivery)}
+        onOpenChange={(open) => {
+          if (!open && !isSending) setPendingDelivery(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500">
+              <TriangleAlert className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <AlertDialogTitle>确认真实推送研究报告</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 text-left leading-6">
+              <span className="block">
+                即将推送“{pendingReport?.title ?? "最新研究报告"}”。该操作会调用真实通知通道，不是 dry-run。
+              </span>
+              <span className="block rounded-lg border border-border/70 bg-muted/45 px-3 py-2 text-xs text-foreground">
+                {liveChannels.length > 0
+                  ? `目标：${liveChannels.map((channel) => `${channel.name}${channel.target ? `（${channel.target}）` : ""}`).join("、")}`
+                  : "当前未发现非 dry-run 通道；服务端仍会按已保存的通道配置执行并返回回执。"}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSending}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isSending || !pendingReport}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!pendingReport) return;
+                void sendReport(pendingReport.id);
+              }}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              确认并推送
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

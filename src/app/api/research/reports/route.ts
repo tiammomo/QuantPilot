@@ -6,6 +6,7 @@ import {
   sendResearchReport,
   type RunDailyResearchReportOptions,
 } from '@/lib/quant/research-reports';
+import { assertPrivilegedMutation } from '@/lib/server/privileged-request';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,11 +22,14 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    assertPrivilegedMutation(request);
     const body = await request.json().catch(() => ({})) as {
       action?: string;
       watchlistId?: string;
       reportId?: string;
       dryRun?: boolean;
+      confirmed?: boolean;
+      idempotencyKey?: string;
     };
 
     if (!body.action || body.action === 'run-daily-report') {
@@ -38,9 +42,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === 'send-latest-report') {
+      if (body.dryRun !== true && body.confirmed !== true) {
+        throw new Error('真实推送必须显式确认。');
+      }
+      if (body.dryRun !== true && !body.idempotencyKey?.trim()) {
+        throw new Error('真实推送必须提供幂等键。');
+      }
       const dashboard = await sendResearchReport({
         reportId: body.reportId,
         dryRun: body.dryRun ?? false,
+        idempotencyKey: body.idempotencyKey,
       });
       return createSuccessResponse(dashboard, 201);
     }

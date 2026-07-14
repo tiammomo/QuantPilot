@@ -100,7 +100,7 @@ const FALLBACK_REGISTRY: QuantSkillsRegistry = {
   legacyAliases: {},
 };
 
-let cachedRegistry: QuantSkillsRegistry | null = null;
+let cachedRegistry: { mtimeMs: number; value: QuantSkillsRegistry } | null = null;
 
 function asRegistry(value: unknown): QuantSkillsRegistry | null {
   if (!value || typeof value !== 'object') {
@@ -116,19 +116,26 @@ function asRegistry(value: unknown): QuantSkillsRegistry | null {
 }
 
 export async function readQuantSkillsRegistry(): Promise<QuantSkillsRegistry> {
-  if (cachedRegistry) {
-    return cachedRegistry;
-  }
-
   try {
+    const stat = await fs.stat(REGISTRY_PATH);
+    if (cachedRegistry?.mtimeMs === stat.mtimeMs) {
+      return cachedRegistry.value;
+    }
     const content = await fs.readFile(REGISTRY_PATH, 'utf8');
     const parsed = asRegistry(JSON.parse(content));
-    cachedRegistry = parsed ?? FALLBACK_REGISTRY;
-  } catch {
-    cachedRegistry = FALLBACK_REGISTRY;
+    if (!parsed) {
+      throw new Error('registry schema is invalid');
+    }
+    cachedRegistry = { mtimeMs: stat.mtimeMs, value: parsed };
+    return parsed;
+  } catch (error) {
+    if (process.env.QUANTPILOT_ALLOW_SKILLS_REGISTRY_FALLBACK === '1') {
+      return FALLBACK_REGISTRY;
+    }
+    throw new Error(
+      `Skills registry 不可用，已按 fail-closed 策略停止运行：${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-
-  return cachedRegistry;
 }
 
 export function getCoreQuantSkillIds(registry: QuantSkillsRegistry): string[] {
@@ -143,7 +150,11 @@ export function getDefaultQuantSkillIds(
   registry: QuantSkillsRegistry,
   options: { includeLegacy?: boolean } = {}
 ): string[] {
-  const ids = new Set(getCoreQuantSkillIds(registry));
+  const ids = new Set(
+    registry.coreSkills
+      .filter((skill) => skill.status === 'stable')
+      .map((skill) => skill.id),
+  );
   const includeLegacy = options.includeLegacy ?? registry.policy.installLegacyByDefault ?? false;
 
   if (includeLegacy) {

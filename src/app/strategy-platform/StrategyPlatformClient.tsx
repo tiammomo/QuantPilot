@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import * as Dialog from "@radix-ui/react-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { SubNav } from "@/components/layout/SubNav";
+import { SubNav, subNavPanelId, subNavTabId } from "@/components/layout/SubNav";
 import { formatCompactDate as formatDate } from "@/components/quant/console-primitives";
 import { cn } from "@/lib/utils";
 import type {
@@ -112,6 +112,13 @@ import {
 } from "./strategy-platform-helpers";
 
 type Props = { initialData: StrategyDashboardData };
+const STRATEGY_VIEWS = new Set<StrategyView>([
+  "universe", "catalog", "factors", "sectorFlow", "foundation", "knowledge", "scans", "compare",
+]);
+
+function isStrategyView(value: string | null): value is StrategyView {
+  return Boolean(value && STRATEGY_VIEWS.has(value as StrategyView));
+}
 function StrategySelector({
   templates,
   selectedId,
@@ -133,6 +140,7 @@ function StrategySelector({
           <Input
             value={keyword}
             onChange={(e) => onKeywordChange(e.target.value)}
+            aria-label="搜索策略运行实例"
             placeholder="搜索策略、参数、端点..."
             className="h-9 border-slate-200 bg-white pl-9"
           />
@@ -253,6 +261,25 @@ export default function StrategyPlatformClient({ initialData }: Props) {
   const [dialogStrategy, setDialogStrategy] = useState<StrategyCatalogItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  const switchView = useCallback((nextView: StrategyView, historyMode: "push" | "replace" = "push") => {
+    setView(nextView);
+    const url = new URL(window.location.href);
+    if (nextView === "universe") url.searchParams.delete("view");
+    else url.searchParams.set("view", nextView);
+    window.history[historyMode === "push" ? "pushState" : "replaceState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const applyLocation = () => {
+      const requested = new URL(window.location.href).searchParams.get("view");
+      setView(isStrategyView(requested) ? requested : "universe");
+    };
+    applyLocation();
+    window.addEventListener("popstate", applyLocation);
+    return () => window.removeEventListener("popstate", applyLocation);
+  }, []);
+
   const filteredTemplates = useMemo(() => {
     const lower = keyword.trim().toLowerCase();
     return data.templates.filter((t) => {
@@ -355,7 +382,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
       if (!r.ok || !payload.success) throw new Error(payload.error ?? "参数扫描失败");
       setToast({ type: "success", message: `扫描任务已加入队列：${payload.data.id}` });
       await refresh();
-      setView("scans");
+      switchView("scans");
     } catch (error) {
       setToast({ type: "error", message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -393,7 +420,6 @@ export default function StrategyPlatformClient({ initialData }: Props) {
     }
   };
 
-  const switchView = (v: string) => setView(v as StrategyView);
   const selectTemplate = (id: string) => {
     setSelectedId(id);
     const t = data.templates.find((tmpl) => tmpl.id === id);
@@ -409,9 +435,10 @@ export default function StrategyPlatformClient({ initialData }: Props) {
       />
 
       <SubNav
+        ariaLabel="策略平台视图"
         items={SUB_NAV_ITEMS}
-        activeId={view}
-        onChange={switchView}
+        activeId={SUB_NAV_ITEMS.some((item) => item.id === view) ? view : "catalog"}
+        onChange={(id) => switchView(id as StrategyView)}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={refresh} disabled={isRefreshing}>
@@ -422,7 +449,13 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         }
       />
 
-      <main className="platform-content mx-auto w-full max-w-[1900px] space-y-5 px-3 py-6 lg:px-4">
+      <main
+        id={subNavPanelId(SUB_NAV_ITEMS.some((item) => item.id === view) ? view : "catalog")}
+        role="tabpanel"
+        aria-labelledby={subNavTabId(SUB_NAV_ITEMS.some((item) => item.id === view) ? view : "catalog")}
+        tabIndex={0}
+        className="platform-content mx-auto w-full max-w-[1900px] space-y-5 px-3 py-6 lg:px-4"
+      >
         {toast && (
           <div className={cn("rounded-md border px-4 py-3 text-sm shadow-sm",
             toast.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"
@@ -441,7 +474,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="relative min-w-[260px] flex-1">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索选股条件、买入卖出、DDE、均线..." className="h-9 rounded-lg border-slate-200/80 bg-white pl-9 shadow-sm" />
+                  <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} aria-label="搜索策略方案" placeholder="搜索选股条件、买入卖出、DDE、均线..." className="h-9 rounded-lg border-slate-200/80 bg-white pl-9 shadow-sm" />
                 </div>
                 <div className="flex items-center gap-0.5 rounded-lg border border-slate-200/80 bg-slate-50 p-0.5 shadow-sm">
                   <button type="button" onClick={() => setFamilyFilter(null)}
@@ -746,7 +779,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
 
                       <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="输入标的代码，例如 510300" className="h-10 max-w-[180px] bg-white" />
+                          <Input value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="策略标的代码" placeholder="输入标的代码，例如 510300" className="h-10 max-w-[180px] bg-white" />
                           <Button onClick={createStrategyWorkspace} disabled={isCreating} className="flex-1 bg-blue-600 text-white hover:bg-blue-700">
                             {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                             基于此策略生成工作空间

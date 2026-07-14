@@ -61,6 +61,9 @@ function classifyError(error: unknown): { status: number; message?: string } {
   if (error instanceof ApiError) {
     return { status: error.status, message: error.expose ? error.message : undefined };
   }
+  if (error instanceof Error && 'status' in error && typeof error.status === 'number' && error.status >= 400 && error.status <= 599) {
+    return { status: error.status, message: error.status < 500 ? error.message : undefined };
+  }
   if (error instanceof SyntaxError) {
     return { status: 400, message: 'Invalid JSON request body' };
   }

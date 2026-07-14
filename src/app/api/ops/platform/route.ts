@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getOpsPlatformDashboard } from '@/lib/ops/ops-platform';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const includeLogEntries = url.searchParams.get('includeLogs') === '1';
     return NextResponse.json({
       success: true,
-      data: await getOpsPlatformDashboard(),
+      data: await getOpsPlatformDashboard({ includeLogEntries }),
     });
   } catch (error) {
     return NextResponse.json(

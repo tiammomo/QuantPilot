@@ -412,6 +412,7 @@ export function FinancialKnowledgeView() {
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                aria-label="搜索金融知识页面"
                 placeholder="搜索知识页面..."
                 className="h-8 border-slate-200 bg-white pl-8 text-xs"
               />

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
+import { assertPrivilegedMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
 export async function GET() {
   return NextResponse.json({
@@ -34,6 +35,7 @@ function parseChanges(value: unknown): string[] {
 export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') ?? '';
   try {
+    assertPrivilegedMutation(request);
     const skillsAdmin = await import('@/lib/quant/skills-admin');
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData();
@@ -130,7 +132,7 @@ export async function POST(request: Request) {
 
     return errorResponse('不支持的 action。');
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, error instanceof PrivilegedRequestError ? error.status : 400);
   }
 }
 

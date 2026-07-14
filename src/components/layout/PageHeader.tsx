@@ -4,6 +4,7 @@ import { ArrowLeft, Orbit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { cn } from "@/lib/utils"
+import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher"
 
 interface PageHeaderProps {
   title: string
@@ -63,6 +64,7 @@ function PageHeader({
           </div>
         </div>
         <div className={cn("flex flex-wrap items-center gap-2 lg:justify-end", compactOnMobile && "shrink-0")}>
+          <PlatformSwitcher />
           <ThemeToggle compact />
           {children}
         </div>

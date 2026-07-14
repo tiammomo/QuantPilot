@@ -24,7 +24,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { SubNav, type SubNavItem } from "@/components/layout/SubNav";
+import { SubNav, subNavPanelId, subNavTabId, type SubNavItem } from "@/components/layout/SubNav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -58,12 +58,29 @@ export type OpsView = "overview" | "services" | "workspaces" | "trace" | "logs";
 
 type Props = {
   initialData: WorkspaceHealthDashboard;
-  initialTraceData: GenerationObservabilityDashboard;
+  initialTraceData: GenerationObservabilityDashboard | null;
   initialOpsData: OpsPlatformDashboard;
   initialView?: OpsView;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
+const EMPTY_TRACE_DATA: GenerationObservabilityDashboard = {
+  generatedAt: "1970-01-01T00:00:00.000Z",
+  projectsDir: "",
+  summary: {
+    total: 0,
+    healthy: 0,
+    warning: 0,
+    failed: 0,
+    running: 0,
+    unknown: 0,
+    eventsLast24h: 0,
+    toolCalls: 0,
+    requests: 0,
+  },
+  projects: [],
+};
 
 const VIEW_ITEMS: SubNavItem[] = [
   { id: "overview", label: "运行总览", icon: <Gauge className="h-4 w-4" /> },
@@ -300,9 +317,14 @@ function ServicesView({ data }: { data: OpsPlatformDashboard }) {
 export default function OpsPlatformClient({ initialData, initialTraceData, initialOpsData, initialView = "overview" }: Props) {
   const [view, setView] = useState<OpsView>(initialView);
   const [healthData, setHealthData] = useState(initialData);
-  const [traceData, setTraceData] = useState(initialTraceData);
+  const [traceData, setTraceData] = useState(initialTraceData ?? EMPTY_TRACE_DATA);
   const [opsData, setOpsData] = useState(initialOpsData);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingTrace, setIsLoadingTrace] = useState(false);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [traceSummaryLoaded, setTraceSummaryLoaded] = useState(Boolean(initialTraceData));
+  const [traceDetailLoaded, setTraceDetailLoaded] = useState(initialView === "trace" && Boolean(initialTraceData));
+  const [logsLoaded, setLogsLoaded] = useState(initialView === "logs");
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
@@ -310,7 +332,7 @@ export default function OpsPlatformClient({ initialData, initialTraceData, initi
     const url = new URL(window.location.href);
     if (nextView === "overview") url.searchParams.delete("view");
     else url.searchParams.set("view", nextView);
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 
   const changeView = useCallback((nextView: OpsView) => {
@@ -332,14 +354,59 @@ export default function OpsPlatformClient({ initialData, initialTraceData, initi
     return () => window.removeEventListener("popstate", applyLocation);
   }, []);
 
+  useEffect(() => {
+    const needsTraceDetails = view === "trace" && !traceDetailLoaded;
+    const needsTraceSummary = view === "overview" && !traceSummaryLoaded;
+    if (!needsTraceDetails && !needsTraceSummary) return;
+    let cancelled = false;
+    setIsLoadingTrace(true);
+    fetch(`${API_BASE}/api/workspaces/trace${needsTraceDetails ? "?events=120" : "?summary=1"}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error ?? "加载生成链路失败");
+        if (cancelled) return;
+        setTraceData(payload.data);
+        setTraceSummaryLoaded(true);
+        if (needsTraceDetails) setTraceDetailLoaded(true);
+      })
+      .catch((error) => {
+        if (!cancelled) setFeedback({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingTrace(false);
+      });
+    return () => { cancelled = true; };
+  }, [traceDetailLoaded, traceSummaryLoaded, view]);
+
+  useEffect(() => {
+    if (view !== "logs" || logsLoaded) return;
+    let cancelled = false;
+    setIsLoadingLogs(true);
+    fetch(`${API_BASE}/api/ops/platform?includeLogs=1`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error ?? "加载运行日志失败");
+        if (cancelled) return;
+        setOpsData(payload.data);
+        setLogsLoaded(true);
+      })
+      .catch((error) => {
+        if (!cancelled) setFeedback({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingLogs(false);
+      });
+    return () => { cancelled = true; };
+  }, [logsLoaded, view]);
+
   const refresh = async () => {
     setIsRefreshing(true);
     setFeedback(null);
     try {
       const [healthResponse, traceResponse, opsResponse] = await Promise.all([
         fetch(`${API_BASE}/api/workspaces/health`, { cache: "no-store" }),
-        fetch(`${API_BASE}/api/workspaces/trace`, { cache: "no-store" }),
-        fetch(`${API_BASE}/api/ops/platform`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/workspaces/trace${view === "trace" ? "?events=120" : "?summary=1"}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/ops/platform${view === "logs" ? "?includeLogs=1" : ""}`, { cache: "no-store" }),
       ]);
       const [healthPayload, tracePayload, opsPayload] = await Promise.all([healthResponse.json(), traceResponse.json(), opsResponse.json()]);
       if (!healthResponse.ok || !healthPayload.success) throw new Error(healthPayload.error ?? "刷新工作空间失败");
@@ -348,6 +415,9 @@ export default function OpsPlatformClient({ initialData, initialTraceData, initi
       setHealthData(healthPayload.data);
       setTraceData(tracePayload.data);
       setOpsData(opsPayload.data);
+      setTraceSummaryLoaded(true);
+      setTraceDetailLoaded(view === "trace");
+      setLogsLoaded(view === "logs");
       setFeedback({ type: "success", message: "运行状态已刷新" });
     } catch (error) {
       setFeedback({ type: "error", message: error instanceof Error ? error.message : String(error) });
@@ -376,18 +446,22 @@ export default function OpsPlatformClient({ initialData, initialTraceData, initi
     }
   };
 
-  const generatedAt = view === "trace" ? traceData.generatedAt : view === "workspaces" ? healthData.generatedAt : opsData.generatedAt;
+  const generatedAt = view === "trace" && traceSummaryLoaded ? traceData.generatedAt : view === "workspaces" ? healthData.generatedAt : opsData.generatedAt;
   return (
     <div className="platform-shell">
       <PageHeader title="运行治理中心" badge={<Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">综合健康 {opsData.summary.score}</Badge>} subtitle={`服务、交付、链路与日志统一治理 · 更新于 ${formatDate(generatedAt)}`} />
-      <SubNav items={VIEW_ITEMS} activeId={view} onChange={(id) => changeView(id as OpsView)} actions={<Button variant="outline" size="sm" onClick={refresh} disabled={isRefreshing} className="gap-1.5"><RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新运行状态</span></Button>} />
-      <main className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
+      <SubNav ariaLabel="运行治理视图" items={VIEW_ITEMS} activeId={view} onChange={(id) => changeView(id as OpsView)} actions={<Button aria-label="刷新运行状态" title="刷新运行状态" variant="outline" size="sm" onClick={refresh} disabled={isRefreshing} className="gap-1.5"><RefreshCcw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} /><span className="hidden sm:inline">刷新运行状态</span></Button>} />
+      <main id={subNavPanelId(view)} role="tabpanel" aria-labelledby={subNavTabId(view)} tabIndex={0} className="platform-content mx-auto max-w-[1520px] space-y-6 px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
         {feedback && <div role="status" className={cn("rounded-xl border px-4 py-3 text-sm", feedback.type === "success" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500" : "border-red-500/25 bg-red-500/10 text-red-500")}>{feedback.message}</div>}
         {view === "overview" && <OverviewView ops={opsData} health={healthData} trace={traceData} onViewChange={changeView} />}
         {view === "services" && <ServicesView data={opsData} />}
         {view === "workspaces" && <OpsWorkspacesView data={healthData} validatingId={validatingId} onValidate={validateProject} />}
-        {view === "trace" && <OpsTraceView data={traceData} />}
-        {view === "logs" && <OpsLogsView data={opsData} />}
+        {view === "trace" && (isLoadingTrace && !traceDetailLoaded
+          ? <EmptyState title="正在加载生成链路" description="按需读取完整事件、验证与修复记录…" className="rounded-xl border border-border/60 bg-card py-14" />
+          : <OpsTraceView data={traceData} />)}
+        {view === "logs" && (isLoadingLogs && !logsLoaded
+          ? <EmptyState title="正在加载运行日志" description="按需读取并解析最近的日志现场…" className="rounded-xl border border-border/60 bg-card py-14" />
+          : <OpsLogsView data={opsData} />)}
       </main>
     </div>
   );

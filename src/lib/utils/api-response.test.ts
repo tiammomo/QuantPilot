@@ -39,6 +39,14 @@ describe('API responses', () => {
     expect((await response.json()).message).toBe('Invalid JSON request body');
   });
 
+  it('preserves a typed status from shared authorization errors', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = Object.assign(new Error('Admin token is required'), { status: 403 });
+    const response = handleApiError(error, 'test');
+    expect(response.status).toBe(403);
+    expect((await response.json()).message).toBe('Admin token is required');
+  });
+
   it('does not expose internal error details in 500 responses', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = handleApiError(new Error('database password=secret failed'), 'test');

@@ -16,7 +16,7 @@ const routes = [
   { id: 'research', path: '/research-reports', expected: '投研情报中心' },
   { id: 'eval', path: '/eval-platform', expected: '质量总览' },
   { id: 'ops', path: '/ops-platform', expected: '运行治理中心' },
-  { id: 'skills', path: '/skills', expected: 'Skills 管理' },
+  { id: 'skills', path: '/skills', expected: 'QUANTPILOT SKILLS MARKET' },
 ];
 
 const legacyRoutes = [

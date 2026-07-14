@@ -539,6 +539,7 @@ export function UniverseView({
               <Input
                 value={memberQuery}
                 onChange={(event) => setMemberQuery(event.target.value)}
+                aria-label={`添加${selectedUniverseNoun}标的`}
                 placeholder="输入代码或名称，例如 比亚迪 / 000001"
                 className="h-9 max-w-sm border-slate-200 bg-white"
               />
@@ -918,16 +919,17 @@ export function UniverseView({
                   setPage(1);
                   setSelectedMemberSymbol(null);
                 }}
+                aria-label={`筛选${selectedUniverseNoun}成员`}
                 placeholder="筛选名称、代码、板块、交易所..."
                 className="h-9 border-slate-200 bg-white pl-9"
               />
             </div>
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <span>第 {currentPage} / {totalPages} 页</span>
-              <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1 || isLoadingMembers}>
+              <Button aria-label="上一页" title="上一页" variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1 || isLoadingMembers}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages || isLoadingMembers}>
+              <Button aria-label="下一页" title="下一页" variant="outline" size="sm" onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages || isLoadingMembers}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>

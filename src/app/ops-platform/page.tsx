@@ -15,12 +15,6 @@ type Props = {
 
 export default async function OpsPlatformPage({ searchParams }: Props) {
   const params = await searchParams;
-  const workspaceHealthPromise = getWorkspaceHealthDashboard();
-  const [data, traceData, opsData] = await Promise.all([
-    workspaceHealthPromise,
-    getGenerationObservabilityDashboard(),
-    getOpsPlatformDashboard({ workspaceHealth: workspaceHealthPromise }),
-  ]);
   const requestedView = params?.view;
   const view: OpsView = requestedView === 'services'
     || requestedView === 'workspaces'
@@ -33,6 +27,15 @@ export default async function OpsPlatformPage({ searchParams }: Props) {
       : requestedView === 'system' || requestedView === 'docker'
         ? 'services'
         : 'overview';
+  const workspaceHealthPromise = getWorkspaceHealthDashboard();
+  const [data, traceData, opsData] = await Promise.all([
+    workspaceHealthPromise,
+    view === 'trace' ? getGenerationObservabilityDashboard() : Promise.resolve(null),
+    getOpsPlatformDashboard({
+      workspaceHealth: workspaceHealthPromise,
+      includeLogEntries: view === 'logs',
+    }),
+  ]);
   return (
     <OpsPlatformClient
       initialData={data}

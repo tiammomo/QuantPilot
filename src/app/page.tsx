@@ -23,6 +23,7 @@ import {
   Zap,
   Loader2,
   Newspaper,
+  Boxes,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -40,6 +41,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { TaskDrawer } from "@/components/task/TaskDrawer";
 import { CreateTaskForm } from "@/components/task/CreateTaskForm";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
@@ -103,11 +105,12 @@ const CAPABILITY_ICON_COLORS: Record<string, string> = {
 };
 
 const PLATFORM_NAV_ITEMS = [
-  { href: "/strategy-platform", label: "策略", icon: BarChart3 },
-  { href: "/research-reports", label: "投研", icon: Newspaper },
-  { href: "/ops-platform", label: "治理", icon: ShieldCheck },
-  { href: "/business-knowledge", label: "业务", icon: BriefcaseBusiness },
-  { href: "/eval-platform", label: "评测", icon: Gauge },
+  { href: "/strategy-platform", label: "策略", icon: BarChart3, desktopOnly: false },
+  { href: "/research-reports", label: "投研", icon: Newspaper, desktopOnly: false },
+  { href: "/ops-platform", label: "治理", icon: ShieldCheck, desktopOnly: false },
+  { href: "/business-knowledge", label: "业务", icon: BriefcaseBusiness, desktopOnly: false },
+  { href: "/eval-platform", label: "评测", icon: Gauge, desktopOnly: false },
+  { href: "/skills", label: "Skills", icon: Boxes, desktopOnly: true },
 ];
 
 export default function HomePage() {
@@ -623,6 +626,8 @@ export default function HomePage() {
           <Button
             type="button"
             onClick={() => setTaskDrawerOpen(true)}
+            aria-label={`打开最近任务${projects.length ? `，共 ${projects.length} 项` : ""}`}
+            title="最近任务"
             variant="ghost"
             size="sm"
             className="gap-1.5 px-2 text-xs sm:px-3"
@@ -638,7 +643,8 @@ export default function HomePage() {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {PLATFORM_NAV_ITEMS.map((item) => {
+          <div className="hidden items-center gap-1.5 xl:flex">
+            {PLATFORM_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isLoading = navigatingPath === item.href || (isRoutePending && navigatingPath === item.href);
             return (
@@ -650,6 +656,7 @@ export default function HomePage() {
                 onFocus={() => prefetchPlatformRoute(item.href)}
                 variant="ghost"
                 size="sm"
+                aria-label={`进入${item.label}`}
                 aria-busy={isLoading}
                 className="gap-1.5 px-2 text-xs sm:px-3"
               >
@@ -657,7 +664,11 @@ export default function HomePage() {
                 <span className="hidden sm:inline">{item.label}</span>
               </Button>
             );
-          })}
+            })}
+          </div>
+          <div className="xl:hidden">
+            <PlatformSwitcher />
+          </div>
 
           <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
 
@@ -724,6 +735,25 @@ export default function HomePage() {
           <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground md:text-base">
             描述你的金融分析需求，系统自动识别任务类型，获取真实数据，生成可验证的量化看板
           </p>
+          <div className="mt-6 flex justify-center">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigateToPlatform("/skills")}
+              onPointerEnter={() => prefetchPlatformRoute("/skills")}
+              onFocus={() => prefetchPlatformRoute("/skills")}
+              aria-busy={navigatingPath === "/skills" || (isRoutePending && navigatingPath === "/skills")}
+              className="group h-10 gap-2 rounded-full border-primary/25 bg-card/75 px-4 font-bold text-foreground shadow-[0_14px_36px_-24px_hsl(var(--primary))] backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5"
+            >
+              {navigatingPath === "/skills" || (isRoutePending && navigatingPath === "/skills") ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : (
+                <Boxes className="h-4 w-4 text-primary" />
+              )}
+              探索 Skills Market
+              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Button>
+          </div>
         </motion.div>
 
         {/* Input form */}
