@@ -1,7 +1,7 @@
 {
   "name": "quantpilot",
   "version": "2.0.0",
-  "description": "Quant-focused AI workflow builder powered by Claude Code compatible runtimes",
+  "description": "Quant-focused AI workflow builder powered by DeepSeek V4 Flash",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -48,7 +48,8 @@
     "db:sync-workspaces": "node scripts/db/sync-projects-from-workspaces.js",
     "db:migrate-platform-state": "node scripts/db/migrate-platform-state-to-postgres.js",
     "setup": "npm install && prisma generate && npm run db:init",
-    "check-cli": "node scripts/checks/check-claude-cli.js",
+    "check-cli": "node scripts/checks/check-deepseek-runtime.js",
+    "check:ai-provider-boundary": "node scripts/checks/check-ai-provider-boundary.js",
     "doctor": "node scripts/checks/doctor.js",
     "doctor:full": "node scripts/checks/doctor.js --full",
     "check:skills": "node scripts/checks/check-skills-registry.js --check-lock",
@@ -131,8 +132,7 @@
   },
   "keywords": [
     "ai",
-    "claude",
-    "cursor",
+    "deepseek",
     "app-builder",
     "nextjs",
     "code-generation",

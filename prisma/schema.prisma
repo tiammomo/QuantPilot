@@ -33,11 +33,10 @@ model Project {
 
   // AI Session Management
   activeClaudeSessionId String? @map("active_claude_session_id")
-  activeCursorSessionId String? @map("active_cursor_session_id")
 
   // CLI Preferences
-  preferredCli  String? @map("preferred_cli") // claude, cursor, codex, gemini, qwen
-  selectedModel String? @map("selected_model") // 前端选择的模型 ID，例如 mimo-v2.5-pro
+  preferredCli  String? @map("preferred_cli") // 内部运行时标识，固定为 claude
+  selectedModel String? @map("selected_model") // 固定为 deepseek-v4-flash
   fallbackEnabled Boolean @default(false) @map("fallback_enabled")
 
   // Settings (JSON)
@@ -86,7 +85,7 @@ model Message {
   commitSha String? @map("commit_sha")
 
   // CLI source
-  cliSource String? @map("cli_source") // claude, cursor, etc.
+  cliSource String? @map("cli_source") // 固定为 claude（DeepSeek Agent 内部运行时）
 
   // Request ID for client-server message matching
   requestId String? @map("request_id")
@@ -114,7 +113,7 @@ model Session {
 
   // Session info
   sessionType String   @map("session_type") // chat, code_gen, error_fix
-  cliType     String   @map("cli_type") // claude, cursor, codex, gemini, qwen
+  cliType     String   @map("cli_type") // 固定为 claude（DeepSeek Agent 内部运行时）
   sessionId   String   @map("session_id") // Actual CLI session ID
   modelName   String?  @map("model_name")
 

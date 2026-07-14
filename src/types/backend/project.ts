@@ -27,7 +27,6 @@ export interface Project {
   initialPrompt?: string;
   templateType?: TemplateType;
   activeClaudeSessionId?: string;
-  activeCursorSessionId?: string;
   preferredCli?: string;
   selectedModel?: string;
   fallbackEnabled: boolean;
@@ -61,7 +60,6 @@ export interface UpdateProjectInput {
   selectedModel?: string;
   settings?: string;
   activeClaudeSessionId?: string;
-  activeCursorSessionId?: string;
   repoPath?: string | null;
 }
 

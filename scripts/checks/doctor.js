@@ -104,10 +104,13 @@ function componentMode(component) {
   return component.required ? 'required' : 'optional';
 }
 
-function hasCodexApiKey() {
-  if (readEnvValue('CODEX_OPENAI_API_KEY') || readEnvValue('OPENAI_API_KEY')) return true;
-  const auth = readJson(path.join(process.env.HOME || '', '.codex', 'auth.json'));
-  return typeof auth?.OPENAI_API_KEY === 'string' && auth.OPENAI_API_KEY.length > 0;
+function hasBundledAgentRuntime() {
+  try {
+    return fs.readdirSync(path.join(ROOT, 'node_modules', '@anthropic-ai'))
+      .some((name) => name.startsWith('claude-agent-sdk-'));
+  } catch {
+    return false;
+  }
 }
 
 async function checkDatabase() {
@@ -281,34 +284,24 @@ async function main() {
     ]
   );
 
-  const envRequired = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_MODEL'];
-  const missingEnv = envRequired.filter((key) => !readEnvValue(key));
-  const fallbackModel = readEnvValue('CLAUDE_CODE_MODEL_FALLBACK');
-  const modelAliases = readEnvValue('CLAUDE_CODE_MODEL_ALIASES');
+  const deepSeekApiKey = readEnvValue('DEEPSEEK_API_KEY');
   addCheck(
-    'Claude / Mimo 环境',
-    missingEnv.length || !fallbackModel || !modelAliases ? 'warn' : 'ok',
-    missingEnv.length
-      ? `缺少 ${missingEnv.join(', ')}`
-      : `必需环境变量已配置；fallback=${fallbackModel || '-'} aliases=${modelAliases || '-'}`,
+    'DeepSeek 官方 API',
+    deepSeekApiKey ? 'ok' : 'warn',
+    deepSeekApiKey ? 'deepseek-v4-flash · 官方直连 · API Key 已配置' : 'DEEPSEEK_API_KEY 未配置。',
     [
-      ...missingEnv.map((key) => `${key} 未设置。`),
-      fallbackModel ? null : 'CLAUDE_CODE_MODEL_FALLBACK 未设置；Claude Code 协议端不支持展示模型时会直接失败。',
-      modelAliases ? null : 'CLAUDE_CODE_MODEL_ALIASES 未设置；建议配置 mimo-v2.5-pro:deepseek-v4-pro。',
+      deepSeekApiKey ? null : '在 .env.local 中填写 DeepSeek 官方 API Key。',
+      '模型固定为 deepseek-v4-flash，Base URL 固定为 https://api.deepseek.com/anthropic。',
     ]
   );
 
-  const claudeVersion = commandOutput('claude', ['--version']);
-  const codexExecutable = readEnvValue('CODEX_EXECUTABLE') || 'codex';
-  const codexVersion = commandOutput(codexExecutable, ['--version']);
+  const bundledAgentRuntime = hasBundledAgentRuntime();
   addCheck(
-    'Agent CLI',
-    claudeVersion ? 'ok' : 'fail',
-    `claude=${claudeVersion || '-'} codex=${codexVersion || 'optional-missing'}`,
+    'Agent 执行引擎',
+    bundledAgentRuntime ? 'ok' : 'fail',
+    bundledAgentRuntime ? '项目内置执行引擎已安装。' : '项目内置执行引擎缺失。',
     [
-      claudeVersion ? null : 'Claude Code CLI 不可用。',
-      codexVersion ? null : 'Codex CLI 不可用；如不使用 Codex 可忽略。',
-      hasCodexApiKey() ? null : 'Codex API Key 未配置；如不使用 Codex 可忽略。',
+      bundledAgentRuntime ? null : '运行 npm install 重新安装依赖。',
     ]
   );
 

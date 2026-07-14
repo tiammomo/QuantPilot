@@ -142,6 +142,15 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function hasBundledAgentRuntime(): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(path.join(ROOT, 'node_modules', '@anthropic-ai'));
+    return entries.some((name) => name.startsWith('claude-agent-sdk-'));
+  } catch {
+    return false;
+  }
+}
+
 async function countDirectoryItems(dirPath: string, prefix?: string): Promise<number> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -704,8 +713,7 @@ export async function getOpsPlatformDashboard(params: {
     workspaceHealth,
     strategyHealth,
     npmVersion,
-    claudeVersion,
-    codexVersion,
+    agentRuntimeInstalled,
     marketHealth,
     marketRegistry,
     logSources,
@@ -715,8 +723,7 @@ export async function getOpsPlatformDashboard(params: {
     params.workspaceHealth ?? getWorkspaceHealthDashboard(),
     getStrategyDashboardData(),
     commandOutput('npm', ['--version']),
-    commandOutput('claude', ['--version']),
-    commandOutput(process.env.CODEX_EXECUTABLE || 'codex', ['--version']),
+    hasBundledAgentRuntime(),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
     collectLogSources(),
@@ -769,11 +776,16 @@ export async function getOpsPlatformDashboard(params: {
     },
     {
       id: 'agent-cli',
-      label: 'Agent CLI',
-      status: claudeVersion ? 'ok' : codexVersion ? 'warning' : 'failed',
-      summary: `claude=${claudeVersion ?? '-'} · codex=${codexVersion ?? '-'}`,
-      detail: '生成链路至少需要一个可用的 Agent CLI；Claude 是默认主链路，Codex 可作为补充。',
-      actions: claudeVersion || codexVersion ? [] : ['安装并登录 Claude Code 或 Codex CLI。'],
+      label: 'DeepSeek Agent',
+      status: agentRuntimeInstalled && process.env.DEEPSEEK_API_KEY?.trim() ? 'ok' : 'failed',
+      summary: agentRuntimeInstalled
+        ? process.env.DEEPSEEK_API_KEY?.trim() ? 'V4 Flash 官方直连已就绪' : '执行引擎已安装，API Key 未配置'
+        : '本地执行引擎缺失',
+      detail: '模型固定为 deepseek-v4-flash，服务端固定直连 DeepSeek 官方 API。',
+      actions: [
+        agentRuntimeInstalled ? null : '运行 npm install 安装本地执行引擎。',
+        process.env.DEEPSEEK_API_KEY?.trim() ? null : '在 .env.local 中配置 DEEPSEEK_API_KEY。',
+      ].filter((item): item is string => Boolean(item)),
     },
     {
       id: 'degradation-mode',

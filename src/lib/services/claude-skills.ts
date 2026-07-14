@@ -235,7 +235,7 @@ QuantPilot 执行约束：
 - 数据访问分层必须固定：PostgreSQL/TimescaleDB 只允许由 QuantPilot market-data/API 服务访问；skills 不要直接连接数据库、不要自行编写 SQL、不要读取平台 .env 中的数据库连接串。
 - 对全 A 选股、短线候选、次日买股计划等宽域选股问题，先用 quant-data-registry 选择本地接口，再通过 quant-market-data 调用 /api/v1/research/screeners/a-share/short-term-candidates；返回候选后再读取候选股票的 K 线、实时行情、分时和事件数据。
 - 选股接口返回的 DDE 缺失、成交额/换手缺失和数据日期限制必须写入 evidence/data_quality.json，不能用推测值补齐。
-- 如果用户上传了图片或 .quantpilot/attachments.json 存在，必须先使用 image-extraction，调用 mcp__QuantPilotImage__quant_extract_uploaded_image 读取附件清单并写入 evidence/image_extraction.json；MiniMax understand_image MCP 可用时再进行视觉识别，否则明确标记需要人工确认的字段，不要声称没有收到图片。
+- 如果用户上传了图片或 .quantpilot/attachments.json 存在，必须先使用 image-extraction，调用 mcp__QuantPilotImage__quant_extract_uploaded_image 读取附件清单并写入 evidence/image_extraction.json；当前不接入额外视觉模型，无法可靠识别的字段必须标记为需要人工确认，不得编造。
 - 可视化页面必须按 .quantpilot/run_plan.json 的 visualization.templateId 选择模板族，并按 visualization.variantId/variantName/layout 选择具体页面结构；展示组件优先覆盖 visualization.panels，不能把持仓、选股、技术、基本面、回测页面都生成成同一种通用模板。
 - 可视化页面首屏必须像专业金融工作台：紧凑摘要栏、真实行情/持仓/回测/财务数据、核心图表或矩阵必须在 1440px 首屏内出现；不要生成营销 hero、大 slogan、模板名横幅或只有指标卡的页面。
 - 页面布局默认使用 Data-Dense Dashboard：中性背景、8px 内圆角、清晰边框、紧凑指标、可扫描表格、语义状态色和稳定图表尺寸；移动端必须无横向溢出，表格应在卡片内横向滚动。
@@ -288,7 +288,7 @@ export function buildQuantPilotSystemPrompt(): string {
 - For Chinese query parameters in local HTTP requests, use curl -G --data-urlencode. Do not concatenate raw Chinese text into URLs
 - After fetching market, K-line, financial, or event data, use data-quality before visualization and write evidence/sources.json plus evidence/data_quality.json
 - Resolve ambiguous stock names or tickers with quant-symbol-resolver before fetching data
-- If uploaded images exist or .quantpilot/attachments.json exists, first use image-extraction and call mcp__QuantPilotImage__quant_extract_uploaded_image. Write evidence/image_extraction.json and keep dashboard-data.json.imageExtraction. If MiniMax understand_image MCP is available, use it for visual recognition; otherwise mark uncertain screenshot fields as null and list fields requiring manual confirmation
+- If uploaded images exist or .quantpilot/attachments.json exists, first use image-extraction and call mcp__QuantPilotImage__quant_extract_uploaded_image. Write evidence/image_extraction.json and keep dashboard-data.json.imageExtraction. No extra vision provider is enabled; keep uncertain screenshot fields null and list fields requiring manual confirmation.
 - Use quant-comparison for multi-symbol questions. When dashboard-data.json contains assets[] and comparison, render all assets instead of only the primary symbol
 - Use quant-a-share-history for historical K-line analysis
 - Use quant-index-etf-market for index and ETF tasks such as 沪深300、创业板指、中证500、科创50 or 510300 ETF

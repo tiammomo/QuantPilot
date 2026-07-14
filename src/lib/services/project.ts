@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db/client';
 import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/backend';
 import fs from 'fs/promises';
 import path from 'path';
-import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
+import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
 import { ensureClaudeSkillsForProject } from '@/lib/services/claude-skills';
 import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
@@ -144,7 +144,9 @@ export async function getAllProjects(): Promise<Project[]> {
   });
   return projects.map(project => ({
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   })) as Project[];
 }
 
@@ -158,7 +160,9 @@ export async function getProjectById(id: string): Promise<Project | null> {
   if (!project) return null;
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
 }
 
@@ -170,11 +174,8 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
   await ensureClaudeSkillsForProject(projectPath);
-  const preferredCli = input.preferredCli || 'claude';
-  const selectedModel = normalizeModelId(
-    preferredCli,
-    input.selectedModel ?? getDefaultModelForCli(preferredCli)
-  );
+  const preferredCli = 'claude';
+  const selectedModel = DEEPSEEK_MODEL_ID;
   const quantCapability = getQuantCapability(input.quantCapabilityId);
   await writeQuantPilotManifest({
     projectPath,
@@ -208,7 +209,9 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
 }
 
@@ -219,22 +222,13 @@ export async function updateProject(
   id: string,
   input: UpdateProjectInput
 ): Promise<Project> {
-  const existing = await prisma.project.findUnique({
-    where: { id },
-    select: { preferredCli: true },
-  });
-  const targetCli = input.preferredCli ?? existing?.preferredCli ?? 'claude';
-  const normalizedModel = input.selectedModel
-    ? normalizeModelId(targetCli, input.selectedModel)
-    : undefined;
-
   const project = await prisma.project.update({
     where: { id },
     data: {
       ...input,
-      ...(input.selectedModel
-        ? { selectedModel: normalizedModel }
-        : {}),
+      preferredCli: 'claude',
+      fallbackEnabled: false,
+      selectedModel: DEEPSEEK_MODEL_ID,
       updatedAt: new Date(),
     },
   });
@@ -242,7 +236,9 @@ export async function updateProject(
   console.log(`[ProjectService] Updated project: ${id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
 }
 
@@ -318,46 +314,29 @@ export async function getProjectCliPreference(projectId: string): Promise<Projec
   }
 
   return {
-    preferredCli: project.preferredCli ?? 'claude',
-    fallbackEnabled: project.fallbackEnabled ?? false,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   };
 }
 
 export async function updateProjectCliPreference(
   projectId: string,
-  input: Partial<ProjectCliPreference>
+  _input: Partial<ProjectCliPreference>
 ): Promise<ProjectCliPreference> {
-  const existing = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { preferredCli: true },
-  });
-  const targetCli = input.preferredCli ?? existing?.preferredCli ?? 'claude';
-
-  const result = await prisma.project.update({
+  await prisma.project.update({
     where: { id: projectId },
     data: {
-      ...(input.preferredCli ? { preferredCli: input.preferredCli } : {}),
-      ...(typeof input.fallbackEnabled === 'boolean'
-        ? { fallbackEnabled: input.fallbackEnabled }
-        : {}),
-      ...(input.selectedModel
-        ? { selectedModel: normalizeModelId(targetCli, input.selectedModel) }
-        : input.selectedModel === null
-        ? { selectedModel: null }
-        : {}),
+      preferredCli: 'claude',
+      fallbackEnabled: false,
+      selectedModel: DEEPSEEK_MODEL_ID,
       updatedAt: new Date(),
-    },
-    select: {
-      preferredCli: true,
-      fallbackEnabled: true,
-      selectedModel: true,
     },
   });
 
   return {
-    preferredCli: result.preferredCli ?? 'claude',
-    fallbackEnabled: result.fallbackEnabled ?? false,
-    selectedModel: normalizeModelId(result.preferredCli ?? 'claude', result.selectedModel ?? undefined),
+    preferredCli: 'claude',
+    fallbackEnabled: false,
+    selectedModel: DEEPSEEK_MODEL_ID,
   };
 }

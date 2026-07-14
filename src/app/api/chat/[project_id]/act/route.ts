@@ -68,20 +68,8 @@ type CliRuntime = {
   ) => Promise<void>;
 };
 
-async function loadCliRuntime(cliPreference: string): Promise<CliRuntime> {
-  switch (cliPreference) {
-    case "codex":
-      return import("@/lib/services/cli/codex");
-    case "cursor":
-      return import("@/lib/services/cli/cursor");
-    case "qwen":
-      return import("@/lib/services/cli/qwen");
-    case "glm":
-      return import("@/lib/services/cli/glm");
-    case "claude":
-    default:
-      return import("@/lib/services/cli/claude");
-  }
+async function loadCliRuntime(): Promise<CliRuntime> {
+  return import("@/lib/services/cli/claude");
 }
 
 async function loadQuantValidation() {
@@ -971,7 +959,6 @@ async function writeAttachmentContext(params: {
     extractionContract: {
       requiredSkill: "image-extraction",
       requiredTool: "mcp__QuantPilotImage__quant_extract_uploaded_image",
-      optionalVisionTool: "mcp__MiniMax__understand_image",
       portfolioScreenshotFields: [
         "account_total_asset",
         "cash_available",
@@ -1021,7 +1008,7 @@ function buildImageAttachmentInstruction(params: {
 图片附件处理要求：
 - 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".quantpilot/attachments.json"}，再检查图片内容，不要忽略附件。
 - 先使用 \`image-extraction\` skill，并调用 \`mcp__QuantPilotImage__quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
-- 如果 MiniMax MCP 的 \`mcp__MiniMax__understand_image\` 可用，再用它识别截图中的股票名称、数量、成本价、现价、市值、盈亏、仓位、现金和总资产；识别不确定的字段写 null 并在证据文件中说明。
+- 当前不接入额外视觉模型或第三方 OCR；无法可靠识别的截图字段必须写 null，并在证据文件中列出需要用户确认的内容。
 - 对识别出的股票名称必须使用 quant-symbol-resolver 或 /api/v1/symbols/resolve 解析代码，再获取真实行情、K 线、指标和必要的基本面数据。
 - 必须把图片提取结果写入 evidence/image_extraction.json；没有 OCR/视觉结果时也要写明 visualRecognition.status 和 needs_manual_confirmation。
 - 最终 dashboard-data.json 必须保留 portfolio、holdings、assets、comparison 和 imageExtraction 字段；imageExtraction 要说明哪些字段来自截图识别、哪些来自行情接口补全。
@@ -1136,12 +1123,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreferenceRaw =
-      coerceString((body as Record<string, unknown>).cliPreference) ??
-      coerceString(legacyBody["cli_preference"]) ??
-      project.preferredCli ??
-      "claude";
-    const cliPreference = cliPreferenceRaw.toLowerCase();
+    const cliPreference = "claude";
 
     const selectedModelRaw =
       coerceString(body.selectedModel) ??
@@ -1599,14 +1581,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliRuntime = await loadCliRuntime(cliPreference);
+    const cliRuntime = await loadCliRuntime();
 
-    const sessionId =
-      !isInitialPrompt && cliPreference === "claude"
-        ? project.activeClaudeSessionId || undefined
-        : !isInitialPrompt && cliPreference === "cursor"
-          ? project.activeCursorSessionId || undefined
-          : undefined;
+    const sessionId = !isInitialPrompt
+      ? project.activeClaudeSessionId || undefined
+      : undefined;
 
     void runQuantGenerationQueued({
       projectPath,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
+import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
 import { serializeProject } from '@/lib/serializers/project';
 import { streamManager } from '@/lib/services/stream';
 import { getProjectById, updateProject } from '@/lib/services/project';
@@ -31,15 +31,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreference = String(body?.cliPreference ?? body?.cli_preference ?? project.preferredCli ?? 'claude').toLowerCase();
-    const selectedModel = normalizeModelId(
-      cliPreference,
-      typeof body?.selectedModel === 'string'
-        ? body.selectedModel
-        : typeof body?.selected_model === 'string'
-        ? body.selected_model
-        : project.selectedModel ?? getDefaultModelForCli(cliPreference),
-    );
+    const cliPreference = 'claude';
+    const selectedModel = DEEPSEEK_MODEL_ID;
     const requestId =
       typeof body?.requestId === 'string' && body.requestId.trim().length > 0
         ? body.requestId.trim()

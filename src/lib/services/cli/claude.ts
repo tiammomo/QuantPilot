@@ -10,7 +10,13 @@ import { streamManager } from '../stream';
 import { serializeMessage, createRealtimeMessage } from '@/lib/serializers/chat';
 import { updateProject, getProjectById } from '../project';
 import { createMessage } from '../message';
-import { CLAUDE_DEFAULT_MODEL, normalizeClaudeModelId, getClaudeModelDefinition, getClaudeModelDisplayName } from '@/lib/constants/cliModels';
+import {
+  CLAUDE_DEFAULT_MODEL,
+  DEEPSEEK_MODEL_ID,
+  DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL,
+  getClaudeModelDefinition,
+  getClaudeModelDisplayName,
+} from '@/lib/constants/cliModels';
 import path from 'path';
 import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
@@ -993,91 +999,56 @@ const handleToolPlaceholderMessage = async (
 };
 
 function resolveRequestedModelId(model?: string | null): string {
-  if (model && model.trim().length > 0) {
-    return normalizeClaudeModelId(model);
-  }
-  const anthropicModelOverride = process.env.ANTHROPIC_MODEL?.trim();
-  if (anthropicModelOverride) {
-    return anthropicModelOverride;
-  }
-  return normalizeClaudeModelId(model);
+  void model;
+  return DEEPSEEK_MODEL_ID;
 }
 
 type ClaudeRuntimeModelResolution = {
   requestedModel: string;
   runtimeModel: string;
-  fallbackModel?: string;
-  reason?: string;
 };
-
-function normalizeRuntimeAliasKey(model: string): string {
-  return model.trim().toLowerCase().replace(/[\s_]+/g, '-');
-}
-
-function parseRuntimeModelAliases(value?: string | null): Record<string, string> {
-  if (!value || value.trim().length === 0) {
-    return {};
-  }
-
-  return value
-    .split(/[,\n;]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((aliases, entry) => {
-      const separator = entry.includes('=>') ? '=>' : entry.includes('=') ? '=' : ':';
-      const [from, to] = entry.split(separator).map((part) => part.trim());
-      if (!from || !to) {
-        return aliases;
-      }
-      aliases[normalizeRuntimeAliasKey(normalizeClaudeModelId(from))] = normalizeClaudeModelId(to);
-      return aliases;
-    }, {});
-}
 
 function resolveClaudeRuntimeModel(model?: string | null): ClaudeRuntimeModelResolution {
   const requestedModel = resolveRequestedModelId(model);
-  const fallbackModel = process.env.CLAUDE_CODE_MODEL_FALLBACK?.trim()
-    ? normalizeClaudeModelId(process.env.CLAUDE_CODE_MODEL_FALLBACK)
-    : undefined;
-  const aliases = parseRuntimeModelAliases(process.env.CLAUDE_CODE_MODEL_ALIASES);
-  const aliasTarget = aliases[normalizeRuntimeAliasKey(requestedModel)];
-  const runtimeModel = aliasTarget ?? requestedModel;
-
-  if (runtimeModel !== requestedModel) {
-    const requestedLabel = getClaudeModelDisplayName(requestedModel);
-    const runtimeLabel = getClaudeModelDisplayName(runtimeModel);
-    return {
-      requestedModel,
-      runtimeModel,
-      fallbackModel,
-      reason: `当前 Claude-compatible 网关暂不支持 ${requestedLabel}，已按本地配置改用 ${runtimeLabel} 执行。`,
-    };
-  }
-
   return {
     requestedModel,
-    runtimeModel,
-    fallbackModel,
+    runtimeModel: DEEPSEEK_MODEL_ID,
   };
 }
 
 function buildClaudeRuntimeEnv(runtimeModel: string): Record<string, string | undefined> {
-  const authToken = process.env.ANTHROPIC_AUTH_TOKEN?.trim();
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim() || authToken;
-  const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  const runtimeEnv: Record<string, string | undefined> = { ...process.env };
+  const blockedProviderEnv = [
+    /^ANTHROPIC_/,
+    /^OPENAI_/,
+    /^CODEX_/,
+    /^MINIMAX_/,
+    /^QWEN_/,
+    /^DASHSCOPE_/,
+    /^GLM_/,
+    /^ZHIPU_/,
+    /^GEMINI_/,
+    /^CLAUDE_CODE_MODEL_/,
+  ];
+  for (const key of Object.keys(runtimeEnv)) {
+    if (blockedProviderEnv.some((pattern) => pattern.test(key))) {
+      delete runtimeEnv[key];
+    }
+  }
 
   return {
-    ...process.env,
-    ...(baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {}),
-    ...(authToken ? { ANTHROPIC_AUTH_TOKEN: authToken } : {}),
-    ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
+    ...runtimeEnv,
+    ANTHROPIC_BASE_URL: DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL,
+    ANTHROPIC_AUTH_TOKEN: apiKey,
+    ANTHROPIC_API_KEY: apiKey,
     ANTHROPIC_MODEL: runtimeModel,
     ANTHROPIC_SMALL_FAST_MODEL: runtimeModel,
     ANTHROPIC_DEFAULT_SONNET_MODEL: runtimeModel,
     ANTHROPIC_DEFAULT_OPUS_MODEL: runtimeModel,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: runtimeModel,
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
-      process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC?.trim() || '1',
+    CLAUDE_CODE_SUBAGENT_MODEL: runtimeModel,
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_AGENT_SDK_CLIENT_APP: 'QuantPilot/1.0',
   };
 }
@@ -1166,32 +1137,26 @@ export async function executeClaude(
   images?: ClaudeImageAttachment[]
 ): Promise<void> {
   console.log(`\n========================================`);
-  console.log(`[ClaudeService] 🚀 Starting Claude Agent SDK`);
+  console.log(`[DeepSeekService] 🚀 Starting DeepSeek V4 Flash agent`);
   console.log(`[ClaudeService] Project: ${projectId}`);
   const modelResolution = resolveClaudeRuntimeModel(model);
   const resolvedModel = modelResolution.runtimeModel;
   const modelLabel = getClaudeModelDisplayName(resolvedModel);
-  const aliasNote =
-    modelResolution.requestedModel !== resolvedModel
-      ? ` (runtime fallback for ${getClaudeModelDisplayName(modelResolution.requestedModel)} [${modelResolution.requestedModel}])`
-      : resolvedModel !== model
-        ? ` (alias for ${model})`
-        : '';
-  console.log(`[ClaudeService] Model: ${modelLabel} [${resolvedModel}]${aliasNote}`);
+  console.log(`[DeepSeekService] Model: ${modelLabel} [${resolvedModel}]`);
   console.log(`[ClaudeService] Session ID: ${sessionId || 'new session'}`);
   console.log(`[ClaudeService] Instruction: ${instruction.substring(0, 100)}...`);
   console.log(`========================================\n`);
 
-  const configuredMaxTokens = Number(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS);
+  const configuredMaxTokens = Number(process.env.DEEPSEEK_AGENT_MAX_OUTPUT_TOKENS);
   const maxOutputTokens = Number.isFinite(configuredMaxTokens) && configuredMaxTokens > 0
     ? configuredMaxTokens
     : 4000;
-  const configuredMaxTurns = Number(process.env.CLAUDE_CODE_MAX_TURNS);
+  const configuredMaxTurns = Number(process.env.DEEPSEEK_AGENT_MAX_TURNS);
   const maxTurns = Number.isFinite(configuredMaxTurns) && configuredMaxTurns > 0
     ? configuredMaxTurns
     : 32;
-  const idleTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
-  const totalTimeoutMs = readPositiveMsEnv('CLAUDE_CODE_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
+  const idleTimeoutMs = readPositiveMsEnv('DEEPSEEK_AGENT_IDLE_TIMEOUT_MS', 5 * 60 * 1000);
+  const totalTimeoutMs = readPositiveMsEnv('DEEPSEEK_AGENT_EXECUTION_TIMEOUT_MS', 20 * 60 * 1000);
   const quantArtifactCheckIntervalMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_CHECK_INTERVAL_MS', 12 * 1000);
   const quantArtifactStableMs = readPositiveMsEnv('QUANTPILOT_ARTIFACT_STABLE_MS', 45 * 1000);
   const abortController = new AbortController();
@@ -1297,7 +1262,7 @@ export async function executeClaude(
       clearTimeout(idleTimer);
     }
     idleTimer = setTimeout(() => {
-      abortClaudeExecution(`Claude Code 超过 ${Math.round(idleTimeoutMs / 1000)} 秒没有返回执行事件，已自动终止本次执行。`);
+      abortClaudeExecution(`DeepSeek Agent 超过 ${Math.round(idleTimeoutMs / 1000)} 秒没有返回执行事件，已自动终止本次执行。`);
     }, idleTimeoutMs);
     idleTimer.unref?.();
   };
@@ -1349,7 +1314,7 @@ export async function executeClaude(
   };
 
   // Send start notification via SSE
-  publishStatus('starting', 'Initializing Claude Agent SDK...');
+  publishStatus('starting', '正在初始化 DeepSeek V4 Flash...');
 
   await safeMarkRunning();
 
@@ -1376,6 +1341,10 @@ export async function executeClaude(
   };
 
   try {
+    if (!process.env.DEEPSEEK_API_KEY?.trim()) {
+      throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
+    }
+
     // Verify project exists (prevents foreign key constraint errors)
     console.log(`[ClaudeService] 🔍 Verifying project exists...`);
     const project = await getProjectById(projectId);
@@ -1432,34 +1401,16 @@ export async function executeClaude(
     // Send ready notification via SSE
     publishStatus('ready', 'Project verified. Starting AI...');
 
-    if (modelResolution.reason) {
-      publishStatus('model_fallback', modelResolution.reason);
-      await dispatchToolMessage({
-        projectId,
-        metadata: {
-          toolName: '模型运行时降级',
-          tool_name: 'model_runtime_fallback',
-          requestedModel: modelResolution.requestedModel,
-          runtimeModel: modelResolution.runtimeModel,
-        },
-        content: modelResolution.reason,
-        requestId,
-        persist: true,
-        isStreaming: false,
-        messageType: 'tool_result',
-      });
-    }
-
     const availableSkills = await ensureClaudeSkillsForProject(absoluteProjectPath);
     const quantManifest = await readQuantPilotManifest(absoluteProjectPath);
 
-    // Start Claude Agent SDK query
-    console.log(`[ClaudeService] 🤖 Querying Claude Agent SDK...`);
+    // Claude Agent SDK is used only as the local tool-execution engine.
+    console.log(`[DeepSeekService] 🤖 Querying DeepSeek official API...`);
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
     console.log(`[ClaudeService] 🧩 Skills: ${availableSkills.join(', ') || 'none'}`);
     if (totalTimeoutMs > 0) {
       totalTimer = setTimeout(() => {
-        abortClaudeExecution(`Claude Code 执行超过 ${Math.round(totalTimeoutMs / 1000)} 秒，已自动终止本次执行。`);
+        abortClaudeExecution(`DeepSeek Agent 执行超过 ${Math.round(totalTimeoutMs / 1000)} 秒，已自动终止本次执行。`);
       }, totalTimeoutMs);
       totalTimer.unref?.();
     }
@@ -1481,14 +1432,10 @@ export async function executeClaude(
         cwd: absoluteProjectPath,
         additionalDirectories: [absoluteProjectPath],
         model: resolvedModel,
-        fallbackModel:
-          modelResolution.fallbackModel && modelResolution.fallbackModel !== resolvedModel
-            ? modelResolution.fallbackModel
-            : undefined,
         resume: sessionId, // Resume previous session
         permissionMode: 'default',
         canUseTool: guardClaudeToolUse,
-        settingSources: ['project', 'user'],
+        settingSources: [],
         skills: availableSkills,
         mcpServers: mcpServers as any,
         systemPrompt: buildQuantPilotSystemPrompt(),
@@ -1943,11 +1890,11 @@ export async function executeClaude(
 
       // Detect Claude Code CLI not installed
       if (errorMessage.includes('command not found') || errorMessage.includes('not found: claude')) {
-        errorMessage = `Claude Code CLI is not installed.\n\nInstallation instructions:\n1. npm install -g @anthropic-ai/claude-code\n2. Configure Claude-compatible environment variables such as ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN`;
+        errorMessage = 'DeepSeek Agent 运行引擎不可用，请重新安装项目依赖。';
       }
       // Detect authentication failure
       else if (errorMessage.includes('not authenticated') || errorMessage.includes('authentication')) {
-        errorMessage = `Claude Code Claude-compatible configuration required.\n\nPlease configure ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN in .env/.env.local or ~/.claude/settings.json.`;
+        errorMessage = 'DeepSeek 官方 API 鉴权失败，请检查 .env.local 中的 DEEPSEEK_API_KEY。';
       }
       // Permission error
       else if (errorMessage.includes('permission') || errorMessage.includes('EACCES')) {
@@ -1963,9 +1910,9 @@ export async function executeClaude(
         const tail = stderrBuffer.slice(-15).join('\n');
         // Common auth hints
         if (/auth\s+login|not\s+logged\s+in|sign\s+in/i.test(tail)) {
-          errorMessage = `Claude Code Claude-compatible configuration required.\n\nPlease configure ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN.\n\nDetailed log:\n${tail}`;
+          errorMessage = `DeepSeek 官方 API 鉴权失败，请检查 DEEPSEEK_API_KEY。\n\nDetailed log:\n${tail}`;
         } else if (/network|ENOTFOUND|ECONN|timeout/i.test(tail)) {
-          errorMessage = `Failed to run Claude Code due to network error. Please check your network connection and try again.\n\nDetailed log:\n${tail}`;
+          errorMessage = `DeepSeek 官方 API 网络连接失败，请检查网络后重试。\n\nDetailed log:\n${tail}`;
         } else if (/permission|EACCES|EPERM|denied/i.test(tail)) {
           errorMessage = `Execution interrupted due to file access permission error. Please check project directory permissions.\n\nDetailed log:\n${tail}`;
         } else if (/model|unsupported|invalid\s+model/i.test(tail)) {
@@ -1993,12 +1940,12 @@ export async function executeClaude(
 }
 
 /**
- * Initialize Next.js project with Claude Code
+ * Initialize a Next.js project with DeepSeek V4 Flash.
  *
  * @param projectId - Project ID
  * @param projectPath - Project directory path
  * @param initialPrompt - Initial prompt
- * @param model - Claude Code runtime model to use (default: mimo-v2.5-pro)
+ * @param model - Locked to DeepSeek V4 Flash.
  * @param requestId - (Optional) User request tracking ID
  */
 export async function initializeNextJsProject(
@@ -2028,7 +1975,7 @@ Set up the basic project structure and implement the requested features.
  * @param projectId - Project ID
  * @param projectPath - Project directory path
  * @param instruction - Change request command
- * @param model - Claude Code runtime model to use (default: mimo-v2.5-pro)
+ * @param model - Locked to DeepSeek V4 Flash.
  * @param sessionId - Session ID
  * @param requestId - (Optional) User request tracking ID
  */

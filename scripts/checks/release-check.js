@@ -10,6 +10,7 @@ const includeSecurity = process.argv.includes('--security');
 const includeRuntime = process.argv.includes('--runtime');
 
 const checks = [
+  ['AI provider boundary', 'npm', ['run', 'check:ai-provider-boundary'], ROOT],
   ['Documentation links', 'npm', ['run', 'check:docs'], ROOT],
   ['Skills registry', 'npm', ['run', 'check:skills'], ROOT],
   ['Generated artifact policy', 'npm', ['run', 'check:generated-artifacts'], ROOT],

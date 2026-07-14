@@ -103,7 +103,7 @@
     {
       "id": "agent-runtime",
       "name": "Agent 运行时",
-      "summary": "Claude/Codex/CLI 适配、流式消息、预览、用户请求和技能注入。",
+      "summary": "DeepSeek V4 Flash 官方直连、流式消息、预览、用户请求和技能注入。",
       "owner": "agent-platform",
       "paths": [
         "src/lib/services/agent-runtime.ts",

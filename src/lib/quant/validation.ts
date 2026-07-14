@@ -139,7 +139,7 @@ const SENSITIVE_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'Bearer token', pattern: /\bbearer\s+[a-z0-9._-]{16,}\b/i },
   {
     label: '环境变量密钥字面量',
-    pattern: /\b(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|MINIMAX_API_KEY|CODEX_OPENAI_API_KEY)\s*[:=]\s*["'][^"'\n]{8,}["']/i,
+    pattern: /\b(?:DEEPSEEK_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|MINIMAX_API_KEY|CODEX_OPENAI_API_KEY)\s*[:=]\s*["'][^"'\n]{8,}["']/i,
   },
   { label: 'AWS access key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
 ];

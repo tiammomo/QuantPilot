@@ -172,11 +172,10 @@ function buildExtractionPayload(params: {
     prompt: params.prompt ?? null,
     images: params.inspectedImages,
     visualRecognition: {
-      status: 'requires_vision_provider',
+      status: 'manual_confirmation_required',
       reason:
-        'QuantPilot 已确认图片文件、路径、格式、尺寸和哈希。当前本地工具不内置 OCR，视觉字段需要继续调用 MiniMax understand_image MCP 或后续接入的 OCR/Python 提取器。',
-      preferredNextTool: 'mcp__MiniMax__understand_image',
-      fallbackRule: '如果视觉工具不可用，所有截图字段必须保留 null，并在 evidence/data_quality.json 中列出需要用户确认的字段。',
+        'QuantPilot 已确认图片文件、路径、格式、尺寸和哈希。当前不接入额外视觉模型或第三方 OCR，无法确认的截图字段必须交由用户确认。',
+      fallbackRule: '所有无法可靠读取的截图字段必须保留 null，并在 evidence/data_quality.json 中列出需要用户确认的字段。',
     },
     imageExtraction: {
       source: 'uploaded_image',
@@ -201,9 +200,6 @@ function buildExtractionPayload(params: {
 
 export function buildQuantPilotMcpServers(projectPath: string): Record<string, unknown> {
   const absoluteProjectPath = path.resolve(projectPath);
-  const token = process.env.MINIMAX_API_KEY?.trim() || process.env.ANTHROPIC_AUTH_TOKEN?.trim();
-  const minimaxMcpEnabled = process.env.QUANTPILOT_ENABLE_MINIMAX_MCP !== '0' && Boolean(token);
-  const minimaxBasePath = path.join(absoluteProjectPath, '.quantpilot', 'minimax-mcp');
 
   const servers: Record<string, unknown> = {
     QuantPilotImage: createSdkMcpServer({
@@ -267,27 +263,6 @@ export function buildQuantPilotMcpServers(projectPath: string): Record<string, u
       ],
     }),
   };
-
-  if (minimaxMcpEnabled) {
-    servers.MiniMax = {
-      type: 'stdio',
-      command: process.env.MINIMAX_MCP_COMMAND?.trim() || 'uvx',
-      args: (process.env.MINIMAX_MCP_ARGS?.trim()
-        ? process.env.MINIMAX_MCP_ARGS.trim().split(/\s+/)
-        : ['minimax-coding-plan-mcp', '-y']),
-      env: {
-        MINIMAX_API_KEY: token,
-        MINIMAX_MCP_BASE_PATH: process.env.MINIMAX_MCP_BASE_PATH?.trim() || minimaxBasePath,
-        MINIMAX_API_HOST:
-          process.env.MINIMAX_API_HOST?.trim() ||
-          process.env.MINIMAX_API_BASE_URL?.trim() ||
-          'https://api.minimaxi.com',
-        MINIMAX_API_RESOURCE_MODE: process.env.MINIMAX_API_RESOURCE_MODE?.trim() || 'local',
-      },
-      timeout: Number(process.env.MINIMAX_MCP_TIMEOUT_MS || 120000),
-      alwaysLoad: false,
-    };
-  }
 
   return servers;
 }

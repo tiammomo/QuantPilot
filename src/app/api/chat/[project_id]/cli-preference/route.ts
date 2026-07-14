@@ -3,6 +3,7 @@ import {
   getProjectCliPreference,
   updateProjectCliPreference,
 } from '@/lib/services/project';
+import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -21,36 +22,13 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
   return NextResponse.json({ success: true, data: preference });
 }
 
-export async function POST(request: NextRequest, { params }: RouteContext) {
+export async function POST(_request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
-    const body = await request.json();
-    if (!body || typeof body !== 'object') {
-      return NextResponse.json(
-        { success: false, error: 'Invalid payload' },
-        { status: 400 },
-      );
-    }
-
     const update = {
-      preferredCli:
-        typeof body.preferredCli === 'string'
-          ? body.preferredCli
-          : typeof body.preferred_cli === 'string'
-          ? body.preferred_cli
-          : undefined,
-      fallbackEnabled:
-        typeof body.fallbackEnabled === 'boolean'
-          ? body.fallbackEnabled
-          : typeof body.fallback_enabled === 'boolean'
-          ? body.fallback_enabled
-          : undefined,
-      selectedModel:
-        typeof body.selectedModel === 'string'
-          ? body.selectedModel
-          : typeof body.selected_model === 'string'
-          ? body.selected_model
-          : undefined,
+      preferredCli: 'claude',
+      fallbackEnabled: false,
+      selectedModel: DEEPSEEK_MODEL_ID,
     };
 
     const updated = await updateProjectCliPreference(project_id, update);
