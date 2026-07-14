@@ -1,0 +1,108 @@
+name: DeepSeek E2E Evaluation
+
+on:
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: deepseek-e2e-evaluation
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Real DeepSeek workspace generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public
+      REDIS_URL: redis://127.0.0.1:36380/0
+      QUANTPILOT_MARKET_API_URL: http://127.0.0.1:8000
+      PROJECTS_DIR: ./tmp/e2e-projects
+      QUANTPILOT_EVAL_MODE: e2e
+      QUANTPILOT_EVAL_TRIGGER: nightly
+      DEEPSEEK_AGENT_MAX_TURNS: '32'
+      DEEPSEEK_AGENT_EXECUTION_TIMEOUT_MS: '900000'
+
+    steps:
+      - name: Check evaluation secret
+        id: enabled
+        shell: bash
+        run: |
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "DEEPSEEK_API_KEY is not configured; nightly E2E is skipped."
+          fi
+
+      - name: Checkout
+        if: steps.enabled.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.enabled.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Setup uv
+        if: steps.enabled.outputs.run == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          uv sync --project services/market-data --locked --all-groups
+          npm run prisma:generate
+
+      - name: Start data infrastructure
+        if: steps.enabled.outputs.run == 'true'
+        run: |
+          docker compose up -d --wait timescaledb redis
+          npm run db:init
+          mkdir -p tmp
+          npm run dev:market > tmp/eval-market.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -100 tmp/eval-market.log
+          exit 1
+
+      - name: Run real DeepSeek regression suite
+        if: steps.enabled.outputs.run == 'true'
+        run: >-
+          npm run benchmark:quant:e2e --
+          --case stock-diagnosis-citic-no-false-clarification
+          --case stock-fundamental-maotai
+          --case asset-comparison-bluechips
+          --concurrency 1
+
+      - name: Enforce E2E gate
+        if: steps.enabled.outputs.run == 'true'
+        run: npm run eval:ci:e2e -- --min-pass-rate 100 --min-average-score 90
+
+      - name: Upload evaluation evidence
+        if: always() && steps.enabled.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-e2e-evidence-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            tmp/quantpilot-benchmark-reports/
+            tmp/quantpilot-benchmark-screenshots/
+            tmp/eval-market.log
+
+      - name: Stop infrastructure
+        if: always() && steps.enabled.outputs.run == 'true'
+        run: docker compose down -v

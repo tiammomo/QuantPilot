@@ -37,6 +37,7 @@ import {
 } from "@/components/quant/eval-console-primitives";
 import type { QuantEvalDashboardData, QuantEvalFlowSimulation, QuantEvalResult } from "@/lib/eval";
 import { cn } from "@/lib/utils";
+import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 
 type Props = { data: QuantEvalDashboardData };
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
@@ -208,6 +209,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           model: selectedEvaluator.model,
           reasoningEffort: selectedEvaluator.reasoningEffort,
           concurrency: evaluatorConcurrency,
+          mode: selectedEvaluator.executionMode,
           selectedCases: sc,
           limit: caseOverride || sc.length > 0 || limit === "all" ? null : Number(limit),
           keepProjects: false,
@@ -215,7 +217,7 @@ export default function EvalsDashboardClient({ data }: Props) {
       });
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error ?? "启动失败");
-      showToast("success", "评测任务已进入队列。");
+      showToast("success", selectedEvaluator.executionMode === "e2e" ? "DeepSeek E2E 评测已进入队列。" : "确定性契约评测已进入队列。");
       await refreshDashboard();
     } catch (error) { showToast("error", error instanceof Error ? error.message : String(error)); }
     finally { setIsStarting(false); }
@@ -235,6 +237,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           model: selectedEvaluator.model,
           reasoningEffort: selectedEvaluator.reasoningEffort,
           concurrency: evaluatorConcurrency,
+          mode: selectedEvaluator.executionMode,
           selectedCases: sc,
           limit: sc.length || limit === "all" ? null : Number(limit),
           keepProjects: false,
@@ -396,6 +399,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
+            <PlatformSwitcher />
             <div className="mr-1 hidden text-right xl:block">
               <p className="text-[11px] font-medium text-foreground">{formatGeneratedAt(dashboard.generatedAt)}</p>
               <p className="text-[10px] text-muted-foreground">{dashboard.summary.caseCount} 条用例 · {dashboard.summary.capabilityCount} 个能力域</p>

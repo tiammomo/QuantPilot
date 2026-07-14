@@ -120,7 +120,7 @@ export default function EvalRunDetailClient({ run }: Props) {
             {run.passed ? '通过' : '失败'}
           </Badge>
         )}
-        subtitle={`${run.fileName} · ${formatDate(run.createdAt)} · ${run.metadata.runtime.cli ?? 'unknown'} / ${run.metadata.runtime.model ?? 'unknown'}`}
+        subtitle={`${run.fileName} · ${formatDate(run.createdAt)} · ${run.metadata.suite?.label ?? '历史契约评测'}`}
       />
 
       <main className="platform-content mx-auto max-w-[1520px] px-3 py-5 sm:px-6 sm:py-7 lg:px-8">
@@ -129,11 +129,12 @@ export default function EvalRunDetailClient({ run }: Props) {
             <div>
               <p className="text-[10px] font-bold tracking-[0.16em] text-primary">EVALUATION REPORT</p>
               <h1 className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">{run.fileName}</h1>
-              <p className="mt-1 text-xs text-muted-foreground">{formatDate(run.createdAt)} · {run.metadata.runtime.cli ?? 'unknown'} / {run.metadata.runtime.model ?? 'unknown'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{formatDate(run.createdAt)} · {run.metadata.suite?.label ?? '历史契约评测'} · {run.metadata.runtime.model ?? 'deterministic'}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="bg-background/60">{run.total} 条用例</Badge>
               <Badge variant="outline" className="bg-background/60">并发 {run.metadata.evaluator.concurrency}</Badge>
+              <Badge variant="outline" className="bg-background/60">{run.metadata.suite?.mode === 'e2e' ? '真实 Agent' : '确定性模板'}</Badge>
               <Badge className={run.passed ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500' : 'border-red-500/25 bg-red-500/10 text-red-500'}>{run.passed ? '质量门禁通过' : '质量门禁失败'}</Badge>
             </div>
           </div>

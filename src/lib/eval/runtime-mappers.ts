@@ -47,8 +47,10 @@ export function normalizeSkillLockSnapshot(value: unknown): QuantEvalRun['metada
         skillId,
         {
           version: stringValue(item.version) || null,
-          hash: stringValue(item.hash) || null,
-          packageHash: stringValue(item.packageHash) || null,
+          hash: stringValue(item.hash) || stringValue(item.sourceSha256) || null,
+          packageHash: stringValue(item.packageHash) || stringValue(item.packageSha256) || null,
+          sourceSha256: stringValue(item.sourceSha256) || stringValue(item.hash) || null,
+          packageSha256: stringValue(item.packageSha256) || stringValue(item.packageHash) || null,
           sourcePath: stringValue(item.sourcePath) || null,
           packagePath: stringValue(item.packagePath) || null,
         },
@@ -78,6 +80,8 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
   const runtime = isRecord(metadata.runtime) ? metadata.runtime : {};
   const selection = isRecord(metadata.selection) ? metadata.selection : {};
   const evaluator = isRecord(metadata.evaluator) ? metadata.evaluator : {};
+  const suite = isRecord(metadata.suite) ? metadata.suite : {};
+  const provenance = isRecord(metadata.provenance) ? metadata.provenance : {};
   const concurrency = normalizeEvalConcurrency(selection.concurrency ?? evaluator.concurrency);
 
   return {
@@ -93,6 +97,19 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       cli: stringValue(runtime.cli) || 'benchmark',
       model: stringValue(runtime.model) || 'deterministic',
       reasoningEffort: stringValue(runtime.reasoningEffort) || null,
+      configuredModel: stringValue(runtime.configuredModel) || null,
+      agentExecuted: booleanValue(runtime.agentExecuted),
+      executedCaseCount: numberValue(runtime.executedCaseCount),
+      unattestedCaseIds: stringArray(runtime.unattestedCaseIds),
+    },
+    suite: {
+      mode: stringValue(suite.mode) === 'e2e' ? 'e2e' : 'contract',
+      label: stringValue(suite.label) || (stringValue(suite.mode) === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约'),
+    },
+    provenance: {
+      gitCommit: stringValue(provenance.gitCommit) || null,
+      casesSha256: stringValue(provenance.casesSha256) || null,
+      promptsSha256: stringValue(provenance.promptsSha256) || null,
     },
     selection: {
       selectedCases: stringArray(selection.selectedCases),
@@ -217,6 +234,9 @@ export function mapDbQueueItem(record: {
   cli: string;
   model: string;
   reasoningEffort: string;
+  evaluatorId?: string | null;
+  concurrency?: number | null;
+  mode?: string | null;
   selectedCases: unknown;
   limit: number | null;
   keepProjects: boolean;
@@ -239,8 +259,9 @@ export function mapDbQueueItem(record: {
     cli: record.cli,
     model: record.model,
     reasoningEffort: record.reasoningEffort,
-    evaluatorId: DEFAULT_EVALUATOR_ID,
-    concurrency: DEFAULT_EVAL_CONCURRENCY,
+    evaluatorId: stringValue(record.evaluatorId, DEFAULT_EVALUATOR_ID).trim() || DEFAULT_EVALUATOR_ID,
+    concurrency: normalizeEvalConcurrency(record.concurrency),
+    mode: record.mode === 'e2e' ? 'e2e' : 'contract',
     selectedCases: stringArray(record.selectedCases),
     limit: record.limit,
     keepProjects: record.keepProjects,
@@ -392,6 +413,7 @@ export function normalizeResult(
   const type = testCase?.type ?? 'generated_project';
   const validation = isRecord(raw.validation) ? raw.validation : {};
   const checks = normalizeChecks(validation.checks);
+  const agentExecution = isRecord(raw.agentExecution) ? raw.agentExecution : null;
 
   return {
     id,
@@ -399,11 +421,25 @@ export function normalizeResult(
     question: stringValue(raw.question, testCase?.question ?? ''),
     projectId: stringValue(raw.projectId) || null,
     projectPath: stringValue(raw.projectPath) || null,
+    requestId: stringValue(raw.requestId) || null,
     durationMs: numberValue(raw.durationMs),
     passed: booleanValue(raw.passed),
     score: computeResultScore(raw),
     failures: stringArray(raw.failures),
     symbols: stringArray(raw.symbols),
+    repairAttempts: numberValue(raw.repairAttempts),
+    platformRepairCount: numberValue(raw.platformRepairCount),
+    agentExecuted: booleanValue(raw.agentExecuted),
+    agentExecution: agentExecution
+      ? {
+          executed: booleanValue(agentExecution.executed),
+          provider: stringValue(agentExecution.provider) || null,
+          model: stringValue(agentExecution.model) || null,
+          requestId: stringValue(agentExecution.requestId) || null,
+          startedAt: stringValue(agentExecution.startedAt) || null,
+          completedAt: stringValue(agentExecution.completedAt) || null,
+        }
+      : null,
     capabilityId,
     capabilityLabel: EVAL_CAPABILITY_LABELS[capabilityId] ?? capabilityId,
     type,

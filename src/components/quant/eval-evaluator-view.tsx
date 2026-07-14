@@ -21,6 +21,7 @@ import {
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
 import type { QuantEvalFlowSimulation } from '@/lib/eval';
+import type { QuantEvalExecutionMode } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
 export type EvalEvaluatorId = 'rule-strict' | 'agent-review' | 'visual-contract';
@@ -37,6 +38,7 @@ export type EvalEvaluatorOption = {
   reasoningEffort?: string;
   defaultConcurrency: number;
   maxConcurrency: number;
+  executionMode: QuantEvalExecutionMode;
   checks: string[];
   highlights: string[];
 };
@@ -53,6 +55,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     model: 'deepseek-v4-flash',
     defaultConcurrency: 4,
     maxConcurrency: 8,
+    executionMode: 'contract',
     checks: ['产物契约', '数据证据', '事件审计', '视觉基础检查'],
     highlights: ['低成本', '高一致性', '失败原因明确'],
   },
@@ -67,6 +70,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     model: 'deepseek-v4-flash',
     defaultConcurrency: 2,
     maxConcurrency: 4,
+    executionMode: 'e2e',
     checks: ['意图覆盖', '业务解释', '风险提示', '修复建议'],
     highlights: ['质量审阅', '解释充分', '适合抽检'],
   },
@@ -81,6 +85,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     model: 'deepseek-v4-flash',
     defaultConcurrency: 2,
     maxConcurrency: 4,
+    executionMode: 'contract',
     checks: ['截图可用性', '图表存在性', '文本完整性', '降级提示'],
     highlights: ['页面导向', '证据联动', '展示稳定性'],
   },
@@ -166,7 +171,7 @@ export function EvalEvaluatorView({
             </Button>
             <Button onClick={onStart} disabled={isStarting} className="gap-2 shadow-md shadow-primary/15">
               {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              启动真实评测
+              {selectedEvaluator.executionMode === 'e2e' ? '启动 DeepSeek E2E' : '启动契约评测'}
             </Button>
           </div>
         </div>
@@ -259,7 +264,8 @@ export function EvalEvaluatorView({
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground"><Layers3 className="h-4 w-4 text-primary" />执行摘要</div>
               <dl className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between gap-4"><dt className="text-muted-foreground">评测用例</dt><dd className="font-semibold text-foreground">{selectedEvalSet?.caseIds.length ?? 0} 条</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">运行模型</dt><dd className="truncate font-mono text-foreground">{selectedEvaluator.model}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">执行模式</dt><dd className="font-semibold text-foreground">{selectedEvaluator.executionMode === 'e2e' ? '真实 Agent' : '确定性模板'}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">运行模型</dt><dd className="truncate font-mono text-foreground">{selectedEvaluator.executionMode === 'e2e' ? selectedEvaluator.model : '不调用模型'}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted-foreground">检查项</dt><dd className="font-semibold text-foreground">{selectedEvaluator.checks.length} 项</dd></div>
               </dl>
             </div>

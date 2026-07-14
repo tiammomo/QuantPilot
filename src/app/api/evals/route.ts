@@ -9,6 +9,7 @@ import {
   startQuantEvalRun,
   updateQuantEvalSchedule,
 } from '@/lib/eval';
+import { assertPrivilegedMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
 export async function GET() {
   try {
@@ -29,6 +30,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    assertPrivilegedMutation(request);
     const body = await request.json().catch(() => ({}));
     const action = String(body.action ?? '');
     if (action === 'start-benchmark') {
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
         evaluatorId: typeof body.evaluatorId === 'string' ? body.evaluatorId : undefined,
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
+        mode: body.mode === 'e2e' ? 'e2e' : 'contract',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,
         keepProjects: Boolean(body.keepProjects),
@@ -83,6 +86,7 @@ export async function POST(request: Request) {
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
         evaluatorId: typeof body.evaluatorId === 'string' ? body.evaluatorId : undefined,
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
+        mode: body.mode === 'e2e' ? 'e2e' : 'contract',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,
         keepProjects: Boolean(body.keepProjects),
@@ -131,7 +135,7 @@ export async function POST(request: Request) {
         success: false,
         error: error instanceof Error ? error.message : String(error),
       },
-      { status: 400 }
+      { status: error instanceof PrivilegedRequestError ? error.status : 400 }
     );
   }
 }

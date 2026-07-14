@@ -217,6 +217,7 @@ export function EvalQueueView({
       const haystack = [
         item.id,
         itemType(item),
+        item.mode,
         item.status,
         getEvalEvaluatorOption(item.evaluatorId).name,
         `并发 ${item.concurrency}`,
@@ -290,6 +291,7 @@ export function EvalQueueView({
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
                   placeholder="搜索执行记录ID或评测集名称..."
+                  aria-label="搜索评测执行记录"
                   className="h-11 rounded-xl border-slate-200/80 bg-card/70 pl-9 text-sm shadow-none dark:border-border/50 dark:bg-background"
                 />
               </div>
@@ -382,7 +384,7 @@ export function EvalQueueView({
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-xs font-medium text-foreground">{evaluator.name}</div>
-                      <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground">并发上限 {item.concurrency}</div>
+                      <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground">{item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · 并发 {item.concurrency}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex max-w-[280px] items-center gap-1.5 text-primary">
@@ -440,7 +442,7 @@ export function EvalQueueView({
                   <div className="min-w-0">
                     <p className="font-mono text-xs font-semibold text-primary">#{item.id.replace(/^eval-run-/, '').slice(0, 8)}</p>
                     <h3 className="mt-1 truncate text-sm font-semibold text-foreground">{associatedEvalSet(item, evalSets)}</h3>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">{itemType(item)} · {evaluator.name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{itemType(item)} · {item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · {evaluator.name}</p>
                   </div>
                   {statusBadge(item.status)}
                 </div>

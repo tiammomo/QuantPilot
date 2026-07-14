@@ -4,6 +4,9 @@ require('tsconfig-paths/register');
 
 const fs = require('fs/promises');
 const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+const dotenv = require('dotenv');
 const { PrismaClient } = require('@prisma/client');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-benchmarks.js'), {
   interopDefault: true,
@@ -29,6 +32,20 @@ const {
   getModelDefinitionsForCli,
   normalizeModelId,
 } = jiti('../../src/lib/constants/cliModels.ts');
+const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/claude.ts');
+const {
+  failBenchmarkGenerationRun,
+  runBenchmarkRepairLoop,
+} = jiti('../../src/lib/eval/benchmark-repair.ts');
+const {
+  isE2eAgentExecutionAttested,
+  summarizeE2eAgentExecution,
+} = jiti('../../src/lib/eval/e2e-attestation.ts');
+
+// Keep CLI evaluation consistent with the web launcher while preserving
+// explicitly provided CI environment variables. Local overrides load first.
+dotenv.config({ path: path.resolve('.env.local') });
+dotenv.config({ path: path.resolve('.env') });
 
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
@@ -42,6 +59,7 @@ function parseArgs(argv) {
   let trigger = process.env.QUANTPILOT_EVAL_TRIGGER || 'cli';
   let evaluatorId = process.env.QUANTPILOT_EVAL_EVALUATOR || 'rule-strict';
   let concurrency = Number.parseInt(process.env.QUANTPILOT_EVAL_CONCURRENCY || '1', 10);
+  let mode = process.env.QUANTPILOT_EVAL_MODE || 'contract';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -65,6 +83,23 @@ function parseArgs(argv) {
     }
     if (arg === '--keep-projects') {
       keepProjects = true;
+    }
+    if (arg === '--e2e') {
+      mode = 'e2e';
+      continue;
+    }
+    if (arg === '--contract') {
+      mode = 'contract';
+      continue;
+    }
+    if (arg === '--mode' && argv[index + 1]) {
+      mode = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--mode=')) {
+      mode = arg.slice('--mode='.length);
+      continue;
     }
     if (arg === '--cli' && argv[index + 1]) {
       index += 1;
@@ -120,6 +155,10 @@ function parseArgs(argv) {
     }
   }
 
+  if (!['contract', 'e2e'].includes(mode)) {
+    throw new Error(`不支持的 benchmark mode：${mode}。请使用 contract 或 e2e。`);
+  }
+
   return {
     selected,
     limit: Number.isFinite(limit) && limit > 0 ? limit : null,
@@ -130,6 +169,7 @@ function parseArgs(argv) {
     trigger,
     evaluatorId: evaluatorId || 'rule-strict',
     concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.min(16, Math.floor(concurrency)) : 1,
+    mode,
   };
 }
 
@@ -160,8 +200,8 @@ async function readSkillLockSnapshot() {
         skillId,
         {
           version: item.version ?? null,
-          hash: item.hash ?? null,
-          packageHash: item.packageHash ?? null,
+          sourceSha256: item.sourceSha256 ?? item.hash ?? null,
+          packageSha256: item.packageSha256 ?? item.packageHash ?? null,
           sourcePath: item.sourcePath ?? null,
           packagePath: item.packagePath ?? null,
         },
@@ -172,6 +212,22 @@ async function readSkillLockSnapshot() {
     schemaVersion: lock.schemaVersion ?? null,
     skills,
   };
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function readGitCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
 }
 
 async function readEvents(projectPath) {
@@ -369,12 +425,78 @@ function formatError(error) {
   return error instanceof Error ? `${error.message}\n${error.stack || ''}`.trim() : String(error);
 }
 
+function formatValidationFailure(check) {
+  return `${check.id}: ${check.summary}${check.details ? `\n${check.details}` : ''}`;
+}
+
+async function readInspectionArtifact({ projectPath, relativePath, format, failures, missingArtifacts, invalidArtifacts }) {
+  const absolutePath = path.join(projectPath, relativePath);
+  let content;
+  try {
+    content = await fs.readFile(absolutePath, 'utf8');
+  } catch (error) {
+    if (error && error.code === 'ENOENT') {
+      missingArtifacts.push(relativePath);
+      failures.push(`缺少必需产物：${relativePath}`);
+    } else {
+      invalidArtifacts.push(relativePath);
+      failures.push(`无法读取产物 ${relativePath}：${error instanceof Error ? error.message : String(error)}`);
+    }
+    return null;
+  }
+
+  if (!content.trim()) {
+    invalidArtifacts.push(relativePath);
+    failures.push(`产物为空：${relativePath}`);
+    return null;
+  }
+  if (format === 'text') {
+    return content;
+  }
+
+  try {
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('根节点必须是 JSON 对象');
+    }
+    return parsed;
+  } catch (error) {
+    invalidArtifacts.push(relativePath);
+    failures.push(`产物 JSON 无效 ${relativePath}：${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   const failures = [];
-  const finalData = await readJson(path.join(projectPath, 'data_file/final/dashboard-data.json'));
-  const quality = await readJson(path.join(projectPath, 'evidence/data_quality.json'));
-  const sources = await readJson(path.join(projectPath, 'evidence/sources.json'));
-  const page = await fs.readFile(path.join(projectPath, 'app/page.tsx'), 'utf8');
+  const missingArtifacts = [];
+  const invalidArtifacts = [];
+  const readArtifact = (relativePath, format = 'json') => readInspectionArtifact({
+    projectPath,
+    relativePath,
+    format,
+    failures,
+    missingArtifacts,
+    invalidArtifacts,
+  });
+  const [finalData, quality, sources, page, runPlan] = await Promise.all([
+    readArtifact('data_file/final/dashboard-data.json'),
+    readArtifact('evidence/data_quality.json'),
+    readArtifact('evidence/sources.json'),
+    readArtifact('app/page.tsx', 'text'),
+    readArtifact('.quantpilot/run_plan.json'),
+  ]);
+
+  if (!finalData || !quality || !sources || !page || !runPlan) {
+    return {
+      status: 'failed',
+      failures,
+      missingArtifacts,
+      invalidArtifacts,
+      finalData: null,
+      quality: null,
+    };
+  }
 
   if (testCase.expectedSymbol) {
     assertCondition(finalData.symbol === testCase.expectedSymbol, `symbol 应为 ${testCase.expectedSymbol}，实际为 ${finalData.symbol}`, failures);
@@ -411,7 +533,6 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   if (testCase.expectedTemplateId) {
-    const runPlan = await readJson(path.join(projectPath, '.quantpilot/run_plan.json'));
     const finalTemplateId = finalData.visualization?.template_id || finalData.visualization?.templateId;
     assertCondition(
       runPlan.visualization?.templateId === testCase.expectedTemplateId,
@@ -448,14 +569,31 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   if (testCase.expectedFinalFields?.includes('selectionRanking')) {
-    assertCondition(Array.isArray(finalData.selectionRanking?.rows) && finalData.selectionRanking.rows.length > 0, 'selectionRanking.rows 应非空。', failures);
-    assertCondition(Array.isArray(finalData.financialQuality?.rows) && finalData.financialQuality.rows.length > 0, 'financialQuality.rows 应非空。', failures);
-    assertCondition(
-      Array.isArray(finalData.comparison?.rows) &&
-        finalData.comparison.rows.every((row) => row && row.composite_score !== undefined && row.selection_view),
-      'comparison.rows[] 应包含 composite_score 和 selection_view。',
-      failures
-    );
+    const screenerCandidates = Array.isArray(finalData.screener?.candidates) ? finalData.screener.candidates : null;
+    const isStructuredEmptyResult =
+      finalData.status === 'no_candidates' &&
+      Number(finalData.screener?.total_candidates) === 0 &&
+      screenerCandidates &&
+      screenerCandidates.length === 0 &&
+      Array.isArray(finalData.assets) &&
+      finalData.assets.length === 0;
+    if (isStructuredEmptyResult) {
+      assertCondition(Array.isArray(finalData.selectionRanking?.rows), '空候选结果仍应包含 selectionRanking.rows 数组。', failures);
+      assertCondition(Array.isArray(finalData.financialQuality?.rows), '空候选结果仍应包含 financialQuality.rows 数组。', failures);
+      assertCondition(Array.isArray(finalData.comparison?.rows), '空候选结果仍应包含 comparison.rows 数组。', failures);
+      assertCondition(finalData.tradingPlan?.status === 'unavailable', '空候选结果的 tradingPlan.status 应为 unavailable。', failures);
+      assertCondition(Array.isArray(finalData.warnings) && finalData.warnings.length > 0, '空候选结果应包含可读的 warnings。', failures);
+      assertCondition(/noCandidates|没有满足安全条件的候选|结构化空结果/.test(page), '空候选页面应明确展示无安全候选状态。', failures);
+    } else {
+      assertCondition(Array.isArray(finalData.selectionRanking?.rows) && finalData.selectionRanking.rows.length > 0, 'selectionRanking.rows 应非空。', failures);
+      assertCondition(Array.isArray(finalData.financialQuality?.rows) && finalData.financialQuality.rows.length > 0, 'financialQuality.rows 应非空。', failures);
+      assertCondition(
+        Array.isArray(finalData.comparison?.rows) &&
+          finalData.comparison.rows.every((row) => row && row.composite_score !== undefined && row.selection_view),
+        'comparison.rows[] 应包含 composite_score 和 selection_view。',
+        failures
+      );
+    }
     assertCondition(/selectionRanking|financialQuality|stock-selection|相对强弱|财务质量|收益对比|回撤对比/i.test(page), '选股页面应包含排名、财务质量或对比图表组件。', failures);
   }
 
@@ -488,11 +626,11 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   if (testCase.expectedImageExtraction) {
-    const imageEvidence = await readJson(path.join(projectPath, 'evidence/image_extraction.json'));
+    const imageEvidence = await readArtifact('evidence/image_extraction.json');
     const imageSourceIds = new Set((sources.sources || []).map((source) => source.id));
     assertCondition(finalData.imageExtraction && typeof finalData.imageExtraction === 'object', 'final 数据缺少 imageExtraction。', failures);
-    assertCondition(imageEvidence.status === 'metadata_ready', `image_extraction.status 应为 metadata_ready，实际为 ${imageEvidence.status}`, failures);
-    assertCondition(Array.isArray(imageEvidence.images) && imageEvidence.images.length > 0, 'image_extraction.images 应非空。', failures);
+    assertCondition(imageEvidence?.status === 'metadata_ready', `image_extraction.status 应为 metadata_ready，实际为 ${imageEvidence?.status}`, failures);
+    assertCondition(Array.isArray(imageEvidence?.images) && imageEvidence.images.length > 0, 'image_extraction.images 应非空。', failures);
     assertCondition(finalData.imageExtraction?.needs_manual_confirmation === true, 'imageExtraction.needs_manual_confirmation 应为 true。', failures);
     assertCondition(datasetIds.has('uploaded_image_attachment'), 'data_quality 缺少 uploaded_image_attachment 数据集。', failures);
     assertCondition(imageSourceIds.has('uploaded_image_attachment'), 'sources 缺少 uploaded_image_attachment 信源。', failures);
@@ -516,7 +654,10 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   return {
+    status: failures.length === 0 ? 'passed' : 'failed',
     failures,
+    missingArtifacts,
+    invalidArtifacts,
     finalData: {
       symbol: finalData.symbol,
       name: finalData.name,
@@ -617,11 +758,28 @@ async function runClarificationContinuationCase(testCase) {
   const failures = [];
 
   await ensureBenchmarkProject({ projectId, projectPath, testCase });
+  await startQuantGenerationRun({
+    projectPath,
+    projectId,
+    requestId,
+    instruction: testCase.question,
+    cliPreference: 'benchmark',
+    selectedModel: 'deepseek-v4-flash',
+  });
   const firstPlan = await writeInitialRunPlan({
     projectPath,
     instruction: testCase.question,
     requestId,
     capabilityId: testCase.capabilityId,
+  });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'planning',
+    status: firstPlan.status === 'needs_clarification' ? 'warning' : 'success',
+    summary: `benchmark 首轮已生成 ${firstPlan.capabilityId} 执行计划。`,
+    runStatus: firstPlan.status === 'needs_clarification' ? 'needs_clarification' : undefined,
   });
   const firstPrefetch = await prefetchQuantDataForRunPlan({ projectPath, plan: firstPlan });
   assertCondition(firstPlan.status === 'needs_clarification', `首轮应进入澄清，实际为 ${firstPlan.status}`, failures);
@@ -640,20 +798,82 @@ async function runClarificationContinuationCase(testCase) {
   let artifactInspection = null;
   let validation = null;
   if (continuation) {
+    await startQuantGenerationRun({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      instruction: continuation.resolvedInstruction,
+      cliPreference: 'benchmark',
+      selectedModel: 'deepseek-v4-flash',
+    });
     plan = await writeInitialRunPlan({
       projectPath,
       instruction: continuation.resolvedInstruction,
       requestId: followupRequestId,
       capabilityId: testCase.capabilityId,
     });
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      stepId: 'planning',
+      status: plan.status === 'needs_clarification' ? 'warning' : 'success',
+      summary: 'benchmark 已承接用户补充并更新执行计划。',
+      runStatus: plan.status === 'needs_clarification' ? 'needs_clarification' : undefined,
+      metadata: {
+        previousRunId: continuation.previousRunId,
+        symbols: plan.symbols,
+      },
+    });
     prefetch = await prefetchQuantDataForRunPlan({ projectPath, plan });
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      stepId: 'data_prefetch',
+      status: prefetch.skipped ? 'skipped' : 'success',
+      summary: prefetch.summary,
+      metadata: {
+        skipped: prefetch.skipped,
+        symbols: prefetch.symbols,
+      },
+    });
     await ensureQuantDashboardTemplate(projectPath);
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      stepId: 'agent_execution',
+      status: 'skipped',
+      summary: '契约 benchmark 使用平台标准模板，不声明为模型生成结果。',
+      metadata: {
+        deterministicDashboard: true,
+        modelExecuted: false,
+      },
+    });
     artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch });
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      stepId: 'validation',
+      status: 'running',
+      summary: 'benchmark 开始自动验证。',
+    });
     validation = await validateQuantProject({
       projectId,
       projectPath,
       requestId: followupRequestId,
       cliSource: 'benchmark',
+    });
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId: followupRequestId,
+      stepId: 'validation',
+      status: validation.passed ? 'success' : 'failed',
+      summary: validation.passed ? 'benchmark 自动验证通过。' : 'benchmark 自动验证失败。',
+      runStatus: validation.passed ? 'completed' : 'failed',
     });
     const eventAudit = await auditProjectEvents({
       projectPath,
@@ -764,7 +984,16 @@ async function runRepairPlanCase(testCase) {
   for (const checkId of ['artifact_policy', 'chart_presence', 'market_proxy']) {
     assertCondition(repairPlan.steps.some((step) => step.checkId === checkId), `修复计划缺少 ${checkId}`, failures);
   }
-  assertCondition(instruction.includes('只修改当前生成项目目录内的文件'), '修复提示词应限制只修改生成项目。', failures);
+  assertCondition(
+    instruction.includes('app/**、data_file/final/** 和 evidence/**'),
+    '修复提示词应把 Agent 写权限限制在 app/final/evidence。',
+    failures,
+  );
+  assertCondition(
+    instruction.includes('整个 `.quantpilot/**`') && instruction.includes('结构修复和重新生成由平台负责'),
+    '修复提示词应明确 .quantpilot 全部由平台维护。',
+    failures,
+  );
   assertCondition(instruction.includes('data_file/final/dashboard-data.json'), '修复提示词应强调标准数据绑定。', failures);
   assertCondition(instruction.includes('/api/market'), '修复提示词应强调同源市场代理。', failures);
 
@@ -795,6 +1024,29 @@ async function runSourceDegradationCase(testCase) {
   const failures = [];
 
   await ensureBenchmarkProject({ projectId, projectPath, testCase });
+  await startQuantGenerationRun({
+    projectPath,
+    projectId,
+    requestId,
+    instruction: testCase.question,
+    cliPreference: 'benchmark',
+    selectedModel: 'deepseek-v4-flash',
+  });
+  const plan = await writeInitialRunPlan({
+    projectPath,
+    instruction: `贵州茅台 600519 最近行情走势如何？请做综合诊断。本用例同时验证数据源降级证据：${testCase.question}`,
+    requestId,
+    capabilityId: testCase.capabilityId,
+  });
+  assertCondition(plan.status === 'planned', `降级证据 fixture 应生成 planned 计划，实际为 ${plan.status}`, failures);
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'planning',
+    status: 'success',
+    summary: 'benchmark 已通过生产 writer 写入数据源降级测试计划。',
+  });
   const finalData = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -802,6 +1054,7 @@ async function runSourceDegradationCase(testCase) {
     name: '贵州茅台',
     asset_type: 'stock',
     source: 'eastmoney',
+    as_of: new Date().toISOString(),
     quote: {
       symbol: '600519',
       name: '贵州茅台',
@@ -859,27 +1112,23 @@ async function runSourceDegradationCase(testCase) {
         warnings: ['公告接口暂不可用，页面必须展示缺口。'],
       },
     },
+    visualization: {
+      template_id: plan.visualization.templateId,
+      name: plan.visualization.name,
+      scenario: plan.visualization.scenario,
+      variant_id: plan.visualization.variantId,
+      layout: plan.visualization.layout,
+      density: plan.visualization.density,
+      required_components: plan.visualization.panels,
+      rendered_components: plan.visualization.panels,
+      missing_components: [],
+    },
     warnings: ['已发生数据源降级：历史 K 线使用腾讯代理，财务和公告保留缺口。'],
   };
   await writeJson(path.join(projectPath, 'data_file/final/dashboard-data.json'), finalData);
-  await writeJson(path.join(projectPath, '.quantpilot/run_plan.json'), {
-    runId: requestId,
-    status: 'planned',
-    capabilityId: testCase.capabilityId,
-    question: testCase.question,
-    dataRequirements: ['/api/v1/quotes/realtime/600519', '/api/v1/quotes/history/600519', '/api/v1/fundamentals/financials/600519'],
-  });
   await fs.appendFile(
     path.join(projectPath, '.quantpilot/events.jsonl'),
     `${JSON.stringify({
-      event_type: 'run_planned',
-      stage: 'planning',
-      status: 'success',
-      run_id: requestId,
-      artifact_path: '.quantpilot/run_plan.json',
-      summary: 'benchmark 已写入数据源降级测试计划。',
-      created_at: new Date().toISOString(),
-    })}\n${JSON.stringify({
       event_type: 'data_prefetch_started',
       stage: 'data_collection',
       status: 'pending',
@@ -902,8 +1151,28 @@ async function runSourceDegradationCase(testCase) {
     runId: requestId,
     generated_by: 'benchmark',
     sources: [
-      { id: 'quote', dataset: '实时行情', source: 'eastmoney', endpoint: '/api/v1/quotes/realtime/600519', artifact_path: 'data_file/final/dashboard-data.json', row_count: 1, status: 'ok' },
-      { id: 'kline', dataset: '历史 K 线', source: 'tencent', endpoint: '/api/v1/quotes/history/600519', artifact_path: 'data_file/final/dashboard-data.json', row_count: 24, status: 'warning' },
+      {
+        id: 'quote',
+        dataset: '实时行情',
+        source: 'eastmoney',
+        endpoint: '/api/v1/quotes/realtime/600519',
+        artifact_path: 'data_file/final/dashboard-data.json',
+        row_count: 1,
+        fetched_at: finalData.quote.fetched_at,
+        as_of: finalData.quote.fetched_at,
+        status: 'ok',
+      },
+      {
+        id: 'kline',
+        dataset: '历史 K 线',
+        source: 'tencent',
+        endpoint: '/api/v1/quotes/history/600519',
+        artifact_path: 'data_file/final/dashboard-data.json',
+        row_count: 24,
+        fetched_at: finalData.generatedAt,
+        as_of: '2026-04-24',
+        status: 'warning',
+      },
     ],
   });
   await writeJson(path.join(projectPath, 'evidence/data_quality.json'), {
@@ -935,13 +1204,38 @@ async function runSourceDegradationCase(testCase) {
     })}\n`,
     'utf8'
   );
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'data_prefetch',
+    status: 'warning',
+    summary: 'benchmark 已写入含备用信源和缺口说明的降级证据。',
+  });
   await ensureQuantDashboardTemplate(projectPath);
   const artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch: { rawFiles: [] } });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'validation',
+    status: 'running',
+    summary: 'benchmark 开始验证数据源降级链路。',
+  });
   const validation = await validateQuantProject({
     projectId,
     projectPath,
     requestId,
     cliSource: 'benchmark',
+  });
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: 'validation',
+    status: validation.passed ? 'success' : 'failed',
+    summary: validation.passed ? '数据源降级链路验证通过。' : '数据源降级链路验证失败。',
+    runStatus: validation.passed ? 'completed' : 'failed',
   });
   const eventAudit = await auditProjectEvents({
     projectPath,
@@ -1033,7 +1327,7 @@ async function runVisualCheck({ projectId, testCase }) {
   }
 }
 
-async function runCase(testCase) {
+async function runCase(testCase, options) {
   if (testCase.type === 'runtime_registry') {
     return runRuntimeRegistryCase(testCase);
   }
@@ -1054,6 +1348,14 @@ async function runCase(testCase) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
+  const agentExecution = {
+    executed: false,
+    provider: options.mode === 'e2e' ? 'deepseek' : null,
+    model: options.mode === 'e2e' ? 'deepseek-v4-flash' : null,
+    requestId,
+    startedAt: null,
+    completedAt: null,
+  };
 
   await ensureBenchmarkProject({ projectId, projectPath, testCase });
   await startQuantGenerationRun({
@@ -1108,19 +1410,56 @@ async function runCase(testCase) {
       rawFiles: prefetch.rawFiles,
     },
   });
-  await ensureQuantDashboardTemplate(projectPath);
-  await updateQuantGenerationStep({
-    projectPath,
-    projectId,
-    requestId,
-    stepId: 'agent_execution',
-    status: 'skipped',
-    summary: 'benchmark 使用平台标准模板生成看板，跳过外部 Agent 执行。',
-    metadata: {
-      deterministicDashboard: true,
-    },
-  });
-  const artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch });
+  if (options.mode === 'e2e') {
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId,
+      stepId: 'agent_execution',
+      status: 'running',
+      summary: '真实 E2E benchmark 正在调用 DeepSeek V4 Flash 生成看板。',
+      metadata: {
+        deterministicDashboard: false,
+        model: 'deepseek-v4-flash',
+      },
+    });
+    agentExecution.startedAt = new Date().toISOString();
+    await initializeNextJsProject(
+      projectId,
+      projectPath,
+      testCase.question,
+      'deepseek-v4-flash',
+      requestId,
+    );
+    agentExecution.executed = true;
+    agentExecution.completedAt = new Date().toISOString();
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId,
+      stepId: 'agent_execution',
+      status: 'success',
+      summary: 'DeepSeek V4 Flash 真实生成执行完成。',
+      metadata: {
+        deterministicDashboard: false,
+        model: 'deepseek-v4-flash',
+      },
+    });
+  } else {
+    await ensureQuantDashboardTemplate(projectPath);
+    await updateQuantGenerationStep({
+      projectPath,
+      projectId,
+      requestId,
+      stepId: 'agent_execution',
+      status: 'skipped',
+      summary: '契约 benchmark 使用平台标准模板，不声明为模型生成结果。',
+      metadata: {
+        deterministicDashboard: true,
+        modelExecuted: false,
+      },
+    });
+  }
   await updateQuantGenerationStep({
     projectPath,
     projectId,
@@ -1129,21 +1468,45 @@ async function runCase(testCase) {
     status: 'running',
     summary: 'benchmark 开始自动验证。',
   });
-  const validation = await validateQuantProject({
+  let validation = await validateQuantProject({
     projectId,
     projectPath,
     requestId,
     cliSource: 'benchmark',
   });
-  await updateQuantGenerationStep({
-    projectPath,
-    projectId,
-    requestId,
-    stepId: 'validation',
-    status: validation.passed ? 'success' : 'failed',
-    summary: validation.passed ? 'benchmark 自动验证通过。' : 'benchmark 自动验证失败。',
-    runStatus: validation.passed ? 'completed' : 'failed',
-  });
+  let repairAttempts = 0;
+  let platformRepairCount = 0;
+
+  if (options.mode === 'e2e' && !validation.passed) {
+    const repairResult = await runBenchmarkRepairLoop({
+      projectPath,
+      projectId,
+      parentRequestId: requestId,
+      originalInstruction: testCase.question,
+      initialValidation: validation,
+      applyRepair: async ({ instruction, repairRequestId }) => {
+        await applyChanges(
+          projectId,
+          projectPath,
+          instruction,
+          'deepseek-v4-flash',
+          undefined,
+          repairRequestId,
+        );
+      },
+      validate: (parentRequestId) => validateQuantProject({
+        projectId,
+        projectPath,
+        requestId: parentRequestId,
+        cliSource: 'benchmark',
+      }),
+    });
+    validation = repairResult.validation;
+    repairAttempts = repairResult.repairAttempts;
+    platformRepairCount = repairResult.platformRepairCount;
+  }
+
+  const artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch });
   const visualCheck = await runVisualCheck({ projectId, testCase });
   const eventAudit = await auditProjectEvents({
     projectPath,
@@ -1157,8 +1520,22 @@ async function runCase(testCase) {
     ...artifactInspection.failures,
     ...(visualCheck?.failures || []),
     ...eventAudit.failures,
-    ...(validation.passed ? [] : validation.checks.filter((check) => check.status === 'failed').map((check) => `${check.id}: ${check.summary}`)),
+    ...(validation.passed ? [] : validation.checks.filter((check) => check.status === 'failed').map(formatValidationFailure)),
   ];
+  const benchmarkPassed = failures.length === 0;
+  await updateQuantGenerationStep({
+    projectPath,
+    projectId,
+    requestId,
+    stepId: repairAttempts > 0 ? 'final_validation' : 'validation',
+    status: benchmarkPassed ? 'success' : 'failed',
+    summary: benchmarkPassed
+      ? repairAttempts > 0
+        ? `benchmark 经 ${repairAttempts} 次自动修复后完整验收通过。`
+        : 'benchmark 完整验收通过。'
+      : `benchmark 完整验收失败，共 ${failures.length} 项问题。`,
+    runStatus: benchmarkPassed ? 'completed' : 'failed',
+  });
 
   return {
     id: testCase.id,
@@ -1167,21 +1544,29 @@ async function runCase(testCase) {
     projectId,
     projectPath,
     durationMs: Date.now() - startedAt,
-    passed: failures.length === 0,
+    passed: benchmarkPassed,
     failures,
     symbols: plan.symbols,
     prefetch,
     artifacts: artifactInspection,
     visualCheck,
     eventAudit,
+    repairAttempts,
+    platformRepairCount,
+    requestId,
+    agentExecuted: agentExecution.executed,
+    agentExecution,
     validation: {
       status: validation.status,
       checks: validation.checks.map((check) => ({
         id: check.id,
         status: check.status,
         summary: check.summary,
+        details: check.details ?? null,
+        metadata: check.metadata ?? null,
       })),
     },
+    executionMode: options.mode,
   };
 }
 
@@ -1191,20 +1576,28 @@ async function cleanupBenchmarkProject(result) {
   await fs.rm(result.projectPath, { recursive: true, force: true });
 }
 
-async function runBenchmarkCase(testCase) {
-  console.log(`\n[QuantBenchmark] ${testCase.id} - ${testCase.name}`);
+async function runBenchmarkCase(testCase, options) {
+  console.log(`\n[QuantBenchmark:${options.mode}] ${testCase.id} - ${testCase.name}`);
   const startedAt = Date.now();
   let result;
   try {
-    result = await runCase(testCase);
+    result = await runCase(testCase, options);
   } catch (error) {
     const projectId = `benchmark-${testCase.id}`;
+    const projectPath = path.join(PROJECTS_DIR, projectId);
+    const parentRequestId = `${projectId}-run`;
+    const failedState = await failBenchmarkGenerationRun({
+      projectPath,
+      projectId,
+      parentRequestId,
+      error,
+    }).catch(() => null);
     result = {
       id: testCase.id,
       name: testCase.name,
       question: testCase.question,
       projectId,
-      projectPath: path.join(PROJECTS_DIR, projectId),
+      projectPath,
       durationMs: Date.now() - startedAt,
       passed: false,
       failures: [formatError(error)],
@@ -1213,8 +1606,30 @@ async function runBenchmarkCase(testCase) {
       artifacts: null,
       eventAudit: null,
       validation: null,
+      executionMode: options.mode,
+      requestId: parentRequestId,
+      repairAttempts: failedState?.repairAttemptCount ?? 0,
+      platformRepairCount: 0,
+      agentExecuted: false,
+      agentExecution: {
+        executed: false,
+        provider: options.mode === 'e2e' ? 'deepseek' : null,
+        model: options.mode === 'e2e' ? 'deepseek-v4-flash' : null,
+        requestId: parentRequestId,
+        startedAt: null,
+        completedAt: null,
+      },
     };
     await previewManager.stop(projectId).catch(() => {});
+  }
+  result.executionMode = options.mode;
+  result.agentExecuted = result.agentExecution?.executed === true;
+  if (options.mode === 'e2e' && !isE2eAgentExecutionAttested(result)) {
+    result.passed = false;
+    result.failures = Array.from(new Set([
+      ...(result.failures || []),
+      '该 E2E case 未实际执行 DeepSeek Agent，不能作为真实生成通过证据。',
+    ]));
   }
   console.log(`[QuantBenchmark] ${testCase.id} ${result.passed ? 'PASS' : 'FAIL'}`);
   if (!result.passed) {
@@ -1223,7 +1638,7 @@ async function runBenchmarkCase(testCase) {
   return result;
 }
 
-async function runCasesWithConcurrency(cases, concurrency) {
+async function runCasesWithConcurrency(cases, concurrency, options) {
   const results = new Array(cases.length);
   let nextIndex = 0;
   const workerCount = Math.min(cases.length, Math.max(1, concurrency));
@@ -1232,7 +1647,7 @@ async function runCasesWithConcurrency(cases, concurrency) {
     while (nextIndex < cases.length) {
       const currentIndex = nextIndex;
       nextIndex += 1;
-      results[currentIndex] = await runBenchmarkCase(cases[currentIndex]);
+      results[currentIndex] = await runBenchmarkCase(cases[currentIndex], options);
     }
   }));
 
@@ -1246,6 +1661,11 @@ async function main() {
   let cases = allCases;
   if (args.selected.size > 0) {
     cases = cases.filter((testCase) => args.selected.has(testCase.id));
+  } else if (args.mode === 'e2e') {
+    cases = cases.filter((testCase) =>
+      !['runtime_registry', 'repair_plan', 'clarification_continuation', 'source_degradation_contract'].includes(testCase.type) &&
+      !testCase.expectClarification
+    );
   }
   if (args.limit !== null) {
     cases = cases.slice(0, args.limit);
@@ -1256,8 +1676,8 @@ async function main() {
   }
 
   await fs.mkdir(REPORTS_DIR, { recursive: true });
-  console.log(`[QuantBenchmark] evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
-  const results = await runCasesWithConcurrency(cases, args.concurrency);
+  console.log(`[QuantBenchmark] mode=${args.mode} evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
+  const results = await runCasesWithConcurrency(cases, args.concurrency, args);
 
   if (!args.keepProjects) {
     for (const result of results) {
@@ -1266,8 +1686,9 @@ async function main() {
   }
 
   const coverage = buildCoverageSummary(cases, results);
+  const agentExecutionSummary = summarizeE2eAgentExecution(results);
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: new Date().toISOString(),
     metadata: {
       trigger: args.trigger,
@@ -1280,8 +1701,21 @@ async function main() {
       },
       runtime: {
         cli: args.cli,
-        model: args.model,
+        model: args.mode === 'e2e' ? args.model : null,
+        configuredModel: args.model,
+        agentExecuted: args.mode === 'e2e' && agentExecutionSummary.agentExecuted,
+        executedCaseCount: agentExecutionSummary.executedCaseCount,
+        unattestedCaseIds: args.mode === 'e2e' ? agentExecutionSummary.unattestedCaseIds : [],
         reasoningEffort: null,
+      },
+      suite: {
+        mode: args.mode,
+        label: args.mode === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约',
+      },
+      provenance: {
+        gitCommit: readGitCommit(),
+        casesSha256: sha256(JSON.stringify(cases)),
+        promptsSha256: sha256(cases.map((testCase) => testCase.question || '').join('\n')),
       },
       selection: {
         selectedCases: Array.from(args.selected),
@@ -1303,7 +1737,7 @@ async function main() {
   const reportPath = path.join(REPORTS_DIR, `report-${Date.now()}.json`);
   await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   console.log(`\n[QuantBenchmark] report: ${path.relative(process.cwd(), reportPath)}`);
-  console.log(`[QuantBenchmark] ${report.passed ? 'ALL PASSED' : 'FAILED'} (${report.passedCount}/${report.total})`);
+  console.log(`[QuantBenchmark] ${args.mode} ${report.passed ? 'ALL PASSED' : 'FAILED'} (${report.passedCount}/${report.total})`);
   console.log(`[QuantBenchmark] capabilities: ${Object.keys(coverage.byCapability).join(', ')}`);
   console.log(`[QuantBenchmark] coverage tags: ${Object.keys(coverage.byTag).length}`);
   if (!args.keepProjects) {

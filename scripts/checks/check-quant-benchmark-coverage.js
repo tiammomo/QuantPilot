@@ -20,6 +20,7 @@ function caseTags(testCase) {
   if (testCase.expectedAssetType) tags.add(`asset:${testCase.expectedAssetType}`);
   if (testCase.expectedTemplateId) tags.add(`template:${testCase.expectedTemplateId}`);
   if (testCase.expectClarification) tags.add('intent:clarification_required');
+  if (testCase.expectClarification === false) tags.add('intent:no_false_clarification');
   if (testCase.type === 'clarification_continuation') tags.add('intent:clarification_continuation');
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (testCase.visualCheck) tags.add('visual:playwright');
@@ -72,6 +73,7 @@ function main() {
     'template:holding-analysis',
     'intent:clarification_required',
     'intent:clarification_continuation',
+    'intent:no_false_clarification',
     'input:image_attachment',
     'evidence:image_extraction',
     'visual:playwright',

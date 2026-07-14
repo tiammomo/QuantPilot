@@ -502,6 +502,9 @@ model EvalQueueItem {
   cli             String
   model           String
   reasoningEffort String   @map("reasoning_effort")
+  evaluatorId     String   @default("rule-strict") @map("evaluator_id")
+  concurrency     Int      @default(1)
+  mode            String   @default("contract")
   selectedCases   Json     @map("selected_cases")
   limit           Int?
   keepProjects    Boolean  @map("keep_projects")

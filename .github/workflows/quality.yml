@@ -27,8 +27,23 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Unit tests
+        run: npm run test:unit
+
       - name: Type check
         run: npm run type-check
+
+      - name: AI provider boundary
+        run: npm run check:ai-provider-boundary
+
+      - name: Skills integrity
+        run: npm run check:skills
+
+      - name: Documentation links
+        run: npm run check:docs
+
+      - name: Generated artifact policy
+        run: npm run check:generated-artifacts
 
       - name: Quant guardrails
         run: npm run check:quant-guardrails
@@ -38,6 +53,12 @@ jobs:
 
       - name: Service catalog guardrails
         run: npm run check:service-catalog
+
+      - name: Benchmark coverage
+        run: npm run check:benchmark-coverage
+
+      - name: Eval schedule contract
+        run: npm run check:eval-schedule
 
       - name: Build
         run: npm run build
@@ -69,3 +90,73 @@ jobs:
 
       - name: Test
         run: uv run pytest
+
+  contract-evaluation:
+    name: Quant contract evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public
+      REDIS_URL: redis://127.0.0.1:36380/0
+      QUANTPILOT_MARKET_API_URL: http://127.0.0.1:8000
+      PROJECTS_DIR: ./tmp/contract-projects
+      QUANTPILOT_EVAL_MODE: contract
+      QUANTPILOT_EVAL_TRIGGER: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          uv sync --project services/market-data --locked --all-groups
+          npm run prisma:generate
+
+      - name: Start local data services
+        run: |
+          docker compose up -d --wait timescaledb redis
+          npm run db:init
+          mkdir -p tmp
+          npm run dev:market > tmp/contract-market.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -100 tmp/contract-market.log
+          exit 1
+
+      - name: Run deterministic contract suite
+        run: npm run benchmark:quant:contract
+
+      - name: Enforce contract gate
+        run: npm run eval:ci -- --min-pass-rate 100 --min-average-score 90
+
+      - name: Upload contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quant-contract-evidence-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            tmp/quantpilot-benchmark-reports/
+            tmp/quantpilot-benchmark-screenshots/
+            tmp/contract-market.log
+
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose down -v

@@ -179,6 +179,7 @@ function CreateTaskForm({
       <Textarea
         value={prompt}
         onChange={(e) => onPromptChange(e.target.value)}
+        aria-label="量化分析需求"
         placeholder={selectedRole.inputPlaceholder ?? selectedRole.inputHint ?? "描述你的金融分析需求..."}
         disabled={isCreating}
         className="min-h-[100px] resize-none border-0 bg-transparent px-5 pt-4 pb-2 text-base leading-6 shadow-none focus-visible:ring-0 md:min-h-[120px]"
@@ -235,7 +236,7 @@ function CreateTaskForm({
 
         {/* Assistant selector */}
         <Select value={selectedAssistant} onValueChange={onAssistantChange}>
-          <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
+          <SelectTrigger aria-label="选择分析助手" className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
             <SelectValue placeholder="助手" />
           </SelectTrigger>
           <SelectContent>
@@ -254,7 +255,7 @@ function CreateTaskForm({
         {/* Model selector */}
         {modelOptions.length > 0 && (
           <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
+            <SelectTrigger aria-label="选择分析模型" className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
               <SelectValue placeholder="模型" />
             </SelectTrigger>
             <SelectContent>

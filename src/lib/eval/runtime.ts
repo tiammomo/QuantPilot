@@ -79,6 +79,10 @@ const runningChildren = new Map<string, ChildProcess>();
 const EVAL_CLI = 'claude';
 const EVAL_MODEL = 'deepseek-v4-flash';
 
+function normalizeExecutionMode(value: unknown): QuantEvalQueueItem['mode'] {
+  return value === 'e2e' ? 'e2e' : 'contract';
+}
+
 function supportsReasoningEffort(cli: string | null | undefined): boolean {
   return EVAL_RUNTIME_OPTIONS.some((option) => option.cli === cli && option.supportsReasoningEffort);
 }
@@ -167,6 +171,7 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       reasoningEffort: '',
       evaluatorId: normalizeEvaluatorId(item.evaluatorId),
       concurrency: normalizeEvalConcurrency(item.concurrency),
+      mode: normalizeExecutionMode(item.mode),
       selectedCases: stringArray(item.selectedCases),
       limit: typeof item.limit === 'number' ? item.limit : null,
       keepProjects: booleanValue(item.keepProjects),
@@ -187,6 +192,7 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       ...item,
       evaluatorId: fileItem?.evaluatorId ?? item.evaluatorId,
       concurrency: fileItem?.concurrency ?? item.concurrency,
+      mode: fileItem?.mode ?? item.mode,
     });
   }
   return Array.from(byId.values())
@@ -205,6 +211,9 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
         cli: item.cli,
         model: item.model,
         reasoningEffort: item.reasoningEffort,
+        evaluatorId: item.evaluatorId,
+        concurrency: item.concurrency,
+        mode: item.mode,
         selectedCases: jsonArray(item.selectedCases),
         limit: item.limit,
         keepProjects: item.keepProjects,
@@ -224,6 +233,9 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
         cli: item.cli,
         model: item.model,
         reasoningEffort: item.reasoningEffort,
+        evaluatorId: item.evaluatorId,
+        concurrency: item.concurrency,
+        mode: item.mode,
         selectedCases: jsonArray(item.selectedCases),
         limit: item.limit,
         keepProjects: item.keepProjects,
@@ -261,6 +273,7 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     reasoningEffort: '',
     evaluatorId: normalizeEvaluatorId(options.evaluatorId),
     concurrency: normalizeEvalConcurrency(options.concurrency),
+    mode: normalizeExecutionMode(options.mode),
     selectedCases,
     limit,
     keepProjects: Boolean(options.keepProjects),
@@ -282,9 +295,9 @@ async function updateQueueItem(id: string, patch: Partial<QuantEvalQueueItem>): 
   return queue[index];
 }
 
-async function latestReportAfter(startedAtMs: number): Promise<QuantEvalRun | null> {
+async function latestReportAfter(startedAtMs: number, mode: QuantEvalQueueItem['mode']): Promise<QuantEvalRun | null> {
   const runs = await getQuantEvalRuns(5);
-  return runs.find((run) => run.mtimeMs >= startedAtMs - 1000) ?? null;
+  return runs.find((run) => run.mtimeMs >= startedAtMs - 1000 && (run.metadata.suite?.mode ?? 'contract') === mode) ?? null;
 }
 
 async function readRepairTickets(): Promise<QuantEvalRepairTicket[]> {
@@ -506,6 +519,7 @@ function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
     '--trigger=eval-backend',
     `--evaluator=${item.evaluatorId}`,
     `--concurrency=${item.concurrency}`,
+    `--mode=${item.mode}`,
     `--cli=${item.cli}`,
     `--model=${item.model}`,
   ];
@@ -545,6 +559,7 @@ function runBenchmarkQueueItem(item: QuantEvalQueueItem) {
         QUANTPILOT_EVAL_TRIGGER: 'eval-backend',
         QUANTPILOT_EVAL_EVALUATOR: item.evaluatorId,
         QUANTPILOT_EVAL_CONCURRENCY: String(item.concurrency),
+        QUANTPILOT_EVAL_MODE: item.mode,
         QUANTPILOT_EVAL_CLI: item.cli,
         QUANTPILOT_EVAL_MODEL: item.model,
         ...(supportsReasoningEffort(item.cli) ? { QUANTPILOT_EVAL_REASONING_EFFORT: item.reasoningEffort || 'low' } : {}),
@@ -590,7 +605,7 @@ function runBenchmarkQueueItem(item: QuantEvalQueueItem) {
           await processEvalQueue();
           return;
         }
-        const report = await latestReportAfter(startedAtMs);
+        const report = await latestReportAfter(startedAtMs, item.mode);
         await updateQueueItem(item.id, {
           status: code === 0 ? 'passed' : 'failed',
           finishedAt: new Date().toISOString(),
@@ -807,6 +822,7 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
       cli: virtualItem.cli,
       model: virtualItem.model,
       reasoningEffort: virtualItem.reasoningEffort,
+      mode: virtualItem.mode,
     },
     evaluator: {
       id: virtualItem.evaluatorId,

@@ -31,6 +31,7 @@ function buildCaseTags(testCase: JsonRecord): string[] {
   if (assetType) tags.add(`asset:${assetType}`);
   if (templateId) tags.add(`template:${templateId}`);
   if (booleanValue(testCase.expectClarification)) tags.add('intent:clarification_required');
+  if (testCase.expectClarification === false) tags.add('intent:no_false_clarification');
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (booleanValue(testCase.visualCheck)) tags.add('visual:playwright');
   if (booleanValue(testCase.expectedImageExtraction)) tags.add('evidence:image_extraction');

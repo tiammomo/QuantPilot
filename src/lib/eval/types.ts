@@ -1,4 +1,5 @@
 export type EvalCheckStatus = 'passed' | 'failed' | 'warning' | 'unknown';
+export type QuantEvalExecutionMode = 'contract' | 'e2e';
 
 export interface QuantEvalCase {
   id: string;
@@ -57,11 +58,23 @@ export interface QuantEvalResult {
   question: string;
   projectId: string | null;
   projectPath: string | null;
+  requestId: string | null;
   durationMs: number;
   passed: boolean;
   score: number;
   failures: string[];
   symbols: string[];
+  repairAttempts: number;
+  platformRepairCount: number;
+  agentExecuted: boolean;
+  agentExecution: {
+    executed: boolean;
+    provider: string | null;
+    model: string | null;
+    requestId: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+  } | null;
   capabilityId: string;
   capabilityLabel: string;
   type: string;
@@ -110,6 +123,19 @@ export interface QuantEvalRun {
       cli: string | null;
       model: string | null;
       reasoningEffort: string | null;
+      configuredModel?: string | null;
+      agentExecuted?: boolean;
+      executedCaseCount?: number;
+      unattestedCaseIds?: string[];
+    };
+    suite?: {
+      mode: QuantEvalExecutionMode;
+      label: string;
+    };
+    provenance?: {
+      gitCommit: string | null;
+      casesSha256: string | null;
+      promptsSha256: string | null;
     };
     selection: {
       selectedCases: string[];
@@ -126,6 +152,8 @@ export interface QuantEvalRun {
           version: string | null;
           hash: string | null;
           packageHash: string | null;
+          sourceSha256?: string | null;
+          packageSha256?: string | null;
           sourcePath: string | null;
           packagePath: string | null;
         }
@@ -219,6 +247,7 @@ export interface QuantEvalQueueItem {
   reasoningEffort: string;
   evaluatorId: string;
   concurrency: number;
+  mode: QuantEvalExecutionMode;
   selectedCases: string[];
   limit: number | null;
   keepProjects: boolean;
@@ -264,6 +293,7 @@ export interface StartQuantEvalOptions {
   reasoningEffort?: string;
   evaluatorId?: string;
   concurrency?: number;
+  mode?: QuantEvalExecutionMode;
   selectedCases?: string[];
   limit?: number | null;
   keepProjects?: boolean;
@@ -284,6 +314,7 @@ export interface QuantEvalFlowSimulation {
     cli: string;
     model: string;
     reasoningEffort: string;
+    mode: QuantEvalExecutionMode;
   };
   evaluator: {
     id: string;

@@ -177,6 +177,36 @@
     ]
   },
   {
+    "id": "stock-diagnosis-citic-no-false-clarification",
+    "name": "中信证券自然语言诊断不误澄清",
+    "question": "中信证券最近怎么样",
+    "capabilityId": "stock_diagnosis",
+    "expectClarification": false,
+    "expectedSymbol": "600030",
+    "expectedAssetType": "stock",
+    "expectedTemplateId": "single-stock-diagnosis",
+    "expectedRawFiles": [
+      "quote.json",
+      "kline-daily-qfq.json",
+      "technical-indicators.json",
+      "financials.json",
+      "announcements.json"
+    ],
+    "expectedDatasets": [
+      "quote",
+      "kline",
+      "technical_indicators",
+      "financials",
+      "announcements"
+    ],
+    "visualCheck": true,
+    "expectedVisualKeywords": [
+      "中信证券",
+      "K 线",
+      "数据信源"
+    ]
+  },
+  {
     "id": "clarification-missing-symbol",
     "name": "缺少标的时进入意图澄清",
     "question": "帮我看看最近有哪些股票值得关注，生成可视化看板。",
