@@ -1,5 +1,41 @@
 export type MoAgentSkillStatus = 'stable' | 'planned' | 'deprecated';
 
+export type MoAgentSkillPhase =
+  | 'planning'
+  | 'data-preparation'
+  | 'workspace-generation'
+  | 'validation-repair'
+  | 'platform-ui';
+
+export type MoAgentSkillResourceSelector = 'template-heading' | 'named-headings';
+
+export interface MoAgentSkillCapsuleResource {
+  id: string;
+  path: string;
+  profiles: MoAgentSkillPhase[];
+  selector: MoAgentSkillResourceSelector;
+  headings?: string[];
+  maxChars: number;
+  required: boolean;
+}
+
+export interface MoAgentSkillRuntimeCapsule {
+  priority: number;
+  phases: MoAgentSkillPhase[];
+  requiresTools: string[];
+  objective: string;
+  invariants: string[];
+  workflow: string[];
+  doneWhen: string[];
+  resources: MoAgentSkillCapsuleResource[];
+}
+
+export interface MoAgentSkillCapsuleRegistry {
+  schemaVersion: 1;
+  description?: string;
+  skills: Record<string, MoAgentSkillRuntimeCapsule>;
+}
+
 export interface MoAgentSkillRegistryEntry {
   id: string;
   name: string;
@@ -57,6 +93,13 @@ export interface CompiledMoAgentSkill {
   originalCharacters: number;
   compiledCharacters: number;
   truncated: boolean;
+  capsuleSha256: string;
+  includedResources: Array<{
+    id: string;
+    path: string;
+    sha256: string;
+    characters: number;
+  }>;
 }
 
 export interface MoAgentSkillsInstallReceipt {
@@ -83,12 +126,24 @@ export interface CompileMoAgentSkillsOptions {
   /** Explicit skill IDs take precedence over capabilityId. Legacy aliases are accepted by policy. */
   requiredSkillIds?: readonly string[];
   additionalSkillIds?: readonly string[];
+  /** Runtime phase used to activate only compatible skill capsules. */
+  phase?: MoAgentSkillPhase;
+  /** Attachments activate image extraction independently of the quant capability. */
+  hasAttachments?: boolean;
+  /** A resolved run plan makes the planner and symbol resolver redundant in the executor. */
+  hasResolvedSymbols?: boolean;
+  /** Selects the exact scenario reference fragment for dashboard generation. */
+  templateId?: string | null;
+  variantId?: string | null;
+  /** When provided, every capsule-declared tool must exist in this phase tool surface. */
+  availableToolNames?: readonly string[];
   maxSystemContextChars?: number;
   /** When present, verified skills are installed below <workspace>/.moagent/skills. */
   installToWorkspace?: string;
   registryPath?: string;
   lockPath?: string;
   sourceSkillsPath?: string;
+  capsuleRegistryPath?: string;
 }
 
 export interface CompileMoAgentSkillsResult {
@@ -97,8 +152,12 @@ export interface CompileMoAgentSkillsResult {
   requestedSkillIds: string[];
   resolvedSkillIds: string[];
   aliases: Record<string, string>;
+  phase: MoAgentSkillPhase;
   systemContext: string;
+  taskContext: string;
   maxSystemContextChars: number;
+  systemContextCharacters: number;
+  taskContextCharacters: number;
   totalCharacters: number;
   truncated: boolean;
   skills: CompiledMoAgentSkill[];

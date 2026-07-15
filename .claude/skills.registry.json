@@ -102,8 +102,8 @@
     {
       "id": "quant-fundamentals",
       "name": "基本面与事件",
-      "version": "0.1.0",
-      "status": "planned",
+      "version": "0.1.1",
+      "status": "stable",
       "scope": "quant",
       "boundary": "财务报表、财务衍生指标、公告和事件上下文。",
       "inputs": ["symbols", "reportPeriods"],
@@ -124,8 +124,8 @@
     {
       "id": "quant-indicators",
       "name": "指标计算",
-      "version": "0.1.0",
-      "status": "planned",
+      "version": "0.1.1",
+      "status": "stable",
       "scope": "quant",
       "boundary": "技术指标、收益、波动、最大回撤、成交量、相关性、流动性和风险指标计算。",
       "inputs": ["kline.bars", "assets[]"],
@@ -175,13 +175,13 @@
     {
       "id": "dashboard-visualization",
       "name": "可视化看板",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "status": "stable",
       "scope": "visualization",
-      "boundary": "基于已验证 final 数据、模板族、自动匹配变体和金融指标判读生成 Next.js 金融分析看板，并在验证失败时自修复页面、数据契约和 evidence。",
+      "boundary": "基于已验证 final 数据、MoAgent 定向注入的模板与金融指标判读生成 Next.js 金融分析看板；验证失败时只按平台报告修复允许产物，提交后由平台负责 build、preview 和 validation。",
       "inputs": ["data_file/final/dashboard-data.json", "evidence", "run_plan", ".quantpilot/validation.json", ".quantpilot/validation-repair-plan.json", ".quantpilot/visual-validation.json"],
       "outputs": ["app/page.tsx", "app/globals.css", "visualization.template_id", "visualization.variant_id"],
-      "validation": ["页面必须绑定真实数据", "生成前必须按 visual_judgement 判读时间/维度/指标字段和指标口径", "首屏必须呈现真实金融内容和核心图表/矩阵", "多标的任务不得降级成单股模板", "用户要求累计收益曲线时必须绘制带日期轴和统一尺度的折线图", "用户要求相关性矩阵时必须绘制真实矩阵/热力图", "未明确要求时不得新增交易计划、买卖点、止损或目标价", "迷你 sparkline 不能替代主图或对比矩阵", "缺数据时不得散落占位符，必须呈现专业待接入/待确认空态", "移动端不得出现页面级横向溢出", "页面必须使用连续金融工作台画布，禁止独立圆角卡片网格、悬浮阴影和 card 套 card", "指标带必须说明时间窗口、覆盖对象和计算口径，不能裸写内部公式", "必须包含图表、来源、加载/错误/空状态", "必须按 visualization.templateId 选择模板族，并按 visualization.variantId/layout 覆盖具体页面结构", "动态 JSON 的每一层嵌套对象都必须分别使用 asRecord 守卫并通过 Next.js build", "自动验证失败时必须读取 validation/repair/visual-validation 报告并实际修复", "最终数据形态失败必须修复 dashboard-data.json 标准契约和页面绑定", ".quantpilot 全目录只读，Agent 不得改写计划、状态、事件或验证报告", "不得引用外部 CDN/远程资源、不得保留 mock/static 数据、不得写入明文密钥"]
+      "validation": ["页面必须绑定真实数据", "生成前必须按 visual_judgement 判读时间/维度/指标字段和指标口径", "首屏必须呈现真实金融内容和核心图表/矩阵", "多标的任务不得降级成单股模板", "用户要求累计收益曲线时必须绘制带日期轴和统一尺度的折线图", "用户要求相关性矩阵时必须绘制真实矩阵/热力图", "未明确要求时不得新增交易计划、买卖点、止损或目标价", "迷你 sparkline 不能替代主图或对比矩阵", "缺数据时不得散落占位符，必须呈现专业待接入/待确认空态", "移动端不得出现页面级横向溢出", "页面必须使用连续金融工作台画布，禁止独立圆角卡片网格、悬浮阴影和 card 套 card", "指标带必须说明时间窗口、覆盖对象和计算口径，不能裸写内部公式", "必须包含图表、来源、加载/错误/空状态", "必须按 visualization.templateId 选择模板族，并按 visualization.variantId/layout 覆盖具体页面结构", "动态 JSON 的每一层嵌套对象都必须分别使用 asRecord 守卫并通过 Next.js build", "自动验证失败时必须按 failure ID 和文件指针定向读取报告并实际修复", "最终数据形态失败必须修复 dashboard-data.json 标准契约和页面绑定", ".quantpilot 全目录只读，Agent 不得改写计划、状态、事件或验证报告", "不得顺序全量读取工作空间、run plan 或 references，优先消费 Task Packet、skill capsule 和 initial dashboard contract", "Agent 调用 submit_result 后必须停止，build、preview 和 validation 统一由平台执行", "不得引用外部 CDN/远程资源、不得保留 mock/static 数据、不得写入明文密钥"]
     }
   ],
   "legacyAliases": {

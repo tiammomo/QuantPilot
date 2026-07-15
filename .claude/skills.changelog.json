@@ -153,6 +153,15 @@
     "quant-fundamentals": {
       "releases": [
         {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "将已由 QuantPilot typed API 与 MoAgent runtime capsule 承载的基本面能力提升为稳定能力。",
+          "changes": [
+            "确认财务、基本面指标和公告端点进入 ready capability 的受检执行链。",
+            "运行时只投影 typed-tool 兼容步骤，不向 MoAgent 暴露历史 Python/Shell 调用示例。"
+          ]
+        },
+        {
           "version": "0.1.0",
           "date": "2026-05-25",
           "summary": "建立基本面、财务衍生指标、公告事件和估值情景能力。",
@@ -165,6 +174,15 @@
     },
     "quant-indicators": {
       "releases": [
+        {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "将已由 QuantPilot typed API 与 MoAgent runtime capsule 承载的指标能力提升为稳定能力。",
+          "changes": [
+            "确认技术指标、风险和数据质量步骤进入 ready capability 的受检执行链。",
+            "运行时优先使用 typed endpoint 与 final bars 的确定性计算，不暴露历史 Python/Shell 调用示例。"
+          ]
+        },
         {
           "version": "0.1.0",
           "date": "2026-05-25",
@@ -246,6 +264,17 @@
     },
     "dashboard-visualization": {
       "releases": [
+        {
+          "version": "0.4.7",
+          "date": "2026-07-15",
+          "summary": "对齐 MoAgent 的分层提示、定向读取和平台验收边界。",
+          "changes": [
+            "移除对其他 UI skill 的额外加载要求，改为直接使用本 skill 与运行时注入的场景/判读 capsule。",
+            "标准生成与自动修复改为按模板标题、失败 ID、文件指针和缺失字段定向读取，避免顺序全量扫描上下文。",
+            "明确 .quantpilot/run_plan.json 永久只读；Agent 调用 submit_result 后停止，build、preview 和 validation 由平台统一执行。",
+            "新增 strategy-research 场景模板，覆盖策略假设、信号实验、参数敏感性和样本偏差说明。"
+          ]
+        },
         {
           "version": "0.4.6",
           "date": "2026-07-15",

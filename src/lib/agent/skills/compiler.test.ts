@@ -21,23 +21,108 @@ afterEach(async () => {
 });
 
 describe('compileMoAgentSkills', () => {
-  it('selects capability skills, validates hashes, and obeys the total character budget', async () => {
+  it('selects phase-compatible capsules, validates hashes, and obeys the total character budget', async () => {
     const result = await compileMoAgentSkills({
       capabilityId: 'technical_analysis',
-      maxSystemContextChars: 7_000,
+      phase: 'data-preparation',
+      hasResolvedSymbols: true,
+      maxSystemContextChars: 6_000,
     });
 
     expect(result.runtime).toBe('MoAgent');
     expect(result.resolvedSkillIds).toContain('quant-market-data');
     expect(result.resolvedSkillIds).toContain('quant-indicators');
     expect(result.resolvedSkillIds).not.toContain('quant-backtest');
-    expect(result.totalCharacters).toBeLessThanOrEqual(7_000);
-    expect(result.systemContext).toContain('# MoAgent Skills Context');
-    expect(result.systemContext).toContain('职责边界');
-    expect(result.systemContext).not.toContain('.claude/skills/');
-    expect(result.systemContext).not.toContain('mcp__QuantPilotImage__');
-    expect(result.truncated).toBe(true);
+    expect(result.totalCharacters).toBeLessThanOrEqual(6_000);
+    expect(result.resolvedSkillIds).not.toContain('run-planner');
+    expect(result.resolvedSkillIds).not.toContain('image-extraction');
+    expect(result.systemContext).toContain('# MoAgent Skill Manifest');
+    expect(result.taskContext).toContain('# MoAgent Skill Capsules');
+    expect(result.taskContext).toContain('quant_api_get');
+    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('.claude/skills/');
+    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('mcp__QuantPilotImage__');
+    expect(result.truncated).toBe(false);
     expect(result.skills.every((skill) => Boolean(skill.sourceSha256))).toBe(true);
+    expect(result.skills.every((skill) => Boolean(skill.capsuleSha256))).toBe(true);
+  });
+
+  it.each([
+    ['stock_diagnosis', 'single-stock-diagnosis'],
+    ['technical_analysis', 'technical-timing'],
+    ['fundamental_analysis', 'fundamental-research'],
+    ['asset_comparison', 'stock-selection'],
+    ['sector_rotation', 'sector-rotation'],
+    ['strategy_research', 'strategy-research'],
+    ['backtest_review', 'backtest-review'],
+    ['portfolio_risk', 'holding-analysis'],
+  ] as const)(
+    'keeps %s phase skills and its %s scenario atomic under the production budget',
+    async (capabilityId, templateId) => {
+      const result = await compileMoAgentSkills({
+        capabilityId,
+        phase: 'data-preparation',
+        hasResolvedSymbols: true,
+        templateId,
+        maxSystemContextChars: 6_000,
+      });
+
+      expect(result.totalCharacters).toBeLessThanOrEqual(6_000);
+      expect(result.taskContext).toContain(`## ${templateId}`);
+      expect(result.truncated).toBe(false);
+      expect(result.skills.every((skill) => skill.truncated === false)).toBe(true);
+      expect(result.skills.every((skill) => skill.status === 'stable')).toBe(true);
+    },
+  );
+
+  it('injects only the selected dashboard scenario and judgement reference fragments', async () => {
+    const result = await compileMoAgentSkills({
+      capabilityId: 'asset_comparison',
+      requiredSkillIds: ['dashboard-visualization'],
+      phase: 'workspace-generation',
+      templateId: 'stock-selection',
+      variantId: 'selection-ranking-matrix',
+      maxSystemContextChars: 4_000,
+    });
+
+    expect(result.totalCharacters).toBeLessThan(4_000);
+    expect(result.taskContext).toContain('stock-selection：多标的对比/选股模板');
+    expect(result.taskContext).not.toContain('holding-analysis：持仓分析模板');
+    expect(result.taskContext).toContain('金融指标口径');
+    expect(result.taskContext).toContain('图表选择');
+    expect(result.taskContext).not.toContain('references/scenario_templates.md');
+    expect(result.skills[0].includedResources.map((resource) => resource.id)).toEqual([
+      'scenario-template',
+      'visual-judgement',
+    ]);
+  });
+
+  it('activates attachment skills independently of capability and rejects incompatible tools', async () => {
+    const result = await compileMoAgentSkills({
+      capabilityId: 'stock_diagnosis',
+      phase: 'data-preparation',
+      hasAttachments: true,
+      hasResolvedSymbols: true,
+      maxSystemContextChars: 5_000,
+    });
+    expect(result.resolvedSkillIds).toContain('image-extraction');
+    expect(result.resolvedSkillIds).toContain('data-quality');
+
+    await expect(compileMoAgentSkills({
+      capabilityId: 'stock_diagnosis',
+      requiredSkillIds: ['image-extraction'],
+      phase: 'data-preparation',
+      availableToolNames: ['quant_api_get'],
+    })).rejects.toThrow('quant_extract_uploaded_image');
+  });
+
+  it('fails closed instead of cutting a runtime capsule mid-section', async () => {
+    await expect(compileMoAgentSkills({
+      capabilityId: 'technical_analysis',
+      requiredSkillIds: ['dashboard-visualization'],
+      phase: 'workspace-generation',
+      templateId: 'technical-timing',
+      maxSystemContextChars: 512,
+    })).rejects.toThrow('拒绝截断');
   });
 
   it('normalizes compatible aliases without installing an alias runtime directory', async () => {
@@ -88,17 +173,45 @@ describe('compileMoAgentSkills', () => {
     await expect(fs.access(path.join(workspace, '.claude'))).rejects.toThrow();
   });
 
+  it('keeps the reference mirror complete while runtime capsules stay phase-scoped', async () => {
+    const workspace = await temporaryDirectory('moagent-skills-full-mirror-');
+    const receipt = await installMoAgentSkillsForWorkspace(workspace, {
+      capabilityId: 'technical_analysis',
+      additionalSkillIds: ['platform-ui-product-design'],
+    });
+
+    expect(Object.keys(receipt.skills)).toEqual(expect.arrayContaining([
+      'run-planner',
+      'image-extraction',
+      'quant-symbol-resolver',
+      'quant-market-data',
+      'quant-indicators',
+      'data-quality',
+      'dashboard-visualization',
+      'platform-ui-product-design',
+    ]));
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'run-planner', 'SKILL.md'),
+    )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'platform-ui-product-design', 'SKILL.md'),
+    )).resolves.toBeUndefined();
+  });
+
   it('fails closed when a compatible source directory no longer matches its lock hash', async () => {
     const repositoryRoot = process.cwd();
     const fixtureRoot = await temporaryDirectory('moagent-skills-fixture-');
     const fixtureState = path.join(fixtureRoot, '.claude');
-    const [registry, lock] = await Promise.all([
+    const fixtureConfig = path.join(fixtureRoot, 'config');
+    const [registry, lock, capsuleRegistry] = await Promise.all([
       fs.readFile(path.join(repositoryRoot, '.claude', 'skills.registry.json'), 'utf8').then(JSON.parse),
       fs.readFile(path.join(repositoryRoot, '.claude', 'skills.lock.json'), 'utf8').then(JSON.parse),
+      fs.readFile(path.join(repositoryRoot, 'config', 'moagent-skill-capsules.json'), 'utf8').then(JSON.parse),
     ]);
     const skill = registry.coreSkills.find((entry: { id: string }) => entry.id === 'image-extraction');
     await fs.mkdir(path.join(fixtureState, 'skills'), { recursive: true });
     await fs.mkdir(path.join(fixtureState, 'skill-packages'), { recursive: true });
+    await fs.mkdir(fixtureConfig, { recursive: true });
     await Promise.all([
       fs.cp(
         path.join(repositoryRoot, '.claude', 'skills', 'image-extraction'),
@@ -108,6 +221,13 @@ describe('compileMoAgentSkills', () => {
       fs.copyFile(
         path.join(repositoryRoot, '.claude', 'skill-packages', 'image-extraction.tgz'),
         path.join(fixtureState, 'skill-packages', 'image-extraction.tgz'),
+      ),
+      fs.writeFile(
+        path.join(fixtureConfig, 'moagent-skill-capsules.json'),
+        JSON.stringify({
+          ...capsuleRegistry,
+          skills: { 'image-extraction': capsuleRegistry.skills['image-extraction'] },
+        }),
       ),
     ]);
     await Promise.all([

@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "description": "MoAgent runtime capsules. SKILL.md remains the governed source material; only these phase-compatible, tool-compatible capsules enter model context.",
+  "skills": {
+    "run-planner": {
+      "priority": 100,
+      "phases": ["planning"],
+      "requiresTools": [],
+      "objective": "把用户需求固化为平台只读 run plan，并在歧义真正影响结果时才澄清。",
+      "invariants": [
+        "证券名称可唯一解析时继续执行，不因缺少代码追问。",
+        "无新标的的页面修订继承上一轮 symbols、timeRange 和 template。"
+      ],
+      "workflow": [
+        "识别 capability、symbols、timeRange、template 和验收规则。",
+        "仅在同优先级候选或关键输入无法推断时进入 needs_clarification。"
+      ],
+      "doneWhen": ["run plan 的状态、能力、标的、模板和验收口径彼此一致。"],
+      "resources": []
+    },
+    "quant-data-registry": {
+      "priority": 70,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "在本地覆盖、时效和字段完整性之间选择可审计的数据来源。",
+      "invariants": [
+        "本地已有覆盖时优先本地数据，不绕过 QuantPilot API。",
+        "每个数据集保留 source、endpoint、as_of、fetched_at 和质量状态。"
+      ],
+      "workflow": [
+        "先查询注册表或覆盖信息，再选择最小必要的数据端点。",
+        "对字段缺口记录补数来源、降级原因和不可用边界。"
+      ],
+      "doneWhen": ["来源选择和字段缺口均能被 evidence 追溯。"],
+      "resources": []
+    },
+    "quant-symbol-resolver": {
+      "priority": 95,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "把名称、代码、指数和 ETF 转成唯一标准标的。",
+      "invariants": [
+        "唯一候选自动继续；只有多个同优先级候选才允许澄清。",
+        "输出代码、市场、资产类型，并保持 run plan 标的顺序。"
+      ],
+      "workflow": ["仅对尚未解析的输入调用 symbols/resolve，并复用已解析结果。"],
+      "doneWhen": ["所有可解析输入都有标准 symbol，无法解析项有明确原因。"],
+      "resources": []
+    },
+    "image-extraction": {
+      "priority": 120,
+      "phases": ["data-preparation", "workspace-generation", "validation-repair"],
+      "requiresTools": ["quant_extract_uploaded_image"],
+      "objective": "把上传图片转换为有来源、有置信边界的结构化附件证据。",
+      "invariants": [
+        "只处理附件清单中经过路径校验的图片。",
+        "不能识别的持仓、成本、现金、盈亏和仓位字段写 null，并进入 needs_manual_confirmation。"
+      ],
+      "workflow": [
+        "先读取附件上下文，再对每张相关图片调用一次图片提取工具。",
+        "把图片事实、行情接口事实和推断分开呈现。"
+      ],
+      "doneWhen": ["图片相关字段有来源或明确的人工确认缺口。"],
+      "resources": []
+    },
+    "quant-market-data": {
+      "priority": 110,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "通过 QuantPilot 只读 API 获取任务所需的实时行情和历史序列。",
+      "invariants": [
+        "所有请求必须是 quant_api_get 允许的 GET 端点。",
+        "趋势任务优先获取足够长度的 bars；失败时保留真实错误和数据缺口。",
+        "成交额、换手率和振幅缺失时不臆造。"
+      ],
+      "workflow": [
+        "按 run plan 的 symbols、timeRange、period 和 adjustment 批量复用查询。",
+        "将原始响应整理进 final 数据，并把来源与样本量写入 evidence。"
+      ],
+      "doneWhen": ["每个计划标的都有可用数据或可审计失败原因。"],
+      "resources": []
+    },
+    "quant-fundamentals": {
+      "priority": 90,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "获取并组织财报、财务衍生指标、公告和估值上下文。",
+      "invariants": [
+        "保留报告期、来源和缺失字段，不混用年度、季度与 TTM 口径。",
+        "估值情景是研究假设，不是目标价承诺。"
+      ],
+      "workflow": ["按任务需要调用 financials、fundamental indicators 和 announcements 的只读端点。"],
+      "doneWhen": ["关键财务指标能追溯到报告期和来源，缺失项对页面可见。"],
+      "resources": []
+    },
+    "quant-indicators": {
+      "priority": 90,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "生成与任务窗口一致的技术、收益、风险、相关性和流动性指标。",
+      "invariants": [
+        "所有指标说明样本长度、窗口和复权口径。",
+        "比率不能直接累加，最大回撤必须来自价格或净值序列。"
+      ],
+      "workflow": ["优先使用本地指标端点；仅对端点未提供但 final bars 足够的指标做确定性计算。"],
+      "doneWhen": ["页面所需指标有数值、口径和样本不足说明。"],
+      "resources": []
+    },
+    "quant-backtest": {
+      "priority": 100,
+      "phases": ["data-preparation"],
+      "requiresTools": ["quant_api_get"],
+      "objective": "取得可复现的回测参数、净值、回撤和交易明细。",
+      "invariants": [
+        "回测必须基于本地 bars 和明确参数。",
+        "费用、滑点、停牌和分红等未建模因素必须可见。"
+      ],
+      "workflow": ["调用允许的 backtest GET 端点，保留参数、样本区间和交易明细。"],
+      "doneWhen": ["收益、回撤、胜率、交易次数和限制可以被用户复核。"],
+      "resources": []
+    },
+    "data-quality": {
+      "priority": 105,
+      "phases": ["data-preparation", "workspace-generation", "validation-repair"],
+      "requiresTools": ["query_json"],
+      "objective": "让 final 数据的每个核心结论都有来源、时效、样本和缺失说明。",
+      "invariants": [
+        "sources 与 data_quality 只记录真实数据和真实缺口。",
+        "修复时只改验证失败明确涉及的 final/evidence 路径。"
+      ],
+      "workflow": [
+        "按数据集记录 source、endpoint、row_count、as_of、fetched_at、missing_fields 和 warnings。",
+        "用精确 JSON Pointer 检查相关字段，不顺序扫描大型 JSON。"
+      ],
+      "doneWhen": ["核心展示字段都能关联来源，限制和缺失项不会被页面隐藏。"],
+      "resources": []
+    },
+    "platform-ui-product-design": {
+      "priority": 60,
+      "phases": ["platform-ui"],
+      "requiresTools": [],
+      "objective": "设计 QuantPilot 主平台界面，不负责生成工作空间金融看板。",
+      "invariants": ["复用平台现有 UI primitives，并覆盖 loading、empty、error 和响应式状态。"],
+      "workflow": ["在平台源码和设计 token 范围内完成 UI 修改。"],
+      "doneWhen": ["平台页面通过 lint、type-check 和视觉检查。"],
+      "resources": []
+    },
+    "dashboard-visualization": {
+      "priority": 140,
+      "phases": ["data-preparation", "workspace-generation", "validation-repair"],
+      "requiresTools": ["inspect_dashboard_contract", "query_json", "query_text_file", "edit_file", "submit_result"],
+      "objective": "把权威 run plan、final 数据和 evidence 转成可验证的 Next.js 金融工作台。",
+      "invariants": [
+        "严格保持 template、variant、标的集合和真实数据绑定。",
+        "首屏展示核心行情、持仓、回测或财务证据及主图/矩阵，不生成卡片宫格或营销 hero。",
+        "动态 JSON 每层使用 JsonRecord、asRecord、asArray 和 numeric 等守卫。",
+        "未明确要求时不增加买卖点、止损、目标价、仓位或收益承诺。"
+      ],
+      "workflow": [
+        "从 initial dashboard contract 开始；快照完整时不重复检查 final/evidence。",
+        "用最多两次批量锚点查询定位待改 JSX/CSS，随后做一次连贯编辑。",
+        "验证修复只处理当前失败项；平台负责 build、preview 和重新验证。"
+      ],
+      "doneWhen": [
+        "页面覆盖 required components、数据来源、质量限制和响应式空/错状态。",
+        "完成必要写入后立即用 submit_result 提交变更产物。"
+      ],
+      "resources": [
+        {
+          "id": "scenario-template",
+          "path": "references/scenario_templates.md",
+          "profiles": ["data-preparation", "workspace-generation", "validation-repair"],
+          "selector": "template-heading",
+          "maxChars": 2400,
+          "required": true
+        },
+        {
+          "id": "visual-judgement",
+          "path": "references/visual_judgement.md",
+          "profiles": ["data-preparation", "workspace-generation", "validation-repair"],
+          "selector": "named-headings",
+          "headings": ["金融指标口径", "图表选择", "自检"],
+          "maxChars": 2800,
+          "required": true
+        }
+      ]
+    }
+  }
+}

@@ -11,18 +11,34 @@ import type {
   CompileMoAgentSkillsOptions,
   CompileMoAgentSkillsResult,
   CompiledMoAgentSkill,
+  MoAgentSkillCapsuleRegistry,
+  MoAgentSkillCapsuleResource,
   MoAgentSkillLockEntry,
+  MoAgentSkillPhase,
   MoAgentSkillRegistryEntry,
+  MoAgentSkillRuntimeCapsule,
   MoAgentSkillsInstallReceipt,
   MoAgentSkillsLock,
   MoAgentSkillsRegistry,
 } from './types';
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_CONTEXT_BUDGET = 24_000;
+const DEFAULT_CONTEXT_BUDGET = 6_000;
 const MIN_CONTEXT_BUDGET = 256;
 const COMPATIBILITY_STATE_DIRECTORY = '.claude';
 const MOAGENT_DIRECTORY = '.moagent';
+const DEFAULT_CAPSULE_REGISTRY_PATH = 'config/moagent-skill-capsules.json';
+const DEFAULT_SKILL_PHASE: MoAgentSkillPhase = 'data-preparation';
+const FORBIDDEN_RUNTIME_SKILL_PATTERNS = [
+  /mcp__/i,
+  /\.claude\/skills\//i,
+  /\bcurl\b/i,
+  /\bbash\b/i,
+  /\bpython3?\b/i,
+  /\bnpm\s+run\b/i,
+  /\bcat\s*>/i,
+  /\bheredoc\b/i,
+];
 
 type LoadedSkill = {
   registry: MoAgentSkillRegistryEntry;
@@ -32,6 +48,24 @@ type LoadedSkill = {
   source: 'source' | 'package';
   sourceDirectory: string | null;
   packagePath: string | null;
+};
+
+type LoadedSkillResource = {
+  id: string;
+  path: string;
+  text: string;
+  sha256: string;
+};
+
+type CompiledSkillBlock = {
+  text: string;
+  capsuleSha256: string;
+  includedResources: LoadedSkillResource[];
+};
+
+type MarkdownSection = {
+  title: string;
+  text: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,6 +143,96 @@ function parseLock(value: unknown): MoAgentSkillsLock {
   return value as unknown as MoAgentSkillsLock;
 }
 
+const SKILL_PHASES = new Set<MoAgentSkillPhase>([
+  'planning',
+  'data-preparation',
+  'workspace-generation',
+  'validation-repair',
+  'platform-ui',
+]);
+
+function assertStringArray(value: unknown, label: string, allowEmpty = true): asserts value is string[] {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label} 必须是字符串数组。`);
+  }
+  for (const [index, entry] of value.entries()) {
+    assertString(entry, `${label}[${index}]`);
+  }
+}
+
+function parseCapsuleResource(value: unknown, label: string): MoAgentSkillCapsuleResource {
+  if (!isRecord(value)) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label} 必须是对象。`);
+  }
+  assertString(value.id, `${label}.id`);
+  assertString(value.path, `${label}.path`);
+  assertStringArray(value.profiles, `${label}.profiles`, false);
+  if (!value.profiles.every((phase) => SKILL_PHASES.has(phase as MoAgentSkillPhase))) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.profiles 包含未知阶段。`);
+  }
+  if (!['template-heading', 'named-headings'].includes(String(value.selector))) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.selector 无效。`);
+  }
+  if (!Number.isSafeInteger(value.maxChars) || Number(value.maxChars) < 256) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.maxChars 必须至少为 256。`);
+  }
+  if (typeof value.required !== 'boolean') {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.required 必须是布尔值。`);
+  }
+  if (value.headings !== undefined) assertStringArray(value.headings, `${label}.headings`, false);
+  if (value.selector === 'named-headings' && value.headings === undefined) {
+    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.headings 为必填项。`);
+  }
+  return value as unknown as MoAgentSkillCapsuleResource;
+}
+
+function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
+  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.skills)) {
+    throw new Error('MoAgent Skills Capsule registry schema 无效。');
+  }
+  for (const [skillId, raw] of Object.entries(value.skills)) {
+    if (!isRecord(raw)) {
+      throw new Error(`MoAgent Skill ${skillId} 的 runtime capsule 无效。`);
+    }
+    if (FORBIDDEN_RUNTIME_SKILL_PATTERNS.some((pattern) => pattern.test(JSON.stringify(raw)))) {
+      throw new Error(`MoAgent Skill ${skillId} 的 runtime capsule 包含不兼容执行指令。`);
+    }
+    if (!Number.isSafeInteger(raw.priority) || Number(raw.priority) < 1) {
+      throw new Error(`MoAgent Skill ${skillId} 的 capsule priority 无效。`);
+    }
+    assertStringArray(raw.phases, `${skillId}.phases`, false);
+    if (!raw.phases.every((phase) => SKILL_PHASES.has(phase as MoAgentSkillPhase))) {
+      throw new Error(`MoAgent Skill ${skillId} 的 capsule phases 包含未知阶段。`);
+    }
+    const capsulePhases = raw.phases;
+    assertStringArray(raw.requiresTools, `${skillId}.requiresTools`);
+    if (!raw.requiresTools.every((toolName) => /^[a-z][a-z0-9_]*$/.test(toolName))) {
+      throw new Error(`MoAgent Skill ${skillId} 的 capsule requiresTools 包含非法工具名。`);
+    }
+    assertString(raw.objective, `${skillId}.objective`);
+    assertStringArray(raw.invariants, `${skillId}.invariants`, false);
+    assertStringArray(raw.workflow, `${skillId}.workflow`, false);
+    assertStringArray(raw.doneWhen, `${skillId}.doneWhen`, false);
+    if (!Array.isArray(raw.resources)) {
+      throw new Error(`MoAgent Skill ${skillId} 的 capsule resources 必须是数组。`);
+    }
+    const resourceIds = new Set<string>();
+    raw.resources.forEach((resource, index) => {
+      const parsed = parseCapsuleResource(resource, `${skillId}.resources[${index}]`);
+      if (resourceIds.has(parsed.id)) {
+        throw new Error(`MoAgent Skill ${skillId} 的 capsule 包含重复 resource：${parsed.id}。`);
+      }
+      resourceIds.add(parsed.id);
+      if (parsed.profiles.some((phase) => !capsulePhases.includes(phase))) {
+        throw new Error(
+          `MoAgent Skill ${skillId} 的 resource ${parsed.id} 使用了 capsule 未声明的阶段。`,
+        );
+      }
+    });
+  }
+  return value as unknown as MoAgentSkillCapsuleRegistry;
+}
+
 async function listSourceFiles(directory: string): Promise<string[]> {
   const output: string[] = [];
   async function visit(current: string): Promise<void> {
@@ -159,10 +283,6 @@ async function readSkillMarkdownFromPackage(packagePath: string, skillId: string
   }
 }
 
-function stripFrontMatter(markdown: string): string {
-  return markdown.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
-}
-
 function adaptSkillTextForMoAgent(value: string): string {
   return value
     .replaceAll('.claude/skills/', '.moagent/skills/')
@@ -173,64 +293,165 @@ function adaptSkillTextForMoAgent(value: string): string {
     );
 }
 
-function sectionPriority(title: string): number {
-  if (/禁止|安全|只读|边界/.test(title)) return 100;
-  if (/契约|门禁|原则|质量|规则/.test(title)) return 95;
-  if (/平台预取|自动修复/.test(title)) return 92;
-  if (/标准流程|标准工作流|工作流|后续衔接/.test(title)) return 85;
-  if (/何时必须|何时使用|必须使用/.test(title)) return 80;
-  return 20;
-}
-
-function prioritizedMarkdown(markdown: string): string {
-  const body = stripFrontMatter(markdown);
+function markdownSections(markdown: string): MarkdownSection[] {
   const heading = /^##\s+(.+)$/gm;
-  const matches = Array.from(body.matchAll(heading));
-  if (matches.length === 0) return body;
-
-  const preamble = body.slice(0, matches[0].index).trim();
-  const sections = matches.map((match, index) => ({
-    index,
+  const matches = Array.from(markdown.matchAll(heading));
+  return matches.map((match, index) => ({
     title: match[1].trim(),
-    text: body.slice(match.index, matches[index + 1]?.index ?? body.length).trim(),
+    text: markdown.slice(match.index, matches[index + 1]?.index ?? markdown.length).trim(),
   }));
-  sections.sort((left, right) =>
-    sectionPriority(right.title) - sectionPriority(left.title) || left.index - right.index,
-  );
-  return [preamble, ...sections.map((section) => section.text)].filter(Boolean).join('\n\n');
 }
 
-function clipWithNotice(text: string, maxChars: number, notice: string): { text: string; truncated: boolean } {
-  if (text.length <= maxChars) return { text, truncated: false };
-  if (maxChars <= notice.length + 2) {
-    return { text: `${text.slice(0, Math.max(0, maxChars - 1))}…`, truncated: true };
+function normalizeSkillResourcePath(value: string): string {
+  const normalized = value.trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  if (
+    !normalized.startsWith('references/') ||
+    normalized.startsWith('/') ||
+    normalized.includes('\0') ||
+    normalized.split('/').includes('..') ||
+    !normalized.endsWith('.md')
+  ) {
+    throw new Error(`MoAgent Skill resource 路径无效：${value}`);
   }
-  const available = maxChars - notice.length - 2;
-  const prefix = text.slice(0, available).replace(/\s+\S*$/, '').trimEnd();
-  return { text: `${prefix}\n\n${notice}`, truncated: true };
+  return normalized;
 }
 
-function compactList(label: string, values: string[] | undefined): string | null {
-  return values?.length ? `${label}：${values.map(adaptSkillTextForMoAgent).join('；')}` : null;
+async function readSkillResource(skill: LoadedSkill, relativePath: string): Promise<string> {
+  const normalized = normalizeSkillResourcePath(relativePath);
+  if (skill.sourceDirectory) {
+    const candidate = path.resolve(skill.sourceDirectory, normalized);
+    assertInside(skill.sourceDirectory, candidate, `${skill.registry.id} resource`);
+    const stat = await fs.lstat(candidate).catch(() => null);
+    if (!stat?.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`MoAgent Skill ${skill.registry.id} resource 不可用：${normalized}`);
+    }
+    return fs.readFile(candidate, 'utf8');
+  }
+  if (!skill.packagePath) {
+    throw new Error(`MoAgent Skill ${skill.registry.id} 缺少可验证 resource 来源。`);
+  }
+  await assertSafePackageEntries(skill.packagePath, skill.registry.id);
+  try {
+    const { stdout } = await execFileAsync(
+      'tar',
+      ['-xOzf', skill.packagePath, `${skill.registry.id}/${normalized}`],
+      { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 },
+    );
+    if (!stdout.trim()) throw new Error('resource 为空');
+    return stdout;
+  } catch (error) {
+    throw new Error(
+      `MoAgent Skill ${skill.registry.id} 无法读取 resource ${normalized}：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
-function compileSkillBlock(skill: LoadedSkill, maxChars: number): { text: string; truncated: boolean } {
-  const metadata = [
+function packWholeSections(sections: readonly MarkdownSection[], maxChars: number): string {
+  const selected: string[] = [];
+  let characters = 0;
+  for (const section of sections) {
+    const separator = selected.length > 0 ? 2 : 0;
+    if (characters + separator + section.text.length > maxChars) continue;
+    selected.push(section.text);
+    characters += separator + section.text.length;
+  }
+  return selected.join('\n\n');
+}
+
+async function compileCapsuleResources(params: {
+  skill: LoadedSkill;
+  capsule: MoAgentSkillRuntimeCapsule;
+  phase: MoAgentSkillPhase;
+  templateId?: string | null;
+}): Promise<LoadedSkillResource[]> {
+  const resources: LoadedSkillResource[] = [];
+  for (const resource of params.capsule.resources) {
+    if (!resource.profiles.includes(params.phase)) continue;
+    const raw = adaptSkillTextForMoAgent(await readSkillResource(params.skill, resource.path));
+    const sections = markdownSections(raw);
+    let candidates: MarkdownSection[] = [];
+    if (resource.selector === 'template-heading') {
+      const templateId = params.templateId?.trim();
+      // Governance/install calls can compile without a task template. A
+      // required resource must resolve when a selector is supplied; it must
+      // not guess a scenario or inject every scenario when the signal is absent.
+      if (!templateId) continue;
+      candidates = sections.filter((section) =>
+        section.title === templateId || section.title.startsWith(`${templateId}：`));
+    } else {
+      const headings = new Set(resource.headings ?? []);
+      candidates = sections.filter((section) => headings.has(section.title));
+    }
+    const expectedHeadings = resource.selector === 'named-headings'
+      ? new Set(resource.headings ?? [])
+      : null;
+    for (const section of candidates) expectedHeadings?.delete(section.title);
+    if (resource.required && expectedHeadings && expectedHeadings.size > 0) {
+      throw new Error(
+        `MoAgent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 缺少标题：${Array.from(expectedHeadings).join('、')}。`,
+      );
+    }
+    const completeText = candidates.map((section) => section.text).join('\n\n');
+    if (resource.required && completeText.length > resource.maxChars) {
+      throw new Error(
+        `MoAgent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 需要 ${completeText.length} 字符，超过原子预算 ${resource.maxChars}。`,
+      );
+    }
+    const text = resource.required
+      ? completeText
+      : packWholeSections(candidates, resource.maxChars);
+    if (!text && resource.required) {
+      throw new Error(
+        `MoAgent Skill ${params.skill.registry.id} 缺少必需的 runtime resource 片段：${resource.id}`,
+      );
+    }
+    if (!text) continue;
+    resources.push({
+      id: resource.id,
+      path: resource.path,
+      text,
+      sha256: createHash('sha256').update(text, 'utf8').digest('hex'),
+    });
+  }
+  return resources;
+}
+
+function capsuleLines(skill: LoadedSkill, capsule: MoAgentSkillRuntimeCapsule): string[] {
+  return [
     `## ${skill.registry.id} — ${skill.registry.name}`,
-    `版本/状态：v${skill.registry.version} / ${skill.registry.status}`,
-    `职责边界：${adaptSkillTextForMoAgent(skill.registry.boundary)}`,
-    compactList('输入', skill.registry.inputs),
-    compactList('输出', skill.registry.outputs),
-    compactList('允许接口', skill.registry.endpoints),
-    compactList('硬性验收', skill.registry.validation),
-  ].filter((line): line is string => Boolean(line)).join('\n');
-  const markdown = prioritizedMarkdown(skill.markdown);
-  const full = `${metadata}\n\n### Skill 指令（安全、契约与流程优先）\n${markdown}`;
-  return clipWithNotice(
-    full,
-    maxChars,
-    `[MoAgent 截断说明] ${skill.registry.id} 原始指令共 ${skill.markdown.length} 字符；受总上下文预算限制，仅保留以上高优先级内容。`,
-  );
+    `目标：${capsule.objective}`,
+    ...capsule.invariants.map((item) => `必须：${item}`),
+    ...capsule.workflow.map((item, index) => `步骤 ${index + 1}：${item}`),
+    ...capsule.doneWhen.map((item) => `完成条件：${item}`),
+  ];
+}
+
+function compileSkillBlock(params: {
+  skill: LoadedSkill;
+  capsule: MoAgentSkillRuntimeCapsule;
+  resources: LoadedSkillResource[];
+  maxChars: number;
+}): CompiledSkillBlock {
+  const baseLines = capsuleLines(params.skill, params.capsule);
+  const base = baseLines.join('\n');
+  const resourceBlocks = params.resources.map((resource) =>
+    `### ${resource.id}\n${resource.text}`);
+  const full = [base, ...resourceBlocks].join('\n\n');
+  if (FORBIDDEN_RUNTIME_SKILL_PATTERNS.some((pattern) => pattern.test(full))) {
+    throw new Error(
+      `MoAgent Skill ${params.skill.registry.id} 的 runtime capsule/resource 包含不兼容执行指令。`,
+    );
+  }
+  if (full.length > params.maxChars) {
+    throw new Error(
+      `MoAgent Skill ${params.skill.registry.id} 的原子 runtime capsule 需要 ${full.length} 字符，超过分配预算 ${params.maxChars}；拒绝截断关键步骤。`,
+    );
+  }
+  return {
+    text: full,
+    capsuleSha256: createHash('sha256').update(full, 'utf8').digest('hex'),
+    includedResources: params.resources,
+  };
 }
 
 async function loadSkill(params: {
@@ -413,11 +634,18 @@ async function installSkills(params: {
 
 function selectRequestedSkillIds(
   registry: MoAgentSkillsRegistry,
+  capsuleRegistry: MoAgentSkillCapsuleRegistry,
   options: CompileMoAgentSkillsOptions,
-): { capabilityId: string | null; requested: string[] } {
+): {
+  capabilityId: string | null;
+  phase: MoAgentSkillPhase;
+  requested: string[];
+  installationRequested: string[];
+} {
   if (options.capabilityId && !isQuantCapabilityId(options.capabilityId)) {
     throw new Error(`MoAgent 不支持量化 capability：${options.capabilityId}。`);
   }
+  const phase = options.phase ?? DEFAULT_SKILL_PHASE;
   let capabilityId: string | null = null;
   let requested: string[];
   if (options.requiredSkillIds !== undefined) {
@@ -433,7 +661,27 @@ function selectRequestedSkillIds(
       .map((skill) => skill.id);
   }
   requested.push(...(options.additionalSkillIds ?? []));
-  return { capabilityId, requested: Array.from(new Set(requested.filter(Boolean))) };
+  if (options.hasAttachments && phase !== 'planning' && phase !== 'platform-ui') {
+    requested.push('image-extraction');
+    requested.push('data-quality');
+  }
+  const installationRequested = Array.from(new Set(requested.filter(Boolean)));
+  if (options.requiredSkillIds === undefined) {
+    requested = requested.filter((requestedId) => {
+      const resolvedId = registry.legacyAliases?.[requestedId] ?? requestedId;
+      const capsule = capsuleRegistry.skills[resolvedId];
+      if (!capsule?.phases.includes(phase)) return false;
+      if (resolvedId === 'image-extraction' && !options.hasAttachments) return false;
+      if (resolvedId === 'quant-symbol-resolver' && options.hasResolvedSymbols) return false;
+      return true;
+    });
+  }
+  return {
+    capabilityId,
+    phase,
+    requested: Array.from(new Set(requested.filter(Boolean))),
+    installationRequested,
+  };
 }
 
 /**
@@ -456,22 +704,53 @@ export async function compileMoAgentSkills(
     root,
     options.sourceSkillsPath ?? path.join(COMPATIBILITY_STATE_DIRECTORY, 'skills'),
   );
+  const capsuleRegistryPath = resolveFromRoot(
+    root,
+    options.capsuleRegistryPath ?? DEFAULT_CAPSULE_REGISTRY_PATH,
+  );
   assertInside(root, registryPath, 'registryPath');
   assertInside(root, lockPath, 'lockPath');
   assertInside(root, sourceSkillsPath, 'sourceSkillsPath');
+  assertInside(root, capsuleRegistryPath, 'capsuleRegistryPath');
 
-  const [registryValue, lockValue] = await Promise.all([
+  const [registryValue, lockValue, capsuleRegistryValue] = await Promise.all([
     readJsonFile(registryPath, 'registry'),
     readJsonFile(lockPath, 'lock'),
+    readJsonFile(capsuleRegistryPath, 'runtime capsule registry'),
   ]);
   const registry = parseRegistry(registryValue);
   const lock = parseLock(lockValue);
-  const selection = selectRequestedSkillIds(registry, options);
+  const capsuleRegistry = parseCapsuleRegistry(capsuleRegistryValue);
+  const registeredSkillIds = new Set(registry.coreSkills.map((skill) => skill.id));
+  for (const capsuleId of Object.keys(capsuleRegistry.skills)) {
+    if (!registeredSkillIds.has(capsuleId)) {
+      throw new Error(`MoAgent runtime capsule 指向未注册 Skill：${capsuleId}。`);
+    }
+  }
+  for (const skill of registry.coreSkills) {
+    if (!capsuleRegistry.skills[skill.id]) {
+      throw new Error(`MoAgent Skill ${skill.id} 缺少 runtime capsule。`);
+    }
+  }
+  const selection = selectRequestedSkillIds(registry, capsuleRegistry, options);
   if (selection.requested.length === 0) {
     throw new Error('MoAgent Skills 未选择任何 skill。');
   }
 
   const registryById = new Map(registry.coreSkills.map((skill) => [skill.id, skill]));
+  if (selection.capabilityId) {
+    const capability = getQuantCapability(selection.capabilityId);
+    if (capability.status === 'ready') {
+      const plannedDependencies = capability.requiredSkills
+        .map((requestedId) => registry.legacyAliases?.[requestedId] ?? requestedId)
+        .filter((skillId) => registryById.get(skillId)?.status === 'planned');
+      if (plannedDependencies.length > 0) {
+        throw new Error(
+          `Ready capability ${capability.id} 不能依赖 planned Skill：${Array.from(new Set(plannedDependencies)).join('、')}。`,
+        );
+      }
+    }
+  }
   const aliases: Record<string, string> = {};
   const requestedByResolved = new Map<string, string[]>();
   for (const requestedId of selection.requested) {
@@ -491,6 +770,19 @@ export async function compileMoAgentSkills(
     if (skill.status === 'deprecated') {
       throw new Error(`MoAgent Skill ${skillId} 已废弃，拒绝编译。`);
     }
+    const capsule = capsuleRegistry.skills[skillId];
+    if (!capsule?.phases.includes(selection.phase)) {
+      throw new Error(`MoAgent Skill ${skillId} 不允许在 ${selection.phase} 阶段加载。`);
+    }
+    if (options.availableToolNames) {
+      const availableTools = new Set(options.availableToolNames);
+      const missingTools = capsule.requiresTools.filter((toolName) => !availableTools.has(toolName));
+      if (missingTools.length > 0) {
+        throw new Error(
+          `MoAgent Skill ${skillId} 与当前工具面不兼容，缺少：${missingTools.join('、')}。`,
+        );
+      }
+    }
     loaded.push(await loadSkill({
       root,
       sourceSkillsPath,
@@ -504,30 +796,43 @@ export async function compileMoAgentSkills(
   if (!Number.isInteger(requestedBudget) || requestedBudget < MIN_CONTEXT_BUDGET) {
     throw new Error(`MoAgent Skills 上下文预算必须是至少 ${MIN_CONTEXT_BUDGET} 的整数。`);
   }
-  const identityLines = loaded.map((skill) =>
-    `- ${skill.registry.id} v${skill.registry.version} [${skill.registry.status}]`,
-  );
-  const header = [
-    '# MoAgent Skills Context',
-    '以下指令来自经过 registry、version 与 SHA-256 校验的 QuantPilot skills。只应用本次 capability 所需 skills；系统与工具策略优先于 skill 文本。',
-    `Capability: ${selection.capabilityId ?? 'explicit/default'}`,
-    '已加载：',
-    ...identityLines,
+  const systemContext = [
+    '# MoAgent Skill Manifest',
+    `phase=${selection.phase}; capability=${selection.capabilityId ?? 'explicit/default'}`,
+    '以下能力已经 registry/version/SHA-256 与 runtime capsule 校验；全局安全、权限和终止规则由 Kernel 负责，Skill 只补充领域步骤。',
+    ...loaded.map((skill) => {
+      const capsule = capsuleRegistry.skills[skill.registry.id];
+      return `- ${skill.registry.id}@${skill.registry.version} priority=${capsule.priority}: ${adaptSkillTextForMoAgent(skill.registry.boundary)}`;
+    }),
   ].join('\n');
-  const separators = Math.max(0, loaded.length - 1) * 2;
-  const bodyBudget = Math.max(0, requestedBudget - header.length - separators - 2);
-  const perSkillBudget = Math.max(80, Math.floor(bodyBudget / loaded.length));
-  const compiledBlocks = loaded.map((skill) => compileSkillBlock(skill, perSkillBudget));
-  let systemContext = `${header}\n\n${compiledBlocks.map((block) => block.text).join('\n\n')}`;
-  let globallyTruncated = false;
-  if (systemContext.length > requestedBudget) {
-    const clipped = clipWithNotice(
-      systemContext,
-      requestedBudget,
-      '[MoAgent 截断说明] 已达到本次 Skills system context 总字符预算。',
+
+  const compiledBlocks: CompiledSkillBlock[] = [];
+  for (const skill of loaded) {
+    const capsule = capsuleRegistry.skills[skill.registry.id];
+    const resources = await compileCapsuleResources({
+      skill,
+      capsule,
+      phase: selection.phase,
+      templateId: options.templateId,
+    });
+    compiledBlocks.push(compileSkillBlock({
+      skill,
+      capsule,
+      resources,
+      maxChars: requestedBudget,
+    }));
+  }
+  const taskContext = [
+    '# MoAgent Skill Capsules',
+    `执行阶段：${selection.phase}${options.templateId ? `；模板：${options.templateId}` : ''}${options.variantId ? `；变体：${options.variantId}` : ''}`,
+    '按以下原子步骤执行；不要从 SKILL.md 猜测未声明工具，也不要自行读取相对 reference 路径。',
+    ...compiledBlocks.map((block) => block.text),
+  ].join('\n\n');
+  const totalCharacters = systemContext.length + taskContext.length;
+  if (totalCharacters > requestedBudget) {
+    throw new Error(
+      `MoAgent Skills 原子上下文需要 ${totalCharacters} 字符，超过总预算 ${requestedBudget}；拒绝截断关键 Skill Capsule。`,
     );
-    systemContext = clipped.text;
-    globallyTruncated = clipped.truncated;
   }
 
   const skills: CompiledMoAgentSkill[] = loaded.map((skill, index) => ({
@@ -541,26 +846,62 @@ export async function compileMoAgentSkills(
     packageSha256: skill.lock.packageSha256 ?? null,
     originalCharacters: skill.markdown.length,
     compiledCharacters: compiledBlocks[index].text.length,
-    truncated: compiledBlocks[index].truncated,
+    truncated: false,
+    capsuleSha256: compiledBlocks[index].capsuleSha256,
+    includedResources: compiledBlocks[index].includedResources.map((resource) => ({
+      id: resource.id,
+      path: resource.path,
+      sha256: resource.sha256,
+      characters: resource.text.length,
+    })),
   }));
 
-  const installReceipt = options.installToWorkspace
-    ? await installSkills({
-        workspace: options.installToWorkspace,
-        capabilityId: selection.capabilityId,
-        skills: loaded,
-      })
-    : null;
+  let installReceipt: MoAgentSkillsInstallReceipt | null = null;
+  if (options.installToWorkspace) {
+    const installableById = new Map(loaded.map((skill) => [skill.registry.id, skill]));
+    const installationRequestedByResolved = new Map<string, string[]>();
+    for (const requestedId of selection.installationRequested) {
+      const resolvedId = registry.legacyAliases?.[requestedId] ?? requestedId;
+      installationRequestedByResolved.set(
+        resolvedId,
+        [...(installationRequestedByResolved.get(resolvedId) ?? []), requestedId],
+      );
+    }
+    for (const [skillId, requestedIds] of installationRequestedByResolved) {
+      if (installableById.has(skillId)) continue;
+      const skill = registryById.get(skillId);
+      if (!skill) throw new Error(`MoAgent Skill ${skillId} 未在 registry 注册。`);
+      if (skill.status === 'deprecated') {
+        throw new Error(`MoAgent Skill ${skillId} 已废弃，拒绝安装。`);
+      }
+      installableById.set(skillId, await loadSkill({
+        root,
+        sourceSkillsPath,
+        registry: skill,
+        lock: lock.skills[skillId],
+        requestedIds,
+      }));
+    }
+    installReceipt = await installSkills({
+      workspace: options.installToWorkspace,
+      capabilityId: selection.capabilityId,
+      skills: Array.from(installableById.values()),
+    });
+  }
   return {
     runtime: 'MoAgent',
     capabilityId: selection.capabilityId,
     requestedSkillIds: selection.requested,
     resolvedSkillIds: loaded.map((skill) => skill.registry.id),
     aliases,
+    phase: selection.phase,
     systemContext,
+    taskContext,
     maxSystemContextChars: requestedBudget,
-    totalCharacters: systemContext.length,
-    truncated: globallyTruncated || skills.some((skill) => skill.truncated),
+    systemContextCharacters: systemContext.length,
+    taskContextCharacters: taskContext.length,
+    totalCharacters,
+    truncated: false,
     skills,
     installReceipt,
   };

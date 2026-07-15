@@ -1,13 +1,13 @@
 ---
 name: dashboard-visualization
-description: Use this skill to generate a real visual Next.js/HTML quantitative dashboard after market data has been fetched or whenever the user asks for a visualization page.
+description: Generate, repair, or enhance real-data Next.js/HTML quantitative dashboards with financial charts, matrices, responsive layouts, and evidence-backed states. Use after data preparation or whenever the user asks for a visualization page, market dashboard, research workbench, or validation repair.
 ---
 
 # QuantPilot 金融可视化看板能力
 
 这个 skill 负责把已获取的行情、财务、公告和分析结果转换为真正可运行的可视化页面。它不是“写分析说明”的 skill；触发后必须产出或更新页面文件。
 
-视觉和交互质量必须同时参考 `platform-ui-product-design` 的 UI/UX Pro Max 适配层，尤其是 Data-Dense Dashboard、Real-Time Operations、可访问性、响应式、图表可读性和反模式约束。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
+视觉和交互直接遵循本 skill 内的 Continuous Financial Workbench、可访问性、响应式、图表可读性和反模式约束；运行时 skill capsule 会注入当前任务所需的场景与判读片段，无需再加载其他 UI skill。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
 
 ## 何时必须使用
 
@@ -31,12 +31,12 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 10. 修改 `app/page.tsx`、`app/globals.css`、JSON 或 evidence 文件必须使用 Write/Edit 工具，不要用 Bash 的 `cat >`、`tee`、`echo >`、`printf >`、heredoc、python/node 脚本或 `touch` 写文件。
 11. 必须按具体分析场景选择可视化模板，不能把持仓、选股、技术、基本面、回测都生成成同一种通用金融页面。
 12. 页面必须通过 TypeScript/Next.js build。`dashboard-data.json` 是动态 JSON，读取后统一用 `JsonRecord`、`asRecord()`、`asArray()`、`numeric()` 这类守卫函数处理；不要让 `flatMap/map` 推断出过窄对象类型后再访问额外字段。
-13. 多标的任务不得降级成单股模板。只要 `run_plan.symbols.length > 1`、`assets[]`、`comparison.rows[]` 或用户要求对比/矩阵/排名/推荐顺序/观察池，`run_plan.visualization.templateId`、`dashboard-data.json.visualization.template_id` 和页面都必须采用 `stock-selection`/多标的对比结构。
+13. 多标的任务不得降级成单股模板。只要只读 run plan 中 `symbols.length > 1`、`assets[]`、`comparison.rows[]` 或用户要求对比/矩阵/排名/推荐顺序/观察池，就以 run plan 的 `visualization.templateId` 为权威，并让 `dashboard-data.json.visualization.template_id` 和页面采用对应的 `stock-selection`/多标的对比结构；绝不回写 run plan。
 14. 禁止引用外部 CDN、远程脚本、远程样式、远程图片、远程字体或浏览器直连外部 API；页面必须使用本地代码、本地 CSS/SVG 和同源 `/api/market/**`。
 15. 禁止留下 `MOCK_DATA`、`SAMPLE_DATA`、`STATIC_QUOTES`、示例数据、模拟数据、占位数据；如果数据不足，展示真实缺口和重试入口。
 16. 禁止把 token、api key、cookie、authorization 或任何密钥写入页面、evidence、final 数据或配置文件。
 17. 禁止把多个迷你 sparkline 当作主要可视化交付。Sparkline 只能作为资产行辅助图；页面必须额外提供至少一个带坐标/日期/图例/数值标签的主图、对比图或矩阵。
-18. 如果平台自动验证失败，本 skill 必须进入自修复模式：读取 `.quantpilot/validation.json`、`.quantpilot/validation-repair-plan.json`、`.quantpilot/visual-validation.json` 和截图路径，实际修改页面、final 数据或 evidence，然后重新执行平台验证；不能只输出修复计划或解释。
+18. 如果平台自动验证失败，本 skill 必须进入自修复模式：定向读取 repair plan 中的失败 ID、文件指针及必要的 visual-validation 片段，实际修改页面、final 数据或 evidence，然后调用 `submit_result`；平台负责重新 build、preview 和 validation，不能只输出修复计划或解释。
 19. “最终数据文件存在，但没有通过真实数据形态检查”不是可忽略警告。必须修复 `data_file/final/dashboard-data.json` 的标准字段和页面数据绑定，让数据形态、模板 ID、标的覆盖和图表组件同时满足验证。
 20. 生成页面前必须先做金融可视化判读：识别时间字段、维度字段、指标字段、指标口径和可用图表；口径敏感指标不能错误聚合或用内部公式文案直接展示给用户。
 21. 用户明确要求“累计收益曲线”“收益曲线”“净值曲线”或“折线图”时，必须绘制真正的时间序列折线图，包含日期轴、统一收益率尺度、图例和数值提示；不能用柱状图、指标带、排名条或 sparkline 替代。
@@ -55,20 +55,15 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 4. 只有验证报告明确指向 `final_data_file`、`artifact_contracts` 或 `evidence_files` 时，才修复对应数据文件；不得用空对象或自定义 schema 覆盖。
 5. 单个证券的全称与简称是同一标的；`symbols.length === 1` 时不得因“和/与/及”改成选股或多标的模板。
 6. 用户没有明确要求交易执行时，不得添加买入区、止损、目标价、仓位或操作建议。
-7. 不创建 Task/Todo 列表，不自行运行 build 或预览；定向读取必要文件后直接编辑，由平台统一验证。
+7. 不创建 Task/Todo 列表；定向读取必要片段后直接编辑，调用 `submit_result` 后停止，由平台统一执行 build、preview 和 validation。
 
 ## 标准工作流
 
 1. 确认用户问题需要哪些数据：实时行情、历史 K 线、财务、公告、组合对比。
-2. 缺数据时先调用对应取数 skill：
-   - 实时行情：`quant-market-data`
-   - 历史 K 线：`quant-a-share-history`
-   - 财务趋势：`quant-fundamental-financials`
-   - 公告事件：`quant-announcement-events`
-   - 不确定数据源：`quant-data-registry`
-3. 先读取现有 `app/page.tsx`、`app/globals.css`、`data_file/final/dashboard-data.json`、`evidence/sources.json` 和 `evidence/data_quality.json`，确认模板已有组件、数据字段、来源和缺口。
-4. 读取 `.quantpilot/run_plan.json`，先按 `visualization.templateId` 选择模板族，再按 `visualization.variantId`、`layout`、`firstViewport` 和 `variantGuidance` 选择具体页面结构；模板说明见 `references/scenario_templates.md`。
-5. 按 `references/visual_judgement.md` 做一次可视化判读：确认时间/维度/指标字段、指标能否累加、比率/收益/回撤口径、首屏主图或矩阵，以及哪些组件必须保留空态。
+2. 缺数据时使用当前运行时已选择的量化 skill capsule 和 typed data tools 完成取数；不要手动加载无关 skill，也不要绕过平台工具自行调用外部命令。
+3. 优先使用 Task Packet、skill capsule 和 `initial_dashboard_contract` 中已有的信息。只对缺失上下文做定向读取：按路径、失败指针、字段名或行区间读取必要片段，不要顺序全量读取 `app/page.tsx`、CSS、final 数据和全部 evidence，也不要重复读取提示词已经提供的内容。
+4. 从只读 run plan 中只提取 `visualization.templateId`、`variantId`、`layout`、`firstViewport` 和 `variantGuidance`。优先使用运行时注入的 `references/scenario_templates.md` 对应二级标题；确需查看源 reference 时，只读取匹配模板的 `##` 段落，不读整份文件。
+5. 使用运行时注入的 `references/visual_judgement.md` 相关标题完成可视化判读：确认时间/维度/指标字段、指标能否累加、比率/收益/回撤口径、首屏主图或矩阵，以及哪些组件必须保留空态；只补读当前任务缺失的判读段落。
 6. 做一次 UI/UX Pro Max 风格的设计决策：金融/量化页面默认使用 Data-Dense Dashboard，不使用营销 landing；确定页面模式、语义配色、图表类型、表格 fallback、响应式策略和反模式。
 7. 设计看板信息架构：先展示结论和核心指标，再展示图表、数据表、数据质量和来源。
    - 投研/量化看板不要使用营销落地页式巨型 hero。顶部应是紧凑的报告摘要栏或工具栏：小标题、核心判断、关键指标和数据状态并排展示。
@@ -86,14 +81,14 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
 9. 页面刷新数据时优先复用或创建同源 API route 代理到 `http://127.0.0.1:8000`，避免浏览器 CORS 或网络策略影响。
 10. 使用 `data-quality` 写入 `evidence/sources.json` 与 `evidence/data_quality.json`，记录来源、接口、时间戳、样本长度、缺失字段、警告和限制。
 11. 将最终看板数据写入 `data_file/final/dashboard-data.json`，字段中保留 `symbol`、`source`、`fetched_at`、`quote_time` 或对应数据源时间。
-12. 完成后简短说明修改了哪些页面和看板现在包含哪些数据视图。
+12. 完成允许范围内的修改后调用一次 `submit_result`，在摘要中说明改动、数据视图和已知限制，然后立即停止。不要自行运行 build、启动 preview、轮询报告或触发 validation；这些步骤由平台执行。
 
 ## 自动修复模式
 
 当看到 `QuantPilot 自动验证未通过`、`validation-repair-plan.json`、`看板验证未通过` 或用户指出生成页面仍停留在失败页时，按以下流程处理：
 
-1. 读取 `.quantpilot/validation.json`、`.quantpilot/validation-repair-plan.json`、`.quantpilot/run_plan.json`、`data_file/final/dashboard-data.json`、`evidence/sources.json`、`evidence/data_quality.json`、`app/page.tsx` 和 `app/globals.css`。
-2. 如果存在 `.quantpilot/visual-validation.json`，读取其中 failures、warnings、viewport metrics 和 screenshotPath；按截图问题调整首屏、图表、移动端和横向溢出。
+1. 先定向读取 `.quantpilot/validation-repair-plan.json` 中当前失败 ID、允许修改路径和证据指针，再读取 `.quantpilot/validation.json` 中对应失败项；仅打开这些指针命中的页面、final 数据或 evidence 片段，不顺序全量读取整个工作空间。
+2. 如果失败项指向视觉问题，再定向读取 `.quantpilot/visual-validation.json` 中对应 failures、viewport metrics 和 screenshotPath；只围绕当前截图问题调整首屏、图表、移动端或横向溢出。
 3. 上述验证报告以及 `.quantpilot/artifact-contracts.json`、`.quantpilot/generation-state.json`、`.quantpilot/generation-queue.json` 均为平台只读产物。不得编辑、删除或伪造 viewport、截图、passed 状态或验证结果；修复完页面、final 数据或 evidence 后等待平台重新验证。
 4. 不得在生成 workspace 中安装 Playwright/Chromium 或修改依赖来规避视觉验收。浏览器缺失属于平台运行环境问题，不是看板源码修复项。
 5. 针对失败项实际修复：
@@ -101,10 +96,9 @@ description: Use this skill to generate a real visual Next.js/HTML quantitative 
    - `dashboard_data_binding`：让页面读取 `data_file/final/dashboard-data.json` 或同源 `/api/market/**`，禁止页面只渲染静态文案。
    - `chart_presence`/`visual_presentation`：补齐足够尺寸的主图、矩阵或表格，首屏必须有真实金融数据和核心图表。
    - `artifact_policy`：移除 CDN、远程资源、mock/static 数据和敏感字段。
-   - 模板不一致：同步 `.quantpilot/run_plan.json`、final 数据 `visualization.template_id/variant_id` 和页面结构。
-6. 修复后必须运行或触发平台验证：优先使用 QuantPilot 自动验证入口；在 CLI 环境中至少执行 `npm run build`，并只读检查平台重新生成的 `.quantpilot/validation.json`。
-7. 如果验证仍失败，必须根据新的失败项继续改文件，直到通过或只剩真实外部环境不可达等明确不可修复限制。
-8. 回复用户前必须说明验证状态；不要让预览页停在“看板验证未通过”的兜底页。
+   - 模板不一致：保持 `.quantpilot/run_plan.json` 不变，只把 final 数据 `visualization.template_id/variant_id` 和页面结构对齐到只读 run plan。
+6. 修复当前失败集后调用一次 `submit_result` 并停止。不得自行运行 build、启动 preview、触发 validation、轮询报告或伪造通过状态；平台会统一执行并在需要时发起下一轮定向修复。
+7. 提交摘要只说明已修复项、修改产物和真实外部限制，不声称尚未由平台确认的验证结果。
 
 ## TypeScript 稳定性规则
 
@@ -146,17 +140,11 @@ const rows: JsonRecord[] = assets.flatMap((asset) => {
 - 排序、格式化和渲染时一律使用 `row['field']` 或 `row.field` 的 `unknown` 值进入 `String()`、`numeric()`、`formatDate()`、`formatNumber()`，不要声明不完整的结构类型。
 - JSX 中不能直接渲染动态 JSON 的 unknown/object 字段；例如 `rows[0]?.period`、`row.value`、`source.metadata` 必须先进入 `String()`、`formatDate()`、`formatNumber()` 或 `pickString()` 后再渲染。
 - 不能用 `as any` 扫过类型错误；如果字段不确定，增加守卫函数或把数组显式标注为 `JsonRecord[]`。
-- 如果页面新增公告、财务、估值、相关性、流动性等模块，必须保证 `npm run build` 不会出现 “Property does not exist on type ...”。
+- 如果页面新增公告、财务、估值、相关性、流动性等模块，代码必须满足严格 TypeScript，确保平台 build 不会报告 “Property does not exist on type ...”。
 
 ## 场景模板选择
 
-每次生成页面前必须读取：
-
-```text
-.quantpilot/run_plan.json
-references/scenario_templates.md
-references/visual_judgement.md
-```
+开始实现前只消费当前任务需要的上下文：Task Packet 中的只读 run plan 关键字段、运行时注入的匹配场景模板段落，以及可视化判读的相关标题。若运行时未注入某项，再定向读取对应路径/标题；不得为了“完整了解”顺序全量读取 run plan、两份 reference 或所有业务文件。
 
 按 `run_plan.visualization.templateId` 选择模板族；再按 `run_plan.visualization.variantId` 选择具体页面变体。`templateId` 解决“是什么场景”，`variantId` 解决“这一页应该长成什么结构”。如果缺失，按 final 数据字段推断模板族：
 
@@ -165,6 +153,7 @@ references/visual_judgement.md
 - `single-stock-diagnosis`：单只股票综合诊断。
 - `technical-timing`：K 线、均线、突破、技术择时。
 - `fundamental-research`：财务、基本面、盈利质量、公告。
+- `strategy-research`：策略假设、信号实验、参数敏感性和研究设计。
 - `backtest-review`：策略回测、净值、交易明细。
 - `sector-rotation`：指数、ETF、行业和板块轮动。
 

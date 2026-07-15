@@ -4,7 +4,7 @@
 
 ## 判读顺序
 
-1. 先读 `.quantpilot/run_plan.json`、`data_file/final/dashboard-data.json`、`evidence/sources.json` 和 `evidence/data_quality.json`。
+1. 先使用 Task Packet、skill capsule 和 initial dashboard contract 中已提供的字段；只为当前模板必备组件定向读取缺失的数据路径、字段或行区间，不顺序全量读取 run plan、final 数据和全部 evidence。
 2. 列出本次页面的：
    - 场景模板族和变体：来自 `visualization.templateId/template_id`、`variantId/variant_id`。
    - 时间字段：如 `date`、`trade_date`、`report_date`、`quote_time`、`as_of`。

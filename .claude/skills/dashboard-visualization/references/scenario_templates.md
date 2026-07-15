@@ -1,6 +1,6 @@
 # QuantPilot 场景化可视化模板矩阵
 
-本文件用于给 `dashboard-visualization` 选择页面模板。每次生成看板前，先读取 `.quantpilot/run_plan.json` 的 `visualization.templateId` 选择模板族，再读取 `visualization.variantId` 选择具体页面变体；如果没有该字段，再按用户问题和 final 数据字段推断模板和变体。
+本文件用于给 `dashboard-visualization` 选择页面模板。MoAgent 通常只注入与只读 run plan 中 `visualization.templateId` 匹配的二级标题；确需直接查看本文件时，也只读取匹配的 `##` 段落，不顺序读取整份 reference。如果 run plan 没有模板字段，再按用户问题和 final 数据字段推断模板和变体。
 
 ## 选择顺序
 
@@ -11,6 +11,7 @@
    - `assets[]` + `comparison.rows[]`、选股、候选、横向比较：`stock-selection`
    - `backtest`、`equity_curve`、`trades`、回测：`backtest-review`
    - `financials.reports[]`、财务、基本面、业绩：`fundamental-research`
+   - `strategy`、`signals[]`、因子假设、信号实验、参数敏感性：`strategy-research`
    - `trendTemplate`、K 线、均线、择时、突破：`technical-timing`
    - 指数、ETF、行业、板块轮动：`sector-rotation`
    - 单只个股综合分析：`single-stock-diagnosis`
@@ -21,6 +22,8 @@
    - 板块资金流、主力、净流入/净流出：`sector-capital-flow-board`
    - 突破、支撑压力、买卖点观察：`technical-breakout-watch`
    - 财务质量、现金流、ROE、利润率：`fundamental-quality-scorecard`
+   - 策略假设、因子定义、研究设计：`strategy-hypothesis-canvas`
+   - 信号覆盖、参数比较、敏感性实验：`strategy-signal-lab`
    - 调仓、减仓、补仓、现金使用：`portfolio-rebalance-plan`
 
 ## 通用输出契约
@@ -152,6 +155,27 @@
 - 报告期数据表。
 - 公告事件摘要。
 - 估值情景和数据质量。
+
+## strategy-research：策略研究模板
+
+适用问题：策略假设、因子研究、信号实验、参数敏感性、规则设计和研究方案比较；已经形成完整回测结果时改用 `backtest-review`。
+
+核心痛点：
+
+- 必须把研究假设、数据口径、信号定义和评价方法分开，不能只展示一个收益数字。
+- 必须区分样本内观察、样本外证据和尚未验证的推断，避免把相关性包装成可交易结论。
+- 参数、窗口、基准、费用与缺失数据处理必须可追踪；不完整时要明确研究限制。
+- 未经用户要求，不生成买卖点、目标价、仓位或自动执行建议。
+
+必备组件：
+
+- 可证伪的策略假设与研究目标。
+- 样本范围、数据覆盖、频率、复权与基准说明。
+- 信号/因子定义、参数表和触发逻辑。
+- 信号覆盖率、分布、分组或命中情况。
+- 参数敏感性或方案对比矩阵。
+- 样本内/样本外状态、偏差风险和未建模限制。
+- 下一步实验清单；没有完整回测时不得伪造净值、胜率或交易明细。
 
 ## backtest-review：策略回测模板
 

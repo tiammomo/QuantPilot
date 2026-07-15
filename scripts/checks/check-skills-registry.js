@@ -7,6 +7,7 @@ const registryPath = path.join(root, '.claude', 'skills.registry.json');
 const skillsDir = path.join(root, '.claude', 'skills');
 const changelogPath = path.join(root, '.claude', 'skills.changelog.json');
 const lockPath = path.join(root, '.claude', 'skills.lock.json');
+const capsuleRegistryPath = path.join(root, 'config', 'moagent-skill-capsules.json');
 
 function fail(message) {
   console.error(`[skills-registry] ${message}`);
@@ -74,6 +75,122 @@ function isSemver(version) {
 }
 
 const validScopes = new Set(['workflow', 'quant', 'input', 'evidence', 'platform', 'visualization']);
+const validCapsulePhases = new Set([
+  'planning',
+  'data-preparation',
+  'workspace-generation',
+  'validation-repair',
+  'platform-ui',
+]);
+const forbiddenCapsuleInstructions = [
+  /mcp__/i,
+  /\.claude\/skills\//i,
+  /\bcurl\b/i,
+  /\bbash\b/i,
+  /\bpython3?\b/i,
+  /\bnpm\s+run\b/i,
+  /\bcat\s*>/i,
+  /\bheredoc\b/i,
+];
+
+function assertStringArray(value, label, { allowEmpty = true } = {}) {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    fail(`${label} must be ${allowEmpty ? 'a' : 'a non-empty'} string array`);
+  }
+  if (value.some((entry) => typeof entry !== 'string' || entry.trim() === '')) {
+    fail(`${label} must contain only non-empty strings`);
+  }
+}
+
+function validateCapsuleRegistry(coreSkillIds) {
+  const capsules = parseJsonFile(capsuleRegistryPath);
+  if (!capsules || capsules.schemaVersion !== 1 || !capsules.skills ||
+    typeof capsules.skills !== 'object' || Array.isArray(capsules.skills)) {
+    fail('config/moagent-skill-capsules.json must use schemaVersion 1 and contain skills');
+  }
+
+  for (const capsuleId of Object.keys(capsules.skills)) {
+    if (!coreSkillIds.has(capsuleId)) {
+      fail(`runtime capsule points to unknown core skill: ${capsuleId}`);
+    }
+  }
+
+  for (const skillId of coreSkillIds) {
+    const capsule = capsules.skills[skillId];
+    if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) {
+      fail(`missing MoAgent runtime capsule for core skill: ${skillId}`);
+    }
+    if (!Number.isSafeInteger(capsule.priority) || capsule.priority < 1) {
+      fail(`runtime capsule ${skillId} priority must be a positive integer`);
+    }
+    assertStringArray(capsule.phases, `runtime capsule ${skillId}.phases`, { allowEmpty: false });
+    if (capsule.phases.some((phase) => !validCapsulePhases.has(phase))) {
+      fail(`runtime capsule ${skillId} contains an invalid phase`);
+    }
+    assertStringArray(capsule.requiresTools, `runtime capsule ${skillId}.requiresTools`);
+    if (capsule.requiresTools.some((tool) => !/^[a-z][a-z0-9_]*$/.test(tool))) {
+      fail(`runtime capsule ${skillId} contains an invalid typed-tool name`);
+    }
+    if (typeof capsule.objective !== 'string' || capsule.objective.trim() === '') {
+      fail(`runtime capsule ${skillId}.objective must be a non-empty string`);
+    }
+    for (const field of ['invariants', 'workflow', 'doneWhen']) {
+      assertStringArray(capsule[field], `runtime capsule ${skillId}.${field}`, { allowEmpty: false });
+    }
+    if (!Array.isArray(capsule.resources)) {
+      fail(`runtime capsule ${skillId}.resources must be an array`);
+    }
+
+    const serialized = JSON.stringify(capsule);
+    if (forbiddenCapsuleInstructions.some((pattern) => pattern.test(serialized))) {
+      fail(`runtime capsule ${skillId} contains instructions incompatible with MoAgent typed tools`);
+    }
+
+    const resourceIds = new Set();
+    for (const resource of capsule.resources) {
+      if (!resource || typeof resource !== 'object' || Array.isArray(resource)) {
+        fail(`runtime capsule ${skillId} contains an invalid resource`);
+      }
+      if (typeof resource.id !== 'string' || resource.id.trim() === '' || resourceIds.has(resource.id)) {
+        fail(`runtime capsule ${skillId} resource ids must be unique non-empty strings`);
+      }
+      resourceIds.add(resource.id);
+      const normalizedPath = typeof resource.path === 'string'
+        ? resource.path.replaceAll('\\', '/')
+        : '';
+      if (!normalizedPath.startsWith('references/') || !normalizedPath.endsWith('.md') ||
+        normalizedPath.startsWith('/') || normalizedPath.split('/').includes('..')) {
+        fail(`runtime capsule ${skillId} has an unsafe resource path: ${String(resource.path)}`);
+      }
+      const sourcePath = path.join(skillsDir, skillId, normalizedPath);
+      const stat = fs.existsSync(sourcePath) ? fs.lstatSync(sourcePath) : null;
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        fail(`runtime capsule ${skillId} resource is missing or unsafe: ${normalizedPath}`);
+      }
+      assertStringArray(resource.profiles, `runtime capsule ${skillId}.${resource.id}.profiles`, {
+        allowEmpty: false,
+      });
+      if (resource.profiles.some((phase) =>
+        !validCapsulePhases.has(phase) || !capsule.phases.includes(phase))) {
+        fail(`runtime capsule ${skillId}.${resource.id} uses a phase outside its capsule`);
+      }
+      if (!['template-heading', 'named-headings'].includes(resource.selector)) {
+        fail(`runtime capsule ${skillId}.${resource.id} has an invalid selector`);
+      }
+      if (!Number.isSafeInteger(resource.maxChars) || resource.maxChars < 256) {
+        fail(`runtime capsule ${skillId}.${resource.id}.maxChars must be at least 256`);
+      }
+      if (typeof resource.required !== 'boolean') {
+        fail(`runtime capsule ${skillId}.${resource.id}.required must be boolean`);
+      }
+      if (resource.selector === 'named-headings') {
+        assertStringArray(resource.headings, `runtime capsule ${skillId}.${resource.id}.headings`, {
+          allowEmpty: false,
+        });
+      }
+    }
+  }
+}
 
 function validateSkillNaming(skill) {
   if (!validScopes.has(skill.scope)) {
@@ -166,6 +283,8 @@ for (const skill of registry.coreSkills) {
     }
   }
 }
+
+validateCapsuleRegistry(ids);
 
 const aliases = registry.legacyAliases || {};
 for (const [alias, target] of Object.entries(aliases)) {
