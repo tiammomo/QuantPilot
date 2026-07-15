@@ -146,6 +146,30 @@ function isBroadStockSelectionRequest(instruction: string): boolean {
   return BROAD_STOCK_SELECTION_PATTERN.test(compact);
 }
 
+const CONVERSATIONAL_SECURITY_REFERENCE_SUFFIX =
+  /(?:(?:这|那)(?:个|只|支|家)?|该(?:只|支|家)?)(?:股票|个股|证券|公司|企业|股)?$/;
+
+/**
+ * Remove conversational references which follow a real security name.
+ *
+ * Examples: `大位科技这个`, `大位科技这只股票`, and
+ * `大位科技这家公司` must all resolve as `大位科技`. We deliberately do
+ * not remove a bare `证券` or `公司`, because they may be part of a legal name such as
+ * `中信证券` or `中国平安公司`.
+ */
+export function stripConversationalSecurityReferenceSuffix(value: string): string {
+  let candidate = value.trim();
+  let previous = '';
+  while (candidate !== previous) {
+    previous = candidate;
+    candidate = candidate
+      .replace(CONVERSATIONAL_SECURITY_REFERENCE_SUFFIX, '')
+      .replace(/(?:股票|个股)$/, '')
+      .trim();
+  }
+  return candidate;
+}
+
 function cleanTargetCandidate(value: string): string | null {
   let candidate = value
     .replace(/\s+/g, '')
@@ -153,6 +177,8 @@ function cleanTargetCandidate(value: string): string | null {
     .replace(/(股票|个股)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '')
     .replace(/^(?:A股|港股|美股)/, '')
     .trim();
+
+  candidate = stripConversationalSecurityReferenceSuffix(candidate);
 
   if (candidate.endsWith('板块')) {
     candidate = candidate.slice(0, -2);

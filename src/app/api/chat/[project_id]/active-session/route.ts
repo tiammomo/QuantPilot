@@ -10,13 +10,13 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const { project_id } = await params;
     const session = await getActiveSession(project_id);
 
-    // Return 200 with null data when no session exists (successful query, no results)
-    // This prevents console 404 errors while still indicating no active session
+    // Compatibility endpoint only. Active MoAgent work is tracked through
+    // UserRequest/agent-runtime; legacy non-MoAgent Session rows are filtered.
     if (!session) {
-      return NextResponse.json({ success: true, data: null });
+      return NextResponse.json({ success: true, data: null, runtime: 'moagent', deprecated: true });
     }
 
-    return NextResponse.json({ success: true, data: session });
+    return NextResponse.json({ success: true, data: session, runtime: 'moagent', deprecated: true });
   } catch (error) {
     console.error('[API] Failed to get active session:', error);
     return NextResponse.json(

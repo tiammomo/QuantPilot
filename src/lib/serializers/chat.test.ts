@@ -15,7 +15,7 @@ function messageWith(content: string, metadata: Record<string, unknown>): Messag
     messageType: 'tool_result',
     metadataJson: JSON.stringify(metadata),
     parentMessageId: null,
-    cliSource: 'claude',
+    cliSource: 'moagent',
     createdAt: now,
     updatedAt: now,
   };

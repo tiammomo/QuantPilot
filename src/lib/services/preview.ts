@@ -11,6 +11,10 @@ import { findAvailablePort } from '@/lib/utils/ports';
 import { getProjectById, updateProject, updateProjectStatus } from './project';
 import { ensureQuantDashboardTemplate, scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
+import {
+  buildGeneratedProjectEnv,
+  wrapGeneratedProjectCommand,
+} from '@/lib/security/generated-project-sandbox';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -842,11 +846,12 @@ async function waitForPreviewReady(
   return false;
 }
 
-function buildPreviewCommandEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const commandEnv: Record<string, string | undefined> = { ...env };
-  delete commandEnv.NODE_ENV;
-  commandEnv.NEXT_TELEMETRY_DISABLED = '1';
-  return commandEnv as NodeJS.ProcessEnv;
+function buildPreviewCommandEnv(
+  projectPath: string,
+  env: NodeJS.ProcessEnv,
+  options: { allowInstallNetwork?: boolean } = {},
+): NodeJS.ProcessEnv {
+  return buildGeneratedProjectEnv(projectPath, env, options);
 }
 
 async function appendCommandLogs(
@@ -859,7 +864,7 @@ async function appendCommandLogs(
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: buildPreviewCommandEnv(env),
+      env: buildPreviewCommandEnv(cwd, env, { allowInstallNetwork: true }),
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -1209,6 +1214,13 @@ export class PreviewManager {
     }
 
     const projectPath = resolvePreviewProjectPath(projectId, project.repoPath);
+    const { checkQuantArtifactPolicy } = await import('@/lib/quant/validation');
+    const executionPolicy = await checkQuantArtifactPolicy(projectPath);
+    if (executionPolicy.status === 'failed') {
+      throw new Error(
+        `Refusing to execute generated preview before artifact security policy passes: ${executionPolicy.details ?? executionPolicy.summary}`,
+      );
+    }
 
     const existing = this.processes.get(projectId);
     if (existing && existing.status !== 'error') {
@@ -1336,12 +1348,11 @@ export class PreviewManager {
 
     const initialUrl = `http://localhost:${preferredPort}`;
 
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
+    const env: NodeJS.ProcessEnv = buildGeneratedProjectEnv(projectPath, {
       PORT: String(preferredPort),
       WEB_PORT: String(preferredPort),
       NEXT_PUBLIC_APP_URL: initialUrl,
-    };
+    });
 
     const previewProcess: PreviewProcess = {
       process: null,
@@ -1464,12 +1475,17 @@ export class PreviewManager {
     previewProcess.url = resolvedUrl;
     this.assertStartActive(projectId, operation);
 
-    const child = spawn(
+    const sandboxed = await wrapGeneratedProjectCommand(
+      projectPath,
       npmCommand,
       ['run', 'dev', '--', '--port', String(effectivePort)],
+    );
+    const child = spawn(
+      sandboxed.command,
+      sandboxed.args,
       {
         cwd: projectPath,
-        env: buildPreviewCommandEnv(env),
+        env: buildPreviewCommandEnv(projectPath, env),
         detached: process.platform !== 'win32',
         shell: process.platform === 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],

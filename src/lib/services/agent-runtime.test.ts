@@ -15,7 +15,7 @@ describe('agent runtime cancellation', () => {
     registerAgentRun({
       projectId,
       requestId,
-      cli: 'claude',
+      cli: 'moagent',
       cancel: (reason) => controller.abort(new Error(reason)),
     });
 

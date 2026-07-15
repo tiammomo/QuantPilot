@@ -75,9 +75,9 @@ function AIAgentsTab({
         <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-black text-white">D</span>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-black text-white">M</span>
               <div>
-                <h4 className="font-semibold text-slate-950">{runtime?.name ?? "DeepSeek Agent"}</h4>
+                <h4 className="font-semibold text-slate-950">{runtime?.name ?? "MoAgent"}</h4>
                 <p className="mt-1 text-xs text-slate-600">{runtime?.description}</p>
               </div>
             </div>
@@ -95,8 +95,8 @@ function AIAgentsTab({
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs font-medium text-slate-500">官方接口</p>
-            <p className="mt-2 font-semibold text-slate-950">DeepSeek Agent API</p>
-            <code className="mt-2 block break-all text-xs text-blue-700">api.deepseek.com/anthropic</code>
+            <p className="mt-2 font-semibold text-slate-950">MoAgent · DeepSeek API</p>
+            <code className="mt-2 block break-all text-xs text-blue-700">api.deepseek.com/chat/completions</code>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs font-medium text-slate-500">API Key</p>

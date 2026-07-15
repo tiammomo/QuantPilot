@@ -37,7 +37,26 @@ describe('writeInitialRunPlan', () => {
     expect(plan.timeRange).toBe('最近 120 个交易日');
     expect(plan.visualization.required).toBe(true);
     expect(plan.visualization.templateId).toBe('single-stock-diagnosis');
-    expect(plan.visualization.matchReasons).toContain('识别到 1 个标的');
+    expect(plan.visualization.matchReasons).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^识别到 \d+ 个标的$/)])
+    );
+  });
+
+  it('does not report unresolved conversational name candidates as resolved symbols', async () => {
+    const projectPath = await createProject();
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'conversational-security-diagnosis-regression',
+      capabilityId: 'stock_diagnosis',
+      capabilitySource: 'auto',
+      instruction: '大位科技这个股票怎么样',
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.symbols).toEqual([]);
+    expect(plan.visualization.matchReasons).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^识别到 \d+ 个标的$/)])
+    );
   });
 
   it('keeps a single symbol with duplicate aliases on the technical-analysis template', async () => {

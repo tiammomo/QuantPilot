@@ -12,6 +12,9 @@ describe('quant intent clarification', () => {
     ['杭钢股份最近基本面怎么样', '杭钢股份'],
     ['中国平安公司最近怎么样', '中国平安公司'],
     ['有研新材最近怎么样', '有研新材'],
+    ['大位科技这个股票怎么样', '大位科技'],
+    ['大位科技这只股票如何', '大位科技'],
+    ['大位科技这家公司最近怎么样', '大位科技'],
   ])('keeps a resolvable security name in %s', (instruction, expectedTarget) => {
     expect(extractQuantTargetCandidates(instruction)).toContain(expectedTarget);
     expect(

@@ -161,6 +161,33 @@ interface UpsertUserRequestOptions {
   cliPreference?: string | null;
 }
 
+export class UserRequestProjectMismatchError extends Error {
+  constructor(readonly requestId: string) {
+    super('The request ID is already bound to a different project.');
+    this.name = 'UserRequestProjectMismatchError';
+  }
+}
+
+/**
+ * Verify the global request ID is either unclaimed or already owned by the
+ * expected project. Returns false when no request exists yet so product ingress
+ * can safely proceed to the transactional upsert.
+ */
+export async function assertUserRequestProjectBinding(
+  projectId: string,
+  requestId: string,
+): Promise<boolean> {
+  const existing = await prisma.userRequest.findUnique({
+    where: { id: requestId },
+    select: { projectId: true },
+  });
+  if (!existing) return false;
+  if (existing.projectId !== projectId) {
+    throw new UserRequestProjectMismatchError(requestId);
+  }
+  return true;
+}
+
 async function handleNotFound(error: unknown, context: string): Promise<void> {
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -185,23 +212,48 @@ export async function upsertUserRequest({
   instruction,
   cliPreference,
 }: UpsertUserRequestOptions) {
-  return prisma.userRequest.upsert({
-    where: { id },
-    create: {
-      id,
-      projectId,
-      instruction,
-      status: 'pending',
-      ...(cliPreference !== undefined ? { cliPreference } : {}),
-    },
-    update: {
-      instruction,
-      ...(cliPreference !== undefined ? { cliPreference } : {}),
-    },
+  const scopedUpsert = () => prisma.$transaction(async (tx) => {
+    const existing = await tx.userRequest.findUnique({
+      where: { id },
+      select: { projectId: true },
+    });
+    if (existing && existing.projectId !== projectId) {
+      throw new UserRequestProjectMismatchError(id);
+    }
+    if (existing) {
+      return tx.userRequest.update({
+        where: { id },
+        data: {
+          instruction,
+          ...(cliPreference !== undefined ? { cliPreference } : {}),
+        },
+      });
+    }
+    return tx.userRequest.create({
+      data: {
+        id,
+        projectId,
+        instruction,
+        status: 'pending',
+        ...(cliPreference !== undefined ? { cliPreference } : {}),
+      },
+    });
   });
+
+  try {
+    return await scopedUpsert();
+  } catch (error) {
+    // Two same-project creates may race. Retry after the unique winner commits;
+    // a cross-project collision is still rejected before any update.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return scopedUpsert();
+    }
+    throw error;
+  }
 }
 
 async function updateStatus(
+  projectId: string,
   id: string,
   status: UserRequestStatus,
   options: {
@@ -230,6 +282,7 @@ async function updateStatus(
     const result = await prisma.userRequest.updateMany({
       where: {
         id,
+        projectId,
         ...(options.allowedCurrentStatuses
           ? { status: { in: options.allowedCurrentStatuses } }
           : {}),
@@ -243,45 +296,69 @@ async function updateStatus(
   }
 }
 
-export async function markUserRequestAsRunning(id: string): Promise<boolean> {
-  const updated = await updateStatus(id, 'running', {
+export async function markUserRequestAsRunning(
+  projectId: string,
+  id: string,
+): Promise<boolean> {
+  const updated = await updateStatus(projectId, id, 'running', {
     allowedCurrentStatuses: ACTIVE_STATUSES,
   });
   if (updated) trackRuntimeRequest(id);
   return updated;
 }
 
-export async function markUserRequestAsProcessing(id: string): Promise<boolean> {
-  const updated = await updateStatus(id, 'processing', {
+export async function markUserRequestAsProcessing(
+  projectId: string,
+  id: string,
+): Promise<boolean> {
+  const updated = await updateStatus(projectId, id, 'processing', {
     allowedCurrentStatuses: ACTIVE_STATUSES,
   });
   if (updated) trackRuntimeRequest(id);
   return updated;
 }
 
-export async function isUserRequestCancelled(id: string): Promise<boolean> {
-  const request = await prisma.userRequest.findUnique({
-    where: { id },
+export async function isUserRequestCancelled(
+  projectId: string,
+  id: string,
+): Promise<boolean> {
+  const request = await prisma.userRequest.findFirst({
+    where: { id, projectId },
     select: { status: true },
   });
   return request?.status === 'cancelled';
 }
 
-export async function markUserRequestAsCompleted(id: string): Promise<boolean> {
-  const updated = await updateStatus(id, 'completed', {
+export async function markUserRequestAsCompleted(
+  projectId: string,
+  id: string,
+): Promise<boolean> {
+  const updated = await updateStatus(projectId, id, 'completed', {
     errorMessage: null,
     setCompletionTimestamp: true,
     allowedCurrentStatuses: ACTIVE_STATUSES,
   });
-  if (updated) untrackRuntimeRequest(id);
+  if (updated) {
+    untrackRuntimeRequest(id);
+  } else {
+    // Mission acceptance may have committed the durable request completion in
+    // the same database transaction as its evidence receipt. Keep the
+    // process-local activity hint idempotently aligned with that outcome.
+    const request = await prisma.userRequest.findFirst({
+      where: { id, projectId },
+      select: { status: true },
+    });
+    if (request?.status === 'completed') untrackRuntimeRequest(id);
+  }
   return updated;
 }
 
 export async function markUserRequestAsCancelled(
+  projectId: string,
   id: string,
   errorMessage = '用户暂停了当前任务',
 ): Promise<boolean> {
-  const updated = await updateStatus(id, 'cancelled', {
+  const updated = await updateStatus(projectId, id, 'cancelled', {
     errorMessage,
     setCompletionTimestamp: true,
     allowedCurrentStatuses: ACTIVE_STATUSES,
@@ -334,10 +411,11 @@ export async function markActiveUserRequestsAsCompleted(projectId: string): Prom
 }
 
 export async function markUserRequestAsFailed(
+  projectId: string,
   id: string,
   errorMessage?: string,
 ): Promise<boolean> {
-  const updated = await updateStatus(id, 'failed', {
+  const updated = await updateStatus(projectId, id, 'failed', {
     errorMessage: errorMessage ?? 'Request failed',
     setCompletionTimestamp: true,
     allowedCurrentStatuses: ACTIVE_STATUSES,

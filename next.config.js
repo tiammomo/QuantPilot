@@ -38,7 +38,6 @@ const nextConfig = {
   ...(isStandaloneBuild ? { output: 'standalone' } : {}),
   // Agent、数据库和本地进程管理只在 Node.js API Route 中运行，构建时保持外部依赖。
   serverExternalPackages: [
-    '@anthropic-ai/claude-agent-sdk',
     '@prisma/client',
     'prisma',
     'ws',
@@ -58,6 +57,9 @@ const nextConfig = {
   outputFileTracingExcludes: {
     '*': tracingExcludes,
     '/api/**': tracingExcludes,
+  },
+  outputFileTracingIncludes: {
+    '/api/**': ['./.claude/**', './scripts/security/**'],
   },
   webpack(config, { isServer }) {
     if (isServer) {

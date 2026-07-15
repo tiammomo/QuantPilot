@@ -5,7 +5,7 @@ import { getDefaultModelForCli } from '@/lib/constants/cliModels';
 export type GlobalAISettings = {
   default_cli: string;
   cli_settings: {
-    claude: {
+    moagent: {
       model?: string;
     };
   };
@@ -18,9 +18,9 @@ type GlobalSettingsCtx = {
 };
 
 const defaultSettings: GlobalAISettings = {
-  default_cli: 'claude',
+  default_cli: 'moagent',
   cli_settings: {
-    claude: { model: getDefaultModelForCli('claude') },
+    moagent: { model: getDefaultModelForCli('moagent') },
   },
 };
 

@@ -29,6 +29,7 @@ import {
   type ActiveModelOption,
 } from '@/lib/utils/cliOptions';
 import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+import { planPreviewReconciliation } from './preview-reconciliation';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -334,6 +335,8 @@ export default function ChatPage() {
   const deployPollRef = useRef<NodeJS.Timeout | null>(null);
   const [isStartingPreview, setIsStartingPreview] = useState(false);
   const previewStartInFlightRef = useRef<string | null>(null);
+  const previewAutoRecoveryAttemptRef = useRef<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const previewAutoRecoverySuppressedRef = useRef(false);
   const previewTerminalFailureRef = useRef(false);
   const [previewInitializationMessage, setPreviewInitializationMessage] = useState('正在启动预览服务...');
@@ -931,7 +934,26 @@ const persistProjectPreferences = useCallback(
     return 'unknown';
   }, [isVisualCheck, projectId]);
 
-  const start = useCallback(async (options: { requireValidation?: boolean } = {}) => {
+  const readGenerationTerminalSnapshot = useCallback(async (): Promise<QuantGenerationTerminalSnapshot | null> => {
+    const response = await fetch(
+      `${API_BASE}/api/projects/${projectId}/generation/status`,
+      { cache: 'no-store' },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    return (payload?.data ?? null) as QuantGenerationTerminalSnapshot | null;
+  }, [projectId]);
+
+  const start = useCallback(async (options: {
+    requireValidation?: boolean;
+    acceptedSnapshot?: QuantGenerationTerminalSnapshot;
+  } = {}) => {
+    // A URL already adopted by this page must never trigger another start.
+    if (previewUrlRef.current) {
+      return true;
+    }
     if (previewStartInFlightRef.current) {
       return false;
     }
@@ -946,19 +968,44 @@ const persistProjectPreferences = useCallback(
         options.requireValidation ? '正在检查自动验证结果...' : '正在启动预览服务...'
       );
 
-      if (options.requireValidation) {
-        const validationState = await readQuantValidationStatus();
-        if (previewStartInFlightRef.current !== projectId) {
-          return false;
-        }
-        if (validationState !== 'passed') {
-          setPreviewInitializationMessage(
-            validationState === 'failed'
-              ? '自动验证未通过，暂不展示可视化看板。'
-              : '自动验证尚未完成，暂不展示可视化看板。'
-          );
-          return false;
-        }
+      const terminalSnapshot =
+        options.acceptedSnapshot ?? await readGenerationTerminalSnapshot();
+      if (previewStartInFlightRef.current !== projectId) {
+        return false;
+      }
+      if (!terminalSnapshot) {
+        setPreviewInitializationMessage('暂时无法确认生成终态，请稍后重试。');
+        return false;
+      }
+      if (
+        terminalSnapshot.missionAcceptanceRequired &&
+        !terminalSnapshot.missionAcceptanceSatisfied
+      ) {
+        previewUrlRef.current = null;
+        setPreviewUrl(null);
+        setPreviewInitializationMessage('正在等待 MoAgent 证据验收，暂不展示预览。');
+        return false;
+      }
+      if (terminalSnapshot.validationStatus !== 'passed') {
+        setPreviewInitializationMessage(
+          terminalSnapshot.validationStatus === 'failed'
+            ? '自动验证未通过，暂不展示可视化看板。'
+            : '自动验证尚未完成，暂不展示可视化看板。'
+        );
+        return false;
+      }
+      if (terminalSnapshot.previewUrl) {
+        previewUrlRef.current = terminalSnapshot.previewUrl;
+        setPreviewUrl(terminalSnapshot.previewUrl);
+        setPreviewInitializationMessage('预览已就绪');
+        setShowPreview(true);
+        setMobileWorkspaceView('preview');
+        setCurrentRoute('/');
+        return true;
+      }
+      if (terminalSnapshot.status !== 'preview_pending') {
+        setPreviewInitializationMessage('持久看板预览尚未进入可恢复状态。');
+        return false;
       }
 
       dependencyProgressTimer = setTimeout(() => setPreviewInitializationMessage('正在检查依赖...'), 1000);
@@ -979,6 +1026,7 @@ const persistProjectPreferences = useCallback(
           // 响应体不是 JSON 时使用 HTTP 状态文本。
         }
         console.warn('[Preview] start failed:', errorMessage);
+        previewTerminalFailureRef.current = true;
         setPreviewInitializationMessage(`预览启动失败：${errorMessage}`);
         return false;
       }
@@ -1001,6 +1049,7 @@ const persistProjectPreferences = useCallback(
       setPreviewInitializationMessage('预览已就绪');
       previewAutoRecoverySuppressedRef.current = false;
       previewTerminalFailureRef.current = false;
+      previewUrlRef.current = nextPreviewUrl;
       setPreviewUrl(nextPreviewUrl);
       setShowPreview(true);
       setMobileWorkspaceView('preview');
@@ -1021,45 +1070,49 @@ const persistProjectPreferences = useCallback(
         setIsStartingPreview(false);
       }
     }
-  }, [projectId, readQuantValidationStatus]);
-
-  const revealValidatedPreview = useCallback(async () => {
-    previewAutoRecoverySuppressedRef.current = false;
-    setAgentWorkComplete(true);
-    localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-    setShowPreview(true);
-    setMobileWorkspaceView('preview');
-    setPreviewInitializationMessage('自动验证通过，正在启动可视化看板...');
-    return start({ requireValidation: false });
-  }, [projectId, start]);
+  }, [projectId, readGenerationTerminalSnapshot]);
 
   const reconcileGenerationTerminal = useCallback(async () => {
-    if (!projectId || isVisualCheck) {
+    if (!projectId) {
       return;
     }
 
     try {
-      const response = await fetch(
-        `${API_BASE}/api/projects/${projectId}/generation/status`,
-        { cache: 'no-store' },
-      );
-      if (!response.ok) {
-        return;
-      }
-      const payload = await response.json();
-      const snapshot = (payload?.data ?? null) as QuantGenerationTerminalSnapshot | null;
+      const snapshot = await readGenerationTerminalSnapshot();
       if (!snapshot) {
         return;
       }
 
-      if (snapshot.status === 'ready' && snapshot.previewUrl) {
+      const previewPlan = planPreviewReconciliation({
+        projectId,
+        snapshot,
+        currentPreviewUrl: previewUrlRef.current,
+        attemptedRecoveryKey: previewAutoRecoveryAttemptRef.current,
+      });
+
+      if (previewPlan.action === 'withhold_until_acceptance') {
+        previewUrlRef.current = null;
+        setPreviewUrl(null);
+        setIsStartingPreview(false);
+        setIsRunning(true);
+        setAgentWorkComplete(false);
+        setQuantValidationState('running');
+        setQuantValidationMessage('自动检查已完成，正在等待 MoAgent 证据验收。');
+        setPreviewInitializationMessage('证据验收通过后才会展示最终看板。');
+        return;
+      }
+
+      if (previewPlan.action === 'ready') {
         previewAutoRecoverySuppressedRef.current = false;
         previewTerminalFailureRef.current = false;
         setQuantValidationState('passed');
         setQuantValidationMessage('自动验证通过，看板预览已就绪。');
         setAgentWorkComplete(true);
         localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-        setPreviewUrl(snapshot.previewUrl);
+        if (previewPlan.shouldAdoptUrl) {
+          previewUrlRef.current = previewPlan.previewUrl;
+          setPreviewUrl(previewPlan.previewUrl);
+        }
         setShowPreview(true);
         setMobileWorkspaceView('preview');
         setIsStartingPreview(false);
@@ -1068,7 +1121,13 @@ const persistProjectPreferences = useCallback(
         return;
       }
 
-      if (snapshot.status === 'preview_pending') {
+      if (previewPlan.action === 'start_once') {
+        // Visual-check mode may inspect an already running accepted preview,
+        // but must never mutate process state by starting one itself.
+        if (isVisualCheck) {
+          setPreviewInitializationMessage('已验收看板当前没有运行中的预览。');
+          return;
+        }
         setQuantValidationState('passed');
         setQuantValidationMessage('自动验证通过，正在恢复持久看板预览。');
         setShowPreview(true);
@@ -1078,8 +1137,18 @@ const persistProjectPreferences = useCallback(
           !previewTerminalFailureRef.current &&
           !previewStartInFlightRef.current
         ) {
-          void start({ requireValidation: false });
+          // Record before launching so overlapping status polls cannot enqueue
+          // another POST while React state is still settling.
+          previewAutoRecoveryAttemptRef.current = previewPlan.attemptKey;
+          void start({
+            requireValidation: false,
+            acceptedSnapshot: snapshot,
+          });
         }
+        return;
+      }
+
+      if (snapshot.status === 'preview_pending') {
         return;
       }
 
@@ -1089,12 +1158,13 @@ const persistProjectPreferences = useCallback(
         setQuantValidationState('running');
         setQuantValidationMessage('当前生成任务尚未完成，正在等待验证和预览终态。');
         if (snapshot.validationStatus === 'pending') {
+          previewUrlRef.current = null;
           setPreviewUrl(null);
           if (!hasActiveRequests) {
             void readQuantValidationStatus();
           }
         }
-        if (!previewUrl) {
+        if (!previewUrlRef.current) {
           setPreviewInitializationMessage('正在生成、验证并准备最终可视化看板...');
         }
         return;
@@ -1106,6 +1176,7 @@ const persistProjectPreferences = useCallback(
         setQuantValidationMessage(
           snapshot.errorMessage || '生成或自动验证最终失败，请查看执行摘要。',
         );
+        previewUrlRef.current = null;
         setPreviewUrl(null);
         setPreviewInitializationMessage(
           snapshot.errorMessage || '生成终态失败，暂时无法展示看板。',
@@ -1127,8 +1198,8 @@ const persistProjectPreferences = useCallback(
   }, [
     hasActiveRequests,
     isVisualCheck,
-    previewUrl,
     projectId,
+    readGenerationTerminalSnapshot,
     readQuantValidationStatus,
     start,
   ]);
@@ -1173,6 +1244,7 @@ const persistProjectPreferences = useCallback(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intent: 'explicit-user-stop' }),
       });
+      previewUrlRef.current = null;
       setPreviewUrl(null);
     } catch (error) {
       console.error('Error stopping preview:', error);
@@ -1807,34 +1879,9 @@ const persistProjectPreferences = useCallback(
       const followGlobal = !rawPreferredCli && !rawSelectedModel;
       setUsingGlobalDefaults(followGlobal);
       setProjectDescription(project.description || '');
-      const loadedPreviewUrl =
-        typeof project.previewUrl === 'string'
-          ? project.previewUrl
-          : typeof project.preview_url === 'string'
-          ? project.preview_url
-          : typeof project.url === 'string'
-          ? project.url
-          : null;
-      const validationState = await readQuantValidationStatus();
-      if (validationState === 'passed') {
-        setAgentWorkComplete(true);
-        localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-        if (loadedPreviewUrl) {
-          setPreviewUrl(loadedPreviewUrl);
-          setShowPreview(true);
-        }
-        // Always run the idempotent preview ensure step. It validates a saved
-        // URL, adopts a surviving process after a platform restart, or starts a
-        // new preview when the persisted URL is stale.
-        if (!isVisualCheck) {
-          void revealValidatedPreview();
-        }
-      } else {
-        setPreviewUrl(null);
-        if (validationState === 'failed') {
-          setPreviewInitializationMessage('自动验证未通过，暂不展示可视化看板。');
-        }
-      }
+      // Project.previewUrl and a passing validation report may describe a
+      // provisional MoAgent preview. Only the Mission-aware generation/status
+      // reconciliation below is allowed to expose or recover it.
 
       if (project.initial_prompt) {
         setHasInitialPrompt(true);
@@ -1874,13 +1921,11 @@ const persistProjectPreferences = useCallback(
   }, [
     projectId,
     isVisualCheck,
-    readQuantValidationStatus,
     startDependencyInstallation,
     triggerInitialPromptIfNeeded,
     updatePreferredCli,
     updateSelectedModel,
     preferredCli,
-    revealValidatedPreview,
     router,
   ]);
 
@@ -1919,6 +1964,8 @@ const persistProjectPreferences = useCallback(
 
   useEffect(() => {
     previewStartInFlightRef.current = null;
+    previewAutoRecoveryAttemptRef.current = null;
+    previewUrlRef.current = null;
     previewAutoRecoverySuppressedRef.current = false;
     previewTerminalFailureRef.current = false;
     setIsStartingPreview(false);
@@ -2070,7 +2117,9 @@ const persistProjectPreferences = useCallback(
     setIsRunning(true);
     setAgentWorkComplete(false);
     previewAutoRecoverySuppressedRef.current = false;
+    previewAutoRecoveryAttemptRef.current = null;
     previewTerminalFailureRef.current = false;
+    previewUrlRef.current = null;
     setPreviewUrl(null);
     setPreviewInitializationMessage('正在准备数据和可视化看板，验证通过后自动展示...');
     const requestId = crypto.randomUUID();
@@ -2123,7 +2172,7 @@ const persistProjectPreferences = useCallback(
         const result = await response.json();
         return {
           name: result.filename || filename,
-          path: result.absolute_path,
+          path: result.path,
           url: `/api/assets/${projectId}/${result.filename}`,
           public_url: typeof result.public_url === 'string' ? result.public_url : undefined,
           publicUrl: typeof result.public_url === 'string' ? result.public_url : undefined,
@@ -2467,6 +2516,7 @@ const persistProjectPreferences = useCallback(
     if (status === 'validation_failed') {
       const terminalFailure = metadata?.terminalFailure === true;
       previewStartInFlightRef.current = null;
+      previewUrlRef.current = null;
       setQuantValidationState('failed');
       setQuantValidationMessage(
         message ??
@@ -2489,6 +2539,7 @@ const persistProjectPreferences = useCallback(
     if (status === 'preview_failed') {
       previewStartInFlightRef.current = null;
       previewTerminalFailureRef.current = true;
+      previewUrlRef.current = null;
       setQuantValidationState('passed');
       setQuantValidationMessage(
         message ?? '自动验证已通过，但持久看板预览启动失败。',
@@ -2507,31 +2558,20 @@ const persistProjectPreferences = useCallback(
         typeof metadata?.previewUrl === 'string' && metadata.previewUrl.trim().length > 0
           ? metadata.previewUrl.trim()
           : null;
-      setQuantValidationState('passed');
+      setQuantValidationState('running');
       setQuantValidationMessage(
-        message ?? (readyPreviewUrl ? '自动验证通过，看板预览已就绪。' : '自动验证通过，正在启动可视化看板。'),
+        message ?? (readyPreviewUrl ? '正在确认看板验收终态。' : '自动检查已通过，正在等待证据验收。'),
       );
       setQuantRepairPlan(null);
       if (readyPreviewUrl) {
-        previewAutoRecoverySuppressedRef.current = false;
-        previewTerminalFailureRef.current = false;
-        setAgentWorkComplete(true);
-        localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-        setPreviewUrl(readyPreviewUrl);
         setShowPreview(true);
         setMobileWorkspaceView('preview');
-        setCurrentRoute('/');
-        setIsStartingPreview(false);
-        setIsRunning(false);
-        setPreviewInitializationMessage('预览已就绪');
+        setPreviewInitializationMessage('正在核对 Mission 验收凭据与最终预览...');
+        void reconcileGenerationTerminal();
         return;
       }
 
-      setPreviewUrl(null);
-      setPreviewInitializationMessage('自动验证通过，正在启动可视化看板...');
-      if (!isVisualCheck) {
-        void revealValidatedPreview();
-      }
+      setPreviewInitializationMessage('证据验收通过后才会展示最终看板。');
       return;
     }
 
@@ -2671,7 +2711,7 @@ const persistProjectPreferences = useCallback(
   // realtime event, tab refresh, or platform restart cannot strand the UI on
   // the placeholder after a dashboard is actually ready.
   useEffect(() => {
-    if (!projectId || isVisualCheck) {
+    if (!projectId) {
       return;
     }
 

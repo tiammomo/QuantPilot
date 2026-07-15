@@ -2,7 +2,7 @@
  * AI CLI-related types
  */
 
-export type CLIType = 'claude';
+export type CLIType = 'moagent';
 
 export type SessionType = 'chat' | 'code_gen' | 'error_fix';
 
@@ -13,7 +13,7 @@ export interface Session {
   projectId: string;
   sessionType: SessionType;
   cliType: CLIType;
-  sessionId: string; // Actual CLI session ID
+  sessionId: string; // QuantPilot conversation/session record, not a provider session
   modelName?: string;
   contextTokens?: number;
   status: SessionStatus;
@@ -63,15 +63,14 @@ export interface GlobalSettings {
   };
 }
 
-// Claude Code specific types
-export interface ClaudeSession {
+export interface MoAgentSession {
   id: string;
   projectPath: string;
   model: string;
   createdAt: Date;
 }
 
-export interface ClaudeResponse {
+export interface MoAgentResponse {
   role: 'assistant';
   content: string;
   thinking?: string;

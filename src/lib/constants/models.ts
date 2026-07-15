@@ -1,10 +1,10 @@
 export const DEEPSEEK_MODEL_ID = 'deepseek-v4-flash' as const;
-export const DEEPSEEK_OFFICIAL_ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic' as const;
+export const DEEPSEEK_OFFICIAL_BASE_URL = 'https://api.deepseek.com' as const;
 
-export type ClaudeModelId = typeof DEEPSEEK_MODEL_ID;
+export type MoAgentModelId = typeof DEEPSEEK_MODEL_ID;
 
-export interface ClaudeModelDefinition {
-  id: ClaudeModelId;
+export interface MoAgentModelDefinition {
+  id: MoAgentModelId;
   name: string;
   description: string;
   supportsImages: boolean;
@@ -14,7 +14,7 @@ export interface ClaudeModelDefinition {
   aliases: string[];
 }
 
-export const CLAUDE_MODEL_DEFINITIONS: ClaudeModelDefinition[] = [
+export const MOAGENT_MODEL_DEFINITIONS: MoAgentModelDefinition[] = [
   {
     id: DEEPSEEK_MODEL_ID,
     name: 'DeepSeek V4 Flash',
@@ -27,34 +27,32 @@ export const CLAUDE_MODEL_DEFINITIONS: ClaudeModelDefinition[] = [
   },
 ];
 
-// Claude Agent SDK remains an internal tool-execution engine. Product-level
-// model selection is intentionally locked to the official DeepSeek model.
-export const CLAUDE_DEFAULT_MODEL: ClaudeModelId = DEEPSEEK_MODEL_ID;
+export const MOAGENT_DEFAULT_MODEL: MoAgentModelId = DEEPSEEK_MODEL_ID;
 
-export function normalizeClaudeModelId(_model?: string | null): ClaudeModelId {
+export function normalizeMoAgentModelId(_model?: string | null): MoAgentModelId {
   return DEEPSEEK_MODEL_ID;
 }
 
-export function getClaudeModelDefinition(_id?: string | null): ClaudeModelDefinition {
-  return CLAUDE_MODEL_DEFINITIONS[0];
+export function getMoAgentModelDefinition(_id?: string | null): MoAgentModelDefinition {
+  return MOAGENT_MODEL_DEFINITIONS[0];
 }
 
-export function getClaudeModelDisplayName(_id?: string | null): string {
-  return CLAUDE_MODEL_DEFINITIONS[0].name;
+export function getMoAgentModelDisplayName(_id?: string | null): string {
+  return MOAGENT_MODEL_DEFINITIONS[0].name;
 }
 
-export function getDefaultModelForCli(_cli?: string | null): ClaudeModelId {
+export function getDefaultModelForCli(_cli?: string | null): MoAgentModelId {
   return DEEPSEEK_MODEL_ID;
 }
 
-export function normalizeModelId(_cli?: string | null, _model?: string | null): ClaudeModelId {
+export function normalizeModelId(_cli?: string | null, _model?: string | null): MoAgentModelId {
   return DEEPSEEK_MODEL_ID;
 }
 
 export function getModelDisplayName(_cli?: string | null, _modelId?: string | null): string {
-  return CLAUDE_MODEL_DEFINITIONS[0].name;
+  return MOAGENT_MODEL_DEFINITIONS[0].name;
 }
 
-export function getModelDefinitionsForCli(_cli?: string | null): ClaudeModelDefinition[] {
-  return CLAUDE_MODEL_DEFINITIONS;
+export function getModelDefinitionsForCli(_cli?: string | null): MoAgentModelDefinition[] {
+  return MOAGENT_MODEL_DEFINITIONS;
 }

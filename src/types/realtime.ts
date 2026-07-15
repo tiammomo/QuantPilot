@@ -37,6 +37,12 @@ export interface ConnectionInfo {
   projectId: string;
   timestamp: string;
   sessionId?: string;
+  runtime?: string;
+  runId?: string;
+  /** Stable runtime-event cursor when the connection originates from an agent run. */
+  eventId?: string;
+  /** Monotonic runtime-event sequence within runId. */
+  sequence?: number;
   transport?: StreamTransport;
   connectionStage?: 'handshake' | 'assistant';
 }

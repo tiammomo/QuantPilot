@@ -1,9 +1,27 @@
 export type RealtimeGenerationTerminal = 'success' | 'failure' | 'cancelled' | null;
 
+export function shouldRealtimeAssistantUpdateStopWaiting(params: {
+  hasContent: boolean;
+  isFinal?: boolean;
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  // Hidden MoAgent turns include the submitted candidate summary. They are
+  // physical-run projections, not a user-facing Mission completion message.
+  if (
+    params.metadata?.hidden_from_ui === true ||
+    params.metadata?.isMissionIntermediate === true
+  ) return false;
+  return params.hasContent || params.isFinal === true;
+}
+
 const WORKSPACE_LIFECYCLE_STATUSES = new Set([
+  'agent_candidate_complete',
   'agent_execution_completed',
   'agent_execution_failed',
+  'evidence_verification',
+  'evidence_verification_running',
   'validation_running',
+  'validation_checks_passed',
   'validation_passed',
   'validation_failed',
   'validation_repairing',
@@ -13,6 +31,16 @@ const WORKSPACE_LIFECYCLE_STATUSES = new Set([
   'preview_failed',
   'agent_paused',
 ]);
+
+const WORKSPACE_STATUS_ALIASES: Record<string, string> = {
+  // A submitted Agent result is only a candidate. Reuse the existing linear
+  // post-execution state while validation and Mission evidence verification
+  // continue; never project it as a completed request or ready preview.
+  agent_candidate_complete: 'agent_execution_completed',
+  evidence_verification: 'validation_running',
+  evidence_verification_running: 'validation_running',
+  validation_checks_passed: 'validation_running',
+};
 
 export function classifyRealtimeGenerationStatus(
   status: string,
@@ -37,7 +65,9 @@ export function classifyRealtimeGenerationStatus(
   return {
     terminal,
     workspaceLifecycle: WORKSPACE_LIFECYCLE_STATUSES.has(status),
-    workspaceStatus: status === 'preview_ready' ? 'validation_passed' : status,
+    workspaceStatus:
+      WORKSPACE_STATUS_ALIASES[status] ??
+      (status === 'preview_ready' ? 'validation_passed' : status),
     keepsRequestActive:
       terminal === null &&
       WORKSPACE_LIFECYCLE_STATUSES.has(status) &&

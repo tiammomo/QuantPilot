@@ -76,7 +76,7 @@ export {
 
 let queueKickoffInProgress = false;
 const runningChildren = new Map<string, ChildProcess>();
-const EVAL_CLI = 'claude';
+const EVAL_CLI = 'moagent';
 const EVAL_MODEL = 'deepseek-v4-flash';
 
 function normalizeExecutionMode(value: unknown): QuantEvalQueueItem['mode'] {

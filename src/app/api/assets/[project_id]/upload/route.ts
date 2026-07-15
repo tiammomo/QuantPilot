@@ -70,24 +70,8 @@ export async function POST(request: Request, { params }: RouteContext) {
 
     await fs.writeFile(resolvedAbsolutePath, buffer);
 
-    let hostPublicPath: string | null = null;
     let projectPublicPath: string | null = null;
     let publicUrl: string | null = null;
-    try {
-      const rootUploadsDir = path.join(/*turbopackIgnore: true*/ process.cwd(), 'public', 'uploads');
-      await fs.mkdir(rootUploadsDir, { recursive: true });
-      const hostDestination = path.join(rootUploadsDir, uniqueName);
-      try {
-        await fs.access(hostDestination);
-      } catch {
-        await fs.copyFile(resolvedAbsolutePath, hostDestination);
-      }
-      hostPublicPath = hostDestination;
-      publicUrl = `/uploads/${uniqueName}`;
-    } catch (copyError) {
-      console.warn('[Assets Upload] Failed to mirror asset into application public/uploads:', copyError);
-    }
-
     try {
       const projectRoot = project.repoPath
         ? (path.isAbsolute(project.repoPath) ? project.repoPath : path.resolve(/*turbopackIgnore: true*/ process.cwd(), project.repoPath))
@@ -100,21 +84,19 @@ export async function POST(request: Request, { params }: RouteContext) {
       } catch {
         await fs.copyFile(resolvedAbsolutePath, projectPublicPath);
       }
+      publicUrl = `/uploads/${uniqueName}`;
     } catch (copyError) {
       console.warn('[Assets Upload] Failed to mirror asset into project public/uploads:', copyError);
       projectPublicPath = null;
-      if (!hostPublicPath) {
-        publicUrl = null;
-      }
+      publicUrl = null;
     }
 
     return NextResponse.json({
       success: true,
       path: `assets/${uniqueName}`,
-      absolute_path: resolvedAbsolutePath,
       filename: uniqueName,
       original_filename: originalName,
-      public_path: hostPublicPath ?? projectPublicPath,
+      public_path: projectPublicPath ? `public/uploads/${uniqueName}` : null,
       public_url: publicUrl,
     });
   } catch (error) {

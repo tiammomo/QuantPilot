@@ -49,6 +49,29 @@ export async function getMessagesByProjectId(
 }
 
 /**
+ * Return a bounded, chronological chat window for MoAgent context rebuilds.
+ * Tool payloads and internal reasoning are deliberately excluded here; exact
+ * tool-call state only lives inside the active run.
+ */
+export async function getRecentChatMessagesByProjectId(
+  projectId: string,
+  limit: number = 16,
+): Promise<Message[]> {
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+  const messages = await prisma.message.findMany({
+    where: {
+      projectId,
+      messageType: 'chat',
+      role: { in: ['user', 'assistant'] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: safeLimit,
+  });
+
+  return messages.reverse().map(mapPrismaMessage);
+}
+
+/**
  * 按游标增量获取项目消息，用于实时通道断线后的轻量补漏。
  */
 export async function getMessagesByProjectIdAfter(
@@ -85,10 +108,6 @@ export async function getMessagesByProjectIdAfter(
 export async function createMessage(input: CreateMessageInput): Promise<Message> {
   const metadataJson = input.metadata ? JSON.stringify(input.metadata) : undefined;
   const metadataLength = metadataJson ? metadataJson.length : 0;
-  const metadataPreview =
-    metadataJson && metadataJson.length > 0
-      ? `${metadataJson.substring(0, 500)}${metadataJson.length > 500 ? '...' : ''}`
-      : '';
   let lastError: Error | null = null;
 
   console.log('[MessageService] Creating message with metadata:', {
@@ -98,7 +117,6 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
     hasMetadata: !!input.metadata,
     metadataKeys: input.metadata ? Object.keys(input.metadata) : [],
     metadataJsonLength: metadataLength,
-    metadataJson: metadataPreview,
   });
 
   // Retry logic with exponential backoff for database operations
@@ -124,14 +142,9 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
 
       const mappedMessage = mapPrismaMessage(message);
       const mappedMetadataLength = mappedMessage.metadataJson ? mappedMessage.metadataJson.length : 0;
-      const mappedMetadataPreview =
-        mappedMessage.metadataJson && mappedMetadataLength > 0
-          ? `${mappedMessage.metadataJson.substring(0, 200)}${mappedMetadataLength > 200 ? '...' : ''}`
-          : '';
       console.log('[MessageService] Mapped message metadata:', {
         hasMetadataJson: mappedMetadataLength > 0,
         metadataJsonLength: mappedMetadataLength,
-        metadataJsonPreview: mappedMetadataPreview,
       });
 
       return mappedMessage;

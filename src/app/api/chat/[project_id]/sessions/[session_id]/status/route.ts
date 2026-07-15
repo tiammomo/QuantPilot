@@ -10,10 +10,13 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const { project_id, session_id } = await params;
     const session = await getSessionById(project_id, session_id);
     if (!session) {
-      return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: 'MoAgent compatibility session not found', deprecated: true },
+        { status: 404 },
+      );
     }
 
-    return NextResponse.json({ success: true, data: session });
+    return NextResponse.json({ success: true, data: session, runtime: 'moagent', deprecated: true });
   } catch (error) {
     console.error('[API] Failed to get session status:', error);
     return NextResponse.json(

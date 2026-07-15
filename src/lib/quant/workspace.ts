@@ -2,7 +2,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import {
   assessQuantIntentForClarification,
-  extractQuantTargetCandidates,
   QuantIntentClarification,
 } from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
@@ -521,8 +520,10 @@ export async function writeInitialRunPlan(params: {
   );
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id, {
     instruction: planningInstruction,
-    symbolCount:
-      symbols.length > 0 ? symbols.length : extractQuantTargetCandidates(planningInstruction).length,
+    // Only ticker strings are resolved at planning time. Name candidates are
+    // hints for clarification, not resolved instruments, and must not be
+    // reported as such in matchReasons.
+    symbolCount: symbols.length > 0 ? symbols.length : undefined,
     requestedVariantId:
       inheritPreviousPlan && !hasExplicitVariantReselection(planningInstruction)
         ? params.previousPlan?.visualization?.variantId

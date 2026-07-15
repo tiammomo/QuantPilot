@@ -26,6 +26,7 @@
     "lint": "eslint .",
     "test": "npm run test:unit && npm run test:backend",
     "test:unit": "vitest run",
+    "test:moagent:postgres": "node scripts/checks/run-moagent-postgres-integration.js",
     "test:backend": "uv run --project services/market-data pytest -q services/market-data/tests",
     "type-check": "node scripts/checks/type-check.js",
     "prisma:generate": "prisma generate",
@@ -86,7 +87,6 @@
     "postinstall": "npm run ensure:env"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.153",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -168,6 +168,14 @@
       {
         "from": "public",
         "to": "public"
+      },
+      {
+        "from": ".claude",
+        "to": ".claude"
+      },
+      {
+        "from": "scripts/security",
+        "to": "scripts/security"
       }
     ],
     "asar": true,

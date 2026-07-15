@@ -6,8 +6,8 @@ export const MAX_EVAL_CONCURRENCY = 16;
 
 export const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
   {
-    cli: 'claude',
-    label: 'DeepSeek Agent',
+    cli: 'moagent',
+    label: 'MoAgent',
     defaultModel: 'deepseek-v4-flash',
     supportsReasoningEffort: false,
     models: [

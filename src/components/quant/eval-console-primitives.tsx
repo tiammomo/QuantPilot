@@ -31,12 +31,12 @@ export type EvalSet = {
 export type EvalView = 'overview' | 'cases' | 'evalSets' | 'evaluator' | 'queue';
 
 export const CLI_LABELS: Record<string, string> = {
-  claude: 'DeepSeek Agent',
+  moagent: 'MoAgent',
 };
 
 export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
-  cli: 'claude',
-  label: 'DeepSeek Agent',
+  cli: 'moagent',
+  label: 'MoAgent',
   defaultModel: 'deepseek-v4-flash',
   supportsReasoningEffort: false,
   models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'DeepSeek 官方 API 直连' }],
@@ -290,7 +290,7 @@ export function getRuntimeOption(runtimeOptions: QuantEvalRuntimeOption[], cli: 
 }
 
 export function getInitialRuntime(data: QuantEvalDashboardData) {
-  return data.runtimeOptions.find((option) => option.cli === 'claude') ?? data.runtimeOptions[0] ?? FALLBACK_RUNTIME;
+  return data.runtimeOptions.find((option) => option.cli === 'moagent') ?? data.runtimeOptions[0] ?? FALLBACK_RUNTIME;
 }
 
 export function getReasoningEffort(runtime: QuantEvalRuntimeOption, value: string | null | undefined) {

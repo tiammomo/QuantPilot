@@ -1,8 +1,12 @@
 import path from 'path';
 import { NextResponse } from 'next/server';
-import { deriveQuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+import {
+  deriveQuantGenerationTerminalSnapshot,
+  requiresMoAgentMissionAcceptance,
+} from '@/lib/quant/generation-terminal';
 import { readQuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantValidationReport } from '@/lib/quant/validation';
+import { readMoAgentAcceptedMissionSnapshot } from '@/lib/services/moagent-mission-store';
 import { getProjectById } from '@/lib/services/project';
 
 interface RouteContext {
@@ -33,10 +37,18 @@ export async function GET(_request: Request, { params }: RouteContext) {
       readQuantValidationReport(projectPath),
     ]);
     const preview = previewManager.getStatus(project_id);
+    const acceptedMission =
+      generation?.requestId && requiresMoAgentMissionAcceptance(generation)
+        ? await readMoAgentAcceptedMissionSnapshot(
+            project_id,
+            generation.requestId,
+          )
+        : null;
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation,
       validation,
       preview,
+      acceptedMission,
       persistedPreviewUrl: project.previewUrl,
     });
 
@@ -47,6 +59,12 @@ export async function GET(_request: Request, { params }: RouteContext) {
       {
         success: false,
         error: 'Failed to reconcile generation status',
+        ...(process.env.NODE_ENV !== 'production'
+          ? {
+              detail:
+                error instanceof Error ? error.message : String(error),
+            }
+          : {}),
       },
       { status: 500 },
     );

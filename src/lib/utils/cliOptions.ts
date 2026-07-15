@@ -1,7 +1,7 @@
 import { CLI_OPTIONS, type CLIOption } from '@/types/cli';
 import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/cliModels';
 
-export const ACTIVE_CLI_IDS = ['claude'] as const;
+export const ACTIVE_CLI_IDS = ['moagent'] as const;
 
 export type ActiveCliId = (typeof ACTIVE_CLI_IDS)[number];
 
@@ -11,7 +11,7 @@ const isActiveCliId = (value: string): value is ActiveCliId => {
   return ACTIVE_CLI_ID_SET.has(value as ActiveCliId);
 };
 
-export const DEFAULT_ACTIVE_CLI: ActiveCliId = 'claude';
+export const DEFAULT_ACTIVE_CLI: ActiveCliId = 'moagent';
 
 type ActiveCliOption = CLIOption & { id: ActiveCliId };
 

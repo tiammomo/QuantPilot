@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
+import { stripConversationalSecurityReferenceSuffix } from '@/lib/quant/intent';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
@@ -141,6 +142,7 @@ function cleanCandidate(value: string): string | null {
     .replace(/(股票|个股)?(最近|近期|近|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '');
 
   candidate = candidate.replace(/^(?:A股|港股|美股)/, '').trim();
+  candidate = stripConversationalSecurityReferenceSuffix(candidate);
 
   if (candidate.length < 2 || candidate.length > 10) {
     return null;
@@ -153,7 +155,7 @@ function cleanCandidate(value: string): string | null {
   return candidate;
 }
 
-function extractNameCandidates(question: string): string[] {
+export function extractQuantSymbolNameCandidates(question: string): string[] {
   const normalized = question.replace(/\b(?:6|0|3|5)\d{5}\b/g, ' ');
   const rawParts = [
     ...normalized.split(/[，。！？?；;、,\n\r]+/),
@@ -170,7 +172,7 @@ function extractNameCandidates(question: string): string[] {
 }
 
 async function resolveSymbolsFromQuestion(question: string, warnings: string[]): Promise<string[]> {
-  const candidates = extractNameCandidates(question);
+  const candidates = extractQuantSymbolNameCandidates(question);
   const resolved: string[] = [];
 
   for (const candidate of candidates) {

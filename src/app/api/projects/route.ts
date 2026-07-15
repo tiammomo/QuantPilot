@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       project_id: body.project_id,
       name: body.name,
       initialPrompt: body.initialPrompt || body.initial_prompt,
-      preferredCli: 'claude',
+      preferredCli: 'moagent',
       selectedModel: DEEPSEEK_MODEL_ID,
       description: body.description,
       quantCapabilityId: quantCapability.id,

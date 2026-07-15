@@ -142,13 +142,14 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function hasBundledAgentRuntime(): Promise<boolean> {
-  try {
-    const entries = await fs.readdir(path.join(ROOT, 'node_modules', '@anthropic-ai'));
-    return entries.some((name) => name.startsWith('claude-agent-sdk-'));
-  } catch {
-    return false;
-  }
+async function hasMoAgentRuntime(): Promise<boolean> {
+  const required = [
+    'src/lib/agent/core/run-engine.ts',
+    'src/lib/agent/providers/deepseek.ts',
+    'src/lib/agent/tools/index.ts',
+    'src/lib/services/cli/moagent.ts',
+  ];
+  return (await Promise.all(required.map((file) => fileExists(path.join(ROOT, file))))).every(Boolean);
 }
 
 async function countDirectoryItems(dirPath: string, prefix?: string): Promise<number> {
@@ -790,7 +791,7 @@ export async function getOpsPlatformDashboard(params: {
     params.workspaceHealth ?? getWorkspaceHealthDashboard(),
     getStrategyDashboardData(),
     commandOutput('npm', ['--version']),
-    hasBundledAgentRuntime(),
+    hasMoAgentRuntime(),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
     collectLogSources(params.includeLogEntries === true),
@@ -843,7 +844,7 @@ export async function getOpsPlatformDashboard(params: {
     },
     {
       id: 'agent-cli',
-      label: 'DeepSeek Agent',
+      label: 'MoAgent',
       status: agentRuntimeInstalled && process.env.DEEPSEEK_API_KEY?.trim() ? 'ok' : 'failed',
       summary: agentRuntimeInstalled
         ? process.env.DEEPSEEK_API_KEY?.trim() ? 'V4 Flash 官方直连已就绪' : '执行引擎已安装，API Key 未配置'

@@ -7,7 +7,7 @@ import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/ba
 import fs from 'fs/promises';
 import path from 'path';
 import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
-import { ensureClaudeSkillsForProject } from '@/lib/services/claude-skills';
+import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
 import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
@@ -144,7 +144,7 @@ export async function getAllProjects(): Promise<Project[]> {
   });
   return projects.map(project => ({
     ...project,
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   })) as Project[];
@@ -160,7 +160,7 @@ export async function getProjectById(id: string): Promise<Project | null> {
   if (!project) return null;
   return {
     ...project,
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
@@ -173,7 +173,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   // Create project directory
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
-  const preferredCli = 'claude';
+  const preferredCli = 'moagent';
   const selectedModel = DEEPSEEK_MODEL_ID;
   const quantCapability = getQuantCapability(input.quantCapabilityId);
   await writeQuantPilotManifest({
@@ -185,7 +185,10 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     quantCapabilityId: quantCapability.id,
     quantCapabilitySource: input.quantCapabilitySource,
   });
-  await ensureClaudeSkillsForProject(projectPath);
+  await installMoAgentSkillsForWorkspace(projectPath, {
+    capabilityId: quantCapability.id,
+    additionalSkillIds: ['platform-ui-product-design'],
+  });
 
   // Create project in database
   const project = await prisma.project.create({
@@ -209,7 +212,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
     ...project,
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
@@ -226,7 +229,7 @@ export async function updateProject(
     where: { id },
     data: {
       ...input,
-      preferredCli: 'claude',
+      preferredCli: 'moagent',
       fallbackEnabled: false,
       selectedModel: DEEPSEEK_MODEL_ID,
       updatedAt: new Date(),
@@ -236,7 +239,7 @@ export async function updateProject(
   console.log(`[ProjectService] Updated project: ${id}`);
   return {
     ...project,
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   } as Project;
@@ -314,7 +317,7 @@ export async function getProjectCliPreference(projectId: string): Promise<Projec
   }
 
   return {
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   };
@@ -327,7 +330,7 @@ export async function updateProjectCliPreference(
   await prisma.project.update({
     where: { id: projectId },
     data: {
-      preferredCli: 'claude',
+      preferredCli: 'moagent',
       fallbackEnabled: false,
       selectedModel: DEEPSEEK_MODEL_ID,
       updatedAt: new Date(),
@@ -335,7 +338,7 @@ export async function updateProjectCliPreference(
   });
 
   return {
-    preferredCli: 'claude',
+    preferredCli: 'moagent',
     fallbackEnabled: false,
     selectedModel: DEEPSEEK_MODEL_ID,
   };

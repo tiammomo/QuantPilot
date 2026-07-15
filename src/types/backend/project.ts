@@ -26,7 +26,11 @@ export interface Project {
   repoPath?: string;
   initialPrompt?: string;
   templateType?: TemplateType;
-  activeClaudeSessionId?: string;
+  /**
+   * Deprecated database compatibility value mapped from the historical
+   * active_claude_session_id column. MoAgent never consumes or mutates it.
+   */
+  legacyRuntimeSessionId?: string | null;
   preferredCli?: string;
   selectedModel?: string;
   fallbackEnabled: boolean;
@@ -59,7 +63,6 @@ export interface UpdateProjectInput {
   preferredCli?: string;
   selectedModel?: string;
   settings?: string;
-  activeClaudeSessionId?: string;
   repoPath?: string | null;
 }
 

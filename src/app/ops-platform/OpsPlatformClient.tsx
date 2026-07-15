@@ -433,7 +433,9 @@ export default function OpsPlatformClient({ initialData, initialTraceData, initi
       const response = await fetch(`${API_BASE}/api/projects/${projectId}/quant/validation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId: `ops-console-${Date.now()}` }),
+        // Validation must never mint a synthetic generation identity. The
+        // server binds this audit to the current generation when one exists.
+        body: JSON.stringify({}),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message ?? "验证失败");

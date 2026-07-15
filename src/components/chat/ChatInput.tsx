@@ -57,7 +57,7 @@ export default function ChatInput({
   mode = 'act',
   onModeChange,
   projectId,
-  preferredCli = 'claude',
+  preferredCli = 'moagent',
   selectedModel = '',
   modelOptions = [],
   onModelChange,
@@ -237,7 +237,7 @@ export default function ChatInput({
         const newImage: UploadedImage = {
           id: crypto.randomUUID(),
           filename: result.filename,
-          path: result.absolute_path,
+          path: result.path,
           url: imageUrl,
           assetUrl: `/api/assets/${projectId}/${result.filename}`,
           publicUrl: typeof result.public_url === 'string' ? result.public_url : undefined

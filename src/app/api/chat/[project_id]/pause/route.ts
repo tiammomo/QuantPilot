@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cancelAgentRuns } from '@/lib/services/agent-runtime';
-import { markActiveUserRequestsAsCancelled, markUserRequestAsCancelled } from '@/lib/services/user-requests';
+import {
+  assertUserRequestProjectBinding,
+  markActiveUserRequestsAsCancelled,
+  markUserRequestAsCancelled,
+  UserRequestProjectMismatchError,
+} from '@/lib/services/user-requests';
 import { streamManager } from '@/lib/services/stream';
 import { getProjectById } from '@/lib/services/project';
 import { markQuantGenerationQueueCancelled } from '@/lib/quant/generation-queue';
 import { cancelQuantGenerationRun } from '@/lib/quant/generation-state';
+import {
+  cancelActiveMoAgentMissions,
+  cancelMoAgentMission,
+  readMoAgentMission,
+} from '@/lib/services/moagent-mission-store';
 import path from 'path';
 
 interface RouteContext {
@@ -24,9 +34,40 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         ? body.reason.trim()
         : '用户暂停了当前任务';
 
-    const result = cancelAgentRuns(project_id, requestId, reason);
     if (requestId) {
-      await markUserRequestAsCancelled(requestId, reason);
+      try {
+        const exists = await assertUserRequestProjectBinding(project_id, requestId);
+        if (!exists) {
+          return NextResponse.json(
+            { success: false, error: 'Request not found for this project' },
+            { status: 404 },
+          );
+        }
+      } catch (error) {
+        if (error instanceof UserRequestProjectMismatchError) {
+          return NextResponse.json(
+            { success: false, error: 'Request ID belongs to a different project' },
+            { status: 409 },
+          );
+        }
+        throw error;
+      }
+    }
+
+    const result = cancelAgentRuns(project_id, requestId, reason);
+    let cancelledMissions = 0;
+    if (requestId) {
+      await markUserRequestAsCancelled(project_id, requestId, reason);
+      const mission = await readMoAgentMission(project_id, requestId);
+      if (mission) {
+        const cancelled = await cancelMoAgentMission({
+          missionId: mission.id,
+          projectId: project_id,
+          requestId,
+          message: reason,
+        });
+        cancelledMissions = cancelled.status === 'cancelled' ? 1 : 0;
+      }
       const project = await getProjectById(project_id);
       if (project) {
         const projectsDir = process.env.PROJECTS_DIR || './data/projects';
@@ -54,7 +95,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
     } else {
       await markActiveUserRequestsAsCancelled(project_id, reason);
+      cancelledMissions = await cancelActiveMoAgentMissions({
+        projectId: project_id,
+        message: reason,
+      });
     }
+
+    const cancellation = { ...result, cancelledMissions };
 
     streamManager.publish(project_id, {
       type: 'status',
@@ -62,13 +109,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         status: 'agent_paused',
         message: reason,
         ...(requestId ? { requestId } : {}),
-        metadata: result,
+        metadata: cancellation,
       },
     });
 
     return NextResponse.json({
       success: true,
-      data: result,
+      data: cancellation,
     });
   } catch (error) {
     console.error('[API] Failed to pause agent:', error);

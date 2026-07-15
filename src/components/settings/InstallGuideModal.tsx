@@ -16,7 +16,7 @@ function InstallGuideModal({ onClose, onRefreshStatus, onCopyToast }: InstallGui
   };
 
   const steps = [
-    { title: "安装项目执行引擎", command: "npm install" },
+    { title: "安装项目依赖", command: "npm install" },
     { title: "配置 DeepSeek 官方 API Key", command: "DEEPSEEK_API_KEY=your_deepseek_api_key" },
     { title: "重新启动 QuantPilot", command: "npm run dev" },
   ];
@@ -28,9 +28,9 @@ function InstallGuideModal({ onClose, onRefreshStatus, onCopyToast }: InstallGui
         <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">D</span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">M</span>
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">DeepSeek Agent 修复指引</h3>
+                <h3 className="text-lg font-semibold text-slate-950">MoAgent 修复指引</h3>
                 <p className="mt-1 text-sm text-slate-600">只使用官方 API，不支持自定义中转地址。</p>
               </div>
             </div>

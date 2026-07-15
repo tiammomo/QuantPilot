@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreference = 'claude';
+    const cliPreference = 'moagent';
     const selectedModel = DEEPSEEK_MODEL_ID;
     const requestId =
       typeof body?.requestId === 'string' && body.requestId.trim().length > 0

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   execFile: vi.fn(),
   findAvailablePort: vi.fn(),
   getProjectById: vi.fn(),
+  checkQuantArtifactPolicy: vi.fn(),
   scaffoldBasicNextApp: vi.fn(),
   ensureQuantDashboardTemplate: vi.fn(),
   spawn: vi.fn(),
@@ -35,6 +36,22 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('@/lib/utils/ports', () => ({
   findAvailablePort: mocks.findAvailablePort,
+}));
+
+vi.mock('@/lib/quant/validation', () => ({
+  checkQuantArtifactPolicy: mocks.checkQuantArtifactPolicy,
+}));
+
+vi.mock('@/lib/security/generated-project-sandbox', () => ({
+  buildGeneratedProjectEnv: (
+    projectPath: string,
+    overrides: Readonly<Record<string, string | undefined>> = {},
+  ) => ({ ...overrides, QUANTPILOT_WORKSPACE_ROOT: projectPath }),
+  wrapGeneratedProjectCommand: async (
+    _projectPath: string,
+    command: string,
+    args: string[],
+  ) => ({ command, args }),
 }));
 
 vi.mock('./project', () => ({
@@ -91,6 +108,11 @@ describe('PreviewManager start concurrency', () => {
       id: 'project-preview',
       previewPort: null,
       repoPath: '/tmp/quantpilot-preview-test',
+    });
+    mocks.checkQuantArtifactPolicy.mockResolvedValue({
+      id: 'artifact-policy',
+      status: 'passed',
+      summary: 'Artifact policy passed.',
     });
     mocks.updateProject.mockResolvedValue(undefined);
     mocks.updateProjectStatus.mockResolvedValue(undefined);

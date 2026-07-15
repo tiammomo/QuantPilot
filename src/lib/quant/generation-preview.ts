@@ -2,7 +2,7 @@ import type { PreviewInfo } from '@/lib/services/preview';
 
 export interface ValidatedGenerationPreview {
   url: string;
-  port: number | null;
+  port: number;
   status: 'running';
 }
 
@@ -18,9 +18,15 @@ export async function startPersistentValidatedPreview(params: {
   });
   const preview = await startPreview(params.projectId);
 
-  if (preview.status !== 'running' || !preview.url) {
+  if (
+    preview.status !== 'running' ||
+    !preview.url ||
+    !Number.isSafeInteger(preview.port) ||
+    preview.port === null ||
+    preview.port <= 0
+  ) {
     throw new Error(
-      `Persistent preview is not ready (status=${preview.status}, url=${preview.url ?? 'missing'}).`,
+      `Persistent preview is not ready (status=${preview.status}, url=${preview.url ?? 'missing'}, port=${preview.port ?? 'missing'}).`,
     );
   }
 

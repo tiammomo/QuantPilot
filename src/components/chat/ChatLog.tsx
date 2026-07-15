@@ -6,7 +6,10 @@ import ToolResultItem from './ToolResultItem';
 import type { ChatMessage, RealtimeEvent, RealtimeStatus } from '@/types';
 import { toChatMessage, normalizeChatContent } from '@/lib/serializers/client/chat';
 import { toRelativePath } from '@/lib/utils/path';
-import { classifyRealtimeGenerationStatus } from '@/lib/quant/realtime-generation-status';
+import {
+  classifyRealtimeGenerationStatus,
+  shouldRealtimeAssistantUpdateStopWaiting,
+} from '@/lib/quant/realtime-generation-status';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -1342,14 +1345,6 @@ interface LogEntry {
   timestamp: string;
 }
 
-interface ActiveSession {
-  status: string;
-  sessionId?: string;
-  instruction?: string;
-  startedAt?: string;
-  durationSeconds?: number;
-}
-
 interface MessageCursor {
   id: string;
   createdAt: string;
@@ -1618,12 +1613,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [needsHistoryRefresh, setNeedsHistoryRefresh] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const historyPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const sessionPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const latestMessageCursorRef = useRef<MessageCursor | null>(null);
   const isHistorySyncingRef = useRef(false);
@@ -1962,10 +1955,11 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     if (assistantUpdates.length > 0) {
       const shouldStopWaiting = assistantUpdates.some((msg) => {
         const normalizedContent = normalizeChatContent(msg.content);
-        if (normalizedContent.trim().length > 0) {
-          return true;
-        }
-        return Boolean(msg.isFinal);
+        return shouldRealtimeAssistantUpdateStopWaiting({
+          hasContent: normalizedContent.trim().length > 0,
+          isFinal: msg.isFinal,
+          metadata: msg.metadata,
+        });
       });
       if (shouldStopWaiting) {
         console.debug(`[ChatLog] Stopping wait for response due to assistant updates`);
@@ -2062,7 +2056,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       }
 
       if (lifecycle.terminal) {
-        setActiveSession(null);
         onSessionStatusChange?.(false);
         setIsWaitingForResponse(false);
       }
@@ -2696,87 +2689,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     }
   }, [projectId, hasMoreMessages, messages.length, ensureStableMessageId]);
 
-  // Poll session status periodically
-  const startSessionPolling = useCallback(
-    (sessionId: string) => {
-      if (sessionPollIntervalRef.current) {
-        clearInterval(sessionPollIntervalRef.current);
-      }
-
-      sessionPollIntervalRef.current = setInterval(async () => {
-        try {
-          const response = await fetch(
-            `${API_BASE}/api/chat/${projectId}/sessions/${sessionId}/status`
-          );
-          if (response.ok) {
-            const sessionStatus = await response.json();
-
-            if (sessionStatus.status !== 'active') {
-              setActiveSession(null);
-              onSessionStatusChange?.(false);
-
-              if (sessionPollIntervalRef.current) {
-                clearInterval(sessionPollIntervalRef.current);
-                sessionPollIntervalRef.current = null;
-              }
-
-              setNeedsHistoryRefresh(true);
-            }
-          }
-        } catch (error) {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Error polling session status:', error);
-          }
-        }
-      }, 3000); // Poll every 3 seconds
-    },
-    [projectId, onSessionStatusChange]
-  );
-
-  // Check for active session on component mount
-  const checkActiveSession = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/chat/${projectId}/active-session`);
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          const session = result.data;
-          const sessionData: ActiveSession = {
-            status: session.status,
-            sessionId: session.sessionId,
-          };
-          setActiveSession(sessionData);
-
-          if (session.status === 'active' || session.status === 'running') {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('Found active session:', session.sessionId);
-            }
-            onSessionStatusChange?.(true);
-
-            // Start polling session status
-            startSessionPolling(session.sessionId);
-          } else {
-            onSessionStatusChange?.(false);
-          }
-        } else {
-          // No active session found
-          setActiveSession(null);
-          onSessionStatusChange?.(false);
-        }
-      } else {
-        // 404 means no active session, which is normal
-        setActiveSession(null);
-        onSessionStatusChange?.(false);
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('Failed to check active session:', error);
-      }
-      setActiveSession(null);
-      onSessionStatusChange?.(false);
-    }
-  }, [projectId, onSessionStatusChange, startSessionPolling]);
-
   // 兜底轮询只做增量补漏，避免断线时反复重载整段聊天历史。
   useEffect(() => {
     if (!projectId) return;
@@ -2848,7 +2760,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     const loadData = async () => {
       if (mounted) {
         await loadChatHistory({ showLoading: true });
-        await checkActiveSession();
       }
     };
     
@@ -2860,12 +2771,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         clearInterval(historyPollIntervalRef.current);
         historyPollIntervalRef.current = null;
       }
-      if (sessionPollIntervalRef.current) {
-        clearInterval(sessionPollIntervalRef.current);
-        sessionPollIntervalRef.current = null;
-      }
     };
-  }, [projectId, checkActiveSession, loadChatHistory]);
+  }, [projectId, loadChatHistory]);
 
   useEffect(() => {
     hasLoadedInitialDataRef.current = false;

@@ -12,6 +12,7 @@ export type QuantGenerationStepId =
   | 'repair'
   | 'final_validation'
   | 'preview'
+  | 'evidence_verification'
   | 'completed';
 
 export type QuantGenerationStepStatus = 'pending' | 'running' | 'success' | 'warning' | 'failed' | 'skipped';
@@ -75,6 +76,7 @@ const STEP_LABELS: Record<QuantGenerationStepId, string> = {
   repair: '自动修复',
   final_validation: '修复后验证',
   preview: '持久看板预览',
+  evidence_verification: '独立证据验收',
   completed: '完成',
 };
 

@@ -11,14 +11,14 @@ const GLOBAL_SETTINGS_KEY = 'global';
 export type CLISettings = Record<string, Record<string, unknown>>;
 
 export interface GlobalSettings {
-  default_cli: 'claude';
+  default_cli: 'moagent';
   cli_settings: CLISettings;
 }
 
 const DEFAULT_SETTINGS: GlobalSettings = {
-  default_cli: 'claude',
+  default_cli: 'moagent',
   cli_settings: {
-    claude: {
+    moagent: {
       model: DEEPSEEK_MODEL_ID,
     },
   },
@@ -28,9 +28,9 @@ function singleProviderSettings(value?: unknown): GlobalSettings {
   void value;
 
   return {
-    default_cli: 'claude',
+    default_cli: 'moagent',
     cli_settings: {
-      claude: {
+      moagent: {
         model: DEEPSEEK_MODEL_ID,
       },
     },
@@ -100,7 +100,7 @@ export function normalizeCliSettings(settings: unknown): CLISettings | undefined
   }
 
   return {
-    claude: {
+    moagent: {
       model: DEEPSEEK_MODEL_ID,
     },
   };

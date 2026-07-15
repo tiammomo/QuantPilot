@@ -4,7 +4,7 @@ export function defaultScheduleConfig(): QuantEvalScheduleConfig {
   return {
     enabled: false,
     intervalHours: 24,
-    cli: 'claude',
+    cli: 'moagent',
     model: 'deepseek-v4-flash',
     reasoningEffort: '',
     selectedCases: [],

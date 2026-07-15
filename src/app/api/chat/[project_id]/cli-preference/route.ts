@@ -26,7 +26,7 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
     const update = {
-      preferredCli: 'claude',
+      preferredCli: 'moagent',
       fallbackEnabled: false,
       selectedModel: DEEPSEEK_MODEL_ID,
     };

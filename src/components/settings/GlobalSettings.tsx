@@ -28,16 +28,16 @@ interface GlobalSettingsProps {
 
 const CLI_OPTIONS: CLIOption[] = [
   {
-    id: "claude",
-    name: "DeepSeek Agent",
+    id: "moagent",
+    name: "MoAgent",
     icon: "",
-    description: "仅通过 DeepSeek 官方 API 调用 V4 Flash",
+    description: "QuantPilot 自研 Agent 框架，直连 DeepSeek 官方 API",
     color: "from-blue-600 to-indigo-600",
     brandColor: "#2563EB",
     downloadUrl: "https://api-docs.deepseek.com/guides/coding_agents",
     installCommand: "npm install",
     enabled: true,
-    models: getModelDefinitionsForCli("claude").map(({ id, name, description, provider, external }) => ({
+    models: getModelDefinitionsForCli("moagent").map(({ id, name, description, provider, external }) => ({
       id, name, description, provider, external,
     })),
   },
@@ -231,7 +231,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
 
   // Derived data
   const defaultCli = CLI_OPTIONS.find((c) => c.id === globalSettings.default_cli);
-  const defaultCliSettings = defaultCli ? globalSettings.cli_settings.claude : {};
+  const defaultCliSettings = defaultCli ? globalSettings.cli_settings.moagent : {};
   const defaultModel = defaultCli?.models.find((m) => m.id === defaultCliSettings.model);
   const installedAgentCount = CLI_OPTIONS.filter((c) => c.enabled !== false && cliStatus[c.id]?.installed).length;
   const configuredServiceCount = Object.values(tokens).filter(Boolean).length;

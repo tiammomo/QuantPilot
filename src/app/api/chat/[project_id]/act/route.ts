@@ -20,13 +20,24 @@ import { generateProjectId } from "@/lib/utils";
 import path from "path";
 import fs from "fs/promises";
 import { randomUUID } from "crypto";
+import {
+  configuredMaxImageBytes,
+  decodeBase64Image,
+  ImageAssetError,
+  resolveExistingProjectAssetPath,
+  resolveProjectAssetPath,
+  resolveProjectAssetsPath,
+  validateImageBytes,
+} from "@/lib/server/image-assets";
 import { serializeMessage } from "@/lib/serializers/chat";
 import {
+  assertUserRequestProjectBinding,
   upsertUserRequest,
   markUserRequestAsProcessing,
   markUserRequestAsCompleted,
   markUserRequestAsFailed,
   isUserRequestCancelled,
+  UserRequestProjectMismatchError,
 } from "@/lib/services/user-requests";
 import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/quant/workspace";
 import { prefetchQuantDataForRunPlan } from "@/lib/quant/data-prefetch";
@@ -45,6 +56,27 @@ import {
   runQuantGenerationQueued,
   runQuantGenerationStageLocked,
 } from "@/lib/quant/generation-queue";
+import { validateMoAgentIngressInput } from "@/lib/agent/input-policy";
+import { classifyMoAgentExecutionError } from "@/lib/services/moagent-execution-error";
+import { refreshMoAgentCandidateWorkspace } from "@/lib/services/moagent-candidate";
+import type { MoAgentCandidateSubmission } from "@/lib/agent/mission";
+import {
+  capturePlatformMissionCandidate,
+  claimQuantMoAgentMissionVerification,
+  createQuantMoAgentMission,
+  markQuantMoAgentMissionNode,
+  refreshMoAgentMissionContext,
+  sealQuantMoAgentMissionCandidate,
+  verifyAndRecordQuantMoAgentMission,
+  type MoAgentMissionContext,
+} from "@/lib/services/moagent-mission-control";
+import {
+  cancelMoAgentMission,
+  failMoAgentMission,
+  markMoAgentMissionRepairing,
+  MoAgentMissionStateError,
+  readMoAgentAcceptedMissionSnapshot,
+} from "@/lib/services/moagent-mission-store";
 import {
   startPersistentValidatedPreview,
   type ValidatedGenerationPreview,
@@ -61,20 +93,27 @@ type CliRuntime = {
     instruction: string,
     model?: string,
     requestId?: string,
-  ) => Promise<void>;
+  ) => Promise<MoAgentCandidateSubmission>;
   applyChanges: (
     projectId: string,
     projectPath: string,
     instruction: string,
     model?: string,
-    sessionId?: string,
     requestId?: string,
     images?: ProcessedImageAttachment[],
-  ) => Promise<void>;
+  ) => Promise<MoAgentCandidateSubmission>;
+  applyRepairChanges: (
+    projectId: string,
+    projectPath: string,
+    instruction: string,
+    model?: string,
+    requestId?: string,
+    parentRequestId?: string,
+  ) => Promise<MoAgentCandidateSubmission>;
 };
 
 async function loadCliRuntime(): Promise<CliRuntime> {
-  return import("@/lib/services/cli/claude");
+  return import("@/lib/services/cli/moagent");
 }
 
 async function loadQuantValidation() {
@@ -84,6 +123,24 @@ async function loadQuantValidation() {
 async function ensureQuantDashboardTemplateForAct(projectPath: string) {
   const { ensureQuantDashboardTemplate } = await import("@/lib/utils/scaffold");
   return ensureQuantDashboardTemplate(projectPath);
+}
+
+const REQUIRED_AGENT_INPUT_ARTIFACTS = [
+  "data_file/final/dashboard-data.json",
+  "evidence/sources.json",
+  "evidence/data_quality.json",
+] as const;
+
+async function missingAgentInputArtifacts(projectPath: string): Promise<string[]> {
+  const checks = await Promise.all(REQUIRED_AGENT_INPUT_ARTIFACTS.map(async (relativePath) => {
+    try {
+      const stat = await fs.stat(path.join(projectPath, relativePath));
+      return stat.isFile() && stat.size > 2 ? null : relativePath;
+    } catch {
+      return relativePath;
+    }
+  }));
+  return checks.flatMap((value) => value === null ? [] : [value]);
 }
 
 function coerceString(value: unknown): string | null {
@@ -96,26 +153,6 @@ const PROJECTS_DIR = process.env.PROJECTS_DIR || "./data/projects";
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
   : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
-
-function resolveAssetsPath(projectId: string): string {
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId, "assets");
-}
-
-function ensureAbsoluteAssetPath(projectId: string, inputPath: string): string {
-  const normalized = path.normalize(inputPath);
-  if (path.isAbsolute(normalized)) {
-    return normalized;
-  }
-  const resolvedFromCwd = path.resolve(
-    /*turbopackIgnore: true*/ process.cwd(),
-    normalized,
-  );
-  if (resolvedFromCwd.startsWith(PROJECTS_DIR_ABSOLUTE)) {
-    return resolvedFromCwd;
-  }
-  const projectBase = path.join(PROJECTS_DIR_ABSOLUTE, projectId);
-  return path.resolve(projectBase, normalized);
-}
 
 function resolveProjectRoot(
   projectId: string,
@@ -221,29 +258,219 @@ class ValidatedPreviewStartError extends Error {
 }
 
 function runValidationAfterExecution(params: {
-  execution: Promise<void>;
+  execution: Promise<MoAgentCandidateSubmission>;
   repairExecutor: (
     projectId: string,
     projectPath: string,
     instruction: string,
     model: string,
-    sessionId?: string,
     requestId?: string,
-  ) => Promise<void>;
+    parentRequestId?: string,
+  ) => Promise<MoAgentCandidateSubmission>;
+  mission: MoAgentMissionContext;
   projectId: string;
   projectPath: string;
   instruction: string;
   selectedModel: string;
-  sessionId?: string;
   requestId: string;
   conversationId?: string | null;
   cliSource?: string | null;
   agentExecutionSuccessSummary?: string;
 }): Promise<void> {
   let activeRepairRequestId: string | null = null;
+  let activeMission = params.mission;
 
-  const validateAndRepair = async (executionError?: unknown) => {
-    if (await isUserRequestCancelled(params.requestId)) {
+  const cancelMission = async (message: string) => {
+    activeMission = {
+      ...(await cancelMoAgentMission({
+        missionId: activeMission.id,
+        projectId: activeMission.projectId,
+        requestId: activeMission.requestId,
+        message,
+      })),
+      projectPath: activeMission.projectPath,
+    };
+  };
+  const failMission = async (code: string, message: string) => {
+    activeMission = {
+      ...(await failMoAgentMission({
+        missionId: activeMission.id,
+        projectId: activeMission.projectId,
+        requestId: activeMission.requestId,
+        code,
+        message,
+      })),
+      projectPath: activeMission.projectPath,
+    };
+  };
+  const beginRepair = async () => {
+    activeMission = {
+      ...(await markMoAgentMissionRepairing({
+        missionId: activeMission.id,
+        projectId: activeMission.projectId,
+        requestId: activeMission.requestId,
+      })),
+      projectPath: activeMission.projectPath,
+    };
+  };
+  const recoverCommittedAcceptanceProjection = async (): Promise<boolean> => {
+    activeMission = await refreshMoAgentMissionContext(activeMission);
+    if (activeMission.status !== "completed") return false;
+    const accepted = await readMoAgentAcceptedMissionSnapshot(
+      activeMission.projectId,
+      activeMission.requestId,
+    );
+    if (
+      !accepted?.acceptedReceiptId ||
+      !accepted.acceptedReceiptHash ||
+      !accepted.previewUrl ||
+      !accepted.previewPort
+    ) {
+      throw new Error(
+        "Completed Mission is missing its accepted receipt or preview projection.",
+      );
+    }
+    const metadata = {
+      missionId: accepted.missionId,
+      generationId: accepted.generationId,
+      candidateVersion: accepted.candidateVersion,
+      acceptedReceiptId: accepted.acceptedReceiptId,
+      acceptedReceiptSha256: accepted.acceptedReceiptHash,
+      previewUrl: accepted.previewUrl,
+      previewPort: accepted.previewPort,
+      recoveredProjection: true,
+    };
+    const projectionResults = await Promise.allSettled([
+      updateQuantGenerationStep({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        stepId: "completed",
+        status: "success",
+        summary: "已从 accepted Mission receipt 恢复完成投影。",
+        runStatus: "completed",
+        metadata,
+      }),
+      finishQuantGenerationQueueItem({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        status: "completed",
+      }),
+      markUserRequestAsCompleted(params.projectId, params.requestId),
+    ]);
+    for (const result of projectionResults) {
+      if (result.status === "rejected") {
+        console.error(
+          "[API] Failed to recover one accepted Mission projection:",
+          result.reason,
+        );
+      }
+    }
+    streamManager.publish(params.projectId, {
+      type: "status",
+      data: {
+        status: "preview_ready",
+        message: "Mission 已验收，看板预览已就绪。",
+        requestId: params.requestId,
+        metadata,
+      },
+    });
+    return true;
+  };
+  const sealCandidate = async (candidate: MoAgentCandidateSubmission) => {
+    const sealed = await sealQuantMoAgentMissionCandidate({
+      mission: activeMission,
+      candidate,
+    });
+    activeMission = sealed.mission;
+    activeMission = await claimQuantMoAgentMissionVerification(activeMission);
+    await updateQuantGenerationStep({
+      projectPath: params.projectPath,
+      projectId: params.projectId,
+      requestId: params.requestId,
+      stepId: "agent_execution",
+      status: "success",
+      summary: "候选产物已封存，等待独立证据验收。",
+      metadata: {
+        missionId: activeMission.id,
+        generationId: activeMission.generationId,
+        candidateVersion: activeMission.candidateVersion,
+        candidateReceiptId: sealed.receipt.id,
+        candidateWorkspaceSha256: candidate.workspaceSha256,
+      },
+    });
+    return sealed.receipt;
+  };
+  const captureAndSeal = async (
+    source: Parameters<typeof capturePlatformMissionCandidate>[0]["source"],
+    summary: string,
+    sourceRequestId = params.requestId,
+  ) => {
+    const candidate = await capturePlatformMissionCandidate({
+      mission: activeMission,
+      source,
+      sourceRequestId,
+      summary,
+    });
+    await sealCandidate(candidate);
+    return candidate;
+  };
+  const recordEvidence = async (preview?: ValidatedGenerationPreview) => {
+    streamManager.publish(params.projectId, {
+      type: "status",
+      data: {
+        status: "evidence_verification_running",
+        message: preview
+          ? "正在核验当前候选、验证报告、产物哈希与持久预览证据。"
+          : "正在核验当前候选与失败验证证据，确定下一步修复归属。",
+        requestId: params.requestId,
+        metadata: {
+          missionId: activeMission.id,
+          generationId: activeMission.generationId,
+          candidateVersion: activeMission.candidateVersion,
+        },
+      },
+    });
+    const verified = await verifyAndRecordQuantMoAgentMission({
+      mission: activeMission,
+      preview: preview
+        ? { url: preview.url, port: preview.port }
+        : { url: "http://127.0.0.1:1", port: 1 },
+    });
+    activeMission = verified.mission;
+    await updateQuantGenerationStep({
+      projectPath: params.projectPath,
+      projectId: params.projectId,
+      requestId: params.requestId,
+      stepId: "evidence_verification",
+      status: verified.decision.verdict === "accepted" ? "success" : "failed",
+      summary: verified.decision.verdict === "accepted"
+        ? "当前候选的验证、产物哈希与持久预览证据已验收。"
+        : `证据验收未通过：${verified.decision.verdict}。`,
+      metadata: {
+        missionId: activeMission.id,
+        generationId: activeMission.generationId,
+        candidateVersion: verified.decision.candidateVersion,
+        evidenceReceiptId: verified.receipt.id,
+        evidenceReceiptSha256: verified.receipt.receiptHash,
+        verdict: verified.decision.verdict,
+        reasonCodes: verified.decision.reasonCodes,
+        failedCheckIds: verified.decision.failedCheckIds,
+      },
+      ...(verified.decision.verdict === "accepted"
+        ? {}
+        : { errorMessage: `证据验收未通过：${verified.decision.verdict}。` }),
+    });
+    return verified;
+  };
+
+  const validateAndRepair = async (
+    candidate: MoAgentCandidateSubmission | null,
+    executionError?: unknown,
+  ) => {
+    if (await isUserRequestCancelled(params.projectId, params.requestId)) {
+      await cancelMission("请求已取消，Mission 不再接受候选或验收证据。");
       await updateQuantGenerationStep({
         projectPath: params.projectPath,
         projectId: params.projectId,
@@ -264,6 +491,14 @@ function runValidationAfterExecution(params: {
       return;
     }
 
+    const classifiedExecutionError = executionError
+      ? classifyMoAgentExecutionError(executionError)
+      : null;
+    const executionFailureMessage = classifiedExecutionError?.message ??
+      (executionError instanceof Error
+        ? executionError.message
+        : String(executionError || "Agent execution failed"));
+
     await updateQuantGenerationStep({
       projectPath: params.projectPath,
       projectId: params.projectId,
@@ -271,18 +506,82 @@ function runValidationAfterExecution(params: {
       stepId: "agent_execution",
       status: executionError ? "failed" : "success",
       summary: executionError
-        ? "Agent 执行异常结束，进入验证确认产物状态。"
+        ? classifiedExecutionError && !classifiedExecutionError.repairableByValidation
+          ? `Agent 执行失败：${executionFailureMessage}`
+          : "Agent 执行异常结束，进入验证确认产物状态。"
         : params.agentExecutionSuccessSummary ??
           "Agent 执行完成，进入自动验证。",
       ...(executionError
         ? {
-            errorMessage:
-              executionError instanceof Error
-                ? executionError.message
-                : String(executionError || "Agent execution failed"),
+            errorMessage: executionFailureMessage,
+            ...(classifiedExecutionError
+              ? { metadata: { errorCode: classifiedExecutionError.code } }
+              : {}),
           }
         : {}),
     });
+
+    if (classifiedExecutionError && !classifiedExecutionError.repairableByValidation) {
+      await failMission(
+        classifiedExecutionError.code,
+        executionFailureMessage,
+      );
+      await updateQuantGenerationStep({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        stepId: "agent_execution",
+        status: "failed",
+        summary: `Agent 执行失败：${executionFailureMessage}`,
+        runStatus: "failed",
+        errorMessage: executionFailureMessage,
+        metadata: { errorCode: classifiedExecutionError.code },
+      });
+      await markUserRequestAsFailed(
+        params.projectId,
+        params.requestId,
+        executionFailureMessage,
+      );
+      await finishQuantGenerationQueueItem({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        status: "failed",
+        errorMessage: executionFailureMessage,
+      });
+      streamManager.publish(params.projectId, {
+        type: "status",
+        data: {
+          status: "agent_execution_failed",
+          message: executionFailureMessage,
+          requestId: params.requestId,
+          metadata: {
+            terminalFailure: true,
+            errorCode: classifiedExecutionError.code,
+            validationRepairSkipped: true,
+          },
+        },
+      });
+      return;
+    }
+
+    const quantValidation = await loadQuantValidation();
+    await quantValidation.prepareQuantProjectForValidation({
+      projectId: params.projectId,
+      projectPath: params.projectPath,
+    });
+    if (candidate) {
+      await sealCandidate(await refreshMoAgentCandidateWorkspace({
+        workspaceRoot: params.projectPath,
+        candidate,
+      }));
+    } else {
+      await captureAndSeal(
+        "workspace_recovery",
+        "Agent 异常结束后，平台基于当前工作区封存恢复候选。",
+      );
+    }
+
     await updateQuantGenerationStep({
       projectPath: params.projectPath,
       projectId: params.projectId,
@@ -291,7 +590,6 @@ function runValidationAfterExecution(params: {
       status: "running",
       summary: "开始自动验证生成产物。",
     });
-    const quantValidation = await loadQuantValidation();
     const firstReport = await quantValidation.validateQuantProject({
       projectId: params.projectId,
       projectPath: params.projectPath,
@@ -366,8 +664,19 @@ function runValidationAfterExecution(params: {
     const completeValidatedGeneration = async (
       report: typeof firstReport,
       summary: string,
+      preview: ValidatedGenerationPreview,
+      acceptance: Awaited<ReturnType<typeof recordEvidence>>,
     ) => {
-      if (await isUserRequestCancelled(params.requestId)) {
+      if (
+        acceptance.decision.verdict !== "accepted" ||
+        acceptance.mission.status !== "completed"
+      ) {
+        throw new Error(
+          "Mission completion requires a committed accepted evidence receipt.",
+        );
+      }
+      if (await isUserRequestCancelled(params.projectId, params.requestId)) {
+        await cancelMission("证据验收完成前请求已取消，拒绝投影完成态。");
         await updateQuantGenerationStep({
           projectPath: params.projectPath,
           projectId: params.projectId,
@@ -388,7 +697,6 @@ function runValidationAfterExecution(params: {
         return;
       }
 
-      const preview = await startValidatedPreview();
       await updateQuantGenerationStep({
         projectPath: params.projectPath,
         projectId: params.projectId,
@@ -400,6 +708,11 @@ function runValidationAfterExecution(params: {
           checkCount: report.checks.length,
           previewUrl: preview.url,
           previewPort: preview.port,
+          missionId: acceptance.mission.id,
+          generationId: acceptance.mission.generationId,
+          candidateVersion: acceptance.mission.candidateVersion,
+          acceptedReceiptId: acceptance.receipt.id,
+          acceptedReceiptSha256: acceptance.receipt.receiptHash,
         },
       });
       await updateQuantGenerationStep({
@@ -413,6 +726,11 @@ function runValidationAfterExecution(params: {
         metadata: {
           previewUrl: preview.url,
           previewPort: preview.port,
+          missionId: acceptance.mission.id,
+          generationId: acceptance.mission.generationId,
+          candidateVersion: acceptance.mission.candidateVersion,
+          acceptedReceiptId: acceptance.receipt.id,
+          acceptedReceiptSha256: acceptance.receipt.receiptHash,
         },
       });
       await finishQuantGenerationQueueItem({
@@ -421,7 +739,7 @@ function runValidationAfterExecution(params: {
         requestId: params.requestId,
         status: "completed",
       });
-      await markUserRequestAsCompleted(params.requestId);
+      await markUserRequestAsCompleted(params.projectId, params.requestId);
       publishPreviewReady(preview);
       if (executionError) {
         streamManager.publish(params.projectId, {
@@ -436,8 +754,27 @@ function runValidationAfterExecution(params: {
     };
 
     if (firstReport.passed) {
-      await completeValidatedGeneration(firstReport, "自动验证通过。");
+      const preview = await startValidatedPreview();
+      const acceptance = await recordEvidence(preview);
+      if (acceptance.decision.verdict !== "accepted") {
+        throw new Error(
+          `自动验证报告通过，但 Mission 证据未被接受：${acceptance.decision.reasonCodes.join(", ") || acceptance.decision.verdict}`,
+        );
+      }
+      await completeValidatedGeneration(
+        firstReport,
+        "自动验证和独立证据验收通过。",
+        preview,
+        acceptance,
+      );
       return;
+    }
+
+    const firstEvidence = await recordEvidence();
+    if (firstEvidence.decision.verdict !== "repair_required") {
+      throw new Error(
+        `自动验证失败无法进入 Agent 修复：${firstEvidence.decision.reasonCodes.join(", ") || firstEvidence.decision.verdict}`,
+      );
     }
 
     let validationReport = firstReport;
@@ -480,6 +817,7 @@ function runValidationAfterExecution(params: {
         repairAttempt === 1
           ? baseRepairRequestId
           : `${baseRepairRequestId}-${repairAttempt}`;
+      await beginRepair();
       const platformRepair = await quantValidation.repairQuantPlatformOwnedArtifacts({
         projectPath: params.projectPath,
         requestId: params.requestId,
@@ -487,6 +825,14 @@ function runValidationAfterExecution(params: {
         report: latestReport,
       });
       if (platformRepair.runPlanRebuilt) {
+        await quantValidation.prepareQuantProjectForValidation({
+          projectId: params.projectId,
+          projectPath: params.projectPath,
+        });
+        await captureAndSeal(
+          "platform_repair",
+          "平台重建只读规划产物后封存新的验证候选。",
+        );
         latestReport = await quantValidation.validateQuantProject({
           projectId: params.projectId,
           projectPath: params.projectPath,
@@ -498,12 +844,28 @@ function runValidationAfterExecution(params: {
           (check) => check.status === "failed",
         );
         if (latestReport.passed) {
+          const preview = await startValidatedPreview();
+          const acceptance = await recordEvidence(preview);
+          if (acceptance.decision.verdict !== "accepted") {
+            throw new Error(
+              `平台结构修复后的证据未被接受：${acceptance.decision.reasonCodes.join(", ") || acceptance.decision.verdict}`,
+            );
+          }
           await completeValidatedGeneration(
             latestReport,
-            "平台重建只读结构产物后，自动验证通过。",
+            "平台重建只读结构产物后，自动验证与证据验收通过。",
+            preview,
+            acceptance,
           );
           return;
         }
+        const platformRepairEvidence = await recordEvidence();
+        if (platformRepairEvidence.decision.verdict !== "repair_required") {
+          throw new Error(
+            `平台结构修复后无法进入 Agent 修复：${platformRepairEvidence.decision.reasonCodes.join(", ") || platformRepairEvidence.decision.verdict}`,
+          );
+        }
+        await beginRepair();
       }
       const repairInstruction = quantValidation.buildQuantValidationRepairInstruction(
         latestReport,
@@ -540,16 +902,18 @@ function runValidationAfterExecution(params: {
           instruction: repairInstruction,
           cliPreference: params.cliSource,
         });
-        await markUserRequestAsProcessing(repairRequestId);
+        await markUserRequestAsProcessing(params.projectId, repairRequestId);
         activeRepairRequestId = repairRequestId;
       } catch (error) {
         console.error(
           "[API] Failed to record validation repair request:",
           error,
         );
+        throw error;
       }
 
-      if (await isUserRequestCancelled(params.requestId)) {
+      if (await isUserRequestCancelled(params.projectId, params.requestId)) {
+        await cancelMission("原始请求已取消，自动修复未继续执行。");
         await updateQuantGenerationStep({
           projectPath: params.projectPath,
           projectId: params.projectId,
@@ -568,6 +932,7 @@ function runValidationAfterExecution(params: {
           errorMessage: "原始请求已取消。",
         });
         await markUserRequestAsFailed(
+          params.projectId,
           repairRequestId,
           "原始请求已取消，自动修复未继续执行。",
         );
@@ -578,6 +943,7 @@ function runValidationAfterExecution(params: {
       }
 
       let repairExecutionFailed = false;
+      let repairCandidate: MoAgentCandidateSubmission | null = null;
       try {
         const recordedAttempt = await incrementQuantGenerationRepairAttempt({
           projectPath: params.projectPath,
@@ -599,13 +965,13 @@ function runValidationAfterExecution(params: {
             failedChecks: latestFailedChecks.map((check) => check.id),
           },
         });
-        await params.repairExecutor(
+        repairCandidate = await params.repairExecutor(
           params.projectId,
           params.projectPath,
           repairInstruction,
           params.selectedModel,
-          params.sessionId,
           repairRequestId,
+          params.requestId,
         );
       } catch (error) {
         repairExecutionFailed = true;
@@ -623,7 +989,7 @@ function runValidationAfterExecution(params: {
           summary: `第 ${repairAttempt}/${maxRepairAttempts} 次自动修复执行失败。`,
           errorMessage: message,
         });
-        await markUserRequestAsFailed(repairRequestId, message);
+        await markUserRequestAsFailed(params.projectId, repairRequestId, message);
         if (activeRepairRequestId === repairRequestId) {
           activeRepairRequestId = null;
         }
@@ -637,7 +1003,8 @@ function runValidationAfterExecution(params: {
         });
       }
 
-      if (await isUserRequestCancelled(params.requestId)) {
+      if (await isUserRequestCancelled(params.projectId, params.requestId)) {
+        await cancelMission("原始请求已取消，修复后证据不再接受。");
         if (!repairExecutionFailed) {
           await updateQuantGenerationStep({
             projectPath: params.projectPath,
@@ -650,6 +1017,7 @@ function runValidationAfterExecution(params: {
             errorMessage: "原始请求已取消。",
           });
           await markUserRequestAsFailed(
+            params.projectId,
             repairRequestId,
             "原始请求已取消，自动修复后的验证未继续执行。",
           );
@@ -665,6 +1033,25 @@ function runValidationAfterExecution(params: {
           errorMessage: "原始请求已取消。",
         });
         return;
+      }
+
+      await quantValidation.prepareQuantProjectForValidation({
+        projectId: params.projectId,
+        projectPath: params.projectPath,
+      });
+      if (repairCandidate) {
+        await sealCandidate(await refreshMoAgentCandidateWorkspace({
+          workspaceRoot: params.projectPath,
+          candidate: repairCandidate,
+        }));
+      } else {
+        await captureAndSeal(
+          "workspace_recovery",
+          repairExecutionFailed
+            ? "Agent 修复异常结束后，平台封存当前工作区恢复候选。"
+            : "Agent 修复未返回候选回执，平台封存当前工作区恢复候选。",
+          repairRequestId,
+        );
       }
 
       if (!repairExecutionFailed) {
@@ -695,8 +1082,10 @@ function runValidationAfterExecution(params: {
       });
 
       if (finalReport.passed) {
-        if (await isUserRequestCancelled(params.requestId)) {
+        if (await isUserRequestCancelled(params.projectId, params.requestId)) {
+          await cancelMission("修复后验证通过，但请求已经取消。");
           await markUserRequestAsFailed(
+            params.projectId,
             repairRequestId,
             "原始请求已取消，自动修复结果未写回完成态。",
           );
@@ -728,6 +1117,7 @@ function runValidationAfterExecution(params: {
           preview = await startValidatedPreview();
         } catch (error) {
           await markUserRequestAsFailed(
+            params.projectId,
             repairRequestId,
             error instanceof Error ? error.message : String(error),
           );
@@ -736,47 +1126,30 @@ function runValidationAfterExecution(params: {
           }
           throw error;
         }
-        await updateQuantGenerationStep({
-          projectPath: params.projectPath,
-          projectId: params.projectId,
-          requestId: params.requestId,
-          stepId: "final_validation",
-          status: "success",
-          summary: "修复后验证通过。",
-          metadata: {
-            checkCount: finalReport.checks.length,
-            repairAttempt,
-            maxRepairAttempts,
-            previewUrl: preview.url,
-            previewPort: preview.port,
-          },
-        });
-        await updateQuantGenerationStep({
-          projectPath: params.projectPath,
-          projectId: params.projectId,
-          requestId: params.requestId,
-          stepId: "completed",
-          status: "success",
-          summary: "生成链路经自动修复后完成。",
-          runStatus: "completed",
-          metadata: {
-            previewUrl: preview.url,
-            previewPort: preview.port,
-          },
-        });
-        await finishQuantGenerationQueueItem({
-          projectPath: params.projectPath,
-          projectId: params.projectId,
-          requestId: params.requestId,
-          status: "completed",
-        });
-        await markUserRequestAsCompleted(repairRequestId);
+        const acceptance = await recordEvidence(preview);
+        if (acceptance.decision.verdict !== "accepted") {
+          throw new Error(
+            `修复后验证报告通过，但 Mission 证据未被接受：${acceptance.decision.reasonCodes.join(", ") || acceptance.decision.verdict}`,
+          );
+        }
+        await completeValidatedGeneration(
+          finalReport,
+          "修复后自动验证与独立证据验收通过。",
+          preview,
+          acceptance,
+        );
+        await markUserRequestAsCompleted(params.projectId, repairRequestId);
         if (activeRepairRequestId === repairRequestId) {
           activeRepairRequestId = null;
         }
-        await markUserRequestAsCompleted(params.requestId);
-        publishPreviewReady(preview);
         return;
+      }
+
+      const finalEvidence = await recordEvidence();
+      if (finalEvidence.decision.verdict !== "repair_required") {
+        throw new Error(
+          `修复后验证失败无法继续：${finalEvidence.decision.reasonCodes.join(", ") || finalEvidence.decision.verdict}`,
+        );
       }
 
       latestReport = finalReport;
@@ -785,6 +1158,7 @@ function runValidationAfterExecution(params: {
       );
       if (repairAttempt < maxRepairAttempts) {
         await markUserRequestAsFailed(
+          params.projectId,
           repairRequestId,
           `第 ${repairAttempt}/${maxRepairAttempts} 次自动修复后仍未通过平台验证，继续下一轮修复。`,
         );
@@ -811,6 +1185,7 @@ function runValidationAfterExecution(params: {
         continue;
       }
 
+      await beginRepair();
       const templateRecovery =
         await quantValidation.restoreQuantDashboardTemplateAfterRepairExhaustion({
           projectPath: params.projectPath,
@@ -843,6 +1218,16 @@ function runValidationAfterExecution(params: {
           },
         });
 
+        await quantValidation.prepareQuantProjectForValidation({
+          projectId: params.projectId,
+          projectPath: params.projectPath,
+        });
+        await captureAndSeal(
+          "platform_template_recovery",
+          "平台验证安全模板恢复后封存新的确定性候选。",
+          repairRequestId,
+        );
+
         const recoveredReport = await quantValidation.validateQuantProject({
           projectId: params.projectId,
           projectPath: params.projectPath,
@@ -855,6 +1240,13 @@ function runValidationAfterExecution(params: {
           (check) => check.status === "failed",
         );
         if (recoveredReport.passed) {
+          const preview = await startValidatedPreview();
+          const acceptance = await recordEvidence(preview);
+          if (acceptance.decision.verdict !== "accepted") {
+            throw new Error(
+              `平台安全模板恢复后的证据未被接受：${acceptance.decision.reasonCodes.join(", ") || acceptance.decision.verdict}`,
+            );
+          }
           await updateQuantGenerationStep({
             projectPath: params.projectPath,
             projectId: params.projectId,
@@ -869,23 +1261,32 @@ function runValidationAfterExecution(params: {
           });
           await completeValidatedGeneration(
             recoveredReport,
-            "平台验证安全模板恢复后，自动验证通过。",
+            "平台验证安全模板恢复后，自动验证与独立证据验收通过。",
+            preview,
+            acceptance,
           );
-          if (await isUserRequestCancelled(params.requestId)) {
-            await markUserRequestAsFailed(
-              repairRequestId,
-              "原始请求已取消，平台模板恢复结果未写回完成态。",
-            );
-          } else {
-            await markUserRequestAsCompleted(repairRequestId);
-          }
+          await markUserRequestAsFailed(
+            params.projectId,
+            repairRequestId,
+            "Agent 修复候选未通过；平台安全模板已接管并完成 Mission。",
+          );
           if (activeRepairRequestId === repairRequestId) {
             activeRepairRequestId = null;
           }
           return;
         }
+        const recoveredEvidence = await recordEvidence();
+        if (recoveredEvidence.decision.verdict !== "repair_required") {
+          throw new Error(
+            `平台安全模板恢复失败且证据状态不可修复：${recoveredEvidence.decision.reasonCodes.join(", ") || recoveredEvidence.decision.verdict}`,
+          );
+        }
       }
 
+      await failMission(
+        "MISSION_VALIDATION_EXHAUSTED",
+        "自动验证和修复耗尽后仍未通过平台验收。",
+      );
       await updateQuantGenerationStep({
         projectPath: params.projectPath,
         projectId: params.projectId,
@@ -908,6 +1309,7 @@ function runValidationAfterExecution(params: {
         errorMessage: "自动修复后仍未通过平台验证。",
       });
       await markUserRequestAsFailed(
+        params.projectId,
         repairRequestId,
         "自动修复后仍未通过平台验证，请查看 .quantpilot/validation.json 和 .quantpilot/validation-repair-plan.json。",
       );
@@ -915,6 +1317,7 @@ function runValidationAfterExecution(params: {
         activeRepairRequestId = null;
       }
       await markUserRequestAsFailed(
+        params.projectId,
         params.requestId,
         "自动验证和修复后仍未通过，请查看验证摘要。",
       );
@@ -945,9 +1348,10 @@ function runValidationAfterExecution(params: {
   };
 
   return (async () => {
+    let executionCandidate: MoAgentCandidateSubmission | null = null;
     let executionError: unknown;
     try {
-      await params.execution;
+      executionCandidate = await params.execution;
     } catch (error) {
       executionError = error;
       console.error(
@@ -957,7 +1361,7 @@ function runValidationAfterExecution(params: {
     }
 
     try {
-      await validateAndRepair(executionError);
+      await validateAndRepair(executionCandidate, executionError);
     } catch (validationError) {
       console.error(
         "[API] Automatic validation after agent execution failed:",
@@ -968,6 +1372,18 @@ function runValidationAfterExecution(params: {
           ? validationError.message
           : String(validationError || "Automatic validation failed");
       const previewFailure = validationError instanceof ValidatedPreviewStartError;
+      if (await recoverCommittedAcceptanceProjection().catch((error) => {
+        console.error("[API] Failed to inspect committed Mission acceptance:", error);
+        return false;
+      })) {
+        return;
+      }
+      await failMission(
+        previewFailure
+          ? "MISSION_PREVIEW_FAILED"
+          : "MISSION_VALIDATION_PIPELINE_FAILED",
+        message,
+      );
       await updateQuantGenerationStep({
         projectPath: params.projectPath,
         projectId: params.projectId,
@@ -981,10 +1397,11 @@ function runValidationAfterExecution(params: {
         errorMessage: message,
       });
       if (activeRepairRequestId) {
-        await markUserRequestAsFailed(activeRepairRequestId, message);
+        await markUserRequestAsFailed(params.projectId, activeRepairRequestId, message);
         activeRepairRequestId = null;
       }
       await markUserRequestAsFailed(
+        params.projectId,
         params.requestId,
         `自动验证失败：${message}`,
       );
@@ -1011,71 +1428,32 @@ function runValidationAfterExecution(params: {
   })();
 }
 
-async function mirrorAssetToPublic(
+const MAX_IMAGE_ATTACHMENTS = 8;
+const MAX_IMAGE_BYTES = configuredMaxImageBytes();
+const MAX_TOTAL_IMAGE_BYTES = Math.min(25 * 1024 * 1024, MAX_IMAGE_ATTACHMENTS * MAX_IMAGE_BYTES);
+
+function isPathInside(basePath: string, candidatePath: string): boolean {
+  const relative = path.relative(basePath, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function mirrorAssetToProjectPublic(
   projectRoot: string,
   filename: string,
   sourcePath: string,
-): Promise<{ publicPath: string | null; publicUrl: string | null }> {
-  const resolvedSourcePath = path.isAbsolute(sourcePath)
-    ? sourcePath
-    : path.resolve(/*turbopackIgnore: true*/ process.cwd(), sourcePath);
-  const hostUploadsDir = path.join(
-    /*turbopackIgnore: true*/ process.cwd(),
-    "public",
-    "uploads",
-  );
-  let hostPublicPath: string | null = null;
-
-  try {
-    await fs.mkdir(hostUploadsDir, { recursive: true });
-    const destinationPath = path.join(hostUploadsDir, filename);
-    try {
-      await fs.access(destinationPath);
-    } catch {
-      await fs.copyFile(resolvedSourcePath, destinationPath);
-    }
-    hostPublicPath = destinationPath;
-  } catch (error) {
-    console.warn(
-      "[API] Failed to mirror asset into application public/uploads:",
-      error,
-    );
+): Promise<string> {
+  const [canonicalProjectRoot, canonicalAssetsRoot] = await Promise.all([
+    fs.realpath(projectRoot),
+    fs.realpath(path.dirname(sourcePath)),
+  ]);
+  if (!isPathInside(canonicalProjectRoot, canonicalAssetsRoot)) {
+    throw new ImageAssetError("Project attachment storage is outside the project workspace");
   }
-
-  try {
-    const uploadsDir = path.join(projectRoot, "public", "uploads");
-    await fs.mkdir(uploadsDir, { recursive: true });
-    const destinationPath = path.join(uploadsDir, filename);
-    try {
-      await fs.access(destinationPath);
-    } catch {
-      await fs.copyFile(resolvedSourcePath, destinationPath);
-    }
-    return {
-      publicPath: hostPublicPath ?? destinationPath,
-      publicUrl: hostPublicPath ? `/uploads/${filename}` : null,
-    };
-  } catch (error) {
-    console.warn(
-      "[API] Failed to mirror asset into project public/uploads:",
-      error,
-    );
-    if (hostPublicPath) {
-      return { publicPath: hostPublicPath, publicUrl: `/uploads/${filename}` };
-    }
-    return { publicPath: null, publicUrl: null };
-  }
-}
-
-function inferExtensionFromMime(mime?: string): string {
-  if (!mime) return ".png";
-  const normalized = mime.toLowerCase();
-  if (normalized.includes("png")) return ".png";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return ".jpg";
-  if (normalized.includes("gif")) return ".gif";
-  if (normalized.includes("webp")) return ".webp";
-  if (normalized.includes("svg")) return ".svg";
-  return ".png";
+  const uploadsDir = path.join(canonicalProjectRoot, "public", "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
+  const destinationPath = path.join(uploadsDir, filename);
+  await fs.copyFile(sourcePath, destinationPath);
+  return `/uploads/${filename}`;
 }
 
 async function materializeBase64Image(
@@ -1085,24 +1463,31 @@ async function materializeBase64Image(
   nameHint?: string,
   mimeType?: string,
 ): Promise<{
-  absolutePath: string;
+  path: string;
   filename: string;
-  publicUrl: string | null;
+  publicUrl: string;
+  mimeType: string;
+  size: number;
 }> {
-  const buffer = Buffer.from(base64, "base64");
-  const extension = inferExtensionFromMime(mimeType);
+  const buffer = decodeBase64Image(base64, { maxBytes: MAX_IMAGE_BYTES });
+  const detected = validateImageBytes(buffer, {
+    ...(mimeType ? { declaredMimeType: mimeType } : {}),
+    maxBytes: MAX_IMAGE_BYTES,
+  });
   const safeName =
     nameHint && nameHint.trim() ? nameHint.trim() : `image-${randomUUID()}`;
-  const filename = `${safeName.replace(/[^a-zA-Z0-9-_]/g, "-") || "image"}-${randomUUID()}${extension}`;
-  const assetsDir = resolveAssetsPath(projectId);
+  const filename = `${safeName.slice(0, 80).replace(/[^a-zA-Z0-9-_]/g, "-") || "image"}-${randomUUID()}${detected.extension}`;
+  const assetsDir = resolveProjectAssetsPath(projectId);
   await fs.mkdir(assetsDir, { recursive: true });
-  const absolutePath = path.join(assetsDir, filename);
-  await fs.writeFile(absolutePath, buffer);
-  const mirror = await mirrorAssetToPublic(projectRoot, filename, absolutePath);
+  const absolutePath = resolveProjectAssetPath(projectId, filename);
+  await fs.writeFile(absolutePath, buffer, { flag: "wx" });
+  const publicUrl = await mirrorAssetToProjectPublic(projectRoot, filename, absolutePath);
   return {
-    absolutePath,
+    path: `assets/${filename}`,
     filename,
-    publicUrl: mirror.publicUrl,
+    publicUrl,
+    mimeType: detected.mimeType,
+    size: buffer.byteLength,
   };
 }
 
@@ -1123,25 +1508,15 @@ async function normalizeImageAttachment(
   projectRoot: string,
   raw: RawImageAttachment,
   index: number,
-): Promise<ProcessedImageAttachment | null> {
+): Promise<ProcessedImageAttachment> {
   const name =
     typeof raw.name === "string" && raw.name.trim().length > 0
-      ? raw.name.trim()
+      ? raw.name.trim().slice(0, 256)
       : `Image ${index + 1}`;
-  const providedUrl =
-    typeof raw.url === "string" && raw.url.trim().length > 0
-      ? raw.url.trim()
-      : undefined;
-  const providedPublicUrl =
-    typeof raw.public_url === "string" && raw.public_url.trim().length > 0
-      ? raw.public_url.trim()
-      : typeof raw.publicUrl === "string" && raw.publicUrl.trim().length > 0
-        ? raw.publicUrl.trim()
-        : undefined;
 
   const pathValue =
     typeof raw.path === "string" && raw.path.trim().length > 0
-      ? ensureAbsoluteAssetPath(projectId, raw.path.trim())
+      ? raw.path.trim()
       : null;
 
   const base64DataCandidate =
@@ -1159,61 +1534,54 @@ async function normalizeImageAttachment(
         : undefined;
 
   if (pathValue) {
-    try {
-      const stat = await fs.stat(pathValue);
-      const filename = path.basename(pathValue);
-      let effectivePublicUrl = providedPublicUrl;
-      if (!effectivePublicUrl) {
-        const mirror = await mirrorAssetToPublic(
-          projectRoot,
-          filename,
-          pathValue,
-        );
-        effectivePublicUrl = mirror.publicUrl ?? undefined;
-      }
-      return {
-        name,
-        path: pathValue,
-        url: providedUrl ?? `/api/assets/${projectId}/${filename}`,
-        publicUrl: effectivePublicUrl,
-        originalName:
-          typeof raw.original_name === "string" ? raw.original_name : undefined,
-        mimeType:
-          typeof raw.mime_type === "string"
-            ? raw.mime_type
-            : typeof raw.mimeType === "string"
-              ? raw.mimeType
-              : undefined,
-        size: stat.size,
-      };
-    } catch {
-      // fall through and try to materialize if base64 present
+    const asset = await resolveExistingProjectAssetPath(projectId, pathValue);
+    if (asset.size > MAX_IMAGE_BYTES) {
+      throw new ImageAssetError(
+        `Image must be smaller than ${Math.floor(MAX_IMAGE_BYTES / 1024 / 1024)}MB`,
+        413,
+      );
     }
+    const bytes = await fs.readFile(asset.absolutePath);
+    const detected = validateImageBytes(bytes, {
+      ...(mimeTypeCandidate ? { declaredMimeType: mimeTypeCandidate } : {}),
+      maxBytes: MAX_IMAGE_BYTES,
+    });
+    const publicUrl = await mirrorAssetToProjectPublic(
+      projectRoot,
+      asset.filename,
+      asset.absolutePath,
+    );
+    return {
+      name,
+      path: asset.relativePath,
+      url: `/api/assets/${projectId}/${asset.filename}`,
+      publicUrl,
+      originalName:
+        typeof raw.original_name === "string" ? raw.original_name.slice(0, 256) : undefined,
+      mimeType: detected.mimeType,
+      size: bytes.byteLength,
+    };
   }
 
   if (base64DataCandidate) {
-    try {
-      const materialized = await materializeBase64Image(
-        projectId,
-        projectRoot,
-        base64DataCandidate,
-        name,
-        mimeTypeCandidate,
-      );
-      return {
-        name,
-        path: materialized.absolutePath,
-        url: providedUrl ?? `/api/assets/${projectId}/${materialized.filename}`,
-        publicUrl: providedPublicUrl ?? materialized.publicUrl ?? undefined,
-        mimeType: mimeTypeCandidate,
-      };
-    } catch (error) {
-      console.error("[API] Failed to materialize base64 image:", error);
-      return null;
-    }
+    const materialized = await materializeBase64Image(
+      projectId,
+      projectRoot,
+      base64DataCandidate,
+      name,
+      mimeTypeCandidate,
+    );
+    return {
+      name,
+      path: materialized.path,
+      url: `/api/assets/${projectId}/${materialized.filename}`,
+      publicUrl: materialized.publicUrl,
+      mimeType: materialized.mimeType,
+      size: materialized.size,
+    };
   }
 
-  return null;
+  throw new ImageAssetError("Each image attachment must reference an uploaded project asset");
 }
 
 async function writeAttachmentContext(params: {
@@ -1239,10 +1607,7 @@ async function writeAttachmentContext(params: {
     attachments: params.images.map((image, index) => ({
       id: `image-${index + 1}`,
       name: image.name,
-      absolutePath: image.path,
-      path: path
-        .relative(params.projectRoot, image.path)
-        .replaceAll(path.sep, "/"),
+      path: image.path,
       url: image.url,
       publicUrl: image.publicUrl ?? null,
       mimeType: image.mimeType ?? null,
@@ -1250,7 +1615,7 @@ async function writeAttachmentContext(params: {
     })),
     extractionContract: {
       requiredSkill: "image-extraction",
-      requiredTool: "mcp__QuantPilotImage__quant_extract_uploaded_image",
+      requiredTool: "quant_extract_uploaded_image",
       portfolioScreenshotFields: [
         "account_total_asset",
         "cash_available",
@@ -1290,8 +1655,7 @@ function buildImageAttachmentInstruction(params: {
 
   const imageList = params.images
     .map((image, index) => {
-      const relativeHint = image.path;
-      return `${index + 1}. ${image.name}：${relativeHint}`;
+      return `${index + 1}. ${image.name}：${image.path}`;
     })
     .join("\n");
 
@@ -1299,12 +1663,12 @@ function buildImageAttachmentInstruction(params: {
 
 图片附件处理要求：
 - 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".quantpilot/attachments.json"}，再检查图片内容，不要忽略附件。
-- 先使用 \`image-extraction\` skill，并调用 \`mcp__QuantPilotImage__quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
+- 先使用 \`image-extraction\` skill，并调用原生工具 \`quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
 - 当前不接入额外视觉模型或第三方 OCR；无法可靠识别的截图字段必须写 null，并在证据文件中列出需要用户确认的内容。
 - 对识别出的股票名称必须使用 quant-symbol-resolver 或 /api/v1/symbols/resolve 解析代码，再获取真实行情、K 线、指标和必要的基本面数据。
 - 必须把图片提取结果写入 evidence/image_extraction.json；没有 OCR/视觉结果时也要写明 visualRecognition.status 和 needs_manual_confirmation。
 - 最终 dashboard-data.json 必须保留 portfolio、holdings、assets、comparison 和 imageExtraction 字段；imageExtraction 要说明哪些字段来自截图识别、哪些来自行情接口补全。
-- 如果兼容层无法直接读取图片视觉内容，也必须基于附件清单和文件路径继续处理，并明确列出需要人工确认的截图字段。
+- 如果当前运行时无法直接识别图片视觉内容，也必须基于附件清单和文件路径继续处理，并明确列出需要人工确认的截图字段。
 
 图片路径：
 ${imageList}`;
@@ -1317,10 +1681,39 @@ ${imageList}`;
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    const contentLength = Number(request.headers.get("content-length"));
+    const maxRequestBytes = Math.ceil((MAX_TOTAL_IMAGE_BYTES * 4) / 3) + 2 * 1024 * 1024;
+    if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+      return NextResponse.json(
+        { success: false, error: "Request attachments are too large" },
+        { status: 413 },
+      );
+    }
     const rawBody = await request.json().catch(() => ({}));
     const body = (
       rawBody && typeof rawBody === "object" ? rawBody : {}
     ) as ChatActRequest & Record<string, unknown>;
+    const legacyBody = body as Record<string, unknown>;
+    const rawInstruction =
+      typeof body.instruction === "string" ? body.instruction : "";
+    const rawDisplayInstruction =
+      coerceString((body as Record<string, unknown>).displayInstruction) ??
+      coerceString(legacyBody["display_instruction"]);
+    const requestId =
+      coerceString(body.requestId) ??
+      coerceString(legacyBody["request_id"]) ??
+      generateProjectId();
+    const ingressDecision = validateMoAgentIngressInput({
+      instruction: rawInstruction,
+      displayInstruction: rawDisplayInstruction,
+      requestId,
+    });
+    if (!ingressDecision.ok) {
+      return NextResponse.json(
+        { success: false, error: ingressDecision.error },
+        { status: ingressDecision.status },
+      );
+    }
 
     const project = await getProjectById(project_id);
     if (!project) {
@@ -1330,7 +1723,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const legacyBody = body as Record<string, unknown>;
+    try {
+      await assertUserRequestProjectBinding(project_id, requestId);
+    } catch (error) {
+      if (error instanceof UserRequestProjectMismatchError) {
+        return NextResponse.json(
+          { success: false, error: "Request ID belongs to a different project" },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
+
     const projectRoot = resolveProjectRoot(project_id, project.repoPath);
     const projectPath =
       project.repoPath ||
@@ -1339,11 +1743,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         "projects",
         project_id,
       );
-    const rawInstruction =
-      typeof body.instruction === "string" ? body.instruction : "";
-    const rawDisplayInstruction =
-      coerceString((body as Record<string, unknown>).displayInstruction) ??
-      coerceString(legacyBody["display_instruction"]);
     const instructionWithoutLegacyPaths = rawInstruction
       .replace(/\n*Image #\d+ path: [^\n]+/g, "")
       .trim();
@@ -1357,11 +1756,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       coerceString(body.conversationId) ??
       coerceString(legacyBody["conversation_id"]);
 
-    const requestId =
-      coerceString(body.requestId) ??
-      coerceString(legacyBody["request_id"]) ??
-      generateProjectId();
-
     const rawImages: RawImageAttachment[] = Array.isArray(
       (body as Record<string, unknown>).images,
     )
@@ -1370,17 +1764,43 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         ? (legacyBody["images"] as RawImageAttachment[])
         : [];
 
-    const processedImages: ProcessedImageAttachment[] = [];
-    for (let index = 0; index < rawImages.length; index += 1) {
-      const normalized = await normalizeImageAttachment(
-        project_id,
-        projectRoot,
-        rawImages[index],
-        index,
+    if (rawImages.length > MAX_IMAGE_ATTACHMENTS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `At most ${MAX_IMAGE_ATTACHMENTS} image attachments are allowed`,
+        },
+        { status: 413 },
       );
-      if (normalized) {
+    }
+
+    const processedImages: ProcessedImageAttachment[] = [];
+    let totalImageBytes = 0;
+    try {
+      for (let index = 0; index < rawImages.length; index += 1) {
+        const normalized = await normalizeImageAttachment(
+          project_id,
+          projectRoot,
+          rawImages[index],
+          index,
+        );
+        totalImageBytes += normalized.size ?? 0;
+        if (totalImageBytes > MAX_TOTAL_IMAGE_BYTES) {
+          throw new ImageAssetError(
+            `Image attachments exceed the ${Math.floor(MAX_TOTAL_IMAGE_BYTES / 1024 / 1024)}MB total limit`,
+            413,
+          );
+        }
         processedImages.push(normalized);
       }
+    } catch (error) {
+      if (error instanceof ImageAssetError) {
+        return NextResponse.json(
+          { success: false, error: error.message },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
 
     const attachmentContextPath = await writeAttachmentContext({
@@ -1415,7 +1835,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreference = "claude";
+    const cliPreference = "moagent";
 
     const selectedModelRaw =
       coerceString(body.selectedModel) ??
@@ -1486,12 +1906,39 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           }
         : undefined;
 
+    const storedInstruction =
+      effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+        ? effectiveDisplayInstruction.trim()
+        : instructionWithoutLegacyPaths || effectiveInstruction;
+    try {
+      await upsertUserRequest({
+        id: requestId,
+        projectId: project_id,
+        instruction: storedInstruction || effectiveInstruction,
+        cliPreference,
+      });
+      const processing = await markUserRequestAsProcessing(project_id, requestId);
+      if (!processing) {
+        return NextResponse.json(
+          { success: false, error: "Request is no longer active for this project" },
+          { status: 409 },
+        );
+      }
+    } catch (error) {
+      if (error instanceof UserRequestProjectMismatchError) {
+        return NextResponse.json(
+          { success: false, error: "Request ID belongs to a different project" },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
+
     console.log("📸 Creating message with attachments:", {
       projectId: project_id,
       hasAttachments: processedImages.length > 0,
       attachmentsCount: processedImages.length,
       metadataKeys: metadata ? Object.keys(metadata) : [],
-      metadataString: JSON.stringify(metadata, null, 2),
     });
 
     const userMessage = await createMessage({
@@ -1516,26 +1963,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         : 0,
     });
 
-    if (requestId) {
-      try {
-        const storedInstruction =
-          effectiveDisplayInstruction &&
-          effectiveDisplayInstruction.trim().length > 0
-            ? effectiveDisplayInstruction.trim()
-            : instructionWithoutLegacyPaths || effectiveInstruction;
-
-        await upsertUserRequest({
-          id: requestId,
-          projectId: project_id,
-          instruction: storedInstruction || effectiveInstruction,
-          cliPreference,
-        });
-        await markUserRequestAsProcessing(requestId);
-      } catch (error) {
-        console.error("[API] Failed to record user request metadata:", error);
-      }
-    }
-
     streamManager.publish(project_id, {
       type: "message",
       data: serializeMessage(userMessage, { requestId }),
@@ -1544,10 +1971,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     await updateProjectActivity(project_id);
 
     const existingSelected = normalizeModelId(
-      project.preferredCli ?? "claude",
+      project.preferredCli ?? "moagent",
       project.selectedModel ?? undefined,
     );
     let usePrefetchedSelectionDashboard = false;
+    let missionContext: MoAgentMissionContext | null = null;
 
     const clarificationResponse = await runQuantGenerationStageLocked({
       projectId: project_id,
@@ -1562,7 +1990,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
         if (
           generationState.status === "cancelled" ||
-          (await isUserRequestCancelled(requestId))
+          (await isUserRequestCancelled(project_id, requestId))
         ) {
           return NextResponse.json({
             success: true,
@@ -1631,7 +2059,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           requestId,
         });
 
-        await markUserRequestAsCompleted(requestId);
+        await markUserRequestAsCompleted(project_id, requestId);
         streamManager.publish(project_id, {
           type: "message",
           data: serializeMessage(assistantMessage, { requestId }),
@@ -1661,6 +2089,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
       }
 
+      missionContext = await createQuantMoAgentMission({
+        projectId: project_id,
+        projectPath,
+        requestId,
+        objective: planningInstruction,
+        runPlan,
+        maxRepairAttempts: generationState.maxRepairAttempts,
+      });
+
       await updateQuantGenerationStep({
         projectPath,
         projectId: project_id,
@@ -1672,7 +2109,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           capabilityId: runPlan.capabilityId,
           symbols: runPlan.symbols,
           expectedArtifacts: runPlan.expectedArtifacts,
+          missionId: missionContext.id,
+          generationId: missionContext.generationId,
+          missionSpecSha256: missionContext.specHash,
         },
+      });
+      missionContext = await markQuantMoAgentMissionNode({
+        mission: missionContext,
+        nodeKey: "planning",
+        status: "passed",
       });
       await publishQuantPipelineToolMessage({
         projectId: project_id,
@@ -1701,10 +2146,28 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         status: "running",
         summary: "开始预取真实数据。",
       });
+      missionContext = await markQuantMoAgentMissionNode({
+        mission: missionContext,
+        nodeKey: "data_prefetch",
+        status: "running",
+      });
       const prefetch = await prefetchQuantDataForRunPlan({
         projectPath,
         plan: runPlan,
       });
+      const missingPreparedArtifacts = await missingAgentInputArtifacts(projectPath);
+      if (
+        processedImages.length === 0 &&
+        (missingPreparedArtifacts.length > 0 || (isInitialPrompt && prefetch.skipped))
+      ) {
+        throw new Error(
+          `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 MoAgent。${
+            missingPreparedArtifacts.length
+              ? ` 缺少：${missingPreparedArtifacts.join("、")}。`
+              : ""
+          } ${prefetch.summary}`.trim(),
+        );
+      }
       usePrefetchedSelectionDashboard = canUsePrefetchedSelectionDashboard({
         instruction: effectiveInstruction,
         runPlan,
@@ -1725,6 +2188,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           rawFiles: prefetch.skipped ? undefined : prefetch.rawFiles,
           deterministicDashboard: usePrefetchedSelectionDashboard || undefined,
         },
+      });
+      missionContext = await markQuantMoAgentMissionNode({
+        mission: missionContext,
+        nodeKey: "data_prefetch",
+        status: prefetch.skipped ? "skipped" : "passed",
+      });
+      missionContext = await markQuantMoAgentMissionNode({
+        mission: missionContext,
+        nodeKey: "workspace_generation",
+        status: "running",
       });
       if (!prefetch.skipped) {
         await ensureQuantDashboardTemplateForAct(projectPath);
@@ -1842,6 +2315,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         "[API] Failed to prepare QuantPilot run plan or data prefetch:",
         error,
       );
+          const preparationMessage = error instanceof Error
+            ? error.message
+            : String(error);
+          const missionProjectBusy =
+            error instanceof MoAgentMissionStateError &&
+            error.code === "MISSION_PROJECT_BUSY";
+          if (missionContext) {
+            await failMoAgentMission({
+              missionId: missionContext.id,
+              projectId: missionContext.projectId,
+              requestId: missionContext.requestId,
+              code: "MISSION_PREPARATION_FAILED",
+              message: preparationMessage,
+            });
+          }
           await updateQuantGenerationStep({
         projectPath,
         projectId: project_id,
@@ -1849,14 +2337,46 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         stepId: "data_prefetch",
         status: "failed",
         summary: "生成计划或数据预取失败。",
-        errorMessage: error instanceof Error ? error.message : String(error),
+        runStatus: "failed",
+        errorMessage: preparationMessage,
           });
+          await markUserRequestAsFailed(project_id, requestId, preparationMessage);
+          streamManager.publish(project_id, {
+            type: "status",
+            data: {
+              status: "quant_data_preparation_failed",
+              message: preparationMessage,
+              requestId,
+              metadata: {
+                terminalFailure: true,
+                errorCode: missionProjectBusy
+                  ? "MISSION_PROJECT_BUSY"
+                  : "QUANT_DATA_PREPARATION_FAILED",
+                agentExecutionSkipped: true,
+              },
+            },
+          });
+          return NextResponse.json(
+            {
+              success: false,
+              error: missionProjectBusy
+                ? "MISSION_PROJECT_BUSY"
+                : "QUANT_DATA_PREPARATION_FAILED",
+              message: preparationMessage,
+              requestId,
+            },
+            { status: missionProjectBusy ? 409 : 503 },
+          );
         }
         return null;
       },
     });
     if (clarificationResponse) {
       return clarificationResponse;
+    }
+    const queuedMission = missionContext as MoAgentMissionContext | null;
+    if (!queuedMission) {
+      throw new Error("MoAgent Mission was not created after planning.");
     }
 
     if (
@@ -1877,10 +2397,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     const cliRuntime = await loadCliRuntime();
-
-    const sessionId = !isInitialPrompt
-      ? project.activeClaudeSessionId || undefined
-      : undefined;
 
     void runQuantGenerationQueued({
       projectPath,
@@ -1916,34 +2432,37 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                   requestId,
                 },
               });
-              return;
+              return capturePlatformMissionCandidate({
+                mission: queuedMission,
+                source: "platform_prefetch",
+                sourceRequestId: requestId,
+                summary: "平台已基于预取数据生成确定性选股看板候选。",
+              });
             }
             if (isInitialPrompt) {
-              await cliRuntime.initializeNextJsProject(
+              return cliRuntime.initializeNextJsProject(
                 project_id,
                 projectPath,
                 effectiveInstruction,
                 selectedModel,
                 requestId,
               );
-              return;
             }
-            await cliRuntime.applyChanges(
+            return cliRuntime.applyChanges(
               project_id,
               projectPath,
               effectiveInstruction,
               selectedModel,
-              sessionId,
               requestId,
               processedImages,
             );
           })(),
-          repairExecutor: cliRuntime.applyChanges,
+          repairExecutor: cliRuntime.applyRepairChanges,
+          mission: queuedMission,
           projectId: project_id,
           projectPath,
           instruction: userVisibleInstructionForRepair,
           selectedModel,
-          sessionId,
           requestId,
           conversationId,
           cliSource: cliPreference,
@@ -1960,6 +2479,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       success: true,
       message: "AI execution started",
       requestId,
+      missionId: queuedMission.id,
+      generationId: queuedMission.generationId,
       userMessageId: userMessage.id,
       conversationId: conversationId ?? null,
     });

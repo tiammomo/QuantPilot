@@ -19,6 +19,10 @@ import {
   restoreQuantDashboardTemplate,
   scaffoldBasicNextApp,
 } from '@/lib/utils/scaffold';
+import {
+  buildGeneratedProjectEnv,
+  wrapGeneratedProjectCommand,
+} from '@/lib/security/generated-project-sandbox';
 
 export type QuantValidationCheckStatus = 'passed' | 'failed' | 'warning';
 export type QuantValidationStatus = 'passed' | 'failed';
@@ -135,6 +139,11 @@ interface ValidateQuantProjectParams {
   cliSource?: string | null;
 }
 
+export interface PrepareQuantProjectForValidationParams {
+  projectId: string;
+  projectPath: string;
+}
+
 interface CommandResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
@@ -177,7 +186,7 @@ const OUTPUT_TAIL_LIMIT = 12_000;
 const SENSITIVE_EVIDENCE_PATTERN =
   /(?:sk-(?:proj|ant|cp|live|test)-[a-z0-9_-]{12,}|bearer\s+[a-z0-9._-]{12,}|(?:authorization|api[_-]?key|auth[_-]?token|cookie|set-cookie)\s*[:=]\s*["']?[a-z0-9._~+/=-]{12,})/i;
 const ARTIFACT_POLICY_MAX_FILE_BYTES = 300_000;
-const ARTIFACT_POLICY_ROOT_DIRS = ['app', 'components', 'lib', 'src', 'styles'];
+const ARTIFACT_POLICY_ROOT_DIRS = ['app', 'components', 'hooks', 'lib', 'src', 'styles'];
 const ARTIFACT_POLICY_ROOT_FILES = [
   'package.json',
   'next.config.js',
@@ -223,6 +232,22 @@ const SENSITIVE_ARTIFACT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
     pattern: /\b(?:DEEPSEEK_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|MINIMAX_API_KEY|CODEX_OPENAI_API_KEY)\s*[:=]\s*["'][^"'\n]{8,}["']/i,
   },
   { label: 'AWS access key', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
+];
+const EXECUTION_ESCAPE_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  {
+    label: 'Node 宿主能力导入',
+    pattern: /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["'](?:node:)?(?:child_process|cluster|dgram|dns|http2?|https|inspector|module|net|os|process|tls|vm|worker_threads)["']/i,
+  },
+  { label: 'CommonJS 动态加载', pattern: /\brequire\s*\(/i },
+  { label: '动态模块加载', pattern: /\bimport\s*\(/i },
+  {
+    label: '宿主 process 特权访问',
+    pattern: /\bprocess\s*(?:\.\s*(?:env|binding|chdir|dlopen|getBuiltinModule|mainModule)|\[\s*["'](?:env|binding|chdir|dlopen|getBuiltinModule|mainModule)["'])/i,
+  },
+  { label: '动态代码执行', pattern: /\b(?:eval|Function)\s*\(|\bWebAssembly\b/i },
+  { label: '子进程执行 API', pattern: /\b(?:execFileSync|execFile|execSync|spawnSync|spawn|fork)\s*\(/i },
+  { label: '非受控网络客户端', pattern: /\bnew\s+(?:EventSource|WebSocket|XMLHttpRequest)\b|\bsendBeacon\s*\(/i },
+  { label: '宿主绝对路径', pattern: /["'](?:\/(?:etc|home|proc|root|run|sys|var\/run)\/|[a-z]:\\(?:users|windows)\\)/i },
 ];
 
 async function startPreviewForValidation(projectId: string) {
@@ -298,44 +323,6 @@ function trimOutput(output: string): string {
   return `...输出已截断，仅保留最后 ${OUTPUT_TAIL_LIMIT} 字符...\n${output.slice(-OUTPUT_TAIL_LIMIT)}`.trim();
 }
 
-function pathContains(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(parentPath, childPath);
-  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
-}
-
-function buildGeneratedProjectEnv(projectPath: string): NodeJS.ProcessEnv {
-  const allowedKeys = [
-    'PATH',
-    'HOME',
-    'USER',
-    'SHELL',
-    'TMPDIR',
-    'TEMP',
-    'TMP',
-    'SystemRoot',
-    'ComSpec',
-    'PATHEXT',
-  ];
-  const platformRoot = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-  const workspaceRoot = pathContains(platformRoot, projectPath) ? platformRoot : projectPath;
-  const env: NodeJS.ProcessEnv = {
-    CI: '1',
-    NODE_ENV: 'production',
-    QUANTPILOT_WORKSPACE_ROOT: workspaceRoot,
-    NEXT_PRIVATE_BUILD_WORKER: '1',
-    NEXT_TELEMETRY_DISABLED: '1',
-  };
-
-  for (const key of allowedKeys) {
-    const value = process.env[key];
-    if (value) {
-      env[key] = value;
-    }
-  }
-
-  return env;
-}
-
 function formatDuration(ms?: number): string {
   if (!ms) return '';
   if (ms < 1_000) return `${ms}ms`;
@@ -402,17 +389,21 @@ async function runCommand(
   cwd: string,
   timeoutMs: number
 ): Promise<CommandResult> {
+  const sandboxed = await wrapGeneratedProjectCommand(cwd, command, args);
   return new Promise((resolve) => {
     let output = '';
     let timedOut = false;
     let settled = false;
     let killTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const child = spawn(command, args, {
+    const child = spawn(sandboxed.command, sandboxed.args, {
       cwd,
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildGeneratedProjectEnv(cwd),
+      env: buildGeneratedProjectEnv(cwd, {
+        NODE_ENV: 'production',
+        NEXT_PRIVATE_BUILD_WORKER: '1',
+      }),
     });
 
     const append = (chunk: Buffer | string) => {
@@ -550,7 +541,14 @@ async function checkBuild(projectPath: string): Promise<Omit<QuantValidationChec
     };
   }
 
-  const result = await runCommand(npmCommand, ['run', 'build'], projectPath, BUILD_TIMEOUT_MS);
+  // Webpack avoids Turbopack's native helper escaping the PID/capability model
+  // used by the generated-project namespace sandbox.
+  const result = await runCommand(
+    npmCommand,
+    ['run', 'build', '--', '--webpack'],
+    projectPath,
+    BUILD_TIMEOUT_MS,
+  );
   if (result.exitCode === 0 && !result.timedOut) {
     return {
       status: 'passed',
@@ -1283,7 +1281,14 @@ async function checkArtifactPolicy(
     violations.push(...findRemotePolicyViolations(projectPath, filePath, content));
     violations.push(...findPatternPolicyViolations(projectPath, filePath, content, SENSITIVE_ARTIFACT_PATTERNS));
 
-    if (/^(?:app|components|src)\//.test(relativePath)) {
+    if (/^(?:app|components|hooks|lib|src)\//.test(relativePath)) {
+      violations.push(...findPatternPolicyViolations(projectPath, filePath, content, EXECUTION_ESCAPE_PATTERNS));
+      if (
+        relativePath !== 'app/api/market/[...path]/route.ts' &&
+        /\b(?:globalThis\s*\.\s*)?fetch\s*\(/i.test(content)
+      ) {
+        violations.push(`${relativePath} 存在非平台 market proxy 的网络请求 API。`);
+      }
       violations.push(...findPatternPolicyViolations(projectPath, filePath, content, MOCK_ARTIFACT_PATTERNS));
     }
   }
@@ -2022,7 +2027,7 @@ async function checkDashboardBinding(
 	        return {
 	          status: 'failed',
 	          summary: '持仓分析页面仍使用过重的顶部 hero 结构。',
-	          details: '持仓、调仓和截图账户类看板应直接从账户摘要、持仓矩阵或核心风险指标开始；VaR、样本口径和声明应放入指标卡、风险面板或底部说明，不要占据首屏顶部。',
+          details: '持仓、调仓和截图账户类看板应直接从账户摘要、持仓矩阵或核心风险指标开始；VaR、样本口径和声明应放入连续指标带、风险分区或底部说明，不要占据首屏顶部。',
 	        };
 	      }
 	    }
@@ -2324,6 +2329,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         ...common,
         '查看 .quantpilot/visual-validation.json 和 tmp/visual-checks 下的截图。',
         '修复桌面/移动端布局：首屏不能空白，不能横向溢出，文本不能互相遮挡。',
+        '把独立白色圆角卡片网格合并为连续金融工作台：主画布共用背景，以细分区线、连续指标带、主图、矩阵和表格建立层级；移除重复圆角、阴影和 card 套 card。',
         '移动端 390x844 首屏必须露出一个可用的核心图表、矩阵或表格；如果摘要区过高，压缩或下移次要指标、信源、模板说明和免责声明。',
         '技术分析页移动端优先顺序是：数据状态、标的与价格、K 线主图、成交量/信号；财务、公告、信源和场景模板放到下方。',
         '补齐真实金融语义和图表元素：K 线、成交量、财务趋势、持仓/风险或回测图表必须按任务展示。',
@@ -2704,6 +2710,7 @@ async function publishValidationSummary(
       requestId: params.requestId ?? undefined,
       metadata: {
         toolName: 'QuantPilot 自动验证',
+        isMissionIntermediate: true,
         validationStatus: report.status,
         reportPath: report.reportPath,
         checks: report.checks.map((check) => ({
@@ -2731,6 +2738,26 @@ export async function validateQuantProject(params: ValidateQuantProjectParams): 
   return withProjectValidationLock(params.projectId, () => validateQuantProjectUnlocked(params));
 }
 
+/**
+ * Apply every trusted, validation-owned workspace mutation before evidence is
+ * frozen. Checks may defensively repeat normalization, but those writes must be
+ * content-idempotent after this boundary.
+ */
+export async function prepareQuantProjectForValidation(
+  params: PrepareQuantProjectForValidationParams,
+): Promise<string> {
+  const projectPath = path.resolve(/*turbopackIgnore: true*/ params.projectPath);
+
+  await ensureQuantWorkspace(projectPath);
+  await waitForValidationArtifactsToSettle(projectPath);
+  await ensurePrefetchedFinalData(projectPath);
+  await scaffoldBasicNextApp(projectPath, params.projectId);
+  await normalizeGeneratedProjectForValidation(projectPath);
+  await waitForValidationArtifactsToSettle(projectPath);
+
+  return projectPath;
+}
+
 async function withProjectValidationLock<T>(
   projectId: string,
   task: () => Promise<T>
@@ -2755,14 +2782,9 @@ async function withProjectValidationLock<T>(
 }
 
 async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams): Promise<QuantValidationReport> {
-  const projectPath = path.resolve(/*turbopackIgnore: true*/ params.projectPath);
+  const projectPath = await prepareQuantProjectForValidation(params);
   const now = new Date().toISOString();
 
-  await ensureQuantWorkspace(projectPath);
-  await waitForValidationArtifactsToSettle(projectPath);
-  await ensurePrefetchedFinalData(projectPath);
-  await scaffoldBasicNextApp(projectPath, params.projectId);
-  await waitForValidationArtifactsToSettle(projectPath);
   await stopPreviewForValidation(params.projectId).catch((error) => {
     console.warn(
       '[QuantValidation] Failed to stop preview before validation build:',
@@ -2789,13 +2811,35 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
 
   const checks: QuantValidationCheck[] = [];
   try {
-    checks.push(await safeRunCheck('next_build', 'Next.js build', () => checkBuild(projectPath)));
-    checks.push(await safeRunCheck('preview_http_200', '预览 HTTP 200', () => checkPreviewHttp(params.projectId)));
-    checks.push(await safeRunCheck('visual_presentation', '视觉验收', () => checkVisualPresentation(projectPath, params.projectId, params.requestId)));
+    const artifactPolicy = await safeRunCheck(
+      'artifact_policy',
+      '生成产物策略',
+      () => checkArtifactPolicy(projectPath),
+    );
+    checks.push(artifactPolicy);
+    if (artifactPolicy.status !== 'failed') {
+      checks.push(await safeRunCheck('next_build', 'Next.js build', () => checkBuild(projectPath)));
+      checks.push(await safeRunCheck('preview_http_200', '预览 HTTP 200', () => checkPreviewHttp(params.projectId)));
+      checks.push(await safeRunCheck('visual_presentation', '视觉验收', () => checkVisualPresentation(projectPath, params.projectId, params.requestId)));
+    } else {
+      for (const [id, name] of [
+        ['next_build', 'Next.js build'],
+        ['preview_http_200', '预览 HTTP 200'],
+        ['visual_presentation', '视觉验收'],
+      ] as const) {
+        checks.push({
+          id,
+          name,
+          status: 'warning',
+          summary: '生成产物安全预检失败，已跳过可执行检查。',
+          details: '修复 artifact_policy 后才会执行生成代码。',
+          durationMs: 0,
+        });
+      }
+    }
     checks.push(await safeRunCheck('final_data_file', '最终数据文件', () => checkFinalDataFile(projectPath)));
     checks.push(await safeRunCheck('evidence_files', '数据证据文件', () => checkEvidenceFiles(projectPath)));
     checks.push(await safeRunCheck('artifact_contracts', '产物 Schema 契约', () => checkArtifactContracts(projectPath, params.projectId, params.requestId)));
-    checks.push(await safeRunCheck('artifact_policy', '生成产物策略', () => checkArtifactPolicy(projectPath)));
     checks.push(await safeRunCheck('dashboard_data_binding', '页面数据绑定', () => checkDashboardBinding(projectPath)));
     checks.push(await safeRunCheck('chart_presence', '金融图表存在性', () => checkChartPresence(projectPath)));
     checks.push(await safeRunCheck('market_proxy', '/api/market 代理', () => checkMarketProxy(projectPath, params.projectId)));
@@ -2838,8 +2882,10 @@ async function validateQuantProjectUnlocked(params: ValidateQuantProjectParams):
   streamManager.publish(params.projectId, {
     type: 'status',
     data: {
-      status: passed ? 'validation_passed' : 'validation_failed',
-      message: passed ? '自动验证通过，正在准备看板预览。' : '自动验证未通过，请查看验证摘要。',
+      status: passed ? 'validation_checks_passed' : 'validation_failed',
+      message: passed
+        ? '自动验证检查已通过，正在等待独立证据验收。'
+        : '自动验证未通过，请查看验证摘要。',
       requestId: params.requestId ?? undefined,
       metadata: {
         reportPath: VALIDATION_REPORT_RELATIVE_PATH,

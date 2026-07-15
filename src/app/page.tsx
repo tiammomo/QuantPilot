@@ -390,7 +390,7 @@ export default function HomePage() {
   const formatCliInfo = (cli?: string, model?: string) => {
     const normalizedCli = sanitizeAssistant(cli);
     const opt = ACTIVE_CLI_OPTIONS_MAP[normalizedCli];
-    const name = opt?.name ?? "DeepSeek Agent";
+    const name = opt?.name ?? "MoAgent";
     const modelId = normalizeModelForAssistant(normalizedCli, model);
     const label = getModelDisplayName(normalizedCli, modelId);
     return `${name} · ${label}`;
@@ -512,7 +512,7 @@ export default function HomePage() {
             const result = await uploadR.json();
             imageData.push({
               name: result.filename || image.name,
-              path: result.absolute_path,
+              path: result.path,
               public_url:
                 typeof result.public_url === "string"
                   ? result.public_url
