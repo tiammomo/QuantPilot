@@ -53,11 +53,18 @@ Claw Code 的 [README（固定提交）](https://github.com/ultraworkers/claw-co
 3. **精确 reference 注入**：场景模板与视觉判读按 Markdown section 选择并做 hash provenance，模型不再自行查找相对路径。生产默认预算从 16000/6000 字符收敛到 6000/4000 字符。
 4. **语义阶段与自适应推理**：空/stale 数据制品不会关闭取数工具；图片进入附件证据阶段；UI 生成默认 medium reasoning，数据与 repair 使用 high。
 
+### MoAgent 1.7：可信压缩、语义编辑与证据门已落地
+
+1. **Trusted ContextCapsule**：框架为每个内建工具注册浅层 canonical receipt projector，只接受固定 target/hash/bytes；additional tool 的 projector 被剥离。没有 projector 的执行只生成框架自有 outcome tombstone，不信任 raw payload 或其 target 声明；最近精确 tombstone 有固定上限，更旧操作进入 hash-chain rollup，因此副作用历史可被覆盖又不会形成上下文 DoS。历史工具簇只有在完整覆盖后才原子替换，写入会立即使旧 read receipt 失效。
+2. **Semantic Edit**：TS/TSX 顶层声明由 AST 定位，CSS rule 由 PostCSS 定位，所有编辑都带 before SHA-256 并复用 durable writer。声明种类、export/default/async/generator、var/let/const 身份和完整文件语法在写前校验；运行时 parser 已进入 production dependencies。
+3. **DashboardSpec 与最小工具面**：普通 prepared 生成先完成 renderer/data identity/precondition 预检，Provider 只见 compiler + submit 两个工具；明确视觉/布局定制走 4-tool query + semantic surface。compiler 对排名顺序、回测策略/交易明细、趋势/量能/风险和数据 run identity 失败关闭，已知必败任务不会先产生 tool failed。
+4. **可证明 E2E**：AgentRun 持久化 `moagent:1.7.0` 与 dirty-content-aware build revision；schema v4 发布门只接受真实 `/act -> Mission -> EvidenceVerifier -> accepted receipt` 报告，逐 run 校验 source lineage、终态、工具与 Token/cache 算术。accepted source 必须来自 `moagent_submit_result` 并证明 workspace write 与 `submit_result` 成功，平台兜底候选单独计为产品恢复，不能冒充 MoAgent 能力成绩。
+
 没有照搬的机制包括：通用 ToolSearch（当前预取 profile 只有约 6～7 个工具，检索本身反而有成本）、无界 subagent、并行 writer、completion replay、thinking/raw tool 数据持久化，以及本地 JSON/Markdown 权威状态。
 
 ## 审计结论
 
-早期固定审计从 Claw Code 吸收了请求边界、流建立前失败恢复和事件身份；扩展复核又把信息增益、缓存前缀、语义编辑、任务隔离与独立验收纳入比较。当前已实现 Observation Ledger、Prompt Prefix Ledger、阶段化工具面、原子 Skill Capsules、Mission Graph、EvidenceVerifier 和 generation active slot；完整阶段 fencing、跨轮 Trusted ContextCapsule 与 Semantic Edit 仍明确留在路线图，不能把审计建议写成现有能力。
+早期固定审计从 Claw Code 吸收了请求边界、流建立前失败恢复和事件身份；扩展复核又把信息增益、缓存前缀、语义编辑、任务隔离与独立验收纳入比较。当前已实现 Observation Ledger、Prompt Prefix Ledger、Trusted ContextCapsule、最小 prepared 工具面、Semantic Edit、DashboardSpec、原子 Skill Capsules、Mission Graph、EvidenceVerifier、generation active slot、typed writer durable pre-image journal 与真实 E2E 证据门。仍未完成的是贯穿全部平台 writer 的阶段 fencing/dispatcher、客户端事件补发和受限只读并行；typed workspace writer 可自动回滚，但 external/uncertain 操作仍必须阻断调和。
 
 | 主题 | 决策 | MoAgent 状态 |
 | --- | --- | --- |
@@ -67,10 +74,12 @@ Claw Code 的 [README（固定提交）](https://github.com/ultraworkers/claw-co
 | 公共事件投影 | MoAgent 安全收口 | `assistant_message` 与 `run_finished` 不暴露 hidden reasoning、raw cause 或完整内部 messages |
 | DeepSeek 流身份 | MoAgent 安全收口 | response 与 tool-call identity 采用严格状态校验，身份缺失或流中漂移时失败关闭 |
 | 产品入口上限 | MoAgent 安全收口 | instruction 与 requestId 在进入 Agent 前经过字节、长度与字符集校验 |
-| 上下文治理 | MoAgent P0 | 已接入确定性 Context Manager，保持 system/latest-user/tool-cluster 原子约束；Observation Ledger 消除无信息增益的重复读取 |
+| 上下文治理 | MoAgent P0 | Context Manager 保持 system/latest-user/active tool-cluster 原子约束；Trusted ContextCapsule 用框架 receipt 安全替换已完整覆盖的历史簇，Observation Ledger 消除重复读取 |
 | Prompt cache 诊断 | MoAgent 增强 | Prompt Prefix Ledger 区分 append-only、临时后缀轮换、压缩、system/history 前缀突变与工具面变化 |
-| 阶段工具面 | MoAgent 增强 | terminal 在首次写入后才暴露，读取收敛后移除 read schema；运行时权限检查保持独立 |
-| Durable ledger | MoAgent P0 | 已实现 PostgreSQL WorkspaceLease/Run/Event/Checkpoint/ToolExecution、双重 lease/fencing 与安全 projector |
+| 阶段工具面 | MoAgent 增强 | prepared standard/custom 由平台分流到 2/4 个最小工具；standard 预检后只运行 compiler + submit，custom 才开放定向 query + semantic edit |
+| 语义修改 | MoAgent 增强 | AST/CSS 定位、SHA-256 乐观并发、声明身份和完整语法校验复用 durable mutation fence |
+| 发布证据 | MoAgent 增强 | framework/build/git、真实 accepted receipt、case completeness 与 Token/cache 算术进入 E2E release gate |
+| Durable ledger | MoAgent P0 | 已实现 PostgreSQL WorkspaceLease/Run/Event/Checkpoint/ToolExecution、双重 lease/fencing、fsynced pre-image journal 与过期 operation 启动回滚 |
 | 通用 Bash 与 Shell hooks | 拒绝 | 不进入 Agent 工具面，也不能借 hook 提升权限 |
 | reasoning 持久化 | 拒绝 | hidden reasoning 仍只存在于当前内存循环 |
 | 宽松子 Agent | 拒绝 | 不开放无界任务、权限、上下文或并发的子 Agent |
@@ -165,18 +174,18 @@ PostgreSQL active slot 已阻止同项目的并发非终态 Mission，并以 gen
 ### P0：可靠上下文与可恢复执行
 
 1. **Context Manager（已实现）**：按输入预算压缩；assistant tool-call、reasoning 与对应 tool results 原子配对；保留全部 system、最新 user 和最近工具簇；输出结构化压缩元数据。
-2. **Durable run / checkpoint（代码路径已实现）**：数据库保存安全投影后的运行状态、稀疏事件、replan checkpoint、预算和终态；不保存 hidden reasoning。版本化 migration 与 catalog readiness 已实现；自动 recovery dispatcher 尚未实现。
-3. **工具执行门与双层提交锁（代码路径已实现）**：框架派生 operation ID，副作用前 `prepared`，只有首次创建 ledger 才授权执行；重复 operation 与 `prepared`/`commit_authorized`/`uncertain` 均不自动重放。文件写入从临时文件创建前开始持有共享文件系统资源锁；数据库短事务验证 workspace/run/operation fence 并消费一次性 `commit_authorized`，事务结束后资源锁继续覆盖目标 before-hash 复验和 rename。mutating failure 进入 `uncertain` 后立即终止当前 run，repository 同时禁止该 project 再 prepare 写操作。崩溃仍可能留下未确认 operation 或孤儿资源锁，因此继续阻断调和且不承诺 exactly-once。
+2. **Durable run / checkpoint（代码路径已实现）**：数据库保存安全投影后的运行状态、稀疏事件、replan checkpoint、预算和终态；不保存 hidden reasoning。版本化 migration 与 catalog readiness 已实现；启动审计会关闭无副作用旧 run，并调和具有可靠 journal 的 workspace write，但不会自动续跑 Provider 会话。
+3. **工具执行门、提交锁与 pre-image journal（代码路径已实现）**：框架派生 operation ID，副作用前 `prepared`，只有首次创建 ledger 才授权执行；重复 operation 不重放。typed writer 在共享资源锁内先持久化 staged 内容、pre-image、hash 和 manifest，消费一次性 `commit_authorized` 后把状态 fsync 为 committing，再逐目标 rename/fsync。进程内失败与重启审计共用全量 hash 预检回滚；prepared/commit-authorized 可确定性终结，部分 rename 不再永久污染工作区。用户后续修改、无 journal 的 authorized、external write 与 uncertain 仍失败关闭。
 4. **Project/workspace 独占 lease（代码路径已实现）**：deployment namespace + canonical realpath 形成不泄露路径的 workspace key；在资源锁内获取 lease 与创建 run，heartbeat/terminal release 同步更新 run/workspace 双层 fence，所有租约判断使用 PostgreSQL 权威时钟，过期 token 不能继续写数据库或消费提交授权。文件锁的自动化验收目前只覆盖本机进程，目标共享卷仍需多进程/多主机验收；外层 platform writer 也尚未纳入同一 durable generation coordinator。
 5. **Event journal 与游标查询（代码路径已实现；客户端 replay 未实现）**：安全投影后的 durable 事件支持 repository 游标读取和重复事件去重；内部工具事件仍含 raw arguments/result，只能给受信进程内消费者。SSE/WebSocket 断线按游标补发尚未接入，因此当前不能称为端到端 event replay。
 
-### P1：可信扩展面
+### P1：继续收口的可信扩展面
 
-1. **Trusted ContextCapsule + EvidenceIndex**：从任务合同、工具 receipt、artifact hash 和验证结果生成有上限、可重复合并的目标/决策/产物/失败/剩余工作索引；不让模型总结不可信原始工具输出，也不把 capsule 当数据库权威状态。
-2. **Node-scoped schema 继续收口（Skill 侧已实现）**：system 已只保留 Skill manifest，运行时按 phase/signal/hash/budget 注入原子 capsule 与选定 reference；剩余工作是让 Mission node 直接驱动更细粒度的工具 schema，而不是只依赖当前运行阶段切换。
-3. **Semantic Edit**：为 TypeScript/TSX/CSS 提供受路径策略和写栅栏保护的 AST/LSP 定位、编辑与诊断，减少整文件读取和脆弱文本替换。它必须复用现有 operation ledger，不能绕过 typed writer。
-4. **ModelProfile + BudgetReservation**：先只定义 DeepSeek profile，记录 context/output、reasoning replay、tool protocol、cache usage 与 estimator calibration；每次请求前预留最坏 input/cache-miss 预算，响应后再按实报调账。
-5. **Trusted typed middleware**：只允许经过注册的进程内 middleware 读取结构化上下文，并执行 deny、redact、annotate 或收紧预算；不能拼接 Shell、任意改写工具参数或扩大权限。
+Trusted ContextCapsule 与 Semantic Edit 已在 1.7 移出路线图。剩余工作是：
+
+1. **Node-scoped schema 继续收口（Skill 与 prepared surface 已实现一部分）**：system 已只保留 Skill manifest，运行时按 phase/signal/hash/budget 注入原子 capsule；prepared generation 已按 standard/custom 缩面。下一步让每个 Mission node 直接决定更细粒度的 schema 与数据 prerequisite，而不是依赖运行阶段和关键词分流。
+2. **ModelProfile + BudgetReservation**：DeepSeek usage 已在 provider 边界校验 total/cache/reasoning 算术，缺报按 prepared input 保守计费。下一步是把 estimator calibration 与“请求前预留、响应后调账”物化为独立持久预算对象，而不仅是累计硬门。
+3. **Trusted typed middleware**：只允许经过注册的进程内 middleware 读取结构化上下文，并执行 deny、redact、annotate 或收紧预算；不能拼接 Shell、任意改写工具参数或扩大权限。
 
 ### P2：有限并行与证据化报告
 
@@ -185,6 +194,6 @@ PostgreSQL active slot 已阻止同项目的并发非终态 Mission，并以 gen
 
 ## 验收边界
 
-本轮增强的验收覆盖：超限 instruction/requestId 在入口被拒绝；跨项目 requestId 在消息/状态/取消前被拒绝；超大 Provider 请求不会触发 `fetch`；瞬时错误仅在流前重试；Context Manager 保持工具簇原子并在受保护上下文超限时失败关闭；同参数 workspace 读取在未写入时只执行一次，参数键序变化不绕过指纹，成功写入后重新真实读取，实时 API 不复用；Prefix Ledger 区分 append-only、临时控制后缀轮换和 tool-set change，安全 projector 只保存哈希/长度；`submit_result` schema 在首次成功写入后才出现；每次物理执行生成新 UUID `runInstanceId`；事件 identity 单调且可去重；response/tool-call identity 漂移被拒绝；持久事件/checkpoint/receipt 不包含 hidden reasoning、raw arguments/result/cause；durable sink 在工具前失败时副作用为零；取消中的写操作先记录 uncertain 再终态；mutating outcome 不明时当前 run 立即停止且不能再 prepare 写；重复 operation 不执行；两个 Prisma client 的同项目/同 canonical workspace 数据库竞争互斥；worker 时钟漂移不改变数据库租约判断；本机资源锁串行化物理提交与 takeover，孤儿锁失败关闭；UI observer 失败不影响运行；`prepared`/`commit_authorized`/`uncertain` 写操作不会盲目重放。独立 PostgreSQL 契约套件目前包含 10 个并发/故障用例，并已接入 CI；目标共享卷验收、平台级跨实例 generation coordinator 和生产版本化迁移仍是发布前置条件。
+本轮增强的验收覆盖：超限 instruction/requestId 与 Provider 请求在网络前被拒绝；DeepSeek identity/usage 算术漂移失败关闭，缺失 usage 保守计入 input/cache miss；Context Manager 保持工具簇原子，内建 projector 生成详细 canonical receipt，第三方执行只留下框架 outcome tombstone，旧 tombstone 有界汇总为 hash-chain rollup；同参数 workspace 读取在未写入时只执行一次；standard/custom 工具面为 2/4；DashboardSpec 对数据 identity、排名、交易明细、趋势/量能/风险失败关闭；持久事件/checkpoint/receipt 不包含 hidden reasoning 或 raw tool payload；durable sink 在工具前失败时副作用为零；多文件写入中途故障、进程重启、部分 rename、目录 fsync、用户修改冲突与 terminal old run 均有 journal 回归；本机死亡锁接管具备排他 claim、owner inode 复验和替换锁竞态回归；两个 Prisma client 的数据库竞争、权威时钟和 takeover 仍有独立 PostgreSQL 契约。目标共享卷验收、平台级跨实例 generation coordinator 和生产迁移演练仍是发布前置条件。
 
 路线图项目只有在具备独立实现、故障测试、持久化迁移和产品接入后，才能从“规划”移动到“已实现”。

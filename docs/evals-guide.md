@@ -100,7 +100,16 @@ npm run benchmark:quant:contract -- --case stock-fundamental-maotai
 npm run benchmark:quant:e2e -- --case stock-diagnosis-citic-no-false-clarification
 ```
 
-`benchmark:quant` 是确定性契约模式的兼容别名。真实 E2E 报告会写入 `agentExecuted=true`，CI 不接受用契约报告冒充 E2E 报告。每份报告同时记录 commit、用例与 prompt 哈希、Skills lock 版本和实际执行模式。
+`benchmark:quant` 是确定性契约模式的兼容别名。当前契约套件即使 15/15
+通过，也只证明平台产物契约，不能充当真实 Agent 成绩。真实 E2E 必须走
+`/act -> Mission -> EvidenceVerifier -> accepted receipt` 产品链路，并逐 case
+记录 `cli=moagent`、AgentRun IDs、MoAgent 版本、build/git revision、turns、
+cache-miss input tokens 和异常 tool failures；缺少任一证明时 CI 会拒绝报告。
+当前报告合同为 schema v4：每个 case 还必须保存逐物理 run 的终态、usage 与
+安全 tool 计数，并证明 accepted receipt 的 `sourceRunId` 属于该 lineage、候选
+来源为 `moagent_submit_result`，且 source run 至少成功完成一次 workspace write
+和一次 `submit_result`。`workspace_recovery`、`platform_repair`、平台安全模板等
+兜底候选只证明产品恢复能力，不计入 MoAgent 能力 E2E。
 
 相关检查：
 
@@ -110,6 +119,15 @@ npm run check:eval-schedule
 npm run eval:ci
 npm run eval:ci:e2e
 ```
+
+E2E 门默认要求 `benchmarks/quantpilot/e2e-suite.json` 中的完整发布回归集，
+同时要求报告来自当前 checkout/build。默认效率阈值为每 case 最多 20 turns、
+120000 cache-miss input tokens，整套不允许 unexpected tool failure；可通过
+对应 CLI 参数或 `MOAGENT_E2E_*` 环境变量收紧，但不应将契约报告改名绕过。
+E2E runner 会先从 PostgreSQL 采集并验真 AgentRun/Mission lineage、写入报告，
+并保留该 case 的数据库证据与工作空间供随后 CI gate 核查；不会在报告生成前
+级联删除唯一证据。不同 case 不得复用 request、run、Mission、generation 或
+accepted receipt 身份，报告时间也不能位于允许时钟偏差之外的未来。
 
 ## 报告目录
 

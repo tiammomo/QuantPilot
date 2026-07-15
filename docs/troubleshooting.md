@@ -250,15 +250,15 @@ npm run package:skills
 
 `<workspace>/.moagent-workspace.lock/owner.json` 是 fail-closed 的物理写锁。它包含 `instanceId`、`hostname`、`pid`、`purpose`，以及适用时的 `projectId`、`requestId`、`runId`、`operationId`；容器环境应设置 `MOAGENT_INSTANCE_ID` 为可定位的 pod/instance ID。
 
-不要根据 `acquiredAt` 超时自动删锁，也不要只看到本机 PID 不存在就删除。按下面顺序处理：
+MoAgent 启动恢复会处理一个严格子集：`owner.json` 必须是 schema v2、`hostname` 与当前主机完全一致，且操作系统确认 PID 已不存在；框架会先原子隔离旧锁，再依据 durable mutation journal 和数据库 ledger 回滚 `prepared/commit_authorized` workspace write。它不会按 `acquiredAt` 猜测，也不会接管远端、存活、损坏或身份不明的 owner。其余情况按下面顺序处理：
 
 1. 暂停该 project 的新 generation，并 drain 所有可能挂载同一 workspace 的应用实例。
 2. 读取 `owner.json`，在对应 instance/host 确认进程与 run 已停止；如果实例不可达，按崩溃现场处理。
 3. 在 PostgreSQL 查询该 project/run 的 `agent_runs`、`agent_workspace_leases` 和 `agent_tool_executions`，重点检查 `prepared`、`commit_authorized`、`uncertain` 的 workspace/external write。
-4. 用 operation receipt、`pre_state_hash`、`post_state_hash` 和目标文件当前 SHA-256 判断副作用是否发生。无法证明时保持阻断，不要重放。
+4. 检查 `.moagent-mutation-journal`、operation receipt、before/after SHA-256 和目标当前 hash。用户后续修改冲突、`uncertain`、external write 或缺少可靠 journal 时保持阻断，不要重放。
 5. 只有确认没有存活 writer，且所有相关未决 operation 已通过受控人工流程完成调和后，才能移除孤儿锁目录并重新发起一个全新的 replan run。
 
-当前仓库还没有 reconciliation admin/worker，删除锁本身也不会清除数据库中的未决 ledger。因此这是一条人工应急路径，不是无人值守的生产恢复闭环；在该闭环和目标共享卷多主机验收完成前，不要让多个应用实例并发运行同一 project 的完整 generation pipeline。
+当前自动调和只覆盖 MoAgent typed workspace writer 的同主机死亡 owner 与 v1 journal。删除锁本身不会清除数据库中的未决 ledger；远端实例、external/uncertain operation 仍是人工应急路径。在目标共享卷多主机断电验收和平台级 generation coordinator 完成前，不要让多个应用实例并发运行同一 project 的完整 generation pipeline。
 
 ## 策略补数看起来卡住
 
