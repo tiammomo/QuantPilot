@@ -47,7 +47,7 @@ describe('MoAgent schema readiness', () => {
       issues: [],
     });
     expect(MOAGENT_SCHEMA_CONTRACT_VERSION).toBe(
-      '20260715000400_add_moagent_generation_epoch_slot'
+      '20260715000500_add_moagent_build_revision'
     );
   });
 

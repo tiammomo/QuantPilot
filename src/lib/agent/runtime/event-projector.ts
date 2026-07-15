@@ -274,6 +274,9 @@ function projectUsage(usage: MoAgentTokenUsage): RuntimeJsonObject {
     ...(usage.reasoningTokens === undefined
       ? {}
       : { reasoningTokens: usage.reasoningTokens }),
+    ...(usage.usageSource === undefined
+      ? {}
+      : { usageSource: usage.usageSource }),
   };
 }
 
@@ -411,6 +414,32 @@ export function projectMoAgentEvent(event: MoAgentEvent): RuntimeJsonObject | nu
         removedReasoningMessages: event.removedReasoningMessages,
         summarizedToolResults: event.summarizedToolResults,
         droppedGroups: event.droppedGroups,
+        ...(event.contextCapsule
+          ? {
+              contextCapsule: {
+                applied: event.contextCapsule.applied,
+                version: event.contextCapsule.version,
+                phase: event.contextCapsule.phase,
+                sha256: event.contextCapsule.sha256,
+                serializedUtf8Bytes: event.contextCapsule.serializedUtf8Bytes,
+                coveredToolCalls: event.contextCapsule.coveredToolCalls,
+                targetReferences: event.contextCapsule.targetReferences,
+                operationTombstones: event.contextCapsule.operationTombstones,
+                rolledUpOperationTombstones:
+                  event.contextCapsule.rolledUpOperationTombstones,
+                frameworkOutcomeTombstones:
+                  event.contextCapsule.frameworkOutcomeTombstones,
+                artifactReceipts: event.contextCapsule.artifactReceipts,
+                readReceipts: event.contextCapsule.readReceipts,
+                successfulWrites: event.contextCapsule.successfulWrites,
+                remainingFailures: event.contextCapsule.remainingFailures,
+                invalidatedReadReceipts: event.contextCapsule.invalidatedReadReceipts,
+                replacedToolCallClusters: event.contextCapsule.replacedToolCallClusters,
+                replacedMessages: event.contextCapsule.replacedMessages,
+                replacedPreviousCapsule: event.contextCapsule.replacedPreviousCapsule,
+              },
+            }
+          : {}),
       };
       break;
     case 'prompt_prepared':

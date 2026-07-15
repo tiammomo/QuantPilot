@@ -117,6 +117,36 @@ describe('compileMoAgentSkills', () => {
     })).rejects.toThrow('quant_extract_uploaded_image');
   });
 
+  it('accepts both prepared dashboard surfaces and rejects an incomplete mutation route', async () => {
+    const common = {
+      capabilityId: 'stock_diagnosis' as const,
+      requiredSkillIds: ['dashboard-visualization'],
+      phase: 'workspace-generation' as const,
+      maxSystemContextChars: 5_000,
+    };
+
+    await expect(compileMoAgentSkills({
+      ...common,
+      availableToolNames: [
+        'apply_dashboard_spec',
+        'submit_result',
+      ],
+    })).resolves.toMatchObject({ resolvedSkillIds: ['dashboard-visualization'] });
+    await expect(compileMoAgentSkills({
+      ...common,
+      availableToolNames: [
+        'query_json',
+        'query_text_file',
+        'semantic_edit',
+        'submit_result',
+      ],
+    })).resolves.toMatchObject({ resolvedSkillIds: ['dashboard-visualization'] });
+    await expect(compileMoAgentSkills({
+      ...common,
+      availableToolNames: ['query_json', 'submit_result'],
+    })).rejects.toThrow('至少需要一组完整替代工具');
+  });
+
   it('fails closed instead of cutting a runtime capsule mid-section', async () => {
     await expect(compileMoAgentSkills({
       capabilityId: 'technical_analysis',

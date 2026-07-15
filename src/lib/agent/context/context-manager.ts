@@ -6,6 +6,14 @@ import type {
   MoAgentToolDefinition,
   MoAgentToolMessage,
 } from '../types';
+import {
+  assertTrustedContextCapsule,
+  isTrustedContextCapsuleMessage,
+  MoAgentContextCapsuleError,
+  MoAgentContextCapsuleSession,
+  type MoAgentTrustedContextCapsuleCheckpoint,
+  type MoAgentTrustedContextCapsuleTelemetry,
+} from './trusted-context-capsule';
 
 const SUMMARY_VERSION = 1 as const;
 const TOOL_RESULT_PREVIEW_MAX_BYTES = 512;
@@ -29,6 +37,8 @@ export interface MoAgentContextManagerOptions {
    * available.
    */
   tokenEstimator?: MoAgentTokenEstimator;
+  /** Hard UTF-8 budget for the deterministic, framework-owned phase capsule. */
+  contextCapsuleMaxUtf8Bytes?: number;
 }
 
 export interface MoAgentContextEstimate {
@@ -70,6 +80,11 @@ export interface MoAgentContextCompactionMetadata {
     latestUserMessageIndex?: number;
     activeToolClusterMessageIndexes: number[];
   };
+  contextCapsule?: MoAgentTrustedContextCapsuleTelemetry;
+}
+
+export interface MoAgentContextPreparationOptions {
+  contextCapsule?: MoAgentTrustedContextCapsuleCheckpoint | null;
 }
 
 export interface MoAgentPreparedContext {
@@ -80,7 +95,9 @@ export interface MoAgentPreparedContext {
 
 export type MoAgentContextErrorCode =
   | 'CONTEXT_BUDGET_EXCEEDED'
+  | 'CONTEXT_CAPSULE_BUDGET_EXCEEDED'
   | 'INVALID_CONTEXT_CONFIGURATION'
+  | 'INVALID_CONTEXT_CAPSULE'
   | 'INVALID_CONTEXT_HISTORY'
   | 'TOKEN_ESTIMATION_FAILED';
 
@@ -405,6 +422,91 @@ function originalIndexes(group: ContextGroup): number[] {
   return group.entries.map((entry) => entry.originalIndex);
 }
 
+function contextCapsuleGroup(group: ContextGroup): boolean {
+  return group.kind === 'message' && group.entries.length === 1 &&
+    group.entries[0].message.role === 'system' &&
+    isTrustedContextCapsuleMessage(group.entries[0].message.content);
+}
+
+function toolCallIds(group: ContextGroup): string[] {
+  if (group.kind !== 'tool_call_cluster') return [];
+  const assistant = group.entries[0]?.message;
+  return assistant?.role === 'assistant'
+    ? (assistant.toolCalls ?? []).map((toolCall) => toolCall.id)
+    : [];
+}
+
+function applyTrustedContextCapsule(
+  groups: ContextGroup[],
+  checkpoint: MoAgentTrustedContextCapsuleCheckpoint,
+): {
+  groups: ContextGroup[];
+  telemetry?: MoAgentTrustedContextCapsuleTelemetry;
+  replacedGroups: ContextGroup[];
+} {
+  try {
+    assertTrustedContextCapsule(checkpoint);
+  } catch (error) {
+    if (error instanceof MoAgentContextCapsuleError) {
+      throw new MoAgentContextError(error.code, error.message, error.details);
+    }
+    throw error;
+  }
+  const activeToolGroup = [...groups]
+    .reverse()
+    .find((group) => group.kind === 'tool_call_cluster');
+  const coveredToolCallIds = new Set(checkpoint.coveredToolCallIds);
+  const previousCapsules = groups.filter(contextCapsuleGroup);
+  const replaceableToolGroups = groups.filter((group) => {
+    if (group === activeToolGroup || group.kind !== 'tool_call_cluster') return false;
+    const callIds = toolCallIds(group);
+    return callIds.length > 0 && callIds.every((callId) => coveredToolCallIds.has(callId));
+  });
+  const previousCapsuleAlreadyCurrent = previousCapsules.length === 1 &&
+    previousCapsules[0].entries[0].message.role === 'system' &&
+    previousCapsules[0].entries[0].message.content === checkpoint.content;
+  if (replaceableToolGroups.length === 0 && previousCapsuleAlreadyCurrent) {
+    return { groups, replacedGroups: [] };
+  }
+  // Even when only the active DeepSeek protocol atom is covered, install the
+  // framework capsule without replacing that atom. This permits its untrusted
+  // result body to be summarized under pressure while the trusted outcome fact
+  // remains available.
+
+  const removed = new Set([...previousCapsules, ...replaceableToolGroups]);
+  const retained = groups.filter((group) => !removed.has(group));
+  const capsuleGroup: ContextGroup = {
+    kind: 'message',
+    entries: [{
+      originalIndex: Math.max(
+        -1,
+        ...groups.flatMap((group) => originalIndexes(group)),
+      ) + 1,
+      message: { role: 'system', content: checkpoint.content },
+    }],
+    protected: true,
+    activeToolCluster: false,
+  };
+  const firstNonSystem = retained.findIndex((group) =>
+    group.entries.some((entry) => entry.message.role !== 'system'));
+  const insertionIndex = firstNonSystem < 0 ? retained.length : firstNonSystem;
+  retained.splice(insertionIndex, 0, capsuleGroup);
+  const replacedMessages = [...previousCapsules, ...replaceableToolGroups]
+    .reduce((count, group) => count + group.entries.length, 0);
+
+  return {
+    groups: retained,
+    replacedGroups: replaceableToolGroups,
+    telemetry: {
+      applied: true,
+      ...checkpoint.telemetry,
+      replacedToolCallClusters: replaceableToolGroups.length,
+      replacedMessages,
+      replacedPreviousCapsule: previousCapsules.length > 0,
+    },
+  };
+}
+
 export class MoAgentContextManager {
   private readonly options: Readonly<MoAgentContextManagerOptions>;
   private readonly tokenEstimator: MoAgentTokenEstimator;
@@ -414,6 +516,21 @@ export class MoAgentContextManager {
     requireInteger('contextWindowTokens', options.contextWindowTokens, 1);
     requireInteger('reservedOutputTokens', options.reservedOutputTokens, 0);
     requireInteger('maxInputTokens', options.maxInputTokens, 1);
+    if (
+      options.contextCapsuleMaxUtf8Bytes !== undefined &&
+      (!Number.isSafeInteger(options.contextCapsuleMaxUtf8Bytes) ||
+        options.contextCapsuleMaxUtf8Bytes < 256)
+    ) {
+      throw new MoAgentContextError(
+        'INVALID_CONTEXT_CONFIGURATION',
+        'contextCapsuleMaxUtf8Bytes must be a safe integer greater than or equal to 256',
+        {
+          field: 'contextCapsuleMaxUtf8Bytes',
+          value: options.contextCapsuleMaxUtf8Bytes,
+          minimum: 256,
+        },
+      );
+    }
     if (options.reservedOutputTokens >= options.contextWindowTokens) {
       throw new MoAgentContextError(
         'INVALID_CONTEXT_CONFIGURATION',
@@ -433,11 +550,27 @@ export class MoAgentContextManager {
     );
   }
 
+  createCapsuleSession(): MoAgentContextCapsuleSession {
+    return new MoAgentContextCapsuleSession({
+      maxUtf8Bytes: this.options.contextCapsuleMaxUtf8Bytes,
+    });
+  }
+
   prepare(
     messages: readonly MoAgentMessage[],
-    tools: readonly MoAgentToolDefinition[] = []
+    tools: readonly MoAgentToolDefinition[] = [],
+    preparation: MoAgentContextPreparationOptions = {},
   ): MoAgentPreparedContext {
     let groups = buildGroups(messages);
+    const originalInputTokens = this.estimate(flattenGroups(groups), tools);
+    let contextCapsuleTelemetry: MoAgentTrustedContextCapsuleTelemetry | undefined;
+    const capsuleReplacedGroups: ContextGroup[] = [];
+    if (preparation.contextCapsule) {
+      const applied = applyTrustedContextCapsule(groups, preparation.contextCapsule);
+      groups = applied.groups;
+      contextCapsuleTelemetry = applied.telemetry;
+      capsuleReplacedGroups.push(...applied.replacedGroups);
+    }
     const systemMessageIndexes = groups.flatMap((group) =>
       group.entries
         .filter((entry) => entry.message.role === 'system')
@@ -450,7 +583,6 @@ export class MoAgentContextManager {
     const activeToolGroup = [...groups]
       .reverse()
       .find((group) => group.kind === 'tool_call_cluster');
-
     for (const group of groups) {
       const containsSystem = group.entries.some((entry) => entry.message.role === 'system');
       const containsLatestUser = group.entries.some(
@@ -461,11 +593,17 @@ export class MoAgentContextManager {
     }
 
     const activeToolClusterMessageIndexes = activeToolGroup ? originalIndexes(activeToolGroup) : [];
-    const originalInputTokens = this.estimate(flattenGroups(groups), tools);
     let preparedInputTokens = originalInputTokens;
     const removedReasoning: MoAgentRemovedReasoningMetadata[] = [];
     const summarizedToolResults: MoAgentSummarizedToolResultMetadata[] = [];
-    const droppedGroups: MoAgentDroppedContextGroupMetadata[] = [];
+    const droppedGroups: MoAgentDroppedContextGroupMetadata[] = capsuleReplacedGroups.map(
+      (group) => ({
+        kind: group.kind,
+        messageIndexes: originalIndexes(group),
+        roles: group.entries.map((entry) => entry.message.role),
+      }),
+    );
+    preparedInputTokens = this.estimate(flattenGroups(groups), tools);
 
     if (preparedInputTokens > this.inputBudgetTokens) {
       reasoning: for (const group of groups) {
@@ -489,7 +627,7 @@ export class MoAgentContextManager {
 
     if (preparedInputTokens > this.inputBudgetTokens) {
       outer: for (const group of groups) {
-        if (group.activeToolCluster || group.kind !== 'tool_call_cluster') continue;
+        if (group.protected || group.kind !== 'tool_call_cluster') continue;
         for (const entry of group.entries) {
           if (entry.message.role !== 'tool' || isToolResultSummary(entry.message.content)) continue;
           const originalMessage = entry.message;
@@ -548,7 +686,8 @@ export class MoAgentContextManager {
       const activeResults = activeToolGroup.entries
         .filter(
           (entry): entry is ContextEntry & { message: MoAgentToolMessage } =>
-            entry.message.role === 'tool' && !isToolResultSummary(entry.message.content)
+            entry.message.role === 'tool' &&
+            !isToolResultSummary(entry.message.content)
         )
         .sort((left, right) => {
           const byteDifference = utf8Bytes(right.message.content) - utf8Bytes(left.message.content);
@@ -574,6 +713,7 @@ export class MoAgentContextManager {
     preparedInputTokens = this.estimate(preparedMessages, tools);
     const compaction: MoAgentContextCompactionMetadata = {
       applied:
+        contextCapsuleTelemetry?.applied === true ||
         removedReasoning.length > 0 ||
         summarizedToolResults.length > 0 ||
         droppedGroups.length > 0,
@@ -585,6 +725,7 @@ export class MoAgentContextManager {
         ...(latestUserMessageIndex !== undefined ? { latestUserMessageIndex } : {}),
         activeToolClusterMessageIndexes,
       },
+      ...(contextCapsuleTelemetry ? { contextCapsule: contextCapsuleTelemetry } : {}),
     };
     const estimate: MoAgentContextEstimate = {
       contextWindowTokens: this.options.contextWindowTokens,

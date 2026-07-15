@@ -536,6 +536,7 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
     assertBoundedIdentifier(input.provider, 'run.provider');
     assertBoundedIdentifier(input.model, 'run.model');
     assertBoundedIdentifier(input.frameworkVersion, 'run.frameworkVersion');
+    assertBoundedIdentifier(input.buildRevision, 'run.buildRevision');
     assertHash(input.profileHash, 'run.profileHash');
     assertHash(input.promptHash, 'run.promptHash');
     assertHash(input.toolHash, 'run.toolHash');
@@ -610,6 +611,7 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
             provider: input.provider,
             model: input.model,
             frameworkVersion: input.frameworkVersion,
+            buildRevision: input.buildRevision,
             profileHash: input.profileHash,
             promptHash: input.promptHash,
             toolHash: input.toolHash,
@@ -665,7 +667,18 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
       if (current.version !== input.expectedVersion) {
         throw new AgentRuntimeRepositoryError('CONFLICT', 'Agent run version changed.');
       }
-      if (!(ACTIVE_STATUSES as readonly string[]).includes(current.status)) {
+      const currentIsActive = (ACTIVE_STATUSES as readonly string[]).includes(current.status);
+      const terminalReconciliationAllowed = input.allowTerminalReconciliation === true &&
+        !currentIsActive &&
+        await tx.agentToolExecution.findFirst({
+          where: {
+            runId: current.id,
+            status: { in: UNRESOLVED_TOOL_STATUSES },
+            effect: { in: ['workspace_write', 'external_write'] },
+          },
+          select: { id: true },
+        }) !== null;
+      if (!currentIsActive && !terminalReconciliationAllowed) {
         throw new AgentRuntimeRepositoryError('INVALID_STATE', 'Terminal run cannot be leased.');
       }
       const workspaceLease = await acquireWorkspaceLease(tx, {
@@ -685,7 +698,9 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
         where: {
           id: input.runId,
           version: input.expectedVersion,
-          status: { in: [...ACTIVE_STATUSES] },
+          status: terminalReconciliationAllowed
+            ? current.status
+            : { in: [...ACTIVE_STATUSES] },
           OR: [
             { leaseOwner: null },
             { leaseExpiresAt: null },
@@ -701,6 +716,9 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
           version: { increment: 1 },
           status: current.status === 'pending' ? 'running' : 'reconciling',
           startedAt: current.startedAt ?? now,
+          ...(terminalReconciliationAllowed
+            ? { finishedAt: null, errorCode: null, errorMessage: null }
+            : {}),
         },
       });
       if (result.count !== 1) {
@@ -711,7 +729,10 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
         if (latest.version !== input.expectedVersion) {
           throw new AgentRuntimeRepositoryError('CONFLICT', 'Agent run version changed.');
         }
-        if (!(ACTIVE_STATUSES as readonly string[]).includes(latest.status)) {
+        if (
+          !(ACTIVE_STATUSES as readonly string[]).includes(latest.status) &&
+          !(terminalReconciliationAllowed && latest.status === current.status)
+        ) {
           throw new AgentRuntimeRepositoryError('INVALID_STATE', 'Terminal run cannot be leased.');
         }
         throw new AgentRuntimeRepositoryError('LEASE_LOST', 'Agent run lease is still active.');

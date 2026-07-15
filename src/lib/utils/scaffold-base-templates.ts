@@ -576,6 +576,10 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
   const summary = asRecord(backtest?.summary);
   const points = asArray(backtest?.equity_curve).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
   const trades = asArray(backtest?.trades).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  const tradeCount = numeric(summary?.trade_count) ?? 0;
+  const strategyId = String(backtest?.strategy_id ?? '').trim();
+  const strategyName = String(backtest?.strategy_name ?? '').trim();
+  const visibleTrades = trades.slice(-8).reverse();
   const equityPath = buildEquityPath(points);
 
   if (!backtest) {
@@ -588,17 +592,17 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
         <div>
           <h2>回测复盘</h2>
           <p>
-            {String(backtest.strategy_name ?? '均线突破')} · MA{String(backtest.fast_window ?? '-')} / MA{String(backtest.slow_window ?? '-')} · 费用 {formatNumber(backtest.fee_bps)} bps
+            {strategyName || strategyId || '策略名称缺失'}{strategyId ? '（' + strategyId + '）' : ''} · 参数窗口 {String(backtest.fast_window ?? '-')} / {String(backtest.slow_window ?? '-')} · 费用 {formatNumber(backtest.fee_bps)} bps
           </p>
         </div>
-        <span>{points.length} 个交易日</span>
+        <span>策略名称来源：回测数据 · {points.length} 个交易日</span>
       </div>
 
       <div className="metric-strip four-col backtest-metrics">
         <div className="metric-cell"><span className="metric-label">策略收益</span><span className={'metric-value ' + ((numeric(summary?.total_return_pct) ?? 0) >= 0 ? 'red' : 'green')}>{formatPercent(summary?.total_return_pct)}</span></div>
-        <div className="metric-cell"><span className="metric-label">标的收益</span><span className={'metric-value ' + ((numeric(summary?.benchmark_return_pct) ?? 0) >= 0 ? 'red' : 'green')}>{formatPercent(summary?.benchmark_return_pct)}</span></div>
         <div className="metric-cell"><span className="metric-label">最大回撤</span><span className="metric-value green">{formatPercent(summary?.max_drawdown_pct)}</span></div>
         <div className="metric-cell"><span className="metric-label">胜率</span><span className="metric-value">{formatPercent(summary?.win_rate_pct)}</span></div>
+        <div className="metric-cell"><span className="metric-label">已完成交易</span><span className="metric-value">{formatNumber(tradeCount, 0)} 笔</span></div>
       </div>
 
       <div className="backtest-grid">
@@ -621,13 +625,14 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
 
         <article className="data-panel">
           <h2>交易明细</h2>
+          <p className="panel-note">展示 {visibleTrades.length} / 共 {trades.length} 笔记录，其中 {formatNumber(tradeCount, 0)} 笔已完成。</p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr><th>买入</th><th>卖出</th><th>收益</th><th>天数</th></tr>
               </thead>
               <tbody>
-                {trades.slice(-8).reverse().map((trade, index) => (
+                {visibleTrades.map((trade, index) => (
                   <tr key={String(trade.entry_date ?? index)}>
                     <td>{String(trade.entry_date ?? '-')}</td>
                     <td>{String(trade.exit_date ?? trade.status ?? '-')}</td>
@@ -956,7 +961,7 @@ function SignalPanel({
   const ma20 = numeric(summary?.ma20 ?? computedMetrics?.ma20);
   const ma60 = numeric(summary?.ma60 ?? computedMetrics?.ma60);
   const volume = numeric(latestBar?.volume);
-  const avgVolume = numeric(computedMetrics?.avgVolume20d);
+  const avgVolume = numeric(computedMetrics?.avgVolume20d ?? summary?.avg_volume20 ?? summary?.avg_volume_20d);
   const maxDrawdown = numeric(summary?.max_drawdown_pct ?? computedMetrics?.maxDrawdown);
   const volatility = numeric(
     summary?.volatility_20d_annualized_pct ?? computedMetrics?.volatility20d

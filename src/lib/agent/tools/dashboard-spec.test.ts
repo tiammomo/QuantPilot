@@ -1,0 +1,789 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import type { MoAgentToolContext } from '@/lib/agent/types';
+import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+
+import { MoAgentToolError } from './errors';
+import {
+  __dashboardSpecTesting,
+  createApplyDashboardSpecTool,
+  isDashboardSpecCapabilitySupported,
+} from './dashboard-spec';
+
+const SINGLE_STOCK_COMPONENTS = [
+  '紧凑行情摘要',
+  'K 线与成交量主图',
+  '趋势/量能/风险信号',
+  '财务与公告摘要',
+  '信源质量',
+];
+
+const STOCK_SELECTION_COMPONENTS = [
+  '标的覆盖摘要',
+  '多标的指标矩阵',
+  '收益对比主图',
+  '回撤/波动主图',
+  '排序依据',
+  '信源追踪',
+];
+
+const BACKTEST_COMPONENTS = [
+  '策略参数',
+  '净值曲线',
+  '回撤指标',
+  '收益/胜率/交易次数',
+  '交易明细',
+  '限制说明',
+];
+
+const REJECTED_VARIANTS = [
+  ['single-stock-diagnosis', 'single-stock-fundamental-snapshot'],
+  ['technical-timing', 'technical-kline-trader'],
+  ['technical-timing', 'technical-breakout-watch'],
+  ['fundamental-research', 'fundamental-quality-scorecard'],
+  ['fundamental-research', 'fundamental-report-trend'],
+  ['stock-selection', 'selection-correlation-risk-map'],
+  ['stock-selection', 'selection-liquidity-trend-board'],
+  ['sector-rotation', 'sector-rotation-radar'],
+  ['sector-rotation', 'sector-capital-flow-board'],
+  ['strategy-research', 'strategy-hypothesis-canvas'],
+  ['strategy-research', 'strategy-signal-lab'],
+  ['backtest-review', 'backtest-trade-forensics'],
+  ['holding-analysis', 'portfolio-risk-console'],
+  ['holding-analysis', 'portfolio-rebalance-plan'],
+] as const;
+
+const KNOWN_TEMPLATE_IDS = [
+  'single-stock-diagnosis',
+  'technical-timing',
+  'fundamental-research',
+  'stock-selection',
+  'sector-rotation',
+  'strategy-research',
+  'backtest-review',
+  'holding-analysis',
+] as const;
+
+type JsonRecord = Record<string, unknown>;
+
+async function writeJson(filePath: string, value: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function runPlan(
+  templateId: string,
+  variantId: string,
+  panels: string[],
+): JsonRecord {
+  return {
+    runId: 'run-plan',
+    status: 'planned',
+    symbols: templateId === 'stock-selection'
+      ? ['600519', '600589']
+      : [templateId === 'backtest-review' ? '510300' : '600589'],
+    visualization: {
+      required: true,
+      templateId,
+      variantId,
+      panels,
+    },
+  };
+}
+
+function visualization(
+  templateId: string,
+  variantId: string,
+  requiredComponents: string[],
+): JsonRecord {
+  return {
+    template_id: templateId,
+    variant_id: variantId,
+    required_components: requiredComponents,
+    missing_components: [],
+  };
+}
+
+function stockSelectionData(): JsonRecord {
+  const assets = [
+    { symbol: '600519', name: '贵州茅台', source: 'eastmoney', quote: { symbol: '600519', price: 1512, source: 'eastmoney' } },
+    { symbol: '600589', name: '大位科技', source: 'eastmoney', quote: { symbol: '600589', price: 8.31, source: 'eastmoney' } },
+  ];
+  return {
+    runId: 'run-plan',
+    symbol: '600519',
+    requestedSymbols: ['600519', '600589'],
+    symbols: ['600519', '600589'],
+    assets,
+    comparison: {
+      rows: [
+        { symbol: '600519', period_return: 8.2, max_drawdown: -6.1, volatility20d: 17.3 },
+        { symbol: '600589', period_return: -2.4, max_drawdown: -12.8, volatility20d: 31.4 },
+      ],
+    },
+    selectionRanking: {
+      rows: [
+        { symbol: '600519', rank: 1, score: 82 },
+        { symbol: '600589', rank: 2, score: 61 },
+      ],
+    },
+    visualization: visualization(
+      'stock-selection',
+      'selection-ranking-matrix',
+      STOCK_SELECTION_COMPONENTS,
+    ),
+  };
+}
+
+function singleStockData(): JsonRecord {
+  return {
+    runId: 'run-plan',
+    symbol: '600589',
+    source: 'eastmoney',
+    quote: { symbol: '600589', price: 8.31, source: 'eastmoney' },
+    kline: {
+      symbol: '600589',
+      bars: Array.from({ length: 20 }, (_, index) => ({
+        date: `2026-06-${String(index + 1).padStart(2, '0')}`,
+        close: 8 + index / 100,
+        volume: 1_000_000 + index,
+      })),
+    },
+    computedMetrics: {
+      maxDrawdown: -8.5,
+      volatility20d: 24.1,
+      avgVolume20d: 1_000_009,
+      ma5: 8.17,
+      ma20: 8.095,
+    },
+    visualization: visualization(
+      'single-stock-diagnosis',
+      'single-stock-command-center',
+      SINGLE_STOCK_COMPONENTS,
+    ),
+  };
+}
+
+function backtestData(): JsonRecord {
+  return {
+    runId: 'run-plan',
+    symbol: '510300',
+    backtest: {
+      symbol: '510300',
+      strategy_id: 'ma_crossover',
+      strategy_name: '均线交叉趋势',
+      fast_window: 20,
+      slow_window: 60,
+      fee_bps: 5,
+      summary: {
+        total_return_pct: 12.3,
+        max_drawdown_pct: -7.2,
+        trade_count: 1,
+        win_rate_pct: 100,
+      },
+      equity_curve: [
+        { date: '2026-01-01', equity: 1 },
+        { date: '2026-01-02', equity: 1.01 },
+      ],
+      trades: [{ entry_date: '2026-01-01', exit_date: '2026-01-02', return_pct: 1 }],
+    },
+    visualization: visualization(
+      'backtest-review',
+      'backtest-performance-review',
+      BACKTEST_COMPONENTS,
+    ),
+  };
+}
+
+function capturedToolError(operation: () => unknown): MoAgentToolError {
+  try {
+    operation();
+  } catch (error) {
+    expect(error).toBeInstanceOf(MoAgentToolError);
+    return error as MoAgentToolError;
+  }
+  throw new Error('Expected operation to throw MoAgentToolError.');
+}
+
+describe('apply_dashboard_spec tool', () => {
+  let workspace: string;
+  let outside: string;
+  let commitCount: number;
+
+  beforeEach(async () => {
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-dashboard-spec-'));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-dashboard-outside-'));
+    commitCount = 0;
+    await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
+    await fs.writeFile(path.join(workspace, 'app', 'page.tsx'), 'export default function Page(){return null}\n');
+    await fs.writeFile(path.join(workspace, 'app', 'globals.css'), 'body{}\n');
+    await writeJson(
+      path.join(workspace, '.quantpilot', 'run_plan.json'),
+      runPlan('stock-selection', 'selection-ranking-matrix', STOCK_SELECTION_COMPONENTS),
+    );
+    await writeJson(
+      path.join(workspace, 'data_file', 'final', 'dashboard-data.json'),
+      stockSelectionData(),
+    );
+  });
+
+  afterEach(async () => {
+    await Promise.all([
+      fs.rm(workspace, { recursive: true, force: true }),
+      fs.rm(outside, { recursive: true, force: true }),
+    ]);
+  });
+
+  function context(withFence = true): MoAgentToolContext {
+    return {
+      runId: 'run-dashboard-spec',
+      turn: 1,
+      toolCallId: 'call-dashboard-spec',
+      operationId: 'op_dashboard_spec',
+      signal: new AbortController().signal,
+      ...(withFence
+        ? {
+            commitWorkspaceMutation: async <T>(commit: () => Promise<T>): Promise<T> => {
+              commitCount += 1;
+              return commit();
+            },
+          }
+        : {}),
+    };
+  }
+
+  it('compiles an exact authoritative capability into both artifacts under one commit fence', async () => {
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        spec: {
+          schemaVersion: 1,
+          templateId: 'stock-selection',
+          variantId: 'selection-ranking-matrix',
+          renderer: 'stock-selection',
+          requiredComponents: STOCK_SELECTION_COMPONENTS,
+          dataPrerequisites: [
+            'comparison_symbol_coverage',
+            'comparison_chart_metrics',
+            'selection_ranking',
+            'asset_source_evidence',
+          ],
+        },
+      },
+    });
+    expect(commitCount).toBe(1);
+    const [page, styles] = await Promise.all([
+      fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'),
+      fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8'),
+    ]);
+    expect(page).toContain('data-template="stock-selection"');
+    expect(page).toContain('data_file/final/dashboard-data.json');
+    expect(styles).toContain('.selection-shell');
+    expect(styles).toContain('.comparison-panel');
+  });
+
+  it('treats model template fields as assertions and fails before any write', async () => {
+    const originalPage = await fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8');
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(
+      tool.parseInput?.({ templateId: 'technical-timing' }) ?? {},
+      context(),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'DASHBOARD_SPEC_ASSERTION_FAILED' },
+    });
+    expect(commitCount).toBe(0);
+    await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
+      .resolves.toBe(originalPage);
+  });
+
+  it('requires status=planned before contract compilation', async () => {
+    await writeJson(path.join(workspace, '.quantpilot', 'run_plan.json'), {
+      ...runPlan('stock-selection', 'selection-ranking-matrix', STOCK_SELECTION_COMPONENTS),
+      status: 'ready',
+    });
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'DASHBOARD_SPEC_PLAN_NOT_READY' } });
+    expect(commitCount).toBe(0);
+  });
+
+  it('requires visualization.required=true in the run plan', async () => {
+    const plan = runPlan('stock-selection', 'selection-ranking-matrix', STOCK_SELECTION_COMPONENTS);
+    (plan.visualization as JsonRecord).required = false;
+    await writeJson(path.join(workspace, '.quantpilot', 'run_plan.json'), plan);
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'DASHBOARD_SPEC_VISUALIZATION_NOT_REQUIRED' },
+    });
+    expect(commitCount).toBe(0);
+  });
+
+  it('fails closed when run plan and final data disagree on identity', async () => {
+    const data = stockSelectionData();
+    data.visualization = visualization(
+      'holding-analysis',
+      'selection-ranking-matrix',
+      STOCK_SELECTION_COMPONENTS,
+    );
+    await writeJson(path.join(workspace, 'data_file', 'final', 'dashboard-data.json'), data);
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'DASHBOARD_SPEC_CONTRACT_MISMATCH' },
+    });
+    expect(commitCount).toBe(0);
+  });
+
+  it('compares plan and final component sets after normalization', () => {
+    const plan = runPlan(
+      'stock-selection',
+      'selection-ranking-matrix',
+      [...STOCK_SELECTION_COMPONENTS].reverse().map((component) => `  ${component}  `),
+    );
+    const spec = __dashboardSpecTesting.compileDashboardSpec(plan, stockSelectionData(), {});
+    expect(spec.requiredComponents).toEqual(STOCK_SELECTION_COMPONENTS);
+  });
+
+  it('renders every metric alias accepted by the stock-selection compiler', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan('stock-selection', 'selection-ranking-matrix', STOCK_SELECTION_COMPONENTS),
+      stockSelectionData(),
+      {},
+    );
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).toContain("['period_return', 'period_return_pct', 'return_120d_pct', 'return_120d']");
+    expect(page).toContain("['max_drawdown', 'max_drawdown_pct']");
+    expect(page).toContain("['volatility20d', 'volatility_20d_annualized_pct', 'volatility20d_pct']");
+    expect(page).toContain(".sort((left, right) => (numeric(left.rank)");
+  });
+
+  it.each([
+    {
+      name: 'duplicate ranks',
+      rows: [
+        { symbol: '600519', rank: 1, score: 82 },
+        { symbol: '600589', rank: 1, score: 61 },
+      ],
+    },
+    {
+      name: 'a non-contiguous rank sequence',
+      rows: [
+        { symbol: '600519', rank: 1, score: 82 },
+        { symbol: '600589', rank: 3, score: 61 },
+      ],
+    },
+    {
+      name: 'rows not ordered by ascending rank',
+      rows: [
+        { symbol: '600589', rank: 2, score: 61 },
+        { symbol: '600519', rank: 1, score: 82 },
+      ],
+    },
+    {
+      name: 'scores inconsistent with the recommended rank order',
+      rows: [
+        { symbol: '600519', rank: 1, score: 61 },
+        { symbol: '600589', rank: 2, score: 82 },
+      ],
+    },
+  ])('rejects $name before entering the workspace commit fence', async ({ rows }) => {
+    const data = stockSelectionData();
+    data.selectionRanking = { rows };
+    await writeJson(path.join(workspace, 'data_file', 'final', 'dashboard-data.json'), data);
+    const originalPage = await fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8');
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED' },
+    });
+    expect(commitCount).toBe(0);
+    await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
+      .resolves.toBe(originalPage);
+  });
+
+  it('rejects plan/final component drift with a stable code', () => {
+    const plan = runPlan(
+      'stock-selection',
+      'selection-ranking-matrix',
+      STOCK_SELECTION_COMPONENTS.slice(0, -1),
+    );
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(plan, stockSelectionData(), {});
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_COMPONENTS_MISMATCH');
+  });
+
+  it('rejects a matching but incomplete component set the renderer cannot satisfy', () => {
+    const components = STOCK_SELECTION_COMPONENTS.slice(0, -1);
+    const data = stockSelectionData();
+    data.visualization = visualization(
+      'stock-selection',
+      'selection-ranking-matrix',
+      components,
+    );
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('stock-selection', 'selection-ranking-matrix', components),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_COMPONENT_UNSUPPORTED');
+  });
+
+  it('rejects missing comparison data instead of generating zero-valued charts', () => {
+    const data = stockSelectionData();
+    data.comparison = { rows: [] };
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('stock-selection', 'selection-ranking-matrix', STOCK_SELECTION_COMPONENTS),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining([
+        expect.objectContaining({ id: 'comparison_symbol_coverage' }),
+        expect.objectContaining({ id: 'comparison_chart_metrics' }),
+      ]),
+    });
+  });
+
+  it('refuses a sector-rotation single target with no comparison dataset', async () => {
+    const components = ['板块代理说明', '相对强弱矩阵', '收益/回撤对比', '阶段排名变化', '能力边界'];
+    await writeJson(
+      path.join(workspace, '.quantpilot', 'run_plan.json'),
+      runPlan('sector-rotation', 'sector-rotation-radar', components),
+    );
+    await writeJson(path.join(workspace, 'data_file', 'final', 'dashboard-data.json'), {
+      assets: [{ symbol: '510300' }],
+      visualization: visualization('sector-rotation', 'sector-rotation-radar', components),
+    });
+    const originalPage = await fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8');
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'DASHBOARD_SPEC_VARIANT_UNSUPPORTED' },
+    });
+    expect(commitCount).toBe(0);
+    await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
+      .resolves.toBe(originalPage);
+  });
+
+  it('requires the durable workspace mutation fence', async () => {
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context(false));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'WORKSPACE_COMMIT_FENCE_REQUIRED' },
+    });
+    expect(commitCount).toBe(0);
+  });
+
+  it('denies a symlinked output directory without touching the target', async () => {
+    await fs.rm(path.join(workspace, 'app'), { recursive: true, force: true });
+    await fs.symlink(outside, path.join(workspace, 'app'));
+    const tool = createApplyDashboardSpecTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({}) ?? {}, context());
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SYMLINK_ESCAPE_DENIED' },
+    });
+    expect(commitCount).toBe(0);
+    await expect(fs.readdir(outside)).resolves.toEqual([]);
+  });
+});
+
+describe('dashboard renderer capability registry', () => {
+  it('provides the same fail-closed support decision to provider-surface routing', () => {
+    expect(isDashboardSpecCapabilitySupported(
+      'single-stock-diagnosis',
+      'single-stock-command-center',
+    )).toBe(true);
+    expect(isDashboardSpecCapabilitySupported(
+      'fundamental-research',
+      'fundamental-quality-scorecard',
+    )).toBe(false);
+    expect(isDashboardSpecCapabilitySupported('unknown', 'unknown')).toBe(false);
+    expect(isDashboardSpecCapabilitySupported('stock-selection', null)).toBe(false);
+  });
+
+  it('explicitly classifies every known template/variant pair', () => {
+    const matrix = __dashboardSpecTesting.capabilityMatrix.map((capability) => ({
+      templateId: capability.templateId,
+      variantId: capability.variantId,
+      supported: capability.supported,
+    }));
+    expect(matrix).toEqual([
+      { templateId: 'single-stock-diagnosis', variantId: 'single-stock-command-center', supported: true },
+      ...REJECTED_VARIANTS.slice(0, 5).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'stock-selection', variantId: 'selection-ranking-matrix', supported: true },
+      ...REJECTED_VARIANTS.slice(5, 11).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'backtest-review', variantId: 'backtest-performance-review', supported: true },
+      ...REJECTED_VARIANTS.slice(11).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+    ]);
+    const catalogIdentities = KNOWN_TEMPLATE_IDS.flatMap((templateId) => (
+      serializeQuantVisualizationTemplate(templateId).alternatives.map((variant) => ({
+        templateId,
+        variantId: variant.variantId,
+      }))
+    ));
+    expect(matrix.map(({ templateId, variantId }) => ({ templateId, variantId })))
+      .toEqual(catalogIdentities);
+  });
+
+  it.each(REJECTED_VARIANTS)(
+    'rejects known but unimplemented %s/%s before rendering',
+    (templateId, variantId) => {
+      const error = capturedToolError(() => {
+        __dashboardSpecTesting.compileDashboardSpec(
+          runPlan(templateId, variantId, ['component']),
+          { visualization: visualization(templateId, variantId, ['component']) },
+          {},
+        );
+      });
+      expect(error.code).toBe('DASHBOARD_SPEC_VARIANT_UNSUPPORTED');
+    },
+  );
+
+  it.each([
+    {
+      templateId: 'single-stock-diagnosis',
+      variantId: 'single-stock-command-center',
+      components: SINGLE_STOCK_COMPONENTS,
+      data: singleStockData(),
+      renderer: 'base',
+    },
+    {
+      templateId: 'stock-selection',
+      variantId: 'selection-ranking-matrix',
+      components: STOCK_SELECTION_COMPONENTS,
+      data: stockSelectionData(),
+      renderer: 'stock-selection',
+    },
+    {
+      templateId: 'backtest-review',
+      variantId: 'backtest-performance-review',
+      components: BACKTEST_COMPONENTS,
+      data: backtestData(),
+      renderer: 'base',
+    },
+  ])(
+    'compiles supported $templateId/$variantId only with its complete contract',
+    ({ templateId, variantId, components, data, renderer }) => {
+      expect(__dashboardSpecTesting.compileDashboardSpec(
+        runPlan(templateId, variantId, components),
+        data,
+        {},
+      )).toMatchObject({ templateId, variantId, renderer, requiredComponents: components });
+    },
+  );
+
+  it.each([
+    {
+      name: 'trend moving averages are absent even though risk metrics exist',
+      computedMetrics: {
+        maxDrawdown: -8.5,
+        volatility20d: 24.1,
+        avgVolume20d: 1_000_009,
+      },
+      missing: ['derived_trend_signals'],
+    },
+    {
+      name: 'average volume is absent even though trend and risk metrics exist',
+      computedMetrics: {
+        maxDrawdown: -8.5,
+        volatility20d: 24.1,
+        ma5: 8.17,
+        ma20: 8.095,
+      },
+      missing: ['derived_volume_signals'],
+    },
+    {
+      name: 'only drawdown and volatility are available',
+      computedMetrics: {
+        maxDrawdown: -8.5,
+        volatility20d: 24.1,
+      },
+      missing: ['derived_trend_signals', 'derived_volume_signals'],
+    },
+  ])('rejects single-stock false success when $name', ({ computedMetrics, missing }) => {
+    const data = { ...singleStockData(), computedMetrics };
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('single-stock-diagnosis', 'single-stock-command-center', SINGLE_STOCK_COMPONENTS),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining(missing.map((id) => expect.objectContaining({ id }))),
+    });
+  });
+
+  it.each([
+    {
+      name: 'trade_count is positive but trades is empty',
+      update: (backtest: JsonRecord) => ({ ...backtest, trades: [] }),
+      missingId: 'backtest_series_and_trades',
+    },
+    {
+      name: 'completed trade rows do not match trade_count',
+      update: (backtest: JsonRecord) => ({
+        ...backtest,
+        summary: { ...(backtest.summary as JsonRecord), trade_count: 2 },
+      }),
+      missingId: 'backtest_series_and_trades',
+    },
+    {
+      name: 'strategy_name source is absent while strategy_id remains',
+      update: (backtest: JsonRecord) => {
+        const { strategy_name: _strategyName, ...withoutStrategyName } = backtest;
+        return withoutStrategyName;
+      },
+      missingId: 'reproducible_backtest_parameters',
+    },
+  ])('rejects backtest false success when $name', ({ update, missingId }) => {
+    const data = backtestData();
+    data.backtest = update(data.backtest as JsonRecord);
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('backtest-review', 'backtest-performance-review', BACKTEST_COMPONENTS),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining([expect.objectContaining({ id: missingId })]),
+    });
+  });
+
+  it('accepts a zero-completed-trade backtest with an explicit empty trades array', () => {
+    const data = backtestData();
+    const backtest = data.backtest as JsonRecord;
+    data.backtest = {
+      ...backtest,
+      summary: { ...(backtest.summary as JsonRecord), trade_count: 0, win_rate_pct: null },
+      trades: [],
+    };
+    expect(__dashboardSpecTesting.compileDashboardSpec(
+      runPlan('backtest-review', 'backtest-performance-review', BACKTEST_COMPONENTS),
+      data,
+      {},
+    )).toMatchObject({ templateId: 'backtest-review' });
+  });
+
+  it('accepts the backend contract where trade_count counts closed trades and an open row remains', () => {
+    const data = backtestData();
+    const backtest = data.backtest as JsonRecord;
+    data.backtest = {
+      ...backtest,
+      summary: { ...(backtest.summary as JsonRecord), trade_count: 1 },
+      trades: [
+        { entry_date: '2026-01-01', exit_date: '2026-01-02', return_pct: 1, status: 'closed' },
+        { entry_date: '2026-01-03', status: 'open' },
+      ],
+    };
+    expect(__dashboardSpecTesting.compileDashboardSpec(
+      runPlan('backtest-review', 'backtest-performance-review', BACKTEST_COMPONENTS),
+      data,
+      {},
+    )).toMatchObject({ templateId: 'backtest-review' });
+  });
+
+  it('renders the explicit backtest strategy source and completed-trade display contract', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan('backtest-review', 'backtest-performance-review', BACKTEST_COMPONENTS),
+      backtestData(),
+      {},
+    );
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).not.toContain("strategy_name ?? '均线突破'");
+    expect(page).toContain("strategyName || strategyId || '策略名称缺失'");
+    expect(page).toContain('策略名称来源：回测数据');
+    expect(page).toContain('已完成交易');
+    expect(page).toContain('笔已完成');
+  });
+
+  it.each([
+    {
+      name: 'single-stock command center without K-line history',
+      templateId: 'single-stock-diagnosis',
+      variantId: 'single-stock-command-center',
+      components: SINGLE_STOCK_COMPONENTS,
+      data: { ...singleStockData(), kline: { symbol: '600589', bars: [] } },
+    },
+    {
+      name: 'selection matrix without ranking rows',
+      templateId: 'stock-selection',
+      variantId: 'selection-ranking-matrix',
+      components: STOCK_SELECTION_COMPONENTS,
+      data: { ...stockSelectionData(), selectionRanking: { rows: [] } },
+    },
+    {
+      name: 'backtest review without equity series',
+      templateId: 'backtest-review',
+      variantId: 'backtest-performance-review',
+      components: BACKTEST_COMPONENTS,
+      data: {
+        ...backtestData(),
+        backtest: { ...(backtestData().backtest as JsonRecord), equity_curve: [] },
+      },
+    },
+  ])('rejects $name', ({ templateId, variantId, components, data }) => {
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan(templateId, variantId, components),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+  });
+
+  it('uses stable errors for unknown template and variant identities', () => {
+    const unknownTemplate = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('unknown-template', 'unknown-variant', ['component']),
+        { visualization: visualization('unknown-template', 'unknown-variant', ['component']) },
+        {},
+      );
+    });
+    expect(unknownTemplate.code).toBe('DASHBOARD_SPEC_TEMPLATE_UNSUPPORTED');
+
+    const unknownVariant = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('stock-selection', 'future-variant', ['component']),
+        { visualization: visualization('stock-selection', 'future-variant', ['component']) },
+        {},
+      );
+    });
+    expect(unknownVariant.code).toBe('DASHBOARD_SPEC_VARIANT_UNSUPPORTED');
+  });
+});

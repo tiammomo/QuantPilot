@@ -188,6 +188,8 @@ function compileNodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
         'inspect_dashboard_contract',
         'query_json',
         'query_text_file',
+        'apply_dashboard_spec',
+        'semantic_edit',
         'write_file',
         'edit_file',
         'apply_patch',

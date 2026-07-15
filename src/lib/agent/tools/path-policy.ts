@@ -5,6 +5,7 @@ import { MoAgentToolError } from './errors';
 const PERMANENTLY_READ_ONLY_DIRECTORY = '.quantpilot';
 const FORBIDDEN_DIRECTORY_SEGMENTS = new Set([
   '.git',
+  '.moagent-mutation-journal',
   '.moagent-workspace.lock',
   '.next',
   '.quantpilot',
@@ -24,6 +25,7 @@ const SENSITIVE_READ_DIRECTORY_SEGMENTS = new Set([
   '.azure',
   '.git',
   '.gnupg',
+  '.moagent-mutation-journal',
   '.moagent-workspace.lock',
   '.ssh',
 ]);

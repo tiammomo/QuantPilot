@@ -11,6 +11,7 @@ import {
   createReadFileTool,
   createSearchFilesTool,
   createWriteFileTool,
+  writeMoAgentWorkspaceBatch,
 } from './filesystem';
 import { MoAgentWorkspacePolicy } from './path-policy';
 
@@ -23,9 +24,15 @@ const context: MoAgentToolContext = {
   commitWorkspaceMutation: (commit) => commit(),
 };
 
+let invocationSequence = 0;
+
 async function invoke(tool: MoAgentTool, input: unknown): Promise<MoAgentToolResult> {
   const parsed = tool.parseInput ? tool.parseInput(input) : input;
-  return tool.execute(parsed, context);
+  invocationSequence += 1;
+  return tool.execute(parsed, {
+    ...context,
+    operationId: `${context.operationId}_${invocationSequence}`,
+  });
 }
 
 describe('MoAgent typed filesystem tools', () => {
@@ -148,6 +155,25 @@ describe('MoAgent typed filesystem tools', () => {
     const listed = await invoke(createListFilesTool({ workspaceRoot: workspace }), { path: '.' });
     expect(listed).toMatchObject({ ok: true });
     if (listed.ok) expect(listed.content).not.toContain('.moagent-workspace.lock');
+  });
+
+  it('hides and protects durable workspace mutation journals', async () => {
+    const journalDirectory = path.join(workspace, '.moagent-mutation-journal');
+    await fs.mkdir(journalDirectory);
+    await fs.writeFile(path.join(journalDirectory, 'manifest.json'), '{"private":true}\n');
+    const policy = await MoAgentWorkspacePolicy.create({
+      workspaceRoot: workspace,
+      allowedWriteGlobs: ['**'],
+    });
+
+    await expect(policy.resolveReadPath('.moagent-mutation-journal/manifest.json'))
+      .rejects.toMatchObject({ code: 'SENSITIVE_READ_PATH_DENIED' });
+    await expect(policy.resolveWritePath('.moagent-mutation-journal/manifest.json'))
+      .rejects.toMatchObject({ code: 'SENSITIVE_PATH_DENIED' });
+
+    const listed = await invoke(createListFilesTool({ workspaceRoot: workspace }), { path: '.' });
+    expect(listed).toMatchObject({ ok: true });
+    if (listed.ok) expect(listed.content).not.toContain('.moagent-mutation-journal');
   });
 
   it('rejects read and write escapes through symbolic links', async () => {
@@ -299,6 +325,52 @@ describe('MoAgent typed filesystem tools', () => {
       path: 'components/alias/through-link.ts',
       content: 'export const unsafe = true;\n',
     })).resolves.toMatchObject({ ok: false, error: { code: 'SYMLINK_WRITE_DENIED' } });
+  });
+
+  it('rejects duplicate canonical targets in one fenced batch before commit', async () => {
+    const policy = await MoAgentWorkspacePolicy.create({ workspaceRoot: workspace });
+    let commits = 0;
+    await expect(writeMoAgentWorkspaceBatch({
+      policy,
+      files: [
+        { relativePath: 'app/batch.ts', content: Buffer.from('export const one = 1;\n') },
+        { relativePath: '/app/batch.ts', content: Buffer.from('export const two = 2;\n') },
+      ],
+      maxBytesPerFile: 10_000,
+      maxTotalBytes: 20_000,
+      signal: context.signal,
+      lockIdentity: { runId: context.runId, operationId: 'op_duplicate_batch' },
+      commitWorkspaceMutation: async (commit) => {
+        commits += 1;
+        return commit();
+      },
+    })).rejects.toMatchObject({ code: 'DUPLICATE_BATCH_TARGET' });
+    expect(commits).toBe(0);
+    await expect(fs.stat(path.join(workspace, 'app', 'batch.ts')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('revalidates every batch target before the first rename', async () => {
+    const policy = await MoAgentWorkspacePolicy.create({ workspaceRoot: workspace });
+    const pagePath = path.join(workspace, 'app', 'page.tsx');
+    await expect(writeMoAgentWorkspaceBatch({
+      policy,
+      files: [
+        { relativePath: 'app/page.tsx', content: Buffer.from('export default function Updated(){return null}\n') },
+        { relativePath: 'app/batch.css', content: Buffer.from('.batch{}\n') },
+      ],
+      maxBytesPerFile: 10_000,
+      maxTotalBytes: 20_000,
+      signal: context.signal,
+      lockIdentity: { runId: context.runId, operationId: 'op_raced_batch' },
+      commitWorkspaceMutation: async (commit) => {
+        await fs.writeFile(pagePath, 'raced writer\n', 'utf8');
+        return commit();
+      },
+    })).rejects.toMatchObject({ code: 'WORKSPACE_WRITE_CONFLICT' });
+    await expect(fs.readFile(pagePath, 'utf8')).resolves.toBe('raced writer\n');
+    await expect(fs.stat(path.join(workspace, 'app', 'batch.css')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('truncates model-visible output with an explicit MoAgent marker', async () => {

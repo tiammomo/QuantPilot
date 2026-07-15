@@ -2387,26 +2387,32 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
 }
 
 const REPAIR_SCOPE_BY_CHECK_ID: Record<string, readonly string[]> = {
-  next_build: ['app/**'],
-  preview_http_200: ['app/**'],
-  visual_presentation: ['app/**'],
+  next_build: ['app/page.tsx', 'app/globals.css'],
+  preview_http_200: ['app/page.tsx', 'app/globals.css'],
+  visual_presentation: ['app/page.tsx', 'app/globals.css'],
   final_data_file: ['data_file/final/**'],
   evidence_files: ['evidence/**'],
   artifact_contracts: ['data_file/final/**', 'evidence/**'],
-  artifact_policy: ['app/**'],
-  dashboard_data_binding: ['app/**', 'data_file/final/**'],
-  chart_presence: ['app/**'],
-  market_proxy: ['app/**'],
+  artifact_policy: ['app/page.tsx', 'app/globals.css'],
+  dashboard_data_binding: ['app/page.tsx', 'app/globals.css', 'data_file/final/**'],
+  chart_presence: ['app/page.tsx', 'app/globals.css'],
+  market_proxy: ['app/api/market/[...path]/route.ts'],
 };
 
 function repairWritablePaths(failedChecks: QuantValidationCheck[]): string[] {
   const paths = new Set<string>();
   for (const check of failedChecks) {
-    for (const writablePath of REPAIR_SCOPE_BY_CHECK_ID[check.id] ?? ['app/**']) {
+    for (const writablePath of REPAIR_SCOPE_BY_CHECK_ID[check.id] ?? []) {
       paths.add(writablePath);
     }
   }
-  const preferredOrder = ['app/**', 'data_file/final/**', 'evidence/**'];
+  const preferredOrder = [
+    'app/page.tsx',
+    'app/globals.css',
+    'app/api/market/[...path]/route.ts',
+    'data_file/final/**',
+    'evidence/**',
+  ];
   return [...paths].sort((left, right) => {
     const leftIndex = preferredOrder.indexOf(left);
     const rightIndex = preferredOrder.indexOf(right);

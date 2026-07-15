@@ -3,12 +3,14 @@
 The migration history starts with the application schema at Git revision
 `c641c00`, followed by the additive durable MoAgent runtime migration and the
 additive Mission Graph/evidence migration, and the cross-worker generation
-slot guard. None of these migrations contains a destructive reset:
+slot guard, followed by immutable AgentRun build provenance. None of these
+migrations contains a destructive reset:
 
 - `20260715000100_baseline_pre_moagent`
 - `20260715000200_add_moagent_runtime`
 - `20260715000300_add_moagent_mission_graph`
 - `20260715000400_add_moagent_generation_epoch_slot`
+- `20260715000500_add_moagent_build_revision`
 
 Do not use `prisma migrate reset`, `prisma db push --force-reset`, or execute the
 baseline SQL manually against a database that already contains QuantPilot data.
@@ -24,7 +26,7 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-All four migrations are applied in order.
+All five migrations are applied in order.
 
 ## Existing pre-MoAgent database
 
@@ -74,7 +76,8 @@ npx prisma migrate status
 ```
 
 This applies `20260715000300_add_moagent_mission_graph` and then
-`20260715000400_add_moagent_generation_epoch_slot`. If migration
+`20260715000400_add_moagent_generation_epoch_slot` and
+`20260715000500_add_moagent_build_revision`. If migration
 history claims the durable runtime migration is applied but any of its five
 tables or required constraints is missing, stop and repair the catalog with a
 reviewed roll-forward migration first.
@@ -84,14 +87,15 @@ reviewed roll-forward migration first.
 If all eight `agent_*` tables already exist because the current schema was
 previously pushed, run the read-only MoAgent schema readiness check from
 `src/lib/db/moagent-schema-readiness.ts`. Only when contract
-`20260715000400_add_moagent_generation_epoch_slot` returns `ready: true`,
-record all four migrations as already applied:
+`20260715000500_add_moagent_build_revision` returns `ready: true`, record all
+five migrations as already applied:
 
 ```bash
 npx prisma migrate resolve --applied 20260715000100_baseline_pre_moagent
 npx prisma migrate resolve --applied 20260715000200_add_moagent_runtime
 npx prisma migrate resolve --applied 20260715000300_add_moagent_mission_graph
 npx prisma migrate resolve --applied 20260715000400_add_moagent_generation_epoch_slot
+npx prisma migrate resolve --applied 20260715000500_add_moagent_build_revision
 npx prisma migrate status
 ```
 

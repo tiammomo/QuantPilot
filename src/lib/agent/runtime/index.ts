@@ -6,3 +6,4 @@ export * from './in-memory-repository';
 export * from './prisma-repository';
 export * from './event-projector';
 export * from './workspace-resource-lock';
+export * from './workspace-mutation-journal';

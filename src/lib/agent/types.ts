@@ -64,6 +64,8 @@ export interface MoAgentTokenUsage {
   cachedInputTokens?: number;
   cacheMissInputTokens?: number;
   reasoningTokens?: number;
+  /** Present when at least part of the usage had to be estimated locally. */
+  usageSource?: 'estimated' | 'cache_estimated' | 'mixed';
 }
 
 export type MoAgentFinishReason =
@@ -172,6 +174,18 @@ export interface MoAgentToolFailure {
   details?: unknown;
 }
 
+/**
+ * Bounded, canonical metadata a first-party tool may retain when its raw tool
+ * exchange is compacted. This is deliberately much narrower than a tool
+ * result: contents, summaries, queries, and arbitrary result fields are never
+ * eligible for trusted context.
+ */
+export interface MoAgentToolContextReceipt {
+  targetReferences: readonly string[];
+  artifactSha256?: string;
+  bytes?: number;
+}
+
 export type MoAgentToolResult<T = unknown> =
   | {
       ok: true;
@@ -197,6 +211,14 @@ export interface MoAgentTool<TInput = unknown, TOutput = unknown> {
   idempotency?: MoAgentToolIdempotency;
   /** Optional deterministic same-run read de-duplication policy. */
   observationCache?: MoAgentObservationCachePolicy;
+  /**
+   * Framework-owned, per-tool projector for bounded context receipts.
+   * Additional tools have this capability stripped by createMoAgentTools.
+   */
+  projectContextReceipt?(
+    input: TInput,
+    result: MoAgentToolResult<TOutput>
+  ): MoAgentToolContextReceipt | null;
   /** A successful call ends the run without another model request. */
   terminal?: boolean;
   /** Optional runtime validation/coercion after the engine parses JSON. */
@@ -361,6 +383,27 @@ export type MoAgentEvent =
       removedReasoningMessages: number;
       summarizedToolResults: number;
       droppedGroups: number;
+      /** Safe framework telemetry only; capsule target references and contents are excluded. */
+      contextCapsule?: {
+        applied: boolean;
+        version: number;
+        phase: 'writing' | 'submission';
+        sha256: string;
+        serializedUtf8Bytes: number;
+        coveredToolCalls: number;
+        targetReferences: number;
+        operationTombstones: number;
+        rolledUpOperationTombstones: number;
+        frameworkOutcomeTombstones: number;
+        artifactReceipts: number;
+        readReceipts: number;
+        successfulWrites: number;
+        remainingFailures: number;
+        invalidatedReadReceipts: number;
+        replacedToolCallClusters: number;
+        replacedMessages: number;
+        replacedPreviousCapsule: boolean;
+      };
     })
   | (MoAgentTurnEventBase & {
       type: 'prompt_prepared';

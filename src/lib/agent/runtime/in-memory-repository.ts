@@ -185,6 +185,7 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
     assertBoundedIdentifier(input.provider, 'run.provider');
     assertBoundedIdentifier(input.model, 'run.model');
     assertBoundedIdentifier(input.frameworkVersion, 'run.frameworkVersion');
+    assertBoundedIdentifier(input.buildRevision, 'run.buildRevision');
     assertHash(input.profileHash, 'run.profileHash');
     assertHash(input.promptHash, 'run.promptHash');
     assertHash(input.toolHash, 'run.toolHash');
@@ -242,6 +243,7 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
       provider: input.provider,
       model: input.model,
       frameworkVersion: input.frameworkVersion,
+      buildRevision: input.buildRevision,
       profileHash: input.profileHash,
       promptHash: input.promptHash,
       toolHash: input.toolHash,
@@ -297,7 +299,14 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
     if (run.version !== input.expectedVersion) {
       throw new AgentRuntimeRepositoryError('CONFLICT', 'Agent run version changed.');
     }
-    if (!ACTIVE_STATUSES.has(run.status)) {
+    const terminalReconciliationAllowed = input.allowTerminalReconciliation === true &&
+      !ACTIVE_STATUSES.has(run.status) &&
+      [...this.toolExecutions.values()].some((execution) =>
+        execution.runId === run.id &&
+        UNRESOLVED_TOOL_STATUSES.has(execution.status) &&
+        (execution.effect === 'workspace_write' || execution.effect === 'external_write')
+      );
+    if (!ACTIVE_STATUSES.has(run.status) && !terminalReconciliationAllowed) {
       throw new AgentRuntimeRepositoryError('INVALID_STATE', 'Terminal run cannot be leased.');
     }
     if (run.leaseExpiresAt && run.leaseExpiresAt > now) {
@@ -320,6 +329,11 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
     run.fencingToken += 1;
     run.workspaceFencingToken = workspaceLease.fencingToken;
     run.status = run.status === 'pending' ? 'running' : 'reconciling';
+    if (terminalReconciliationAllowed) {
+      run.finishedAt = null;
+      run.errorCode = null;
+      run.errorMessage = null;
+    }
     if (!run.startedAt) run.startedAt = new Date(now);
     this.bump(run, now);
     return cloneRun(run);

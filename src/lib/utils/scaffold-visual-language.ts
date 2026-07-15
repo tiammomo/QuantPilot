@@ -111,7 +111,9 @@ export function comparisonWorkbenchCss(): string {
 /* ==================== COMPARISON WORKBENCH CANVAS ==================== */
 
 .comparison-shell[data-visual-language="financial-workbench"] {
-  width: min(1440px, 100vw);
+  width: 100%;
+  max-width: 1440px;
+  min-width: 0;
   margin: 0 auto;
   padding: 0 28px 48px;
   border-inline: 1px solid var(--line);
@@ -119,7 +121,7 @@ export function comparisonWorkbenchCss(): string {
   --shadow-sm: none;
 }
 
-.comparison-shell[data-visual-language="financial-workbench"] .comparison-hero {
+.comparison-shell[data-visual-language="financial-workbench"] .comparison-header {
   padding: 20px 0 16px;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -128,7 +130,7 @@ export function comparisonWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.comparison-shell[data-visual-language="financial-workbench"] .leader-grid,
+.comparison-shell[data-visual-language="financial-workbench"] .comparison-metrics,
 .comparison-shell[data-visual-language="financial-workbench"] .chart-grid,
 .comparison-shell[data-visual-language="financial-workbench"] .comparison-two-column {
   gap: 0;
@@ -136,7 +138,7 @@ export function comparisonWorkbenchCss(): string {
   border-bottom: 1px solid var(--line);
 }
 
-.comparison-shell[data-visual-language="financial-workbench"] .leader-card,
+.comparison-shell[data-visual-language="financial-workbench"] .comparison-metrics > div,
 .comparison-shell[data-visual-language="financial-workbench"] .comparison-panel,
 .comparison-shell[data-visual-language="financial-workbench"] .comparison-matrix {
   margin: 0;
@@ -146,7 +148,7 @@ export function comparisonWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.comparison-shell[data-visual-language="financial-workbench"] .leader-grid > * + *,
+.comparison-shell[data-visual-language="financial-workbench"] .comparison-metrics > * + *,
 .comparison-shell[data-visual-language="financial-workbench"] .chart-grid > * + *,
 .comparison-shell[data-visual-language="financial-workbench"] .comparison-two-column > * + * {
   border-left: 1px solid var(--line);
@@ -162,12 +164,13 @@ export function comparisonWorkbenchCss(): string {
 
 @media (max-width: 900px) {
   .comparison-shell[data-visual-language="financial-workbench"] {
-    width: 100vw;
+    width: 100%;
+    max-width: 100%;
     padding: 0 12px 32px;
     border-inline: 0;
   }
 
-  .comparison-shell[data-visual-language="financial-workbench"] .leader-grid > * + *,
+  .comparison-shell[data-visual-language="financial-workbench"] .comparison-metrics > * + *,
   .comparison-shell[data-visual-language="financial-workbench"] .chart-grid > * + *,
   .comparison-shell[data-visual-language="financial-workbench"] .comparison-two-column > * + * {
     border-left: 0;
@@ -182,7 +185,9 @@ export function stockSelectionWorkbenchCss(): string {
 /* ==================== SELECTION WORKBENCH CANVAS ==================== */
 
 .selection-shell[data-visual-language="financial-workbench"] {
-  width: min(1440px, 100vw);
+  width: 100%;
+  max-width: 1440px;
+  min-width: 0;
   margin: 0 auto;
   padding: 0 28px 48px;
   border-inline: 1px solid var(--line);
@@ -190,7 +195,7 @@ export function stockSelectionWorkbenchCss(): string {
   --shadow-sm: none;
 }
 
-.selection-shell[data-visual-language="financial-workbench"] .selection-hero {
+.selection-shell[data-visual-language="financial-workbench"] .selection-header {
   padding: 20px 0 16px;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -199,17 +204,7 @@ export function stockSelectionWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.selection-shell[data-visual-language="financial-workbench"] .selection-hero aside {
-  padding: 0 0 0 20px;
-  border: 0;
-  border-left: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.selection-shell[data-visual-language="financial-workbench"] .summary-grid,
-.selection-shell[data-visual-language="financial-workbench"] .asset-grid,
+.selection-shell[data-visual-language="financial-workbench"] .selection-metrics,
 .selection-shell[data-visual-language="financial-workbench"] .chart-grid,
 .selection-shell[data-visual-language="financial-workbench"] .main-grid {
   gap: 0;
@@ -217,8 +212,7 @@ export function stockSelectionWorkbenchCss(): string {
   border-bottom: 1px solid var(--line);
 }
 
-.selection-shell[data-visual-language="financial-workbench"] .summary-grid article,
-.selection-shell[data-visual-language="financial-workbench"] .asset-card,
+.selection-shell[data-visual-language="financial-workbench"] .selection-metrics > div,
 .selection-shell[data-visual-language="financial-workbench"] .selection-panel {
   margin: 0;
   border: 0;
@@ -227,8 +221,7 @@ export function stockSelectionWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.selection-shell[data-visual-language="financial-workbench"] .summary-grid > * + *,
-.selection-shell[data-visual-language="financial-workbench"] .asset-grid > * + *,
+.selection-shell[data-visual-language="financial-workbench"] .selection-metrics > * + *,
 .selection-shell[data-visual-language="financial-workbench"] .chart-grid > * + *,
 .selection-shell[data-visual-language="financial-workbench"] .main-grid > * + * {
   border-left: 1px solid var(--line);
@@ -249,13 +242,12 @@ export function stockSelectionWorkbenchCss(): string {
 
 @media (max-width: 980px) {
   .selection-shell[data-visual-language="financial-workbench"] {
-    width: 100vw;
+    width: 100%;
+    max-width: 100%;
     padding: 0 12px 32px;
     border-inline: 0;
   }
 
-  .selection-shell[data-visual-language="financial-workbench"] .summary-grid > * + *,
-  .selection-shell[data-visual-language="financial-workbench"] .asset-grid > * + *,
   .selection-shell[data-visual-language="financial-workbench"] .chart-grid > * + *,
   .selection-shell[data-visual-language="financial-workbench"] .main-grid > * + * {
     border-left: 0;
@@ -277,7 +269,7 @@ export function holdingWorkbenchCss(): string {
   --shadow-sm: none;
 }
 
-.holding-shell[data-visual-language="financial-workbench"] .holding-hero {
+.holding-shell[data-visual-language="financial-workbench"] .holding-header {
   gap: 14px;
   padding: 20px 0 16px;
   border: 0;
@@ -287,19 +279,17 @@ export function holdingWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.holding-shell[data-visual-language="financial-workbench"] .hero-summary,
-.holding-shell[data-visual-language="financial-workbench"] .holding-grid,
+.holding-shell[data-visual-language="financial-workbench"] .portfolio-metrics,
 .holding-shell[data-visual-language="financial-workbench"] .holding-main-grid,
-.holding-shell[data-visual-language="financial-workbench"] .risk-grid {
+.holding-shell[data-visual-language="financial-workbench"] .risk-strip {
   gap: 0;
   margin: 0;
   border-bottom: 1px solid var(--line);
 }
 
-.holding-shell[data-visual-language="financial-workbench"] .hero-summary article,
-.holding-shell[data-visual-language="financial-workbench"] .holding-card,
+.holding-shell[data-visual-language="financial-workbench"] .portfolio-metrics > div,
 .holding-shell[data-visual-language="financial-workbench"] .holding-panel,
-.holding-shell[data-visual-language="financial-workbench"] .risk-grid article {
+.holding-shell[data-visual-language="financial-workbench"] .risk-strip > div {
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -307,10 +297,9 @@ export function holdingWorkbenchCss(): string {
   box-shadow: none;
 }
 
-.holding-shell[data-visual-language="financial-workbench"] .hero-summary > * + *,
-.holding-shell[data-visual-language="financial-workbench"] .holding-grid > * + *,
+.holding-shell[data-visual-language="financial-workbench"] .portfolio-metrics > * + *,
 .holding-shell[data-visual-language="financial-workbench"] .holding-main-grid > * + *,
-.holding-shell[data-visual-language="financial-workbench"] .risk-grid > * + * {
+.holding-shell[data-visual-language="financial-workbench"] .risk-strip > * + * {
   border-left: 1px solid var(--line);
 }
 
@@ -334,10 +323,7 @@ export function holdingWorkbenchCss(): string {
     border-inline: 0;
   }
 
-  .holding-shell[data-visual-language="financial-workbench"] .hero-summary > * + *,
-  .holding-shell[data-visual-language="financial-workbench"] .holding-grid > * + *,
-  .holding-shell[data-visual-language="financial-workbench"] .holding-main-grid > * + *,
-  .holding-shell[data-visual-language="financial-workbench"] .risk-grid > * + * {
+  .holding-shell[data-visual-language="financial-workbench"] .holding-main-grid > * + * {
     border-left: 0;
   }
 }

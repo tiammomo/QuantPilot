@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   failRun: vi.fn(),
   isRunCancelled: vi.fn(),
   createTools: vi.fn(),
+  createInspector: vi.fn(),
+  supportsCompiler: vi.fn(),
   compileSkills: vi.fn(),
   assessPreparedArtifacts: vi.fn(),
   buildUserPrompt: vi.fn(),
@@ -53,6 +55,9 @@ vi.mock('@/lib/agent/skills', () => ({
 
 vi.mock('@/lib/agent/tools', () => ({
   createMoAgentTools: mocks.createTools,
+  createInspectDashboardContractTool: mocks.createInspector,
+  isDashboardSpecCapabilitySupported: mocks.supportsCompiler,
+  MOAGENT_PREPARED_SOURCE_WRITE_GLOBS: ['app/page.tsx', 'app/globals.css'],
 }));
 
 vi.mock('@/lib/services/moagent-prompts', () => ({
@@ -170,9 +175,22 @@ describe('MoAgent terminal ownership', () => {
     mocks.durableInterrupt.mockResolvedValue(undefined);
     mocks.durableClose.mockResolvedValue(undefined);
     mocks.createTools.mockReturnValue([{ name: 'submit_result', terminal: true }]);
+    mocks.supportsCompiler.mockReturnValue(true);
+    mocks.createInspector.mockReturnValue({
+      name: 'inspect_dashboard_contract',
+      parseInput: vi.fn(() => ({})),
+      execute: vi.fn(async () => ({
+        ok: true,
+        data: {},
+        content: '{"schemaVersion":1,"mode":"inspected"}',
+      })),
+    });
     mocks.assessPreparedArtifacts.mockResolvedValue({
       ready: false,
       reasons: ['platform artifacts are not ready'],
+      dashboardSpecReady: false,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
     });
     mocks.buildUserPrompt.mockImplementation(({
       taskPacket,
@@ -194,7 +212,7 @@ describe('MoAgent terminal ownership', () => {
       status: 'failed',
       checks: [{ id: 'visual_presentation', status: 'failed' }],
     });
-    mocks.repairWritableGlobs.mockReturnValue(['app/**']);
+    mocks.repairWritableGlobs.mockReturnValue(['app/page.tsx', 'app/globals.css']);
     mocks.assertSchemaReady.mockResolvedValue({ ready: true, issues: [] });
     mocks.compileSkills.mockResolvedValue({
       systemContext: 'verified skill context',
@@ -542,7 +560,13 @@ describe('MoAgent terminal ownership', () => {
 
   it('uses the compact targeted profile when platform artifacts are already prepared', async () => {
     mocks.run.mockResolvedValue(result('completed'));
-    mocks.assessPreparedArtifacts.mockResolvedValue({ ready: true, reasons: [] });
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: true,
+      reasons: [],
+      dashboardSpecReady: true,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    });
     const runPlan = {
       status: 'planned',
       requestedCapabilityId: 'stock_diagnosis',
@@ -574,8 +598,11 @@ describe('MoAgent terminal ownership', () => {
       includeImageExtraction: false,
       includeQuantApi: false,
       targetedReadsOnly: true,
+      preparedSurface: 'custom',
+      includeDashboardSpec: false,
       maxOutputChars: 6_000,
     }));
+    expect(mocks.createInspector).toHaveBeenCalledTimes(1);
     expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
       maxTurns: 12,
       maxTotalToolCalls: 20,
@@ -594,6 +621,81 @@ describe('MoAgent terminal ownership', () => {
     }), expect.any(Object));
   });
 
+  it('routes an ordinary prepared generation through the compiler surface without source inspection', async () => {
+    mocks.run.mockResolvedValue(result('completed'));
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: true,
+      reasons: [],
+      dashboardSpecReady: true,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    });
+    mocks.readRunPlan.mockResolvedValue({
+      runId: 'plan-standard',
+      status: 'planned',
+      requestedCapabilityId: 'stock_diagnosis',
+      visualization: {
+        templateId: 'single-stock-diagnosis',
+        variantId: 'single-stock-command-center',
+        panels: ['行情快照', 'K线主图'],
+      },
+    });
+
+    await executeMoAgent(
+      'project-test',
+      workspace,
+      '生成贵州茅台个股诊断看板',
+      'deepseek-v4-flash',
+      'request-prepared-standard',
+    );
+
+    expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
+      preparedSurface: 'standard',
+      includeDashboardSpec: true,
+      includeSemanticEdit: true,
+    }));
+    expect(mocks.createInspector).not.toHaveBeenCalled();
+    expect(mocks.buildUserPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      initialDashboardContract: expect.stringContaining('trusted_dashboard_spec'),
+    }));
+  });
+
+  it('routes an uncertified prepared renderer directly to semantic edit without a failed compiler call', async () => {
+    mocks.run.mockResolvedValue(result('completed'));
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: true,
+      reasons: [],
+      dashboardSpecReady: false,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    });
+    mocks.supportsCompiler.mockReturnValue(false);
+    mocks.readRunPlan.mockResolvedValue({
+      runId: 'plan-fundamental',
+      status: 'planned',
+      requestedCapabilityId: 'fundamental_analysis',
+      visualization: {
+        templateId: 'fundamental-research',
+        variantId: 'fundamental-quality-scorecard',
+      },
+    });
+
+    await executeMoAgent(
+      'project-test',
+      workspace,
+      '生成贵州茅台基本面看板',
+      'deepseek-v4-flash',
+      'request-prepared-unsupported-renderer',
+    );
+
+    expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
+      preparedSurface: 'custom',
+      includeDashboardSpec: false,
+      includeSemanticEdit: true,
+    }));
+    expect(mocks.createInspector).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a planned run in data preparation when semantic artifacts are incomplete', async () => {
     mocks.run.mockResolvedValue(result('completed'));
     const runPlan = {
@@ -605,6 +707,9 @@ describe('MoAgent terminal ownership', () => {
     mocks.assessPreparedArtifacts.mockResolvedValue({
       ready: false,
       reasons: ['final data has no usable market payload'],
+      dashboardSpecReady: false,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
     });
 
     await executeMoAgent(
@@ -646,8 +751,11 @@ describe('MoAgent terminal ownership', () => {
 
     expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
       profile: 'repair',
-      profileAllowedWriteGlobs: [],
-      includeDefaultWriteGlobs: true,
+      profileAllowedWriteGlobs: [
+        'app/page.tsx',
+        'app/globals.css',
+      ],
+      includeDefaultWriteGlobs: false,
     }));
     expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'validation-repair',

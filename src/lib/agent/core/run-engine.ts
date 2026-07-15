@@ -19,11 +19,19 @@ import type {
   MoAgentTokenUsage,
   MoAgentTool,
   MoAgentToolCall,
+  MoAgentToolContextReceipt,
   MoAgentToolEffect,
   MoAgentToolIdempotency,
   MoAgentToolResult,
 } from '../types';
-import { MoAgentContextError, type MoAgentContextManager } from '../context';
+import {
+  collectTrustedContextTargetReferences,
+  MoAgentContextCapsuleError,
+  MoAgentContextError,
+  type MoAgentContextCapsulePhase,
+  type MoAgentContextCapsuleSession,
+  type MoAgentContextManager,
+} from '../context';
 import { createMoAgentOperationId } from './operation-id';
 import { parseMoAgentToolArguments } from './tool-arguments';
 import { mutationOutcomeRequiresReconciliation } from './tool-outcome';
@@ -54,8 +62,24 @@ const CONVERGENCE_REASON_ORDER: readonly MoAgentConvergenceReason[] = [
   'turn_limit',
 ];
 const MAX_TOOL_NAME_CHARS = 256;
+const MAX_TOOL_CALL_ID_CHARS = 512;
 const MAX_RUN_ID_CHARS = 256;
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+function validateProviderToolCallId(value: string): void {
+  if (!value.trim()) {
+    throw new Error('The model returned an empty tool-call ID.');
+  }
+  if (
+    value !== value.trim() ||
+    value.length > MAX_TOOL_CALL_ID_CHARS ||
+    /[\0-\x1f\x7f]/.test(value)
+  ) {
+    throw new Error(
+      `The model returned an invalid tool-call ID; IDs must be printable, trimmed, and at most ${MAX_TOOL_CALL_ID_CHARS} characters.`,
+    );
+  }
+}
 
 const EMPTY_USAGE: MoAgentTokenUsage = {
   inputTokens: 0,
@@ -112,7 +136,8 @@ export interface MoAgentRunEngineOptions {
   /** Per best-effort observer; defaults to five seconds. */
   observerTimeoutMs?: number;
   /** Optional deterministic context preparation before every provider request. */
-  contextManager?: Pick<MoAgentContextManager, 'prepare'>;
+  contextManager?: Pick<MoAgentContextManager, 'prepare'> &
+    Partial<Pick<MoAgentContextManager, 'createCapsuleSession'>>;
   /** Defaults to true when at least one registered tool is terminal. */
   requireTerminalTool?: boolean;
   idFactory?: () => string;
@@ -144,6 +169,8 @@ interface ToolExecution {
   result: MoAgentToolResult;
   terminal: boolean;
   durationMs: number;
+  targetReferences: string[];
+  contextReceipt?: MoAgentToolContextReceipt;
 }
 
 interface ToolExecutionPolicy {
@@ -155,6 +182,7 @@ interface ReadObservationRecord {
   toolCallId: string;
   turn: number;
   resultSha256: string;
+  targetReferences: string[];
 }
 
 interface PromptMessageFingerprint {
@@ -364,6 +392,7 @@ function reusedReadObservation(record: ReadObservationRecord): ToolExecution {
     },
     terminal: false,
     durationMs: 0,
+    targetReferences: [...record.targetReferences],
   };
 }
 
@@ -468,10 +497,72 @@ function addOptional(a: number | undefined, b: number | undefined): number | und
   return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
 }
 
+function normalizeModelUsage(value: MoAgentTokenUsage): MoAgentTokenUsage {
+  const required = [value.inputTokens, value.outputTokens, value.totalTokens];
+  if (required.some((item) => !Number.isSafeInteger(item) || item < 0)) {
+    throw new Error('The model provider returned invalid non-negative token usage.');
+  }
+  if (value.totalTokens !== value.inputTokens + value.outputTokens) {
+    throw new Error('The model provider returned inconsistent total token usage.');
+  }
+  if (
+    value.reasoningTokens !== undefined &&
+    (!Number.isSafeInteger(value.reasoningTokens) ||
+      value.reasoningTokens < 0 ||
+      value.reasoningTokens > value.outputTokens)
+  ) {
+    throw new Error('The model provider returned inconsistent reasoning token usage.');
+  }
+  let cachedInputTokens = value.cachedInputTokens;
+  let cacheMissInputTokens = value.cacheMissInputTokens;
+  let cacheEstimated = false;
+  if (cachedInputTokens === undefined && cacheMissInputTokens === undefined) {
+    cachedInputTokens = 0;
+    cacheMissInputTokens = value.inputTokens;
+    cacheEstimated = true;
+  } else if (cachedInputTokens === undefined && cacheMissInputTokens !== undefined) {
+    cachedInputTokens = value.inputTokens - cacheMissInputTokens;
+    cacheEstimated = true;
+  } else if (cachedInputTokens !== undefined && cacheMissInputTokens === undefined) {
+    cacheMissInputTokens = value.inputTokens - cachedInputTokens;
+    cacheEstimated = true;
+  }
+  if (
+    !Number.isSafeInteger(cachedInputTokens) || cachedInputTokens! < 0 ||
+    !Number.isSafeInteger(cacheMissInputTokens) || cacheMissInputTokens! < 0 ||
+    cachedInputTokens! + cacheMissInputTokens! !== value.inputTokens
+  ) {
+    throw new Error('The model provider returned inconsistent cache token usage.');
+  }
+  const usageSource = cacheEstimated
+    ? value.usageSource === 'estimated' || value.usageSource === 'mixed'
+      ? value.usageSource
+      : 'cache_estimated'
+    : value.usageSource;
+  return {
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+    totalTokens: value.totalTokens,
+    cachedInputTokens,
+    cacheMissInputTokens,
+    ...(value.reasoningTokens === undefined ? {} : { reasoningTokens: value.reasoningTokens }),
+    ...(usageSource === undefined ? {} : { usageSource }),
+  };
+}
+
 function addUsage(a: MoAgentTokenUsage, b: MoAgentTokenUsage): MoAgentTokenUsage {
   const cachedInputTokens = addOptional(a.cachedInputTokens, b.cachedInputTokens);
   const cacheMissInputTokens = addOptional(a.cacheMissInputTokens, b.cacheMissInputTokens);
   const reasoningTokens = addOptional(a.reasoningTokens, b.reasoningTokens);
+  const usageSource: MoAgentTokenUsage['usageSource'] = a.totalTokens === 0
+    ? b.usageSource
+    : b.totalTokens === 0
+      ? a.usageSource
+      : a.usageSource === undefined && b.usageSource === undefined
+        ? undefined
+        : a.usageSource !== undefined && a.usageSource === b.usageSource
+          ? a.usageSource
+          : 'mixed';
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
@@ -479,6 +570,7 @@ function addUsage(a: MoAgentTokenUsage, b: MoAgentTokenUsage): MoAgentTokenUsage
     ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
     ...(cacheMissInputTokens === undefined ? {} : { cacheMissInputTokens }),
     ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+    ...(usageSource === undefined ? {} : { usageSource }),
   };
 }
 
@@ -528,6 +620,7 @@ function subtractUsage(a: MoAgentTokenUsage, b: MoAgentTokenUsage): MoAgentToken
     ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
     ...(cacheMissInputTokens === undefined ? {} : { cacheMissInputTokens }),
     ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+    ...(a.usageSource === undefined ? {} : { usageSource: a.usageSource }),
   };
 }
 
@@ -678,6 +771,9 @@ const TOOL_INPUT_ALIASES: Readonly<Record<string, readonly string[]>> = {
   newText: ['new_text', 'after', 'replacement'],
   startLine: ['start_line', 'lineStart', 'line_start'],
   endLine: ['end_line', 'lineEnd', 'line_end'],
+  beforeSha256: ['before_sha256', 'sha256'],
+  templateId: ['template_id'],
+  variantId: ['variant_id'],
   maxMatchesPerAnchor: ['maxMatchesPerQuery', 'max_matches_per_anchor'],
   artifacts: ['files', 'changedFiles', 'changed_files'],
   summary: ['resultSummary', 'result_summary'],
@@ -883,6 +979,23 @@ function serializeToolResult(result: MoAgentToolResult): string {
       });
 }
 
+function contextCapsulePhase(options: {
+  successfulWorkspaceWrites: number;
+  successfulExternalWrites: number;
+  readToolsDisabled: boolean;
+  remainingTurns: number;
+  remainingToolCalls: number;
+}): MoAgentContextCapsulePhase {
+  if (options.successfulWorkspaceWrites === 0 && options.successfulExternalWrites === 0) {
+    return 'exploration';
+  }
+  return options.readToolsDisabled ||
+    options.remainingTurns <= TURN_LIMIT_CONVERGENCE_WINDOW ||
+    options.remainingToolCalls <= TOOL_LIMIT_CONVERGENCE_WINDOW
+    ? 'submission'
+    : 'writing';
+}
+
 function runError(code: string, message: string, cause?: unknown): MoAgentRunError {
   return { code, message, ...(cause === undefined ? {} : { cause }) };
 }
@@ -919,11 +1032,65 @@ function statusForFinishReason(reason: MoAgentFinishReason): {
 }
 
 function toolExecutionPolicy(tool: MoAgentTool | undefined): ToolExecutionPolicy {
-  const effect: MoAgentToolEffect = tool?.effect ?? (tool?.terminal ? 'pure' : 'external_write');
+  const effect: MoAgentToolEffect = tool?.effect ?? 'external_write';
   const idempotency: MoAgentToolIdempotency =
     tool?.idempotency ??
     (effect === 'pure' || effect === 'read' ? 'intrinsic' : 'reconcile_required');
   return { effect, idempotency };
+}
+
+function projectToolContextReceipt(
+  tool: MoAgentTool,
+  input: unknown,
+  result: MoAgentToolResult,
+): MoAgentToolContextReceipt | undefined {
+  if (!tool.projectContextReceipt) return undefined;
+  try {
+    const projected = tool.projectContextReceipt(input, result);
+    if (!projected) return undefined;
+    const targetReferences = collectTrustedContextTargetReferences({
+      paths: projected.targetReferences,
+    });
+    const artifactSha256 = typeof projected.artifactSha256 === 'string' &&
+      /^[a-f0-9]{64}$/.test(projected.artifactSha256)
+      ? projected.artifactSha256
+      : undefined;
+    const bytes = typeof projected.bytes === 'number' &&
+      Number.isSafeInteger(projected.bytes) && projected.bytes >= 0
+      ? projected.bytes
+      : undefined;
+    return {
+      targetReferences,
+      ...(artifactSha256 ? { artifactSha256 } : {}),
+      ...(bytes === undefined ? {} : { bytes }),
+    };
+  } catch {
+    // Receipt projection is a compression optimisation, never part of the
+    // tool correctness path. Preserve the original tool exchange on failure.
+    return undefined;
+  }
+}
+
+function canonicalCapsuleResult(
+  result: MoAgentToolResult,
+  receipt: MoAgentToolContextReceipt,
+): MoAgentToolResult {
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: {
+        code: result.error.code,
+        message: 'A first-party tool failure is represented by its canonical code only.',
+      },
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      ...(receipt.artifactSha256 ? { sha256: receipt.artifactSha256 } : {}),
+      ...(receipt.bytes === undefined ? {} : { bytes: receipt.bytes }),
+    },
+  };
 }
 
 function normalizeEventHandlers(
@@ -972,7 +1139,8 @@ export class MoAgentRunEngine {
   private readonly eventHandlerTimeoutMs: number;
   private readonly criticalDrainTimeoutMs: number;
   private readonly observerTimeoutMs: number;
-  private readonly contextManager?: Pick<MoAgentContextManager, 'prepare'>;
+  private readonly contextManager?: Pick<MoAgentContextManager, 'prepare'> &
+    Partial<Pick<MoAgentContextManager, 'createCapsuleSession'>>;
   private readonly requireTerminalTool: boolean;
   private readonly idFactory: () => string;
   private readonly now: () => number;
@@ -1180,12 +1348,15 @@ export class MoAgentRunEngine {
     let usage = { ...EMPTY_USAGE };
     let eventSequence = 0;
     let successfulWorkspaceWrites = 0;
+    let successfulExternalWrites = 0;
     let consecutiveReadOnlyTurns = 0;
     let readToolsDisabled = false;
     let convergenceToolPolicyViolationTurns = 0;
     let workspaceWriteCorrectionPending = false;
     let repeatedReadObservationPending = false;
     const readObservations = new Map<string, ReadObservationRecord>();
+    const contextCapsuleSession: MoAgentContextCapsuleSession | undefined =
+      this.contextManager?.createCapsuleSession?.();
     let previousPromptPrefix: PromptPrefixSnapshot | null = null;
     const activeConvergenceReasons = new Set<MoAgentConvergenceReason>();
     const terminalToolNames = this.tools
@@ -1361,7 +1532,7 @@ export class MoAgentRunEngine {
         let finishReason: MoAgentFinishReason = 'other';
         let sawFinish = false;
         let sawUsage = false;
-        let turnUsage = { ...EMPTY_USAGE };
+        let turnUsage: MoAgentTokenUsage = { ...EMPTY_USAGE };
         const toolCallsByIndex = new Map<number, MutableToolCall>();
         const remainingTokens = limits.maxTokens - usage.outputTokens;
         const turnOutputTokens = Math.min(remainingTokens, this.maxTokensPerTurn);
@@ -1386,12 +1557,25 @@ export class MoAgentRunEngine {
             : phaseToolDefinitions;
         let providerMessages: readonly MoAgentMessage[] = messages;
         let contextCompactionApplied = false;
+        let preparedInputTokensForTurn: number | undefined;
 
         if (this.contextManager) {
           // Prepare only canonical messages. If the request-local user control
           // were included here, it would become the "latest user" message and
           // could cause the actual user task to lose compaction protection.
-          const prepared = this.contextManager.prepare(messages, turnToolDefinitions);
+          const phaseCheckpoint = contextCapsuleSession?.checkpoint(contextCapsulePhase({
+            successfulWorkspaceWrites,
+            successfulExternalWrites,
+            readToolsDisabled,
+            remainingTurns,
+            remainingToolCalls,
+          }));
+          const prepared = this.contextManager.prepare(
+            messages,
+            turnToolDefinitions,
+            phaseCheckpoint ? { contextCapsule: phaseCheckpoint } : {},
+          );
+          preparedInputTokensForTurn = prepared.estimate.preparedInputTokens;
           providerMessages = prepared.messages;
           contextCompactionApplied = prepared.compaction.applied;
           if (prepared.compaction.applied) {
@@ -1405,6 +1589,9 @@ export class MoAgentRunEngine {
               removedReasoningMessages: prepared.compaction.removedReasoning.length,
               summarizedToolResults: prepared.compaction.summarizedToolResults.length,
               droppedGroups: prepared.compaction.droppedGroups.length,
+              ...(prepared.compaction.contextCapsule
+                ? { contextCapsule: prepared.compaction.contextCapsule }
+                : {}),
             });
           }
         }
@@ -1422,6 +1609,10 @@ export class MoAgentRunEngine {
           compactionApplied: contextCompactionApplied,
           requestLocalControlSuffix: ephemeralConvergenceDirective !== undefined,
         });
+        // Without a configured tokenizer, one token per serialized UTF-8 byte
+        // is intentionally conservative. It prevents a provider that omits
+        // usage from bypassing cumulative input and cache-miss budgets.
+        preparedInputTokensForTurn ??= Math.max(1, prefixReport.requestUtf8Bytes);
         previousPromptPrefix = {
           messageFingerprints: prefixReport.messageFingerprints,
           toolsSha256: prefixReport.toolsSha256,
@@ -1536,9 +1727,7 @@ export class MoAgentRunEngine {
                 };
               }
               if (modelEvent.id !== undefined) {
-                if (!modelEvent.id.trim()) {
-                  throw new Error('The model returned an empty tool-call ID.');
-                }
+                validateProviderToolCallId(modelEvent.id);
                 if (current.id !== undefined && current.id !== modelEvent.id) {
                   throw new Error(
                     `The model changed the tool-call ID for index ${modelEvent.index}.`
@@ -1573,12 +1762,15 @@ export class MoAgentRunEngine {
             }
             case 'usage':
               sawUsage = true;
-              usage = addUsage(subtractUsage(usage, turnUsage), modelEvent.usage);
-              turnUsage = { ...modelEvent.usage };
+              {
+                const normalizedUsage = normalizeModelUsage(modelEvent.usage);
+                usage = addUsage(subtractUsage(usage, turnUsage), normalizedUsage);
+                turnUsage = normalizedUsage;
+              }
               yield event({
                 type: 'usage',
                 turn,
-                usage: { ...modelEvent.usage },
+                usage: { ...turnUsage },
                 totalUsage: { ...usage },
               });
               break;
@@ -1616,9 +1808,12 @@ export class MoAgentRunEngine {
         if (!sawUsage) {
           const estimatedOutputTokens = estimateOutputTokens(text, reasoningContent, toolCalls);
           turnUsage = {
-            inputTokens: 0,
+            inputTokens: preparedInputTokensForTurn,
             outputTokens: estimatedOutputTokens,
-            totalTokens: estimatedOutputTokens,
+            totalTokens: preparedInputTokensForTurn + estimatedOutputTokens,
+            cachedInputTokens: 0,
+            cacheMissInputTokens: preparedInputTokensForTurn,
+            usageSource: 'estimated',
           };
           usage = addUsage(usage, turnUsage);
           yield event({
@@ -1761,6 +1956,7 @@ export class MoAgentRunEngine {
                     ),
                     terminal: false,
                     durationMs: 0,
+                    targetReferences: [],
                   }
                 : readToolsDisabled && executionPolicy.effect === 'read'
                 ? {
@@ -1770,6 +1966,7 @@ export class MoAgentRunEngine {
                     ),
                     terminal: false,
                     durationMs: 0,
+                    targetReferences: [],
                   }
                 : reusableObservation
                 ? reusedReadObservation(reusableObservation)
@@ -1781,12 +1978,48 @@ export class MoAgentRunEngine {
                     abortState.signal,
                     request.commitWorkspaceMutation
                   );
+            const serializedToolResult = serializeToolResult(execution.result);
+            const resultSha256 = createHash('sha256')
+              .update(serializedToolResult, 'utf8')
+              .digest('hex');
             messages.push({
               role: 'tool',
               toolCallId: toolCall.id,
               name: toolCall.name,
-              content: serializeToolResult(execution.result),
+              content: serializedToolResult,
             });
+            if (execution.contextReceipt) {
+              contextCapsuleSession?.record({
+                operationId,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+                turn,
+                effect: executionPolicy.effect,
+                terminal: execution.terminal,
+                result: canonicalCapsuleResult(execution.result, execution.contextReceipt),
+                resultSha256,
+                targetReferences: execution.contextReceipt.targetReferences,
+              });
+            } else {
+              // Tools without a first-party projector receive only a bounded,
+              // framework-owned outcome tombstone. Neither their result payload
+              // nor their model-provided arguments enter trusted context.
+              contextCapsuleSession?.recordFrameworkOutcome({
+                operationId,
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+                turn,
+                effect: executionPolicy.effect,
+                terminal: execution.terminal,
+                status: execution.result.ok ? 'succeeded' : 'failed',
+                resultSha256,
+                targetIdentitySha256: createHash('sha256')
+                  .update(toolCall.name, 'utf8')
+                  .update('\0')
+                  .update(toolCall.arguments, 'utf8')
+                  .digest('hex'),
+              });
+            }
 
             if (execution.result.ok) {
               if (executionPolicy.effect === 'workspace_write') {
@@ -1795,6 +2028,8 @@ export class MoAgentRunEngine {
                 // eagerly so a later read in the same multi-call turn cannot
                 // reuse pre-mutation evidence.
                 readObservations.clear();
+              } else if (executionPolicy.effect === 'external_write') {
+                successfulExternalWrites += 1;
               } else if (observationFingerprint) {
                 if (reusableObservation) {
                   reusedReadObservationsThisTurn += 1;
@@ -1803,8 +2038,9 @@ export class MoAgentRunEngine {
                     toolCallId: toolCall.id,
                     turn,
                     resultSha256: createHash('sha256')
-                      .update(serializeToolResult(execution.result), 'utf8')
+                      .update(serializedToolResult, 'utf8')
                       .digest('hex'),
+                    targetReferences: [...execution.targetReferences],
                   });
                 }
               }
@@ -1964,6 +2200,11 @@ export class MoAgentRunEngine {
           result('failed', runError(error.code, error.message, error))
         );
       }
+      if (error instanceof MoAgentContextCapsuleError) {
+        return yield* finish(
+          result('failed', runError(error.code, error.message, error))
+        );
+      }
       if (error instanceof MoAgentRunLimitError) {
         return yield* finish(
           result('failed', runError(error.code, error.message, error))
@@ -1995,6 +2236,7 @@ export class MoAgentRunEngine {
         ),
         terminal: false,
         durationMs: this.now() - startedAt,
+        targetReferences: [],
       };
     }
 
@@ -2010,6 +2252,7 @@ export class MoAgentRunEngine {
         ),
         terminal: false,
         durationMs: this.now() - startedAt,
+        targetReferences: [],
       };
     }
 
@@ -2021,6 +2264,7 @@ export class MoAgentRunEngine {
         ),
         terminal: false,
         durationMs: this.now() - startedAt,
+        targetReferences: [],
       };
     }
 
@@ -2033,10 +2277,10 @@ export class MoAgentRunEngine {
           result: toolFailure('INVALID_TOOL_INPUT', errorMessage(error)),
           terminal: false,
           durationMs: this.now() - startedAt,
+          targetReferences: [],
         };
       }
     }
-
     try {
       // A cancellation may arrive while the durable tool_started event is being
       // committed. Do not invoke the tool after that point, but still return a
@@ -2049,6 +2293,7 @@ export class MoAgentRunEngine {
           ),
           terminal: false,
           durationMs: this.now() - startedAt,
+          targetReferences: [],
         };
       }
       const candidate = await raceWithSignal(
@@ -2077,12 +2322,16 @@ export class MoAgentRunEngine {
           ),
           terminal: false,
           durationMs: this.now() - startedAt,
+          targetReferences: [],
         };
       }
+      const contextReceipt = projectToolContextReceipt(tool, input, candidate);
       return {
         result: candidate,
         terminal: candidate.ok && tool.terminal === true,
         durationMs: this.now() - startedAt,
+        targetReferences: contextReceipt ? [...contextReceipt.targetReferences] : [],
+        ...(contextReceipt ? { contextReceipt } : {}),
       };
     } catch (error) {
       if (signal.aborted) {
@@ -2093,12 +2342,14 @@ export class MoAgentRunEngine {
           ),
           terminal: false,
           durationMs: this.now() - startedAt,
+          targetReferences: [],
         };
       }
       return {
         result: toolFailure('TOOL_EXECUTION_FAILED', errorMessage(error)),
         terminal: false,
         durationMs: this.now() - startedAt,
+        targetReferences: [],
       };
     }
   }

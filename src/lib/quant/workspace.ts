@@ -5,6 +5,7 @@ import {
   QuantIntentClarification,
 } from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
+import { inferKnownSymbols, inferQuantSymbolsFromText } from '@/lib/quant/symbol-aliases';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
 type QuantManifest = {
@@ -75,32 +76,6 @@ export interface QuantWorkspaceEvent {
   created_at?: string;
 }
 
-const SYMBOL_CODE_PATTERN = /\b(?:6|0|3|5)\d{5}\b/g;
-const KNOWN_SYMBOLS: Array<{ keyword: string; symbol: string; name: string }> = [
-  { keyword: '贵州茅台', symbol: '600519', name: '贵州茅台' },
-  { keyword: '茅台', symbol: '600519', name: '贵州茅台' },
-  { keyword: '宁德时代', symbol: '300750', name: '宁德时代' },
-  { keyword: '通富微电', symbol: '002156', name: '通富微电' },
-  { keyword: '平安银行', symbol: '000001', name: '平安银行' },
-  { keyword: '招商银行', symbol: '600036', name: '招商银行' },
-  { keyword: '杭钢股份', symbol: '600126', name: '杭钢股份' },
-  { keyword: '京沪高铁', symbol: '601816', name: '京沪高铁' },
-  { keyword: '三七互娱', symbol: '002555', name: '三七互娱' },
-  { keyword: '中国黄金', symbol: '600916', name: '中国黄金' },
-  { keyword: '完美世界', symbol: '002624', name: '完美世界' },
-  { keyword: '沪深300ETF', symbol: '510300', name: '沪深300ETF' },
-  { keyword: '沪深300 ETF', symbol: '510300', name: '沪深300ETF' },
-  { keyword: '300ETF', symbol: '510300', name: '沪深300ETF' },
-  { keyword: '沪深300', symbol: '000300', name: '沪深300' },
-  { keyword: '沪深 300', symbol: '000300', name: '沪深300' },
-  { keyword: '创业板指', symbol: '399006', name: '创业板指' },
-  { keyword: '创业板指数', symbol: '399006', name: '创业板指' },
-  { keyword: '中证500', symbol: '000905', name: '中证500' },
-  { keyword: '中证 500', symbol: '000905', name: '中证500' },
-  { keyword: '科创50', symbol: '000688', name: '科创50' },
-  { keyword: '科创 50', symbol: '000688', name: '科创50' },
-];
-
 const OPERATIONAL_INSTRUCTION_MARKERS = [
   '图片附件处理要求',
   '可见过程叙述要求',
@@ -153,9 +128,7 @@ function normalizeForIntent(instruction: string): string {
 }
 
 function inferSymbols(instruction: string): string[] {
-  const codes = instruction.match(SYMBOL_CODE_PATTERN) ?? [];
-  const known = KNOWN_SYMBOLS.filter((item) => instruction.includes(item.keyword)).map((item) => item.symbol);
-  return Array.from(new Set([...codes, ...known]));
+  return inferQuantSymbolsFromText(instruction);
 }
 
 function inferTimeRange(instruction: string): string | null {
@@ -209,11 +182,7 @@ function shouldUseAssetComparison(instruction: string) {
     );
   const multiNamedStocks =
     /、|，|,|和|与|及/.test(normalized) &&
-    new Set(
-      KNOWN_SYMBOLS
-        .filter((item) => normalized.includes(item.keyword))
-        .map((item) => item.symbol)
-    ).size >= 2;
+    inferKnownSymbols(instruction).length >= 2;
 
   return symbolCount >= 2 || comparisonIntent || multiNamedStocks || broadStockScreenerIntent;
 }

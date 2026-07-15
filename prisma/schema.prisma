@@ -290,6 +290,7 @@ model AgentRun {
   provider         String
   model            String
   frameworkVersion String @map("framework_version")
+  buildRevision    String @map("build_revision")
   profileHash      String @map("profile_hash")
   promptHash       String @map("prompt_hash")
   toolHash         String @map("tool_hash")

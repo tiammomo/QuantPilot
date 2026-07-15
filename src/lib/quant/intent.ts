@@ -1,3 +1,9 @@
+import {
+  extractExplicitSymbolCodes,
+  inferKnownSymbols,
+  keepLongestDistinctTextCandidates,
+} from '@/lib/quant/symbol-aliases';
+
 export type ClarificationMissingField =
   | 'target'
   | 'analysis_goal'
@@ -40,31 +46,6 @@ export interface QuantClarificationContinuation {
 }
 
 const SYMBOL_CODE_PATTERN = /\b(?:6|0|3|5)\d{5}\b/g;
-
-const KNOWN_SYMBOL_KEYWORDS: Array<{ keyword: string; symbol: string }> = [
-  { keyword: '贵州茅台', symbol: '600519' },
-  { keyword: '茅台', symbol: '600519' },
-  { keyword: '宁德时代', symbol: '300750' },
-  { keyword: '平安银行', symbol: '000001' },
-  { keyword: '招商银行', symbol: '600036' },
-  { keyword: '通富微电', symbol: '002156' },
-  { keyword: '杭钢股份', symbol: '600126' },
-  { keyword: '京沪高铁', symbol: '601816' },
-  { keyword: '三七互娱', symbol: '002555' },
-  { keyword: '中国黄金', symbol: '600916' },
-  { keyword: '完美世界', symbol: '002624' },
-  { keyword: '沪深300', symbol: '000300' },
-  { keyword: '沪深 300', symbol: '000300' },
-  { keyword: '创业板指', symbol: '399006' },
-  { keyword: '创业板指数', symbol: '399006' },
-  { keyword: '中证500', symbol: '000905' },
-  { keyword: '中证 500', symbol: '000905' },
-  { keyword: '科创50', symbol: '000688' },
-  { keyword: '科创 50', symbol: '000688' },
-  { keyword: '沪深300ETF', symbol: '510300' },
-  { keyword: '沪深300 ETF', symbol: '510300' },
-  { keyword: '300ETF', symbol: '510300' },
-];
 
 const GENERIC_TARGET_WORDS = [
   '一个',
@@ -205,12 +186,10 @@ export function extractQuantTargetCandidates(instruction: string): string[] {
   const lookaheadMatches =
     normalized.match(/[\u4e00-\u9fffA-Za-z]{2,14}(?=(?:最近|近期|近|今天|股票|个股|股份|行情|走势|K\s*线|成交量|技术指标|财务|基本面|公告|怎么样|如何|怎么))/g) ?? [];
 
-  return Array.from(
-    new Set(
-      [...parts, ...lookaheadMatches]
-        .map(cleanTargetCandidate)
-        .filter((candidate): candidate is string => Boolean(candidate))
-    )
+  return keepLongestDistinctTextCandidates(
+    [...parts, ...lookaheadMatches]
+      .map(cleanTargetCandidate)
+      .filter((candidate): candidate is string => Boolean(candidate))
   ).slice(0, 8);
 }
 
@@ -303,14 +282,8 @@ export function assessQuantIntentForClarification(
     };
   }
 
-  const codes = instruction.match(SYMBOL_CODE_PATTERN) ?? [];
-  const knownTargetSymbols = Array.from(
-    new Set(
-      KNOWN_SYMBOL_KEYWORDS
-        .filter((item) => instruction.includes(item.keyword))
-        .map((item) => item.symbol)
-    )
-  );
+  const codes = extractExplicitSymbolCodes(instruction);
+  const knownTargetSymbols = inferKnownSymbols(instruction);
   const targetCandidates = extractQuantTargetCandidates(instruction);
   const hasBroadMarketTarget = BROAD_MARKET_TARGET_PATTERN.test(instruction);
   const broadStockSelectionRequest = isBroadStockSelectionRequest(instruction);

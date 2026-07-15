@@ -209,6 +209,25 @@ function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
     if (!raw.requiresTools.every((toolName) => /^[a-z][a-z0-9_]*$/.test(toolName))) {
       throw new Error(`MoAgent Skill ${skillId} 的 capsule requiresTools 包含非法工具名。`);
     }
+    if (raw.requiresOneOfToolSets !== undefined) {
+      if (!Array.isArray(raw.requiresOneOfToolSets) || raw.requiresOneOfToolSets.length === 0) {
+        throw new Error(
+          `MoAgent Skill ${skillId} 的 capsule requiresOneOfToolSets 必须是非空工具集合数组。`,
+        );
+      }
+      raw.requiresOneOfToolSets.forEach((toolSet, index) => {
+        assertStringArray(
+          toolSet,
+          `${skillId}.requiresOneOfToolSets[${index}]`,
+          false,
+        );
+        if (!toolSet.every((toolName) => /^[a-z][a-z0-9_]*$/.test(toolName))) {
+          throw new Error(
+            `MoAgent Skill ${skillId} 的 capsule requiresOneOfToolSets 包含非法工具名。`,
+          );
+        }
+      });
+    }
     assertString(raw.objective, `${skillId}.objective`);
     assertStringArray(raw.invariants, `${skillId}.invariants`, false);
     assertStringArray(raw.workflow, `${skillId}.workflow`, false);
@@ -780,6 +799,17 @@ export async function compileMoAgentSkills(
       if (missingTools.length > 0) {
         throw new Error(
           `MoAgent Skill ${skillId} 与当前工具面不兼容，缺少：${missingTools.join('、')}。`,
+        );
+      }
+      const alternatives = capsule.requiresOneOfToolSets ?? [];
+      if (
+        alternatives.length > 0 &&
+        !alternatives.some((toolSet) => toolSet.every((toolName) => availableTools.has(toolName)))
+      ) {
+        throw new Error(
+          `MoAgent Skill ${skillId} 与当前工具面不兼容，至少需要一组完整替代工具：${alternatives
+            .map((toolSet) => `[${toolSet.join('、')}]`)
+            .join(' 或 ')}。`,
         );
       }
     }

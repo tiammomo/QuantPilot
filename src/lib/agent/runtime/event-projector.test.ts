@@ -243,6 +243,26 @@ describe('MoAgent durable event projector', () => {
         removedReasoningMessages: 1,
         summarizedToolResults: 2,
         droppedGroups: 3,
+        contextCapsule: {
+          applied: true,
+          version: 1,
+          phase: 'writing',
+          sha256: 'd'.repeat(64),
+          serializedUtf8Bytes: 768,
+          coveredToolCalls: 4,
+          targetReferences: 2,
+          operationTombstones: 4,
+          rolledUpOperationTombstones: 0,
+          frameworkOutcomeTombstones: 1,
+          artifactReceipts: 1,
+          readReceipts: 0,
+          successfulWrites: 1,
+          remainingFailures: 0,
+          invalidatedReadReceipts: 2,
+          replacedToolCallClusters: 2,
+          replacedMessages: 4,
+          replacedPreviousCapsule: false,
+        },
       },
       {
         ...base,
@@ -290,5 +310,15 @@ describe('MoAgent durable event projector', () => {
       expect(projection).not.toBeNull();
       expect(JSON.stringify(projection)).not.toContain(SECRET);
     }
+    const compacted = events.find((event) => event.type === 'context_compacted');
+    expect(compacted && projectMoAgentEvent(compacted)).toMatchObject({
+      contextCapsule: {
+        applied: true,
+        phase: 'writing',
+        sha256: 'd'.repeat(64),
+        replacedToolCallClusters: 2,
+        replacedMessages: 4,
+      },
+    });
   });
 });

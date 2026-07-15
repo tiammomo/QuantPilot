@@ -3,6 +3,14 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { restoreQuantDashboardTemplate, scaffoldBasicNextApp } from './scaffold';
+import {
+  comparisonCss,
+  comparisonPageTemplate,
+  holdingAnalysisCss,
+  holdingAnalysisPageTemplate,
+  stockSelectionCss,
+  stockSelectionPageTemplate,
+} from './scaffold-dashboard-templates';
 
 const temporaryProjects: string[] = [];
 
@@ -24,6 +32,56 @@ afterEach(async () => {
 });
 
 describe('restoreQuantDashboardTemplate', () => {
+  it('keeps platform scenario templates as continuous workbenches without hero or duplicate card grids', () => {
+    const templates = [
+      {
+        name: 'comparison',
+        page: comparisonPageTemplate(),
+        css: comparisonCss(),
+        required: ['comparison-header', 'comparison-metrics', '指标矩阵', 'chart-grid'],
+        forbidden: ['comparison-hero', 'leader-card', 'leader-grid'],
+      },
+      {
+        name: 'stock-selection',
+        page: stockSelectionPageTemplate(),
+        css: stockSelectionCss(),
+        required: ['selection-header', 'selection-metrics', '多标的指标矩阵', 'core-chart-panel'],
+        forbidden: ['selection-hero', 'summary-grid', 'asset-grid', 'asset-card', 'AssetCards', 'function Sparkline('],
+      },
+      {
+        name: 'holding-analysis',
+        page: holdingAnalysisPageTemplate(),
+        css: holdingAnalysisCss(),
+        required: ['holding-header', 'portfolio-metrics', 'risk-strip', '持仓明细', 'portfolio-chart-panel'],
+        forbidden: ['holding-hero', 'hero-summary', 'holding-grid', 'holding-card', 'HoldingCards', 'function Sparkline(', 'risk-grid'],
+      },
+    ];
+
+    for (const template of templates) {
+      expect(template.page, template.name).toContain('data-visual-language="financial-workbench"');
+      for (const signal of template.required) {
+        expect(template.page, `${template.name}: ${signal}`).toContain(signal);
+      }
+      for (const legacyStructure of template.forbidden) {
+        expect(template.page, `${template.name} page: ${legacyStructure}`).not.toContain(legacyStructure);
+        expect(template.css, `${template.name} css: ${legacyStructure}`).not.toContain(legacyStructure);
+      }
+    }
+  });
+
+  it('contains long ETF names and wide comparison content on mobile workbenches', () => {
+    for (const [name, css] of [
+      ['comparison', comparisonCss()],
+      ['stock-selection', stockSelectionCss()],
+    ] as const) {
+      expect(css, name).toContain('max-width: 100%');
+      expect(css, name).toContain('min-width: 0');
+      expect(css, name).toContain('overflow-wrap: anywhere');
+      expect(css, name).toContain('white-space: normal');
+      expect(css, name).not.toContain('width: 100vw');
+    }
+  });
+
   it('replaces an invalid Agent page with the platform technical dashboard', async () => {
     const projectPath = await createProject();
     await Promise.all([

@@ -148,18 +148,24 @@
     "dashboard-visualization": {
       "priority": 140,
       "phases": ["data-preparation", "workspace-generation", "validation-repair"],
-      "requiresTools": ["inspect_dashboard_contract", "query_json", "query_text_file", "edit_file", "submit_result"],
+      "requiresTools": ["submit_result"],
+      "requiresOneOfToolSets": [
+        ["apply_dashboard_spec"],
+        ["query_json", "query_text_file", "semantic_edit"],
+        ["inspect_dashboard_contract", "edit_file"]
+      ],
       "objective": "把权威 run plan、final 数据和 evidence 转成可验证的 Next.js 金融工作台。",
       "invariants": [
         "严格保持 template、variant、标的集合和真实数据绑定。",
-        "权威看板数据只通过 query_json 的 final_dashboard artifact 或 data_file/final/dashboard-data.json 读取，绝不推断 public/data 路径或按证券代码拼接 JSON 文件名。",
+        "可信编译器直接读取冻结的 final_dashboard（data_file/final/dashboard-data.json）；语义编辑路径只通过 query_json 的 final_dashboard artifact 读取数据，绝不推断 public/data 路径或按证券代码拼接 JSON 文件名。",
+        "apply_dashboard_spec 可用时，标准场景必须优先由可信编译器生成页面与样式；templateId 和 variantId 只能作为权威合同断言，不能覆盖 run plan。",
         "首屏展示核心行情、持仓、回测或财务证据及主图/矩阵，不生成卡片宫格或营销 hero。",
         "动态 JSON 每层使用 JsonRecord、asRecord、asArray 和 numeric 等守卫。",
         "未明确要求时不增加买卖点、止损、目标价、仓位或收益承诺。"
       ],
       "workflow": [
-        "从 initial dashboard contract 开始；快照完整时不重复检查 final/evidence。",
-        "用最多两次批量锚点查询定位待改 JSX/CSS，随后做一次连贯编辑。",
+        "从 initial dashboard contract 开始；标准场景且 apply_dashboard_spec 可用时先以空对象调用一次可信编译器，成功后直接提交，不再扫描源码。",
+        "只有用户明确要求模板能力之外的定制时，才用最多两次批量锚点查询定位待改 JSX/CSS；优先使用携带 query_text_file SHA-256 的 semantic_edit，随后做一次连贯编辑。",
         "验证修复只处理当前失败项；平台负责 build、preview 和重新验证。"
       ],
       "doneWhen": [

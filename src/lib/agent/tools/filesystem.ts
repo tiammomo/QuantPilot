@@ -1,7 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { MoAgentTool } from '@/lib/agent/types';
+import {
+  commitMoAgentWorkspaceMutationJournal,
+  MoAgentWorkspaceMutationRecoveryConflictError,
+  prepareMoAgentWorkspaceMutationJournal,
+  rollbackMoAgentWorkspaceMutationJournal,
+} from '@/lib/agent/runtime/workspace-mutation-journal';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { MoAgentToolError, throwIfAborted } from './errors';
 import { inputRecord, optionalBoolean, optionalInteger, optionalString, requiredString } from './input';
@@ -19,6 +25,7 @@ const DEFAULT_MAX_LIST_ENTRIES = 300;
 const DEFAULT_MAX_SEARCH_RESULTS = 100;
 const IGNORED_SEARCH_DIRECTORIES = new Set([
   '.git',
+  '.moagent-mutation-journal',
   '.moagent-workspace.lock',
   '.next',
   'node_modules',
@@ -273,6 +280,28 @@ interface AtomicWriteResult {
   afterSha256: string;
 }
 
+export interface MoAgentWorkspaceBatchWriteFile {
+  relativePath: string;
+  content: Buffer;
+  expectedBeforeSha256?: string | null;
+}
+
+export interface MoAgentWorkspaceBatchWriteOptions {
+  policy: MoAgentWorkspacePolicy;
+  files: readonly MoAgentWorkspaceBatchWriteFile[];
+  maxBytesPerFile: number;
+  maxTotalBytes: number;
+  signal: AbortSignal;
+  resourceLockWaitTimeoutMs?: number;
+  lockIdentity: { runId: string; operationId: string };
+  commitWorkspaceMutation?: <T>(commit: () => Promise<T>) => Promise<T>;
+}
+
+export interface MoAgentWorkspaceBatchWriteResult {
+  files: AtomicWriteResult[];
+  totalBytes: number;
+}
+
 async function atomicWrite(params: AtomicWriteParams): Promise<AtomicWriteResult> {
   throwIfAborted(params.signal);
   if (!params.commitWorkspaceMutation) {
@@ -287,95 +316,217 @@ async function atomicWrite(params: AtomicWriteParams): Promise<AtomicWriteResult
       `Write is ${params.content.byteLength} bytes; MoAgent allows at most ${params.maxBytes} bytes.`,
     );
   }
-  return withMoAgentWorkspaceResourceLock(
-    params.policy.workspaceRoot,
-    () => atomicWriteWithResourceLock(params),
-    {
-      signal: params.signal,
-      ...(params.resourceLockWaitTimeoutMs === undefined
+  const result = await writeMoAgentWorkspaceBatch({
+    policy: params.policy,
+    files: [{
+      relativePath: params.relativePath,
+      content: params.content,
+      ...(params.expectedBeforeSha256 === undefined
         ? {}
-        : { waitTimeoutMs: params.resourceLockWaitTimeoutMs }),
-      ownerId: `write:${params.lockIdentity.operationId}`,
-      metadata: {
-        purpose: 'workspace_write',
-        runId: params.lockIdentity.runId,
-        operationId: params.lockIdentity.operationId,
-      },
-    }
-  );
+        : { expectedBeforeSha256: params.expectedBeforeSha256 }),
+    }],
+    maxBytesPerFile: params.maxBytes,
+    maxTotalBytes: params.maxBytes,
+    signal: params.signal,
+    ...(params.resourceLockWaitTimeoutMs === undefined
+      ? {}
+      : { resourceLockWaitTimeoutMs: params.resourceLockWaitTimeoutMs }),
+    lockIdentity: params.lockIdentity,
+    commitWorkspaceMutation: params.commitWorkspaceMutation,
+  });
+  return result.files[0];
 }
 
-async function atomicWriteWithResourceLock(
-  params: AtomicWriteParams
-): Promise<AtomicWriteResult> {
-  throwIfAborted(params.signal);
-  const firstResolution = await params.policy.resolveWritePath(params.relativePath);
-  // Create through the already-canonicalized path. A lexical parent may be an
-  // in-workspace symlink and must never be followed after the policy check.
-  await fs.mkdir(path.dirname(firstResolution.canonicalPath), { recursive: true });
-  const resolved = await params.policy.resolveWritePath(params.relativePath);
-  const previousMode = resolved.exists ? (await fs.stat(resolved.canonicalPath)).mode : 0o644;
-  const beforeSha256 = resolved.exists
-    ? await sha256File(resolved.canonicalPath, params.signal)
-    : null;
-  if (
-    params.expectedBeforeSha256 !== undefined &&
-    params.expectedBeforeSha256 !== beforeSha256
-  ) {
+/**
+ * Stage and commit a bounded set of workspace files through one durable
+ * operation authorization. All targets and optimistic hashes are validated
+ * before the first rename. A durable, framework-owned pre-image journal makes
+ * a crash during the rename sequence deterministically recoverable.
+ */
+export async function writeMoAgentWorkspaceBatch(
+  options: MoAgentWorkspaceBatchWriteOptions,
+): Promise<MoAgentWorkspaceBatchWriteResult> {
+  throwIfAborted(options.signal);
+  if (!options.commitWorkspaceMutation) {
     throw new MoAgentToolError(
-      'WORKSPACE_WRITE_CONFLICT',
-      `The target changed before MoAgent could commit: ${resolved.relativePath}.`,
+      'WORKSPACE_COMMIT_FENCE_REQUIRED',
+      'Workspace writes require a durable mutation commit fence.',
     );
   }
-  const afterSha256 = createHash('sha256').update(params.content).digest('hex');
-  const temporaryPath = path.join(
-    path.dirname(resolved.canonicalPath),
-    `.${path.basename(resolved.canonicalPath)}.moagent-${randomUUID()}.tmp`,
-  );
-  let handle: fs.FileHandle | undefined;
-  try {
-    handle = await fs.open(temporaryPath, 'wx', previousMode & 0o777);
-    throwIfAborted(params.signal);
-    await handle.writeFile(params.content);
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    throwIfAborted(params.signal);
-    await params.commitWorkspaceMutation!(async () => {
-      throwIfAborted(params.signal);
-      // The shared-filesystem resource lock remains held across this final
-      // target revalidation and rename. The repository has already committed
-      // a one-shot authorization under the current DB fence.
-      const finalResolution = await params.policy.resolveWritePath(params.relativePath);
-      if (finalResolution.exists !== resolved.exists) {
-        throw new MoAgentToolError(
-          'WORKSPACE_WRITE_CONFLICT',
-          `The target existence changed before commit: ${resolved.relativePath}.`,
-        );
-      }
-      if (
-        finalResolution.exists &&
-        await sha256File(finalResolution.canonicalPath, params.signal) !== beforeSha256
-      ) {
-        throw new MoAgentToolError(
-          'WORKSPACE_WRITE_CONFLICT',
-          `The target content changed before commit: ${resolved.relativePath}.`,
-        );
-      }
-      await fs.rename(temporaryPath, finalResolution.canonicalPath);
-    });
-  } catch (error) {
-    await handle?.close().catch(() => undefined);
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-    throw error;
+  if (options.files.length === 0 || options.files.length > 8) {
+    throw new MoAgentToolError(
+      'INVALID_BATCH_WRITE',
+      'A workspace batch write must contain between 1 and 8 files.',
+    );
   }
-  return {
-    path: resolved.relativePath,
-    bytes: params.content.byteLength,
-    created: !resolved.exists,
-    beforeSha256,
-    afterSha256,
-  };
+  if (!Number.isSafeInteger(options.maxBytesPerFile) || options.maxBytesPerFile <= 0 ||
+      !Number.isSafeInteger(options.maxTotalBytes) || options.maxTotalBytes <= 0) {
+    throw new MoAgentToolError(
+      'INVALID_BATCH_WRITE_LIMIT',
+      'Workspace batch write limits must be positive safe integers.',
+    );
+  }
+  const totalBytes = options.files.reduce((total, file) => total + file.content.byteLength, 0);
+  const oversized = options.files.find((file) => file.content.byteLength > options.maxBytesPerFile);
+  if (oversized) {
+    throw new MoAgentToolError(
+      'WRITE_TOO_LARGE',
+      `${oversized.relativePath} is ${oversized.content.byteLength} bytes; the per-file limit is ${options.maxBytesPerFile} bytes.`,
+    );
+  }
+  if (!Number.isSafeInteger(totalBytes) || totalBytes > options.maxTotalBytes) {
+    throw new MoAgentToolError(
+      'WRITE_TOO_LARGE',
+      `Workspace batch is ${totalBytes} bytes; the total limit is ${options.maxTotalBytes} bytes.`,
+    );
+  }
+
+  return withMoAgentWorkspaceResourceLock(
+    options.policy.workspaceRoot,
+    async () => {
+      type StagedFile = {
+        requested: MoAgentWorkspaceBatchWriteFile;
+        resolved: Awaited<ReturnType<MoAgentWorkspacePolicy['resolveWritePath']>>;
+        mode: number;
+        beforeSha256: string | null;
+        afterSha256: string;
+      };
+      const staged: StagedFile[] = [];
+      const canonicalTargets = new Set<string>();
+      let journal: Awaited<ReturnType<typeof prepareMoAgentWorkspaceMutationJournal>> | undefined;
+      try {
+        for (const requested of options.files) {
+          throwIfAborted(options.signal);
+          const firstResolution = await options.policy.resolveWritePath(requested.relativePath);
+          await fs.mkdir(path.dirname(firstResolution.canonicalPath), { recursive: true });
+          const resolved = await options.policy.resolveWritePath(requested.relativePath);
+          if (canonicalTargets.has(resolved.canonicalPath)) {
+            throw new MoAgentToolError(
+              'DUPLICATE_BATCH_TARGET',
+              `A workspace batch cannot target the same canonical file twice: ${resolved.relativePath}.`,
+            );
+          }
+          canonicalTargets.add(resolved.canonicalPath);
+          const previousMode = resolved.exists ? (await fs.stat(resolved.canonicalPath)).mode : 0o644;
+          const beforeSha256 = resolved.exists
+            ? await sha256File(resolved.canonicalPath, options.signal)
+            : null;
+          if (
+            requested.expectedBeforeSha256 !== undefined &&
+            requested.expectedBeforeSha256 !== beforeSha256
+          ) {
+            throw new MoAgentToolError(
+              'WORKSPACE_WRITE_CONFLICT',
+              `The target changed before MoAgent could stage it: ${resolved.relativePath}.`,
+            );
+          }
+          staged.push({
+            requested,
+            resolved,
+            mode: previousMode & 0o777,
+            beforeSha256,
+            afterSha256: createHash('sha256').update(requested.content).digest('hex'),
+          });
+        }
+
+        throwIfAborted(options.signal);
+        try {
+          journal = await prepareMoAgentWorkspaceMutationJournal({
+            workspaceRoot: options.policy.workspaceRoot,
+            runId: options.lockIdentity.runId,
+            operationId: options.lockIdentity.operationId,
+            files: staged.map((file) => ({
+              target: file.resolved.canonicalRelativePath,
+              content: file.requested.content,
+              existedBefore: file.resolved.exists,
+              mode: file.mode,
+              beforeSha256: file.beforeSha256,
+              afterSha256: file.afterSha256,
+            })),
+          });
+        } catch (error) {
+          if (error instanceof MoAgentWorkspaceMutationRecoveryConflictError) {
+            throw new MoAgentToolError(
+              'WORKSPACE_WRITE_CONFLICT',
+              `The target changed before its durable workspace journal was prepared: ${error.target}.`,
+            );
+          }
+          throw new MoAgentToolError(
+            'WORKSPACE_JOURNAL_PREPARE_FAILED',
+            'MoAgent could not durably prepare the workspace mutation journal.',
+          );
+        }
+        throwIfAborted(options.signal);
+        await options.commitWorkspaceMutation!(async () => {
+          // Validate every target before mutating any target. The shared
+          // resource lock remains held for validation and the rename sequence.
+          for (const file of staged) {
+            throwIfAborted(options.signal);
+            const finalResolution = await options.policy.resolveWritePath(file.requested.relativePath);
+            if (
+              finalResolution.canonicalPath !== file.resolved.canonicalPath ||
+              finalResolution.exists !== file.resolved.exists
+            ) {
+              throw new MoAgentToolError(
+                'WORKSPACE_WRITE_CONFLICT',
+                `The target identity changed before commit: ${file.resolved.relativePath}.`,
+              );
+            }
+            if (
+              finalResolution.exists &&
+              await sha256File(finalResolution.canonicalPath, options.signal) !== file.beforeSha256
+            ) {
+              throw new MoAgentToolError(
+                'WORKSPACE_WRITE_CONFLICT',
+                `The target content changed before commit: ${file.resolved.relativePath}.`,
+              );
+            }
+          }
+          // After durable authorization, do not turn a cooperative abort into
+          // a partial batch. The sequence either finishes or remains covered
+          // by the durable journal for startup recovery.
+          await commitMoAgentWorkspaceMutationJournal(journal!);
+        });
+      } catch (error) {
+        if (journal) {
+          // In-process failures use the exact same preflighted rollback as
+          // crash recovery. Keep the rolled-back receipt until the durable
+          // tool ledger has reached a terminal state.
+          const physicalCommitStarted = journal.manifest.state !== 'prepared';
+          await rollbackMoAgentWorkspaceMutationJournal(journal);
+          if (!physicalCommitStarted) throw error;
+          throw new MoAgentToolError(
+            'WORKSPACE_MUTATION_ROLLED_BACK',
+            'The workspace mutation failed and its durable journal was fully rolled back.',
+          );
+        }
+        throw error;
+      }
+
+      return {
+        totalBytes,
+        files: staged.map((file) => ({
+          path: file.resolved.relativePath,
+          bytes: file.requested.content.byteLength,
+          created: !file.resolved.exists,
+          beforeSha256: file.beforeSha256,
+          afterSha256: file.afterSha256,
+        })),
+      };
+    },
+    {
+      signal: options.signal,
+      ...(options.resourceLockWaitTimeoutMs === undefined
+        ? {}
+        : { waitTimeoutMs: options.resourceLockWaitTimeoutMs }),
+      ownerId: `write:${options.lockIdentity.operationId}`,
+      metadata: {
+        purpose: 'workspace_write',
+        runId: options.lockIdentity.runId,
+        operationId: options.lockIdentity.operationId,
+      },
+    },
+  );
 }
 
 interface ListFilesInput {

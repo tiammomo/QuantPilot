@@ -78,6 +78,8 @@ export interface AgentRunProvenance {
   provider: string;
   model: string;
   frameworkVersion: string;
+  /** Immutable application/image/git identity for this physical execution. */
+  buildRevision: string;
   profileHash: string;
   promptHash: string;
   toolHash: string;
@@ -217,6 +219,11 @@ export interface ClaimAgentRunLeaseInput {
   expectedVersion: number;
   leaseOwner: string;
   leaseExpiresAt: Date;
+  /**
+   * Recovery-only escape hatch. A terminal attempt may be re-entered as
+   * `reconciling` only while it still owns an unresolved mutating ledger row.
+   */
+  allowTerminalReconciliation?: boolean;
   now?: Date;
 }
 

@@ -60,8 +60,9 @@ export interface AgentRuntimeRepository {
   /**
    * Consumes the prepared ledger entry as a one-shot commit authorization before
    * running the physical commit. Callers must hold the workspace resource lock
-   * across this call. A crash leaves the ledger unresolved, so later runs fail
-   * closed until reconciliation instead of replaying the mutation.
+   * across this call. A crash leaves the ledger unresolved; workspace writes
+   * are reconciled from the framework-owned pre-image journal and are never
+   * replayed blindly.
    */
   commitWorkspaceMutation<T>(
     input: CommitAgentWorkspaceMutationInput,

@@ -122,6 +122,7 @@ function runOptions(repository: InMemoryAgentRuntimeRepository) {
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       frameworkVersion: 'moagent:1.0.0',
+      buildRevision: 'test:durable-store',
       profileHash: 'sha256:profile',
       promptHash: 'sha256:prompt',
       toolHash: 'sha256:tools',

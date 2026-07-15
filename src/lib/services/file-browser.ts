@@ -4,6 +4,10 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import {
+  MoAgentWorkspaceResourceLockError,
+  withMoAgentWorkspaceResourceLock,
+} from '@/lib/agent/runtime/workspace-resource-lock';
 import { getProjectById } from '@/lib/services/project';
 import type { ProjectFileEntry } from '@/types/backend';
 import type { Project } from '@/types/backend';
@@ -235,30 +239,38 @@ export async function writeProjectFileContent(
   }
 
   const repoRoot = resolveRepoRoot(project);
-  const normalizedPath = normalizeRelativePath(filePath);
-  const absolutePath = await resolveSafePath(
-    repoRoot,
-    normalizedPath === '.' ? '.' : normalizedPath
-  );
-
-  let stats;
-  try {
-    stats = await fs.stat(absolutePath);
-  } catch (error) {
-    throw new FileBrowserError('File not found', 404);
-  }
-
-  if (!stats.isFile()) {
-    throw new FileBrowserError('Not a file', 400);
-  }
-
   if (content.length > MAX_WRITE_BYTES) {
     throw new FileBrowserError('File content too large', 400);
   }
 
   try {
-    await fs.writeFile(absolutePath, content, 'utf-8');
+    await withMoAgentWorkspaceResourceLock(repoRoot, async () => {
+      const normalizedPath = normalizeRelativePath(filePath);
+      const absolutePath = await resolveSafePath(
+        repoRoot,
+        normalizedPath === '.' ? '.' : normalizedPath,
+      );
+      let stats;
+      try {
+        stats = await fs.stat(absolutePath);
+      } catch {
+        throw new FileBrowserError('File not found', 404);
+      }
+      if (!stats.isFile()) {
+        throw new FileBrowserError('Not a file', 400);
+      }
+      await fs.writeFile(absolutePath, content, 'utf-8');
+    }, {
+      metadata: { purpose: 'other', projectId },
+    });
   } catch (error) {
+    if (error instanceof FileBrowserError) throw error;
+    if (
+      error instanceof MoAgentWorkspaceResourceLockError &&
+      error.code === 'WORKSPACE_RESOURCE_LOCKED'
+    ) {
+      throw new FileBrowserError('Project files are busy; retry after generation finishes', 409);
+    }
     throw new FileBrowserError('Failed to write file', 500);
   }
 }

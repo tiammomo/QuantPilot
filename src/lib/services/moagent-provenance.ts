@@ -13,6 +13,7 @@ const IGNORED_DIRECTORIES = new Set([
   'node_modules',
   // Internal concurrency metadata is not generated-project content. The
   // startup snapshot is intentionally taken while this lock directory exists.
+  '.moagent-mutation-journal',
   '.moagent-workspace.lock',
 ]);
 

@@ -100,7 +100,7 @@ describe('validation repair ownership', () => {
     const writableGlobs = quantValidationRepairWritableGlobs(report);
 
     expect(instruction).toContain('失败 ID：visual_presentation');
-    expect(instruction).toContain('唯一可写范围：app/**');
+    expect(instruction).toContain('唯一可写范围：app/page.tsx 和 app/globals.css');
     expect(instruction).toContain('.quantpilot/visual-validation.json（仅失败 viewport 和其截图路径）');
     expect(instruction).toContain('visual_presentation：失败 viewport 的首屏主体可见');
     expect(instruction).toContain('typed tools');
@@ -110,7 +110,7 @@ describe('validation repair ownership', () => {
     expect(instruction).not.toContain('app/api/market/[...path]/route.ts');
     expect(instruction).not.toContain('必须先读取');
     expect(actions).not.toContain('market/[...path]');
-    expect(writableGlobs).toEqual(['app/**']);
+    expect(writableGlobs).toEqual(['app/page.tsx', 'app/globals.css']);
   });
 
   it('rebuilds an invalid run plan with the parent request before Agent repair', async () => {

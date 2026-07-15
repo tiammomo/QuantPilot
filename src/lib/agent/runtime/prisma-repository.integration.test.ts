@@ -49,6 +49,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
       frameworkVersion: 'moagent:integration-test',
+      buildRevision: 'test:postgres-integration',
       profileHash: 'sha256:integration-profile',
       promptHash: 'sha256:integration-prompt',
       toolHash: 'sha256:integration-tools',

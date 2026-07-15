@@ -7,11 +7,22 @@ import { prisma } from '@/lib/db/client';
 import { assertMoAgentSchemaReady } from '@/lib/db/moagent-schema-readiness';
 import { MoAgentContextManager } from '@/lib/agent/context';
 import { MoAgentRunEngine } from '@/lib/agent/core';
+import {
+  MOAGENT_BUILD_REVISION,
+  MOAGENT_FRAMEWORK_VERSION,
+  MOAGENT_VERSION,
+} from '@/lib/agent/framework-identity';
 import { parseMoAgentToolArguments } from '@/lib/agent/core/tool-arguments';
 import { DeepSeekProvider, DeepSeekProviderError } from '@/lib/agent/providers/deepseek';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { compileMoAgentSkills } from '@/lib/agent/skills';
-import { createMoAgentTools, type MoAgentToolProfile } from '@/lib/agent/tools';
+import {
+  createInspectDashboardContractTool,
+  createMoAgentTools,
+  isDashboardSpecCapabilitySupported,
+  MOAGENT_PREPARED_SOURCE_WRITE_GLOBS,
+  type MoAgentToolProfile,
+} from '@/lib/agent/tools';
 import type {
   MoAgentEvent,
   MoAgentMessage,
@@ -107,6 +118,21 @@ const DASHBOARD_REPAIR_CHECK_IDS = new Set([
   'market_proxy',
 ]);
 
+export type MoAgentPreparedIntent = 'standard' | 'custom';
+
+const PREPARED_CUSTOMIZATION_SIGNAL = /(?:修改|调整|重构|优化|美化|定制|自定义|替换|改为|改成|不要|去掉|取消|新增|增加|添加|删除|移动|配色|颜色|字体|字号|布局|样式|视觉|界面|交互|动效|响应式|卡片|首屏|导航|侧栏|暗色|主题|customi[sz]e|restyle|redesign|refactor|layout|theme|color|font|sidebar|navigation|responsive|remove|replace|without\s+cards?)/iu;
+
+/**
+ * Conservative, platform-owned routing for an already prepared workspace.
+ * Ambiguous presentation changes use the bounded semantic-edit surface; only
+ * ordinary generation requests receive the trusted template compiler.
+ */
+export function classifyMoAgentPreparedIntent(instruction: string): MoAgentPreparedIntent {
+  return PREPARED_CUSTOMIZATION_SIGNAL.test(instruction.normalize('NFKC'))
+    ? 'custom'
+    : 'standard';
+}
+
 type AssistantStreamState = {
   id: string;
   content: string;
@@ -196,7 +222,8 @@ function auditToolInput(toolName: string, value: unknown): Record<string, unknow
   if (target) audit.target = target.slice(0, 2_048);
   const safeScalarKeys = [
     'path', 'imagePath', 'attachmentContextPath', 'endpoint', 'startLine', 'endLine',
-    'recursive', 'maxDepth', 'maxEntries', 'fileGlob', 'timeoutMs',
+    'recursive', 'maxDepth', 'maxEntries', 'fileGlob', 'timeoutMs', 'kind', 'symbol',
+    'selector', 'templateId', 'variantId', 'beforeSha256',
   ];
   for (const key of safeScalarKeys) {
     const candidate = value[key];
@@ -232,7 +259,7 @@ function toolTarget(input: unknown): string | undefined {
 
 function toolAction(name: string): string {
   if (/^(?:write_file)$/i.test(name)) return 'Created';
-  if (/^(?:edit_file|apply_patch)$/i.test(name)) return 'Edited';
+  if (/^(?:edit_file|apply_patch|semantic_edit|apply_dashboard_spec)$/i.test(name)) return 'Edited';
   if (/^(?:read_file|read_file_range|query_json|query_text_file|inspect_dashboard_contract|extract_image_evidence)$/i.test(name)) return 'Read';
   if (/^(?:list_files|search_files)$/i.test(name)) return 'Searched';
   if (/^(?:quant_api_get)$/i.test(name)) return 'Executed';
@@ -271,6 +298,8 @@ function toolResultSummary(
   }
   if (toolCall.name === 'query_text_file') return `已定位 ${target || '源码文件'} 的相关实现。`;
   if (toolCall.name === 'inspect_dashboard_contract') return '已取得看板结构、数据绑定和可编辑入口。';
+  if (toolCall.name === 'apply_dashboard_spec') return '已按权威任务合同编译标准看板页面与样式。';
+  if (toolCall.name === 'semantic_edit') return `已完成 ${target || '目标源码'} 的版本化语义编辑。`;
   if (toolCall.name === 'edit_file') return `已更新 ${target || '目标文件'}。`;
   if (toolCall.name === 'write_file') return `已写入 ${target || '目标文件'}。`;
   if (toolCall.name === 'submit_result') return '已提交本次变更产物。';
@@ -649,6 +678,13 @@ async function executeMoAgentPhase(
     );
     const templateId = runPlan?.visualization?.templateId ?? visualization.templateId;
     const variantId = runPlan?.visualization?.variantId ?? visualization.variantId;
+    const standardCompilerEligible =
+      classifyMoAgentPreparedIntent(instruction) === 'standard' &&
+      isDashboardSpecCapabilitySupported(templateId, variantId) &&
+      preparedAssessment.dashboardSpecReady;
+    const preparedIntent = profile === 'generation' && platformPrepared && !images?.length
+      ? standardCompilerEligible ? 'standard' as const : 'custom' as const
+      : null;
     if (
       profile === 'repair' &&
       (!repairReport ||
@@ -686,8 +722,21 @@ async function executeMoAgentPhase(
     const repairWriteGlobs = repairReport
       ? quantValidationRepairWritableGlobs(repairReport)
       : undefined;
-    const repairNeedsSourceWrites = repairWriteGlobs?.includes('app/**') ?? false;
-    const repairProfileWriteGlobs = repairWriteGlobs?.filter((glob) => glob !== 'app/**');
+    if (profile === 'repair' && (!repairWriteGlobs || repairWriteGlobs.length === 0)) {
+      throw new Error('MoAgent repair 无法把当前失败安全归因到明确文件，拒绝启动宽权限自动修复。');
+    }
+    const repairNeedsSourceWrites = repairWriteGlobs?.some((glob) => glob.startsWith('app/')) ?? false;
+    const repairProfileWriteGlobs = repairWriteGlobs;
+    const runtimeProfileWriteGlobs = profile === 'repair'
+      ? repairProfileWriteGlobs
+      : preparedIntent
+        ? [...MOAGENT_PREPARED_SOURCE_WRITE_GLOBS]
+        : undefined;
+    const canWriteDashboardSource = profile !== 'repair' || repairNeedsSourceWrites;
+    const includeDashboardSpec = canWriteDashboardSource && (
+      (profile === 'repair' && needsDashboardRepairSkill) ||
+      (profile !== 'repair' && preparedIntent === 'standard')
+    );
     const supplementalWriteGlobs = profile === 'repair'
       ? []
       : !platformPrepared || images?.length
@@ -702,16 +751,19 @@ async function executeMoAgentPhase(
     const tools = createMoAgentTools({
       workspaceRoot: workspace,
       profile,
-      ...(repairProfileWriteGlobs
+      ...(runtimeProfileWriteGlobs
         ? {
-            profileAllowedWriteGlobs: repairProfileWriteGlobs,
-            includeDefaultWriteGlobs: repairNeedsSourceWrites,
+            profileAllowedWriteGlobs: runtimeProfileWriteGlobs,
+            includeDefaultWriteGlobs: false,
           }
         : {}),
       maxOutputChars: maxToolOutputChars,
       includeImageExtraction: Boolean(images?.length),
       includeQuantApi: !platformPrepared,
       targetedReadsOnly: platformPrepared,
+      ...(preparedIntent ? { preparedSurface: preparedIntent } : {}),
+      includeDashboardSpec,
+      includeSemanticEdit: canWriteDashboardSource,
       resourceLockWaitTimeoutMs: positiveIntegerEnv(
         'MOAGENT_RESOURCE_LOCK_WAIT_MS',
         5_000
@@ -741,6 +793,7 @@ async function executeMoAgentPhase(
       buildQuantPilotTaskPrompt(instruction, workspace, null, {
         runPlan,
         platformPrepared,
+        preparedIntent,
         phase: skillPhase,
         hasAttachments: Boolean(images?.length),
       }),
@@ -749,8 +802,27 @@ async function executeMoAgentPhase(
 
     let initialDashboardContract: string | null = null;
     if (platformPrepared && dashboardContractRequired) {
-      const inspector = tools.find((tool) => tool.name === 'inspect_dashboard_contract');
-      if (inspector) {
+      if (preparedIntent === 'standard' && includeDashboardSpec) {
+        initialDashboardContract = JSON.stringify({
+          schemaVersion: 1,
+          mode: 'trusted_dashboard_spec',
+          templateId,
+          variantId,
+          dataArtifact: 'final_dashboard',
+          digest: `sha256:${hashMoAgentProvenance({
+            runId: runPlan?.runId,
+            templateId,
+            variantId,
+            panels: runPlan?.visualization?.panels,
+          })}`,
+        });
+      } else {
+        // The inspector is a platform-side preflight, not provider-visible
+        // schema. Custom/repair runs receive its bounded result directly.
+        const inspector = createInspectDashboardContractTool({
+          workspaceRoot: workspace,
+          maxOutputChars: maxToolOutputChars,
+        });
         const parsedInput = inspector.parseInput ? inspector.parseInput({}) : {};
         const inspection = await raceWithAbort(Promise.resolve(inspector.execute(parsedInput, {
           runId: runInstanceId,
@@ -766,6 +838,7 @@ async function executeMoAgentPhase(
     }
     const systemPrompt = buildQuantPilotSystemPrompt({
       phase: skillPhase,
+      preparedIntent,
       skillManifest: skillBundle.systemContext,
     });
     const userPrompt = buildQuantPilotUserPrompt({
@@ -783,7 +856,7 @@ async function executeMoAgentPhase(
     const provider = new DeepSeekProvider({
       apiKey,
       baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
-      headers: { 'X-Client-App': 'QuantPilot-MoAgent/1.0' },
+      headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
       maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
       maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
       initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
@@ -803,6 +876,10 @@ async function executeMoAgentPhase(
       contextWindowTokens: positiveIntegerEnv('MOAGENT_CONTEXT_WINDOW_TOKENS', 128_000),
       reservedOutputTokens: maxTurnOutputTokens,
       maxInputTokens: positiveIntegerEnv('MOAGENT_MAX_INPUT_TOKENS', 48_000),
+      contextCapsuleMaxUtf8Bytes: positiveIntegerEnv(
+        'MOAGENT_CONTEXT_CAPSULE_MAX_BYTES',
+        8_192,
+      ),
     });
     const engine = new MoAgentRunEngine({
       provider,
@@ -831,8 +908,15 @@ async function executeMoAgentPhase(
     });
 
     const startup = await withMoAgentWorkspaceResourceLock(workspace, async () => {
-      // Snapshot under the same physical lock used by takeover and final file
-      // commits so provenance cannot race the previous owner's last mutation.
+      const recoveryAudit = await auditPrismaMoAgentRecovery(projectId, workspace);
+      if (recoveryAudit.blocked.length > 0 || recoveryAudit.racedRunIds.length > 0) {
+        throw new Error(
+          'MoAgent 检测到旧执行仍有未调和的写操作或并发调和，本次新执行已拒绝启动。'
+        );
+      }
+      // Recovery may have restored an interrupted batch. Capture provenance
+      // only after that rollback, under the same physical lock used by final
+      // file commits, so the new attempt is bound to the actual replan state.
       const [workspaceSnapshot, workspaceKey] = await raceWithAbort(
         Promise.all([
           hashMoAgentWorkspace(workspace),
@@ -840,12 +924,6 @@ async function executeMoAgentPhase(
         ]),
         abortController.signal,
       );
-      const recoveryAudit = await auditPrismaMoAgentRecovery(projectId);
-      if (recoveryAudit.blocked.length > 0 || recoveryAudit.racedRunIds.length > 0) {
-        throw new Error(
-          'MoAgent 检测到旧执行仍有未调和的写操作或并发调和，本次新执行已拒绝启动。'
-        );
-      }
       const session = await createPrismaMoAgentDurableRunSession({
         run: {
           runId: runInstanceId,
@@ -855,12 +933,16 @@ async function executeMoAgentPhase(
           requestId,
           provider: provider.name,
           model: resolvedModel,
-          frameworkVersion: 'moagent:1.6.0',
+          frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+          buildRevision: MOAGENT_BUILD_REVISION,
           profileHash: `sha256:${hashMoAgentProvenance({
             profile,
             capabilityId,
             skillPhase,
             platformPrepared,
+            preparedIntent,
+            templateId,
+            variantId,
           })}`,
           promptHash: `sha256:${hashMoAgentProvenance(messages)}`,
           toolHash: `sha256:${hashMoAgentProvenance(tools.map((tool) => ({
@@ -870,6 +952,7 @@ async function executeMoAgentPhase(
             effect: tool.effect,
             idempotency: tool.idempotency,
             observationCache: tool.observationCache,
+            contextReceiptProjector: tool.projectContextReceipt ? 'first_party_v1' : null,
             terminal: tool.terminal === true,
           })))}`,
           skillHash: `sha256:${hashMoAgentProvenance(skillBundle.skills)}`,
@@ -893,6 +976,7 @@ async function executeMoAgentPhase(
       signal: abortController.signal,
       waitTimeoutMs: positiveIntegerEnv('MOAGENT_RESOURCE_LOCK_WAIT_MS', 5_000),
       ownerId: `startup:${runInstanceId}`,
+      recoverDeadLocalOwner: true,
       metadata: {
         purpose: 'run_startup',
         projectId,
@@ -927,6 +1011,9 @@ async function executeMoAgentPhase(
         profile,
         skillPhase,
         platformPrepared,
+        preparedIntent,
+        templateId,
+        variantId,
         skillContextCharacters: skillBundle.totalCharacters,
       },
       commitWorkspaceMutation: (operationId, commit) =>

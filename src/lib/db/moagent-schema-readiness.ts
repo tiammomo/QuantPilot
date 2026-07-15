@@ -8,7 +8,7 @@
  */
 
 export const MOAGENT_SCHEMA_CONTRACT_VERSION =
-  '20260715000400_add_moagent_generation_epoch_slot' as const;
+  '20260715000500_add_moagent_build_revision' as const;
 
 export interface MoAgentSchemaQueryClient {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): PromiseLike<T>;
@@ -116,6 +116,7 @@ const EXPECTED_COLUMN_DEFINITIONS = {
     provider: ['text', false],
     model: ['text', false],
     framework_version: ['text', false],
+    build_revision: ['text', false],
     profile_hash: ['text', false],
     prompt_hash: ['text', false],
     tool_hash: ['text', false],

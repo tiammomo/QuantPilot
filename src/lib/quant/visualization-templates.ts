@@ -19,6 +19,8 @@ export interface QuantVisualizationTemplateVariant {
   density: 'dense' | 'balanced' | 'narrative';
   match: {
     keywords?: string[];
+    /** Explicit user actions that outrank generic scenario nouns. */
+    strongKeywords?: string[];
     minSymbols?: number;
     maxSymbols?: number;
     dataSignals?: string[];
@@ -428,7 +430,10 @@ const VARIANTS_BY_TEMPLATE_ID: Record<string, QuantVisualizationTemplateVariant[
       scenario: '用户要求调仓、减仓、补仓或现金使用方案。',
       layout: 'rebalance-actions-with-risk-constraints',
       density: 'balanced',
-      match: { keywords: ['调仓', '减仓', '补仓', '再平衡', '现金', '买入', '卖出'], dataSignals: ['portfolio'] },
+      match: {
+        strongKeywords: ['调仓', '减仓', '补仓', '再平衡', '现金', '买入', '卖出'],
+        dataSignals: ['portfolio'],
+      },
       requiredComponents: ['当前持仓', '风险约束', '调仓优先级', '现金情景', '不构成交易指令声明'],
       optionalComponents: ['个股趋势行', '估值情景'],
       firstViewport: ['当前持仓', '风险约束', '调仓优先级'],
@@ -481,6 +486,11 @@ function scoreVariant(
       score += 4;
     }
   }
+  for (const keyword of variant.match.strongKeywords ?? []) {
+    if (instruction.includes(normalizeText(keyword))) {
+      score += 16;
+    }
+  }
 
   const dataSignals = new Set((context?.dataSignals ?? []).map(normalizeText));
   for (const signal of variant.match.dataSignals ?? []) {
@@ -501,6 +511,9 @@ function collectVariantMatchReasons(
   const matchedKeywords = (variant.match.keywords ?? []).filter((keyword) =>
     instruction.includes(normalizeText(keyword))
   );
+  const matchedStrongKeywords = (variant.match.strongKeywords ?? []).filter((keyword) =>
+    instruction.includes(normalizeText(keyword))
+  );
   const dataSignals = new Set((context?.dataSignals ?? []).map(normalizeText));
   const matchedSignals = (variant.match.dataSignals ?? []).filter((signal) =>
     dataSignals.has(normalizeText(signal))
@@ -512,8 +525,10 @@ function collectVariantMatchReasons(
   if (typeof context?.symbolCount === 'number') {
     reasons.push(`识别到 ${context.symbolCount} 个标的`);
   }
-  if (matchedKeywords.length > 0) {
-    reasons.push(`命中问题关键词：${matchedKeywords.join('、')}`);
+  if (matchedStrongKeywords.length > 0 || matchedKeywords.length > 0) {
+    reasons.push(
+      `命中问题关键词：${[...matchedStrongKeywords, ...matchedKeywords].join('、')}`,
+    );
   }
   if (matchedSignals.length > 0) {
     reasons.push(`命中数据信号：${matchedSignals.join('、')}`);

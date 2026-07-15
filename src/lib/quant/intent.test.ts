@@ -58,6 +58,18 @@ describe('quant intent clarification', () => {
     });
   });
 
+  it('counts an ETF name and its overlapping index prefix as one comparison target', () => {
+    expect(
+      assessQuantIntentForClarification({
+        instruction: '对比510300沪深300ETF的近期表现',
+        capabilityId: 'asset_comparison',
+      })
+    ).toMatchObject({
+      required: true,
+      missing: ['comparison_universe'],
+    });
+  });
+
   it('builds a continuation after the user supplies comparison targets', () => {
     const originalQuestion = '帮我对比几只股票，生成看板。';
     const clarification = assessQuantIntentForClarification({

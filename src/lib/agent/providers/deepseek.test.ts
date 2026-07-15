@@ -517,6 +517,58 @@ describe('DeepSeekProvider', () => {
 
   it.each([
     {
+      label: 'a mismatched total',
+      usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 27 },
+    },
+    {
+      label: 'an incomplete cache breakdown',
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 8,
+        total_tokens: 28,
+        prompt_cache_hit_tokens: 12,
+      },
+    },
+    {
+      label: 'a mismatched cache breakdown',
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 8,
+        total_tokens: 28,
+        prompt_cache_hit_tokens: 12,
+        prompt_cache_miss_tokens: 7,
+      },
+    },
+    {
+      label: 'reasoning greater than completion usage',
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 8,
+        total_tokens: 28,
+        completion_tokens_details: { reasoning_tokens: 9 },
+      },
+    },
+  ])('rejects $label at the provider boundary', async ({ usage }) => {
+    const provider = new DeepSeekProvider({
+      apiKey: 'secret',
+      fetchImpl: vi.fn(async () => sseResponse([
+        {
+          id: 'response-usage',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        },
+        { id: 'response-usage', choices: [], usage },
+      ])) as unknown as typeof fetch,
+      maxRetries: 0,
+    });
+
+    await expect(collect(provider.complete(request()))).rejects.toMatchObject({
+      code: 'PROTOCOL_ERROR',
+      message: expect.stringContaining('token-usage'),
+    });
+  });
+
+  it.each([
+    {
       label: 'text',
       delta: { content: '123456' },
       options: { maxTextChars: 5 },

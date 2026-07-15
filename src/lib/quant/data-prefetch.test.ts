@@ -45,6 +45,12 @@ describe('quant data-prefetch symbol candidates', () => {
     expect(extractQuantSymbolNameCandidates(question)).toEqual(expected);
   });
 
+  it('does not resolve a nested ETF suffix as a second security name', () => {
+    expect(extractQuantSymbolNameCandidates('510300 沪深300ETF 最近120天走势如何？')).toEqual([
+      '沪深300ETF',
+    ]);
+  });
+
   it.each([
     '这个股票怎么样',
     '这只股票如何',

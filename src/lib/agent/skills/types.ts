@@ -23,6 +23,8 @@ export interface MoAgentSkillRuntimeCapsule {
   priority: number;
   phases: MoAgentSkillPhase[];
   requiresTools: string[];
+  /** At least one complete alternative set must be provider-visible. */
+  requiresOneOfToolSets?: string[][];
   objective: string;
   invariants: string[];
   workflow: string[];

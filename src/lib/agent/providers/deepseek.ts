@@ -118,7 +118,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function positiveInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
     ? value
     : undefined;
 }
@@ -269,6 +269,7 @@ function parseUsage(value: unknown): MoAgentTokenUsage | undefined {
   if (inputTokens === undefined || outputTokens === undefined || totalTokens === undefined) {
     return undefined;
   }
+  if (totalTokens !== inputTokens + outputTokens) return undefined;
 
   const details = isRecord(value.completion_tokens_details)
     ? value.completion_tokens_details
@@ -280,14 +281,29 @@ function parseUsage(value: unknown): MoAgentTokenUsage | undefined {
       : undefined);
   const cacheMissInputTokens = positiveInteger(value.prompt_cache_miss_tokens);
   const reasoningTokens = details ? positiveInteger(details.reasoning_tokens) : undefined;
+  if ((cachedInputTokens === undefined) !== (cacheMissInputTokens === undefined)) {
+    return undefined;
+  }
+  if (
+    cachedInputTokens !== undefined &&
+    cacheMissInputTokens !== undefined &&
+    cachedInputTokens + cacheMissInputTokens !== inputTokens
+  ) {
+    return undefined;
+  }
+  if (reasoningTokens !== undefined && reasoningTokens > outputTokens) return undefined;
+  const cacheEstimated = cachedInputTokens === undefined;
+  const effectiveCachedInputTokens = cachedInputTokens ?? 0;
+  const effectiveCacheMissInputTokens = cacheMissInputTokens ?? inputTokens;
 
   return {
     inputTokens,
     outputTokens,
     totalTokens,
-    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
-    ...(cacheMissInputTokens === undefined ? {} : { cacheMissInputTokens }),
+    cachedInputTokens: effectiveCachedInputTokens,
+    cacheMissInputTokens: effectiveCacheMissInputTokens,
     ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+    ...(cacheEstimated ? { usageSource: 'cache_estimated' as const } : {}),
   };
 }
 
@@ -693,6 +709,9 @@ export class DeepSeekProvider implements MoAgentModelProvider {
       const chunkResponseId =
         typeof chunk.id === 'string' && chunk.id.trim() ? chunk.id : undefined;
       const usage = parseUsage(chunk.usage);
+      if (chunk.usage !== undefined && chunk.usage !== null && usage === undefined) {
+        throw protocolError('DeepSeek returned an inconsistent token-usage payload.');
+      }
       const hasChoices = Array.isArray(chunk.choices) && chunk.choices.length > 0;
       const hasSemanticPayload = usage !== undefined || hasChoices;
 

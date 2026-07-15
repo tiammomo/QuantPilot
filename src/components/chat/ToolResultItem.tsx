@@ -51,6 +51,8 @@ const typedToolDisplayNames: Record<string, string> = {
   query_json: '数据查询',
   query_text_file: '源码定位',
   inspect_dashboard_contract: '看板结构',
+  apply_dashboard_spec: '看板编译',
+  semantic_edit: '语义编辑',
   edit_file: '修改文件',
   write_file: '写入文件',
   submit_result: '提交结果',
@@ -87,6 +89,7 @@ const getToolIcon = (toolName: string, action: ToolAction, success?: boolean) =>
   if (success === false) return <CircleAlert className="h-3.5 w-3.5 text-amber-600" />;
   if (['数据查询', '源码定位', '看板结构'].includes(toolName)) return <BookOpen className={className} />;
   if (['执行计划', '提交结果'].includes(toolName)) return <CheckSquare className={className} />;
+  if (['看板编译', '语义编辑'].includes(toolName)) return <Code2 className={className} />;
   if (lower.includes('skill') || /^quant-[a-z0-9-]+$/i.test(toolName)) return <Wrench className={className} />;
   if (lower.includes('glob') || lower.includes('grep') || action === 'Searched') return <Search className={className} />;
   if (lower.includes('bash') || action === 'Executed') return <Terminal className={className} />;

@@ -363,36 +363,36 @@ export default async function Home() {
 
   return (
     <main className="comparison-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
-      <section className="comparison-hero">
+      <header className="comparison-header">
         <div>
           <p className="eyebrow">QuantPilot 多标的对比</p>
           <h1>多标的相对强弱看板</h1>
           <p>覆盖 {requestedSymbols.length || rows.length} 个标的：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}</p>
         </div>
-        <div className="hero-meta">
+        <div className="header-meta">
           <span>样本：最近 60 个交易日</span>
           <span>信源：{sourceDisplayName(data?.source ?? 'eastmoney')}</span>
           <span>证据：{SOURCES_FILE}</span>
         </div>
-      </section>
+      </header>
 
-      <section className="leader-grid">
-        <article className="leader-card up">
-          <span>收益领先</span>
-          <strong>{String(bestReturn?.name ?? '-')}</strong>
-          <em>{formatPercent(bestReturn?.value)}</em>
-        </article>
-        <article className="leader-card neutral">
-          <span>回撤较小</span>
-          <strong>{String(lowestDrawdown?.name ?? '-')}</strong>
-          <em>{formatPercent(lowestDrawdown?.value)}</em>
-        </article>
-        <article className="leader-card neutral">
-          <span>波动较低</span>
-          <strong>{String(lowestVolatility?.name ?? '-')}</strong>
-          <em>{formatPercent(lowestVolatility?.value)}</em>
-        </article>
-      </section>
+      <dl className="comparison-metrics">
+        <div className="up">
+          <dt>收益领先</dt>
+          <dd>{String(bestReturn?.name ?? '-')}</dd>
+          <dd className="metric-detail">{formatPercent(bestReturn?.value)}</dd>
+        </div>
+        <div className="neutral">
+          <dt>回撤较小</dt>
+          <dd>{String(lowestDrawdown?.name ?? '-')}</dd>
+          <dd className="metric-detail">{formatPercent(lowestDrawdown?.value)}</dd>
+        </div>
+        <div className="neutral">
+          <dt>波动较低</dt>
+          <dd>{String(lowestVolatility?.name ?? '-')}</dd>
+          <dd className="metric-detail">{formatPercent(lowestVolatility?.value)}</dd>
+        </div>
+      </dl>
 
       <section className="comparison-matrix">
         <div className="panel-heading">
@@ -608,9 +608,9 @@ function ComparisonTable({ rows }: { rows: JsonRecord[] }) {
                 <td><strong>{String(row.name ?? row.symbol)}</strong><small>{String(row.symbol ?? '-')}</small></td>
                 <td>{formatNumber(row.price)}</td>
                 <td className={tone(row.change_percent)}>{formatPercent(row.change_percent)}</td>
-                <td className={tone(row.period_return ?? row.return_120d_pct)}>{formatPercent(row.period_return ?? row.return_120d_pct)}</td>
-                <td className="down">{formatPercent(row.max_drawdown)}</td>
-                <td>{formatPercent(row.volatility20d)}</td>
+                <td className={tone(pickMetric(row, ['period_return', 'period_return_pct', 'return_120d_pct', 'return_120d']))}>{formatPercent(pickMetric(row, ['period_return', 'period_return_pct', 'return_120d_pct', 'return_120d']))}</td>
+                <td className="down">{formatPercent(pickMetric(row, ['max_drawdown', 'max_drawdown_pct']))}</td>
+                <td>{formatPercent(pickMetric(row, ['volatility20d', 'volatility_20d_annualized_pct', 'volatility20d_pct']))}</td>
                 <td>{formatMoney(row.amount ?? row.avg_amount_20d)}</td>
                 <td>{formatNumber(row.composite_score, 0)}</td>
                 <td>{String(row.selection_view ?? row.relative_strength ?? '-')}</td>
@@ -638,7 +638,7 @@ function BarCompare({ rows, fields, title, subtitle, inverse = false }: {
   const zeroX = 250 + ((0 - min) / range) * 390;
 
   return (
-    <section className="selection-panel chart-card core-chart-card">
+    <section className="selection-panel chart-panel core-chart-panel">
       <div className="panel-heading">
         <div>
           <h2>{title}</h2>
@@ -679,53 +679,6 @@ function BarCompare({ rows, fields, title, subtitle, inverse = false }: {
         })}
       </svg>
       <p className="chart-note">主图按统一横轴缩放，避免只用迷你趋势图造成不可读。</p>
-    </section>
-  );
-}
-
-function Sparkline({ asset }: { asset: JsonRecord }) {
-  const bars = asArray(asRecord(asset.kline)?.bars).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  const visible = bars.slice(-50);
-  const closes = visible.map((bar) => numeric(bar.close)).filter((value): value is number => value !== null);
-  const min = closes.length ? Math.min(...closes) : 0;
-  const max = closes.length ? Math.max(...closes) : 1;
-  const range = Math.max(max - min, 0.000001);
-  const points = closes.map((value, index) => {
-    const x = (index / Math.max(closes.length - 1, 1)) * 100;
-    const y = 34 - ((value - min) / range) * 28;
-    return x.toFixed(2) + ',' + y.toFixed(2);
-  }).join(' ');
-  return (
-    <svg className="sparkline" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={String(asset.name ?? asset.symbol ?? 'K 线迷你趋势')}>
-      <line x1="0" y1="34" x2="100" y2="34" className="axis" />
-      {points ? <polyline points={points} fill="none" /> : null}
-    </svg>
-  );
-}
-
-function AssetCards({ assets }: { assets: JsonRecord[] }) {
-  return (
-    <section className="asset-grid">
-      {assets.map((asset, index) => {
-        const quote = asRecord(asset.quote);
-        const technical = asRecord(asRecord(asset.technicalIndicators)?.summary);
-        const quality = asRecord(asset.financialQuality);
-        return (
-          <article className="asset-card" key={String(asset.symbol ?? index)}>
-            <div>
-              <strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong>
-              <small>{String(asset.symbol ?? quote?.symbol ?? '-')} · {String(quality?.quality_label ?? '质量待确认')}</small>
-            </div>
-            <Sparkline asset={asset} />
-            <dl>
-              <div><dt>最新价</dt><dd>{formatNumber(quote?.price)}</dd></div>
-              <div><dt>区间</dt><dd className={tone(technical?.period_return_pct ?? technical?.return_120d_pct)}>{formatPercent(technical?.period_return_pct ?? technical?.return_120d_pct)}</dd></div>
-              <div><dt>MA20</dt><dd>{formatNumber(technical?.ma20)}</dd></div>
-              <div><dt>质量分</dt><dd>{formatNumber(quality?.quality_score, 0)}</dd></div>
-            </dl>
-          </article>
-        );
-      })}
     </section>
   );
 }
@@ -807,7 +760,9 @@ export default async function Home() {
   const data = await readDashboardData();
   const assets = getAssets(data);
   const rows = getComparisonRows(data);
-  const rankingRows = getRowsFrom(data, 'selectionRanking');
+  const rankingRows = getRowsFrom(data, 'selectionRanking')
+    .slice()
+    .sort((left, right) => (numeric(left.rank) ?? Number.MAX_SAFE_INTEGER) - (numeric(right.rank) ?? Number.MAX_SAFE_INTEGER));
   const financialRows = getRowsFrom(data, 'financialQuality');
   const conclusion = getConclusion(data);
   const leaders = asRecord(asRecord(data?.comparison)?.leaders);
@@ -819,18 +774,17 @@ export default async function Home() {
 
   return (
     <main className="selection-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="stock-selection">
-      <section className="selection-hero">
+      <header className="selection-header">
         <div>
           <p className="eyebrow">QuantPilot 多标的对比</p>
           <h1>{topRanking ? String(topRanking.name ?? topRanking.symbol) + ' 暂列研究优先级第一' : '多标的研究看板'}</h1>
           <p>覆盖 {requestedSymbols.length || rows.length} 个标的：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}。以下排序仅用于研究，不构成交易指令。</p>
         </div>
-        <aside>
-          <span>研究用途</span>
-          <strong>多标的对比</strong>
-          <em>统一口径读取真实数据与信源证据</em>
-        </aside>
-      </section>
+        <div className="header-meta">
+          <span>研究用途：多标的对比</span>
+          <span>数据口径：真实数据与信源证据</span>
+        </div>
+      </header>
 
       {noCandidates ? (
         <section className="selection-empty-result" role="status">
@@ -850,12 +804,12 @@ export default async function Home() {
         </section>
       ) : null}
 
-      <section className="summary-grid">
-        <article><span>收益领先</span><strong>{String(asRecord(leaders?.best_return)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.best_return)?.value)}</em></article>
-        <article><span>回撤较小</span><strong>{String(asRecord(leaders?.lowest_drawdown)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.lowest_drawdown)?.value)}</em></article>
-        <article><span>波动较低</span><strong>{String(asRecord(leaders?.lowest_volatility)?.name ?? '-')}</strong><em>{formatPercent(asRecord(leaders?.lowest_volatility)?.value)}</em></article>
-        <article><span>标的数量</span><strong>{rows.length}</strong><em>{assets.length} 只已绑定数据</em></article>
-      </section>
+      <dl className="selection-metrics">
+        <div><dt>收益领先</dt><dd>{String(asRecord(leaders?.best_return)?.name ?? '-')}</dd><dd className="metric-detail">{formatPercent(asRecord(leaders?.best_return)?.value)}</dd></div>
+        <div><dt>回撤较小</dt><dd>{String(asRecord(leaders?.lowest_drawdown)?.name ?? '-')}</dd><dd className="metric-detail">{formatPercent(asRecord(leaders?.lowest_drawdown)?.value)}</dd></div>
+        <div><dt>波动较低</dt><dd>{String(asRecord(leaders?.lowest_volatility)?.name ?? '-')}</dd><dd className="metric-detail">{formatPercent(asRecord(leaders?.lowest_volatility)?.value)}</dd></div>
+        <div><dt>标的数量</dt><dd>{rows.length}</dd><dd className="metric-detail">{assets.length} 只已绑定数据</dd></div>
+      </dl>
 
       <ComparisonTable rows={rows} />
 
@@ -882,8 +836,6 @@ export default async function Home() {
         </section>
       </section>
 
-      <AssetCards assets={assets} />
-
       <FinancialQualityPanel rows={financialRows} />
       <DataQualityPanel data={data} assets={assets} />
     </main>
@@ -896,32 +848,44 @@ export function comparisonCss() {
   return `
 
 .comparison-shell {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
   padding: 28px;
 }
 
-.comparison-hero {
+.comparison-header {
   display: flex;
   justify-content: space-between;
   gap: 24px;
   align-items: flex-end;
-  padding: 24px 28px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.comparison-hero h1 {
+.comparison-header h1 {
   margin: 4px 0 6px;
   font-size: clamp(26px, 2.8vw, 40px);
   letter-spacing: 0;
 }
 
-.comparison-hero p,
-.hero-meta {
+.comparison-header > *,
+.panel-heading > * {
+  min-width: 0;
+}
+
+.comparison-header h1,
+.comparison-header p,
+.panel-heading h2,
+.panel-heading p {
+  overflow-wrap: anywhere;
+}
+
+.comparison-header p,
+.header-meta {
   color: var(--muted);
 }
 
@@ -932,59 +896,66 @@ export function comparisonCss() {
   font-size: 14px;
 }
 
-.hero-meta {
+.header-meta {
   display: grid;
   gap: 6px;
   text-align: right;
   font-size: 14px;
 }
 
-.leader-grid,
+.comparison-metrics,
 .chart-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 14px;
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
 }
 
-.leader-card,
 .comparison-panel,
 .comparison-matrix {
-  border: 1px solid var(--line);
+  border: 0;
+  border-bottom: 1px solid var(--line);
   background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
 }
 
-.leader-card {
+.comparison-metrics > div {
   padding: 20px;
 }
 
-.leader-card span {
+.comparison-metrics > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.comparison-metrics dt {
   display: block;
   color: var(--muted);
   margin-bottom: 8px;
   font-size: 14px;
 }
 
-.leader-card strong {
+.comparison-metrics dd {
   display: block;
+  margin: 0;
   font-size: 24px;
-  white-space: nowrap;
+  font-weight: 800;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.leader-card em {
+.comparison-metrics .metric-detail {
   display: block;
   margin-top: 8px;
   font-size: 22px;
-  font-style: normal;
   font-weight: 800;
   white-space: nowrap;
 }
 
 .comparison-matrix,
 .comparison-panel {
-  margin-top: 14px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
   padding: 20px;
 }
 
@@ -1139,26 +1110,49 @@ export function comparisonCss() {
     padding: 16px;
   }
 
-  .comparison-hero,
+  .comparison-header,
   .panel-heading {
     display: block;
   }
 
-  .hero-meta {
+  .header-meta {
     margin-top: 14px;
     text-align: left;
   }
 
-  .leader-grid,
+  .comparison-metrics,
   .chart-grid,
   .comparison-two-column {
     grid-template-columns: 1fr;
   }
 
-  .leader-grid > *,
+  .comparison-metrics > *,
   .chart-grid > *,
   .comparison-two-column > * {
     min-width: 0;
+  }
+
+  .comparison-metrics > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .correlation-row {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .correlation-row .correlation-meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .correlation-row em {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .compact-row {
+    grid-template-columns: minmax(0, 1fr) 56px;
   }
 }
 
@@ -1197,77 +1191,81 @@ export function stockSelectionCss() {
 }
 
 .selection-shell {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 100vh;
   background: var(--bg);
   color: var(--ink);
   padding: 28px;
 }
 
-.selection-hero {
+.selection-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 24px;
-  align-items: stretch;
-  padding: 24px 28px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  align-items: end;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.selection-hero h1 {
+.selection-header h1 {
   margin: 6px 0;
   font-size: clamp(26px, 2.8vw, 42px);
   line-height: 1.1;
   letter-spacing: 0;
 }
 
-.selection-hero p,
-.selection-hero em {
+.selection-header > *,
+.panel-heading > * {
+  min-width: 0;
+}
+
+.selection-header h1,
+.selection-header p,
+.panel-heading h2,
+.panel-heading p,
+.ranking-row strong,
+.ranking-row small,
+.ranking-row p {
+  overflow-wrap: anywhere;
+}
+
+.selection-header p,
+.header-meta {
   color: var(--muted);
 }
 
-.selection-hero aside,
-.selection-panel,
-.asset-card,
-.summary-grid article {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-}
-
-.selection-hero aside {
+.header-meta {
   display: grid;
-  align-content: center;
-  gap: 8px;
-  padding: 22px;
+  gap: 6px;
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+  text-align: right;
+  font-size: 13px;
 }
 
-.selection-hero aside span,
-.summary-grid span {
-  color: var(--muted);
+.selection-panel {
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
-.selection-hero aside strong {
-  color: var(--red);
-  font-size: 28px;
-}
-
-.summary-grid,
-.asset-grid,
+.selection-metrics,
 .chart-grid,
 .main-grid {
   display: grid;
-  gap: 14px;
-  margin-top: 14px;
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
 }
 
-.summary-grid {
+.selection-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.asset-grid,
 .chart-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1280,69 +1278,46 @@ export function stockSelectionCss() {
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
-.summary-grid article,
-.asset-card,
 .selection-panel {
   padding: 20px;
 }
 
-.summary-grid strong,
-.summary-grid em,
-.asset-card strong,
-.asset-card dd,
+.selection-metrics dd,
+.selection-metrics .metric-detail,
 .ranking-row strong,
 .ranking-row em {
   display: block;
 }
 
-.summary-grid strong {
-  margin-top: 8px;
-  font-size: 24px;
-  white-space: nowrap;
+.selection-metrics > div {
+  padding: 16px 20px;
 }
 
-.summary-grid em {
-  margin-top: 6px;
-  font-style: normal;
-  font-weight: 800;
+.selection-metrics > div + div {
+  border-left: 1px solid var(--line);
 }
 
-.asset-card {
-  display: grid;
-  gap: 14px;
-}
-
-.asset-card dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.asset-card dt {
+.selection-metrics dt {
   color: var(--muted);
   font-size: 13px;
-  white-space: nowrap;
 }
 
-.asset-card dd {
-  margin: 2px 0 0;
+.selection-metrics dd {
+  margin-top: 8px;
+  margin-left: 0;
+  font-size: 24px;
   font-weight: 800;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.sparkline {
-  width: 100%;
-  height: 68px;
-}
-
-.sparkline polyline {
-  stroke: var(--blue);
-  stroke-width: 2.4;
+.selection-metrics .metric-detail {
+  margin-top: 6px;
+  font-weight: 800;
 }
 
 .selection-panel {
-  margin-top: 14px;
+  margin: 0;
 }
 
 .main-grid .selection-panel {
@@ -1423,7 +1398,7 @@ export function stockSelectionCss() {
   margin-top: 10px;
 }
 
-.core-chart-card {
+.core-chart-panel {
   min-height: 390px;
 }
 
@@ -1538,43 +1513,54 @@ td small {
     padding: 10px;
   }
 
-  .selection-hero {
+  .selection-header {
     display: block;
     padding: 14px;
   }
 
-  .selection-hero h1 {
+  .selection-header h1 {
     margin: 4px 0;
     font-size: 22px;
     line-height: 1.15;
   }
 
-  .selection-hero p {
+  .selection-header p {
     margin: 0;
     font-size: 13px;
     line-height: 1.55;
   }
 
-  .selection-hero aside {
-    display: none;
+  .header-meta {
+    margin-top: 10px;
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line-light);
+    text-align: left;
   }
 
-  .summary-grid {
+  .selection-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 8px;
   }
 
-  .summary-grid article {
+  .selection-metrics > div {
     padding: 10px;
   }
 
-  .summary-grid strong {
+  .selection-metrics > div:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .selection-metrics > div:nth-child(4) {
+    border-top: 1px solid var(--line);
+  }
+
+  .selection-metrics dd {
     margin-top: 4px;
     font-size: 17px;
   }
 
-  .summary-grid em {
+  .selection-metrics .metric-detail {
     margin-top: 3px;
     font-size: 12px;
   }
@@ -1585,6 +1571,7 @@ td small {
   }
 
   .panel-heading {
+    display: block;
     margin-bottom: 8px;
   }
 
@@ -1597,18 +1584,18 @@ td small {
   }
 
   .panel-heading span {
+    display: inline-block;
+    margin-top: 6px;
     padding: 2px 7px;
     font-size: 11px;
   }
 
-  .asset-grid,
   .chart-grid,
   .main-grid {
     grid-template-columns: 1fr;
   }
 
-  .summary-grid > *,
-  .asset-grid > *,
+  .selection-metrics > *,
   .chart-grid > *,
   .main-grid > * {
     min-width: 0;
@@ -1769,25 +1756,6 @@ function weightBarWidth(weight: unknown, maxWeight: number): number {
   return Math.max(4, Math.min(100, ((numeric(weight) ?? 0) / Math.max(maxWeight, 0.01)) * 100));
 }
 
-function Sparkline({ asset }: { asset: JsonRecord }) {
-  const bars = getSparklineBars(asset).slice(-50);
-  const closes = bars.map((bar) => numeric(bar.close)).filter((value): value is number => value !== null);
-  const min = closes.length ? Math.min(...closes) : 0;
-  const max = closes.length ? Math.max(...closes) : 1;
-  const range = Math.max(max - min, 0.000001);
-  const points = closes.map((value, index) => {
-    const x = (index / Math.max(closes.length - 1, 1)) * 100;
-    const y = 34 - ((value - min) / range) * 28;
-    return x.toFixed(2) + ',' + y.toFixed(2);
-  }).join(' ');
-  return (
-    <svg className="sparkline" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={String(asset.name ?? asset.symbol ?? 'K 线迷你趋势')}>
-      <line x1="0" y1="34" x2="100" y2="34" className="axis" />
-      {points ? <polyline points={points} fill="none" /> : null}
-    </svg>
-  );
-}
-
 function PortfolioReturnChart({ assets }: { assets: JsonRecord[] }) {
   const series = getPortfolioReturnSeries(assets);
   const values = series.flatMap((item) => item.points.map((point) => point.value));
@@ -1871,38 +1839,6 @@ function PortfolioReturnChart({ assets }: { assets: JsonRecord[] }) {
       ) : (
         <p className="chart-empty">当前真实 K 线不足，暂不能计算累计收益路径。</p>
       )}
-    </section>
-  );
-}
-
-function HoldingCards({ holdings, assets }: { holdings: JsonRecord[]; assets: JsonRecord[] }) {
-  return (
-    <section className="holding-grid">
-      {holdings.map((holding, index) => {
-        const asset = assets.find((a) => (a.symbol ?? asRecord(a.quote)?.symbol) === holding.symbol) ?? {};
-        const weight = numeric(holding.weight);
-        const pnl = numeric(holding.pnl);
-        const pnlPct = numeric(holding.pnl_pct);
-        return (
-          <article className="holding-card" key={String(holding.symbol ?? index)}>
-            <div className="holding-card-top">
-              <div>
-                <strong>{String(holding.name ?? holding.symbol)}</strong>
-                <small>{String(holding.symbol ?? '-')} · 权重 {formatPercent(weight)}</small>
-              </div>
-              <Sparkline asset={asset} />
-            </div>
-            <dl>
-              <div><dt>持有数量</dt><dd>{formatNumber(holding.quantity, 0)} 股</dd></div>
-              <div><dt>成本价</dt><dd>{formatNumber(holding.cost)}</dd></div>
-              <div><dt>现价</dt><dd>{formatNumber(holding.current_price)}</dd></div>
-              <div><dt>市值</dt><dd>{formatMoney(holding.market_value)}</dd></div>
-              <div><dt>浮动盈亏</dt><dd className={tone(pnl)}>{formatMoney(pnl)}</dd></div>
-              <div><dt>盈亏幅度</dt><dd className={tone(pnlPct)}>{formatPercent(pnlPct)}</dd></div>
-            </dl>
-          </article>
-        );
-      })}
     </section>
   );
 }
@@ -2044,12 +1980,12 @@ function RiskPanel({ risk }: { risk: JsonRecord | null }) {
         </div>
         <span>仅供参考</span>
       </div>
-      <div className="risk-grid">
-        <article><span>VaR 95%</span><strong>{formatPercent(var95)}</strong></article>
-        <article><span>VaR 99%</span><strong>{formatPercent(var99)}</strong></article>
-        <article><span>Expected Shortfall</span><strong>{formatPercent(expectedShortfall)}</strong></article>
-        <article><span>计算区间</span><strong>{String(risk?.window ?? risk?.sample_window ?? '-')}</strong></article>
-      </div>
+      <dl className="risk-strip">
+        <div><dt>VaR 95%</dt><dd>{formatPercent(var95)}</dd></div>
+        <div><dt>VaR 99%</dt><dd>{formatPercent(var99)}</dd></div>
+        <div><dt>Expected Shortfall</dt><dd>{formatPercent(expectedShortfall)}</dd></div>
+        <div><dt>计算区间</dt><dd>{String(risk?.window ?? risk?.sample_window ?? '-')}</dd></div>
+      </dl>
       {correlation.length > 0 && (
         <div className="correlation-list" style={{ marginTop: 14 }}>
           {correlation.slice(0, 4).map((pair, index) => {
@@ -2115,28 +2051,27 @@ export default async function Home() {
 
   return (
     <main className="holding-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="holding-analysis">
-      <section className="holding-hero">
+      <header className="holding-header">
         <div>
           <p className="eyebrow">QuantPilot 持仓分析</p>
           <h1>组合持仓风险看板</h1>
           <p>覆盖 {holdings.length} 只持仓：{holdings.map((h) => String(h.name ?? h.symbol)).join('、')}。以下分析仅用于研究，不构成交易指令。</p>
         </div>
-        <div className="hero-summary">
-          <article><span>组合市值</span><strong>{formatMoney(portfolio?.total_value)}</strong></article>
-          <article><span>持仓成本</span><strong>{formatMoney(portfolio?.cost_basis)}</strong></article>
-          <article><span>浮动盈亏</span><strong className={tone(totalPnl)}>{formatMoney(totalPnl)}</strong></article>
-          <article><span>盈亏幅度</span><strong className={tone(totalPnlPct)}>{formatPercent(totalPnlPct)}</strong></article>
-        </div>
-        <div className="hero-meta">
+        <div className="header-meta">
           <span>持仓 {String(portfolio?.holdings_count ?? holdings.length)} 只</span>
           <span>覆盖 {requestedSymbols.length || assets.length} 个标的</span>
           <span>数据时间 {String(portfolio?.as_of ?? holdings[0]?.as_of ?? '-')}</span>
         </div>
-      </section>
+      </header>
+
+      <dl className="portfolio-metrics">
+        <div><dt>组合市值</dt><dd>{formatMoney(portfolio?.total_value)}</dd></div>
+        <div><dt>持仓成本</dt><dd>{formatMoney(portfolio?.cost_basis)}</dd></div>
+        <div><dt>浮动盈亏</dt><dd className={tone(totalPnl)}>{formatMoney(totalPnl)}</dd></div>
+        <div><dt>盈亏幅度</dt><dd className={tone(totalPnlPct)}>{formatPercent(totalPnlPct)}</dd></div>
+      </dl>
 
       <PortfolioReturnChart assets={assets} />
-
-      <HoldingCards holdings={holdings} assets={assets} />
 
       <section className="holding-main-grid">
         <HoldingsTable holdings={holdings} />
@@ -2164,113 +2099,73 @@ export function holdingAnalysisCss() {
   padding: 28px;
 }
 
-.holding-hero {
+.holding-header {
   display: grid;
-  gap: 20px;
-  padding: 24px 28px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--line);
 }
 
-.holding-hero h1 {
+.holding-header h1 {
   margin: 4px 0 6px;
   font-size: clamp(26px, 2.8vw, 40px);
   letter-spacing: 0;
 }
 
-.holding-hero p {
+.holding-header p {
   color: var(--muted);
 }
 
-.hero-summary {
+.portfolio-metrics,
+.risk-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
 }
 
-.hero-summary article {
+.portfolio-metrics > div,
+.risk-strip > div {
   padding: 16px;
-  border: 1px solid var(--line);
-  background: var(--surface-1);
-  border-radius: 8px;
 }
 
-.hero-summary span {
+.portfolio-metrics > div + div,
+.risk-strip > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.portfolio-metrics dt,
+.risk-strip dt {
   display: block;
   margin-bottom: 6px;
   color: var(--muted);
   font-size: 14px;
 }
 
-.hero-summary strong {
+.portfolio-metrics dd,
+.risk-strip dd {
   display: block;
+  margin: 0;
   font-size: 24px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
-.hero-meta {
+.header-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 18px;
+  justify-content: flex-end;
+  gap: 6px 18px;
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
   color: var(--muted);
   font-size: 14px;
 }
 
-.holding-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.holding-card {
-  padding: 18px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
-}
-
-.holding-card-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 114px;
-  gap: 14px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.holding-card-top strong {
-  display: block;
-  font-size: 17px;
-}
-
-.holding-card-top small {
-  display: block;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.holding-card dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.holding-card dt {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.holding-card dd {
-  margin: 2px 0 0;
-  font-weight: 800;
-}
-
-.portfolio-chart-panel { margin-top: 14px; }
+.portfolio-chart-panel { margin: 0; }
 .portfolio-chart-wrap {
   min-width: 0; overflow: hidden;
   padding: 8px 10px 10px;
@@ -2333,20 +2228,19 @@ export function holdingAnalysisCss() {
 .holding-main-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-  gap: 14px;
-  margin-top: 14px;
-}
-
-.holding-panel,
-.risk-grid article {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 8px;
-  box-shadow: var(--shadow-sm);
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .holding-panel {
-  margin-top: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.holding-panel {
+  margin: 0;
   padding: 20px;
 }
 
@@ -2418,29 +2312,6 @@ export function holdingAnalysisCss() {
   text-align: right;
 }
 
-.risk-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.risk-grid article {
-  padding: 16px;
-}
-
-.risk-grid span {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-.risk-grid strong {
-  display: block;
-  font-size: 22px;
-  white-space: nowrap;
-}
-
 .correlation-list {
   display: grid;
   gap: 10px;
@@ -2483,16 +2354,6 @@ export function holdingAnalysisCss() {
 .corr-positive { background: var(--red); }
 .corr-negative { background: var(--green); }
 
-.sparkline {
-  width: 100%;
-  height: 56px;
-}
-
-.sparkline polyline {
-  stroke: var(--blue);
-  stroke-width: 2.4;
-}
-
 .axis {
   stroke: var(--line);
   stroke-width: 0.7;
@@ -2513,47 +2374,64 @@ td small {
     padding: 12px;
   }
 
-  .holding-hero {
+  .holding-header {
+    display: block;
     gap: 12px; padding: 16px;
   }
 
-  .holding-hero h1 {
+  .holding-header h1 {
     margin: 3px 0 5px; font-size: clamp(25px, 8vw, 32px);
   }
 
-  .holding-hero > div:first-child > p:last-child {
+  .holding-header > div:first-child > p:last-child {
     font-size: 13px; line-height: 1.55;
   }
 
-  .hero-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  .portfolio-metrics,
+  .risk-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .hero-summary article {
+  .portfolio-metrics > div,
+  .risk-strip > div {
     padding: 10px;
   }
 
-  .hero-summary span {
+  .portfolio-metrics > div:nth-child(3),
+  .risk-strip > div:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .portfolio-metrics > div:nth-child(4),
+  .risk-strip > div:nth-child(4) {
+    border-top: 1px solid var(--line);
+  }
+
+  .portfolio-metrics dt,
+  .risk-strip dt {
     margin-bottom: 3px; font-size: 12px;
   }
 
-  .hero-summary strong {
+  .portfolio-metrics dd,
+  .risk-strip dd {
     overflow: hidden; font-size: 18px; text-overflow: ellipsis;
   }
 
-  .hero-meta {
+  .header-meta {
+    justify-content: flex-start;
     gap: 6px 12px; font-size: 12px;
+    margin-top: 10px;
+    padding: 8px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line-light);
   }
 
-  .holding-grid,
-  .holding-main-grid,
-  .risk-grid {
+  .holding-main-grid {
     grid-template-columns: 1fr;
   }
 
-  .holding-grid > *,
-  .holding-main-grid > *,
-  .risk-grid > * {
+  .holding-main-grid > * {
     min-width: 0;
   }
 

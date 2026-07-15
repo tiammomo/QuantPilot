@@ -75,6 +75,21 @@ describe('writeInitialRunPlan', () => {
     expect(plan.visualization.templateId).toBe('technical-timing');
   });
 
+  it('does not reinterpret an ETF alias as both the ETF and its index prefix', async () => {
+    const projectPath = await createProject();
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'hs300-etf-alias-regression',
+      capabilityId: 'technical_analysis',
+      capabilitySource: 'auto',
+      instruction: '510300 沪深300ETF 最近120天走势如何？生成趋势看板。',
+    });
+
+    expect(plan.symbols).toEqual(['510300']);
+    expect(plan.capabilityId).toBe('technical_analysis');
+    expect(plan.visualization.templateId).toBe('technical-timing');
+  });
+
   it('selects asset comparison only when the instruction resolves to distinct symbols', async () => {
     const projectPath = await createProject();
     const plan = await writeInitialRunPlan({
@@ -103,5 +118,24 @@ describe('writeInitialRunPlan', () => {
     expect(plan.status).toBe('needs_clarification');
     expect(plan.symbols).toEqual([]);
     expect(plan.clarification?.missing).toContain('comparison_universe');
+  });
+
+  it('lets an explicit rebalance action outrank generic portfolio-risk nouns', async () => {
+    const projectPath = await createProject();
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'portfolio-rebalance-specificity',
+      capabilityId: 'portfolio_risk',
+      capabilitySource: 'auto',
+      instruction:
+        '我持有杭钢股份、京沪高铁、三七互娱、中国黄金、完美世界，请结合集中风险和现金生成调仓分析看板。',
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.visualization.templateId).toBe('holding-analysis');
+    expect(plan.visualization.variantId).toBe('portfolio-rebalance-plan');
+    expect(plan.visualization.matchReasons).toEqual(
+      expect.arrayContaining([expect.stringContaining('调仓')]),
+    );
   });
 });

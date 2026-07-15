@@ -41,8 +41,9 @@ describe('MoAgent QuantPilot prompts', () => {
     await fs.mkdir(path.join(projectPath, 'evidence'), { recursive: true });
     await Promise.all([
       fs.writeFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'), JSON.stringify({
+        runId: 'platform-prefetched-dashboard',
         symbol: '600519',
-        quote: { price: 1500 },
+        quote: { symbol: '600519', price: 1500 },
         visualization: { template_id: 'technical-timing' },
       })),
       fs.writeFile(path.join(projectPath, 'evidence', 'sources.json'), JSON.stringify({

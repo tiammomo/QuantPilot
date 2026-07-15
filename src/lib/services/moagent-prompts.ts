@@ -1,6 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type { MoAgentSkillPhase } from '@/lib/agent/skills';
+import {
+  assessDashboardSpecReadiness,
+  isDashboardSpecCapabilitySupported,
+} from '@/lib/agent/tools/dashboard-spec';
+import { assessQuantDatasetIdentity } from '@/lib/quant/data-identity';
 import { getQuantCapability } from '@/lib/quant/capabilities';
 import { readQuantRunPlan, type QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
@@ -98,6 +103,9 @@ export async function hasPlatformPreparedQuantArtifacts(
 export interface PlatformPreparedQuantArtifactsAssessment {
   ready: boolean;
   reasons: string[];
+  dashboardSpecReady: boolean;
+  dashboardSpecErrorCode: string | null;
+  dashboardSpecReasons: string[];
 }
 
 function stringValue(value: unknown): string | null {
@@ -201,7 +209,13 @@ export async function assessPlatformPreparedQuantArtifacts(
   const reasons: string[] = [];
   if (authoritativePlan?.status !== 'planned') {
     reasons.push('run_plan_not_planned');
-    return { ready: false, reasons };
+    return {
+      ready: false,
+      reasons,
+      dashboardSpecReady: false,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    };
   }
   const [finalData, sources, quality] = await Promise.all([
     readJsonRecord(path.join(normalizedProjectPath, 'data_file/final/dashboard-data.json')),
@@ -216,6 +230,8 @@ export async function assessPlatformPreparedQuantArtifacts(
     reasons.push('quality_evidence_not_usable');
   }
   if (finalData) {
+    const identity = assessQuantDatasetIdentity(authoritativePlan, finalData);
+    reasons.push(...identity.reasons.map((reason) => `dataset_identity:${reason}`));
     const covered = collectedFinalSymbols(finalData);
     const missingSymbols = authoritativePlan.symbols.filter((symbol) => !covered.has(symbol));
     if (missingSymbols.length > 0) reasons.push(`missing_planned_symbols:${missingSymbols.join(',')}`);
@@ -226,12 +242,40 @@ export async function assessPlatformPreparedQuantArtifacts(
       else if (finalTemplate !== plannedTemplate) reasons.push('visualization_template_mismatch');
     }
   }
+  const plannedTemplate = stringValue(authoritativePlan.visualization?.templateId);
+  const plannedVariant = stringValue(authoritativePlan.visualization?.variantId);
+  let dashboardSpecReady = false;
+  let dashboardSpecErrorCode: string | null = null;
+  let dashboardSpecReasons: string[] = [];
+  if (
+    finalData &&
+    plannedTemplate &&
+    plannedVariant &&
+    isDashboardSpecCapabilitySupported(plannedTemplate, plannedVariant)
+  ) {
+    const preflight = assessDashboardSpecReadiness(
+      authoritativePlan as unknown as JsonRecord,
+      finalData,
+    );
+    dashboardSpecReady = preflight.ready;
+    dashboardSpecErrorCode = preflight.errorCode;
+    dashboardSpecReasons = preflight.reasons;
+    if (!preflight.ready && preflight.errorCode === 'DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED') {
+      reasons.push(...preflight.reasons.map((reason) => `dashboard_spec:${reason}`));
+    }
+  }
   for (const [label, evidence] of [['sources', sources], ['quality', quality]] as const) {
     const evidenceRunId = stringValue(evidence?.runId ?? evidence?.run_id);
     if (!evidenceRunId) reasons.push(`${label}_evidence_run_id_missing`);
     else if (evidenceRunId !== authoritativePlan.runId) reasons.push(`${label}_evidence_run_id_mismatch`);
   }
-  return { ready: reasons.length === 0, reasons };
+  return {
+    ready: reasons.length === 0,
+    reasons,
+    dashboardSpecReady,
+    dashboardSpecErrorCode,
+    dashboardSpecReasons,
+  };
 }
 
 export async function buildQuantPilotTaskPrompt(
@@ -241,6 +285,7 @@ export async function buildQuantPilotTaskPrompt(
   options: {
     runPlan?: QuantRunPlan | null;
     platformPrepared?: boolean;
+    preparedIntent?: 'standard' | 'custom' | null;
     phase?: MoAgentSkillPhase;
     hasAttachments?: boolean;
   } = {},
@@ -273,11 +318,19 @@ ${instruction.trim()}`;
 - 保留平台已有 final/evidence，只通过图片提取 typed tool 补充附件事实、置信边界和人工确认缺口。
 - 只更新与图片证据直接相关的 final/evidence，再按 initial dashboard contract 定向编辑页面。
 - 不重复调用行情接口，不用图片推断值覆盖接口事实。`
+    : prepared && options.preparedIntent === 'standard'
+    ? `平台预取标准编译模式：
+- final/evidence 与 run plan 已准备并冻结；权威看板数据是 artifact=final_dashboard（data_file/final/dashboard-data.json），绝不推断 public/data/*.json；直接使用 initial dashboard contract，不重复取数或重写数据。
+- 平台已在调用模型前完成编译预检；以空对象调用一次 apply_dashboard_spec，由框架从权威合同生成页面与样式，随后直接 submit_result，不读取源码、不尝试备用写入。`
+    : prepared && options.preparedIntent === 'custom'
+    ? `平台预取语义编辑模式：
+- final/evidence 与 run plan 已准备并冻结；权威看板数据是 artifact=final_dashboard（data_file/final/dashboard-data.json），绝不推断 public/data/*.json，也不重复取数或重写数据。
+- 本任务因明确模板外定制或当前 variant 尚无已认证 renderer，由平台关闭 apply_dashboard_spec；从 initial dashboard contract 开始，用最多一次 query_json、每个文件最多一次批量源码锚点查询，再以 query_text_file 返回的 SHA-256 调用 semantic_edit。
+- 保留既有数据绑定、模板和同源 market proxy，只做一次最小连贯编辑。`
     : prepared
     ? `平台预取模式：
-- final/evidence 与 run plan 已准备并冻结；权威看板数据是 artifact=final_dashboard（data_file/final/dashboard-data.json），绝不推断 public/data/*.json；直接使用 initial dashboard contract，不重复取数或重写数据。
-- 仅在快照缺失或失败时检查一次 dashboard contract；需要细节时使用精确 JSON Pointer 或批量源码锚点。
-- 保留既有数据绑定、模板和同源 market proxy，完成一次连贯页面编辑。`
+- final/evidence 与 run plan 已准备并冻结；权威数据只通过 artifact=final_dashboard 读取，绝不推断 public/data/*.json；只使用 initial dashboard contract 与当前暴露的 typed tools，不重复取数或重写数据。
+- 标准场景优先调用 apply_dashboard_spec；明确的模板外定制使用精确 JSON Pointer、批量源码锚点和携带 SHA-256 的 semantic_edit。`
     : `数据准备模式：
 - 遵循只读 run plan，通过 quant_api_get 获取缺失的真实数据。
 - 先完成 final 数据与 evidence，再按 dashboard contract 定向编辑页面。
@@ -301,6 +354,7 @@ ${modeConstraints}
 
 export interface QuantPilotSystemPromptOptions {
   phase?: MoAgentSkillPhase;
+  preparedIntent?: 'standard' | 'custom' | null;
   skillManifest?: string;
 }
 
@@ -311,7 +365,7 @@ function phaseContract(phase: MoAgentSkillPhase): string {
     case 'data-preparation':
       return 'Prepare missing real data through the available typed data/image tools, write bounded final/evidence artifacts, then implement the dashboard.';
     case 'workspace-generation':
-      return 'Treat run plan, final data, evidence, and the initial dashboard contract as authoritative read-only inputs; mutate only dashboard source and styles.';
+      return 'Keep prepared artifacts read-only. Prefer apply_dashboard_spec; use hash-guarded semantic_edit only for explicit template-external customization.';
     default:
       return 'Follow the platform-owned phase contract and do not expand your authority.';
   }
@@ -331,10 +385,12 @@ You are QuantPilot's first-party workspace agent.
 - Keep hidden reasoning private. Visible Chinese narration is limited to one short plan and meaningful milestones; do not narrate tools.
 - Treat tool calls as a scarce protocol budget: make at most one batched query per file in a turn, keep source anchors short and single-line, and never repeat an identical failed call. After a tool error, use its error code to correct the arguments or choose a compatible typed tool.
 - Resolve platform-owned JSON through query_json artifact handles. For prepared market data use artifact=final_dashboard; never invent public/data/dashboard.json or symbol-named public JSON files.
+- If apply_dashboard_spec is exposed, call it with {} first; after success do not read source. If it is not exposed, the platform has routed an explicit customization or an uncertified renderer variant: use semantic_edit with query_text_file's SHA-256.
 - The platform owns build, preview, validation, and Mission acceptance. After the smallest coherent required change set, call submit_result with a concise Chinese summary and changed artifact paths; never claim validation success yourself.
 
 ## Phase contract
 ${phaseContract(phase)}
+${phase === 'workspace-generation' && options.preparedIntent ? `Prepared route: ${options.preparedIntent}.` : ''}
 
 ${options.skillManifest?.trim() || '# MoAgent Skill Manifest\nNo task skill capsule was loaded.'}`;
 }

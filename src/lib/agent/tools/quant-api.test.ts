@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -217,6 +218,7 @@ describe('MoAgent typed quant and terminal tools', () => {
       name: 'image_extract',
       description: 'test typed extension',
       inputSchema: { type: 'object' },
+      projectContextReceipt: () => ({ targetReferences: ['../../untrusted'] }),
       execute: () => ({ ok: true, data: {} }),
     };
     const generation = createMoAgentTools({ workspaceRoot: workspace, additionalTools: [imageTool] });
@@ -237,27 +239,31 @@ describe('MoAgent typed quant and terminal tools', () => {
       'image_extract',
     ]);
     expect(generation.some((tool) => /bash|shell/i.test(tool.name))).toBe(false);
+    expect(generation.find((tool) => tool.name === 'read_file')?.projectContextReceipt)
+      .toEqual(expect.any(Function));
+    expect(generation.find((tool) => tool.name === 'image_extract')?.projectContextReceipt)
+      .toBeUndefined();
     expect(() => createMoAgentTools({
       workspaceRoot: workspace,
       additionalTools: [generation[0]],
     })).toThrow(/Duplicate MoAgent tool name/);
   });
 
-  it('builds a prepared-data registry without generic readers or the live quant API', () => {
+  it('builds a minimal recoverable standard surface for prepared data', () => {
     const prepared = createMoAgentTools({
       workspaceRoot: workspace,
       targetedReadsOnly: true,
+      preparedSurface: 'standard',
+      profileAllowedWriteGlobs: ['app/page.tsx', 'app/globals.css'],
+      includeDefaultWriteGlobs: false,
       includeQuantApi: false,
       includeImageExtraction: false,
+      includeDashboardSpec: true,
+      includeSemanticEdit: true,
     });
 
     expect(prepared.map((tool) => tool.name)).toEqual([
-      'write_file',
-      'edit_file',
-      'apply_patch',
-      'inspect_dashboard_contract',
-      'query_json',
-      'query_text_file',
+      'apply_dashboard_spec',
       'submit_result',
     ]);
     expect(prepared.some((tool) => [
@@ -267,6 +273,71 @@ describe('MoAgent typed quant and terminal tools', () => {
       'search_files',
       'quant_api_get',
     ].includes(tool.name))).toBe(false);
+    const dashboard = prepared.find((tool) => tool.name === 'apply_dashboard_spec')!;
+    expect(dashboard.projectContextReceipt?.({}, {
+      ok: true,
+      data: {
+        files: [
+          { path: 'app/page.tsx' },
+          { path: 'app/globals.css' },
+        ],
+      },
+    })).toEqual({ targetReferences: ['app/page.tsx', 'app/globals.css'] });
+  });
+
+  it('builds a compiler-free prepared custom surface without legacy mutations', () => {
+    const custom = createMoAgentTools({
+      workspaceRoot: workspace,
+      preparedSurface: 'custom',
+      profileAllowedWriteGlobs: ['app/page.tsx', 'app/globals.css'],
+      includeDefaultWriteGlobs: false,
+      includeQuantApi: false,
+      includeImageExtraction: false,
+      includeDashboardSpec: false,
+      includeSemanticEdit: true,
+    });
+
+    expect(custom.map((tool) => tool.name)).toEqual([
+      'query_json',
+      'query_text_file',
+      'semantic_edit',
+      'submit_result',
+    ]);
+    expect(custom.some((tool) => [
+      'write_file',
+      'edit_file',
+      'apply_patch',
+      'apply_dashboard_spec',
+      'inspect_dashboard_contract',
+    ].includes(tool.name))).toBe(false);
+  });
+
+  it('fails configuration instead of silently discarding tools from a prepared surface', () => {
+    expect(() => createMoAgentTools({
+      workspaceRoot: workspace,
+      preparedSurface: 'standard',
+      includeDashboardSpec: true,
+      includeQuantApi: true,
+      includeImageExtraction: false,
+    })).toThrow(/require quant API, image extraction, and additional tools to be disabled/);
+
+    expect(() => createMoAgentTools({
+      workspaceRoot: workspace,
+      preparedSurface: 'custom',
+      includeQuantApi: false,
+      includeImageExtraction: false,
+      includeSemanticEdit: true,
+    })).toThrow(/includeDefaultWriteGlobs=false/);
+
+    expect(() => createMoAgentTools({
+      workspaceRoot: workspace,
+      preparedSurface: 'custom',
+      profileAllowedWriteGlobs: ['public/**'],
+      includeDefaultWriteGlobs: false,
+      includeQuantApi: false,
+      includeImageExtraction: false,
+      includeSemanticEdit: true,
+    })).toThrow(/outside the certified app source scope/);
   });
 
   it('applies the named generation and repair write profiles', async () => {
@@ -290,5 +361,33 @@ describe('MoAgent typed quant and terminal tools', () => {
       path: 'evidence/data_quality.json',
       content: '{"status":"ok"}\n',
     })).resolves.toMatchObject({ ok: true });
+  });
+
+  it('passes the exact repair allowlist to semantic tools without reopening default source roots', async () => {
+    const pagePath = path.join(workspace, 'app', 'page.tsx');
+    const page = await fs.readFile(pagePath, 'utf8');
+    const repairTools = createMoAgentTools({
+      workspaceRoot: workspace,
+      profile: 'repair',
+      profileAllowedWriteGlobs: ['app/**/*.tsx'],
+      includeDefaultWriteGlobs: false,
+      includeSemanticEdit: true,
+      includeImageExtraction: false,
+    });
+    const semanticEdit = repairTools.find((tool) => tool.name === 'semantic_edit')!;
+    const writeFile = repairTools.find((tool) => tool.name === 'write_file')!;
+
+    await expect(invoke(semanticEdit, {
+      path: 'app/page.tsx',
+      kind: 'line_range',
+      beforeSha256: createHash('sha256').update(page).digest('hex'),
+      startLine: 1,
+      endLine: 1,
+      replacement: 'export default function Page() { return <main />; }',
+    })).resolves.toMatchObject({ ok: true });
+    await expect(invoke(writeFile, {
+      path: 'components/Unauthorized.tsx',
+      content: 'export function Unauthorized() { return null; }\n',
+    })).resolves.toMatchObject({ ok: false, error: { code: 'WRITE_PATH_DENIED' } });
   });
 });

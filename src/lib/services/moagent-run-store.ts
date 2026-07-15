@@ -315,6 +315,7 @@ export class MoAgentDurableRunSession {
       provider: options.run.provider,
       model: options.run.model,
       frameworkVersion: options.run.frameworkVersion,
+      buildRevision: options.run.buildRevision,
       profileHash: options.run.profileHash,
       promptHash: options.run.promptHash,
       toolHash: options.run.toolHash,
