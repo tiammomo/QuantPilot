@@ -267,6 +267,44 @@ describe('PreviewManager start concurrency', () => {
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
+  it('adopts a project listener whose cwd is inside the generated chroot', async () => {
+    process.env.PREVIEW_PORT_END = '4199';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    mocks.execFile.mockImplementationOnce((...args: unknown[]) => {
+      const callback = args.at(-1) as (
+        error: Error | null,
+        result?: { stderr: string; stdout: string }
+      ) => void;
+      callback(null, {
+        stderr: '',
+        stdout:
+          'LISTEN 0 511 [::]:4173 [::]:* users:(("next-server",pid=7173,fd=21))',
+      });
+    });
+    fsMocks.readlink.mockImplementation(async (linkPath: unknown) => {
+      if (String(linkPath) === '/proc/7173/cwd') {
+        return '/tmp/quantpilot-generated-sandbox.ABC/tmp/quantpilot-preview-test';
+      }
+      if (String(linkPath) === '/proc/7173/root') {
+        return '/tmp/quantpilot-generated-sandbox.ABC';
+      }
+      throw missingFile();
+    });
+
+    const manager = new PreviewManager();
+    await expect(manager.start('project-preview')).resolves.toMatchObject({
+      port: 4_173,
+      status: 'running',
+      url: 'http://localhost:4173',
+    });
+
+    expect(mocks.findAvailablePort).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
   it.each(['stop', 'cleanup'] as const)(
     '%s cancels an in-flight start without racing a subsequent start',
     async (method) => {

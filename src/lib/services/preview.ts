@@ -403,10 +403,33 @@ async function isPidWithinProject(pid: number, projectPath: string): Promise<boo
   }
 
   try {
-    const cwd = await fs.readlink(`/proc/${pid}/cwd`);
+    const cwd = (await fs.readlink(`/proc/${pid}/cwd`)).replace(/ \(deleted\)$/, '');
     const normalizedCwd = path.resolve(cwd);
     const normalizedProjectPath = path.resolve(projectPath);
-    return normalizedCwd === normalizedProjectPath || normalizedCwd.startsWith(`${normalizedProjectPath}${path.sep}`);
+    if (
+      normalizedCwd === normalizedProjectPath ||
+      normalizedCwd.startsWith(`${normalizedProjectPath}${path.sep}`)
+    ) {
+      return true;
+    }
+
+    // Generated previews run in a chroot. Linux exposes their cwd using the
+    // host-side sandbox prefix, for example:
+    // /tmp/quantpilot-generated-sandbox.XYZ/<absolute project path>.
+    // Compare against the process root instead of trusting a loose path
+    // suffix, so a different workspace cannot impersonate this project.
+    const processRoot = (await fs.readlink(`/proc/${pid}/root`)).replace(/ \(deleted\)$/, '');
+    if (!path.basename(processRoot).startsWith('quantpilot-generated-sandbox.')) {
+      return false;
+    }
+    const sandboxProjectPath = path.resolve(
+      processRoot,
+      `.${normalizedProjectPath}`
+    );
+    return (
+      normalizedCwd === sandboxProjectPath ||
+      normalizedCwd.startsWith(`${sandboxProjectPath}${path.sep}`)
+    );
   } catch {
     return false;
   }
