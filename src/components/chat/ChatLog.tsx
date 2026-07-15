@@ -10,6 +10,7 @@ import {
   classifyRealtimeGenerationStatus,
   shouldRealtimeAssistantUpdateStopWaiting,
 } from '@/lib/quant/realtime-generation-status';
+import { collapseToolReadActivities } from '@/lib/chat/tool-activity';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -51,6 +52,14 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   todo_write: 'Generated',
   todo: 'Generated',
   plan_write: 'Generated',
+  'run-planner': 'Generated',
+  query_json: 'Read',
+  query_text_file: 'Read',
+  inspect_dashboard_contract: 'Read',
+  'quant-data-registry': 'Read',
+  'quant-market-data': 'Read',
+  'dashboard-visualization': 'Created',
+  submit_result: 'Generated',
 };
 
 const normalizeAction = (value: unknown): ToolAction | undefined => {
@@ -382,6 +391,12 @@ const deriveToolInfoFromMetadata = (
   outputTruncated?: boolean;
   summary?: string;
   status?: 'executing' | 'done';
+  success?: boolean;
+  errorCode?: string;
+  attemptCount?: number;
+  recoveredFailureCount?: number;
+  pathCorrected?: boolean;
+  requestedPath?: string;
 } => {
   if (!metadata) {
     return {};
@@ -465,6 +480,16 @@ const deriveToolInfoFromMetadata = (
     outputTruncated: meta.toolOutputTruncated === true,
     summary,
     status: meta.isTransientToolMessage ? 'executing' : 'done',
+    success: typeof meta.success === 'boolean' ? meta.success : undefined,
+    errorCode: pickFirstString(meta.errorCode) ?? pickFirstString(meta.error_code),
+    attemptCount: typeof meta.activityAttemptCount === 'number'
+      ? meta.activityAttemptCount
+      : undefined,
+    recoveredFailureCount: typeof meta.recoveredFailureCount === 'number'
+      ? meta.recoveredFailureCount
+      : undefined,
+    pathCorrected: meta.pathCorrected === true,
+    requestedPath: pickFirstString(meta.requestedPath),
   };
 };
 
@@ -1329,6 +1354,12 @@ const ToolMessage = ({
       outputTruncated={metadataInfo.outputTruncated}
       summary={persistedSummary}
       status={persistedStatus}
+      success={metadataInfo.success}
+      errorCode={metadataInfo.errorCode}
+      attemptCount={metadataInfo.attemptCount}
+      recoveredFailureCount={metadataInfo.recoveredFailureCount}
+      pathCorrected={metadataInfo.pathCorrected}
+      requestedPath={metadataInfo.requestedPath}
       isExpanded={isExpanded}
       onToggle={onToggle}
     />
@@ -1672,7 +1703,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     latestMessageCursorRef.current = latestCursor;
   }, [messages]);
 
-  const displayMessages = useMemo(() => mergeToolResultsIntoUsage(messages), [messages]);
+  const displayMessages = useMemo(
+    () => collapseToolReadActivities(mergeToolResultsIntoUsage(messages)),
+    [messages],
+  );
 
   const ensureStableMessageId = useCallback((message: ChatMessage): string => {
     if (message.id) {

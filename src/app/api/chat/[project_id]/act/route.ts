@@ -194,6 +194,11 @@ async function publishQuantPipelineToolMessage(params: {
   input?: unknown;
   output?: unknown;
 }) {
+  const action = params.toolName === "run-planner"
+    ? "Generated"
+    : params.toolName === "dashboard-visualization"
+      ? "Created"
+      : "Read";
   const stringifyDetail = (value: unknown) => {
     if (value === undefined || value === null) return undefined;
     if (typeof value === "string") return value;
@@ -206,7 +211,9 @@ async function publishQuantPipelineToolMessage(params: {
   const metadata = {
     toolName: params.toolName,
     tool_name: params.toolName,
-    action: "Executed",
+    action,
+    success: true,
+    resultStatus: "completed",
     summary: params.summary,
     ...(params.target
       ? {

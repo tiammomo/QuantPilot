@@ -3,9 +3,9 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   BookOpen,
   CheckSquare,
+  CircleAlert,
   Code2,
   FileText,
-  FolderSearch,
   Search,
   Terminal,
   Wrench,
@@ -26,6 +26,12 @@ interface ToolResultItemProps {
   outputTruncated?: boolean;
   summary?: string;
   status?: 'executing' | 'done';
+  success?: boolean;
+  errorCode?: string;
+  attemptCount?: number;
+  recoveredFailureCount?: number;
+  pathCorrected?: boolean;
+  requestedPath?: string;
   isExpanded?: boolean;
   onToggle?: (nextExpanded: boolean) => void;
 }
@@ -40,10 +46,23 @@ const toolNameFromAction: Record<ToolAction, string> = {
   Executed: 'Bash',
 };
 
+const typedToolDisplayNames: Record<string, string> = {
+  'run-planner': '执行计划',
+  query_json: '数据查询',
+  query_text_file: '源码定位',
+  inspect_dashboard_contract: '看板结构',
+  edit_file: '修改文件',
+  write_file: '写入文件',
+  submit_result: '提交结果',
+  quant_api_get: '行情接口',
+  extract_image_evidence: '图片识别',
+};
+
 const normalizeToolName = (toolName: string | undefined, action: ToolAction) => {
   const raw = (toolName || toolNameFromAction[action] || 'Tool').trim();
   const lower = raw.toLowerCase();
 
+  if (typedToolDisplayNames[lower]) return typedToolDisplayNames[lower];
   if (/^quant-[a-z0-9-]+$/i.test(raw) || /^data-[a-z0-9-]+$/i.test(raw)) return raw;
   if (lower === 'skill' || lower === 'tool' || lower === 'tool_use') return 'Skill';
   if (lower.includes('glob')) return 'Glob';
@@ -61,10 +80,13 @@ const normalizeToolName = (toolName: string | undefined, action: ToolAction) => 
     .replace(/\b\w/g, char => char.toUpperCase());
 };
 
-const getToolIcon = (toolName: string, action: ToolAction) => {
+const getToolIcon = (toolName: string, action: ToolAction, success?: boolean) => {
   const lower = toolName.toLowerCase();
   const className = 'h-3.5 w-3.5 text-slate-500';
 
+  if (success === false) return <CircleAlert className="h-3.5 w-3.5 text-amber-600" />;
+  if (['数据查询', '源码定位', '看板结构'].includes(toolName)) return <BookOpen className={className} />;
+  if (['执行计划', '提交结果'].includes(toolName)) return <CheckSquare className={className} />;
   if (lower.includes('skill') || /^quant-[a-z0-9-]+$/i.test(toolName)) return <Wrench className={className} />;
   if (lower.includes('glob') || lower.includes('grep') || action === 'Searched') return <Search className={className} />;
   if (lower.includes('bash') || action === 'Executed') return <Terminal className={className} />;
@@ -231,6 +253,8 @@ const buildToolSummary = ({
   output,
   summary,
   status,
+  success,
+  errorCode,
 }: {
   displayToolName: string;
   action: ToolAction;
@@ -239,11 +263,23 @@ const buildToolSummary = ({
   output?: string;
   summary?: string;
   status: 'executing' | 'done';
+  success?: boolean;
+  errorCode?: string;
 }) => {
   const parsedInput = tryParseJson(input);
   const parsedOutput = tryParseJson(output);
   const trimmedSummary = summary?.trim();
   if (trimmedSummary && !isLowValueText(trimmedSummary)) return trimmedSummary;
+
+  if (success === false) {
+    if (errorCode === 'INVALID_TOOL_ARGUMENTS' || errorCode === 'INVALID_TOOL_INPUT') {
+      return '参数格式需要调整，MoAgent 会根据工具契约重新组织调用。';
+    }
+    if (errorCode === 'PATH_NOT_FOUND' || errorCode === 'EDIT_MATCH_NOT_FOUND') {
+      return '目标位置已经变化，需要重新定位后继续。';
+    }
+    return `本次调用未完成${errorCode ? `（${errorCode}）` : ''}，可展开查看诊断。`;
+  }
 
   const outputSummary = summarizeJsonOutput(parsedOutput);
   if (outputSummary) return outputSummary;
@@ -301,6 +337,12 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
   outputTruncated = false,
   summary,
   status = 'done',
+  success,
+  errorCode,
+  attemptCount,
+  recoveredFailureCount = 0,
+  pathCorrected = false,
+  requestedPath,
   isExpanded: controlledExpanded,
   onToggle,
 }) => {
@@ -323,6 +365,8 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
     output: detailOutput,
     summary,
     status,
+    success,
+    errorCode,
   });
   const genericToolWithoutTarget = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'].includes(displayToolName);
 
@@ -365,12 +409,33 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
       >
         <span className="text-slate-400">•</span>
         <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          {getToolIcon(displayToolName, action)}
+          {getToolIcon(displayToolName, action, success)}
         </span>
         <span className="shrink-0 font-semibold text-slate-900">{displayToolName}</span>
         {status === 'executing' && (
           <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-slate-600">
             executing...
+          </span>
+        )}
+        {status === 'done' && success === false && (
+          <span className="shrink-0 font-mono text-[11px] leading-4 text-amber-700">
+            待恢复
+          </span>
+        )}
+        {status === 'done' && success !== false && attemptCount !== undefined && attemptCount > 1 && (
+          <span
+            className="shrink-0 text-[11px] leading-4 text-slate-500"
+            title={recoveredFailureCount > 0 ? `运行时已自动吸收 ${recoveredFailureCount} 次失败尝试` : undefined}
+          >
+            合并 {attemptCount} 组
+          </span>
+        )}
+        {status === 'done' && success !== false && pathCorrected && (
+          <span
+            className="shrink-0 text-[11px] leading-4 text-emerald-700"
+            title={requestedPath ? `原请求：${requestedPath}` : undefined}
+          >
+            已纠正
           </span>
         )}
         {displayTarget && (
