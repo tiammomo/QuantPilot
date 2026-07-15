@@ -111,7 +111,7 @@ async function main() {
       assertVisible(page, 'button:has-text("评测")', '评测平台入口'),
       assertAnyVisible(page, ['button[title="亮色"]', 'button:has-text("亮色")'], '亮色模式入口'),
       assertAnyVisible(page, ['button[title="暗色"]', 'button:has-text("暗色")'], '暗色模式入口'),
-      assertVisible(page, 'button:has-text("DeepSeek Agent")', 'DeepSeek Agent 入口'),
+      assertVisible(page, 'button:has-text("MoAgent")', 'MoAgent 入口'),
       assertVisible(page, 'button:has-text("DeepSeek V4 Flash")', '唯一模型入口'),
       assertVisible(page, 'button:has-text("个股诊断")', '个股诊断能力卡'),
       assertVisible(page, 'button:has-text("技术分析")', '技术分析能力卡'),

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { isVisualValidationInfrastructureError } from './visual-validation';
+import {
+  assessFinancialWorkbenchSurface,
+  isVisualValidationInfrastructureError,
+} from './visual-validation';
 
 describe('visual validation infrastructure errors', () => {
   it.each([
@@ -14,5 +17,66 @@ describe('visual validation infrastructure errors', () => {
     expect(isVisualValidationInfrastructureError(new Error('page.goto: net::ERR_CONNECTION_REFUSED'))).toBe(
       false
     );
+  });
+});
+
+describe('financial workbench surface composition', () => {
+  it('rejects a first viewport dominated by a rounded card grid', () => {
+    const result = assessFinancialWorkbenchSurface({
+      contentRegionCount: 9,
+      cardLikeSurfaceCount: 7,
+      firstViewportCardLikeSurfaceCount: 6,
+      cardGridClusterCount: 1,
+      cardLikeSurfaceRatio: 7 / 9,
+      firstViewportCardLikeSurfaceRatio: 0.75,
+    });
+
+    expect(result.failures).toEqual([
+      expect.stringContaining('独立圆角卡片网格'),
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('accepts a continuous canvas with a small number of detached alerts', () => {
+    expect(assessFinancialWorkbenchSurface({
+      contentRegionCount: 16,
+      cardLikeSurfaceCount: 2,
+      firstViewportCardLikeSurfaceCount: 1,
+      cardGridClusterCount: 0,
+      cardLikeSurfaceRatio: 0.125,
+      firstViewportCardLikeSurfaceRatio: 0.1,
+    })).toEqual({ failures: [], warnings: [] });
+  });
+
+  it('rejects a card-dominant page even when cards are not sibling grid items', () => {
+    const result = assessFinancialWorkbenchSurface({
+      contentRegionCount: 13,
+      cardLikeSurfaceCount: 8,
+      firstViewportCardLikeSurfaceCount: 4,
+      cardGridClusterCount: 0,
+      cardLikeSurfaceRatio: 8 / 13,
+      firstViewportCardLikeSurfaceRatio: 4 / 6,
+    });
+
+    expect(result.failures).toEqual([
+      expect.stringContaining('独立圆角卡片网格'),
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('warns before a page crosses the blocking card-grid threshold', () => {
+    const result = assessFinancialWorkbenchSurface({
+      contentRegionCount: 14,
+      cardLikeSurfaceCount: 8,
+      firstViewportCardLikeSurfaceCount: 4,
+      cardGridClusterCount: 0,
+      cardLikeSurfaceRatio: 8 / 14,
+      firstViewportCardLikeSurfaceRatio: 0.4,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.warnings).toEqual([
+      expect.stringContaining('独立卡片式容器偏多'),
+    ]);
   });
 });

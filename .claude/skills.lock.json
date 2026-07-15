@@ -66,10 +66,10 @@
       "fileCount": 1
     },
     "dashboard-visualization": {
-      "version": "0.4.5",
+      "version": "0.4.6",
       "packagePath": ".claude/skill-packages/dashboard-visualization.tgz",
-      "sourceSha256": "a0d873e7d93be1d45496f9c765b2f2cdcad83134a554d9acb9996be13537362d",
-      "packageSha256": "a562fad10305a012e24ad57f0e85320455612fe9c08b27513aa88003e432cc1b",
+      "sourceSha256": "39519128d55b749b324c9d3b7404bd3855a714360a341a3ab6b65ac40fd7c6db",
+      "packageSha256": "237991cece9f1498657445882a6b3e48ac7d0696ddb02de2e0e51ef1bf128fe5",
       "fileCount": 3
     },
     "platform-ui-product-design": {

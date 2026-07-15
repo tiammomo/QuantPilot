@@ -1,3 +1,5 @@
+import { baseDashboardWorkbenchCss } from './scaffold-visual-language';
+
 export function baseDashboardPageTemplate(): string {
   return `import fs from 'fs/promises';
 import path from 'path';
@@ -1073,7 +1075,7 @@ export default async function Home() {
   ].some(hasNumber);
 
   return (
-    <main className="dashboard-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
+    <main className="dashboard-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
       <section className="hero-panel">
         <div className="top-bar">
           <span className="source-pill">{String(data?.source ?? quote?.source ?? 'eastmoney')}</span>
@@ -1290,8 +1292,7 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow-x: hidden;
-  background:
-    linear-gradient(180deg, #eef4ff 0, #f7f9fd 260px, var(--bg) 100%);
+  background: var(--bg);
   color: var(--ink);
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -2446,6 +2447,8 @@ tbody tr:hover {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+${baseDashboardWorkbenchCss()}
 `;
 }
 export function generatedDevScriptContents(): string {

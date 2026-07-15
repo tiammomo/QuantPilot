@@ -10,7 +10,7 @@ const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
 const projectId = process.env.PROJECT_ID || process.argv[2] || '';
 const baseUrl = (process.env.QUANTPILOT_WEB_URL || 'http://localhost:3000').replace(/\/+$/, '');
-const cli = 'claude';
+const cli = 'moagent';
 const model = 'deepseek-v4-flash';
 
 function fail(message, details = []) {

@@ -62,9 +62,29 @@ describe('restoreQuantDashboardTemplate', () => {
     expect(page).toContain('K 线与量价结构');
     expect(page).toContain('className="ma-line ma60"');
     expect(page).toContain('风险结论');
+    expect(page).toContain('data-visual-language="financial-workbench"');
     expect(page).not.toContain('TradingPlanPanel');
     expect(page).not.toContain('买入区间');
     expect(css).toContain('.dashboard-shell');
+    expect(css).toContain('FINANCIAL WORKBENCH CANVAS');
+    expect(css).toContain('.dashboard-shell[data-visual-language="financial-workbench"] .chart-panel');
+    expect(css).toContain('border-radius: 0');
+  });
+
+  it('scaffolds a continuous financial workbench instead of a card-grid default', async () => {
+    const projectPath = await createProject();
+
+    await scaffoldBasicNextApp(projectPath, 'continuous-workbench-project');
+
+    const [page, css] = await Promise.all([
+      fs.readFile(path.join(projectPath, 'app', 'page.tsx'), 'utf8'),
+      fs.readFile(path.join(projectPath, 'app', 'globals.css'), 'utf8'),
+    ]);
+    expect(page).toContain('data-visual-language="financial-workbench"');
+    expect(css).toContain('FINANCIAL WORKBENCH CANVAS');
+    expect(css).toContain('border-inline: 1px solid var(--line)');
+    expect(css).toContain('border-bottom: 1px solid var(--line)');
+    expect(css).not.toContain('linear-gradient(180deg, #eef4ff');
   });
 
   it('keeps an existing page and stylesheet during non-destructive scaffolding', async () => {
@@ -97,5 +117,33 @@ describe('restoreQuantDashboardTemplate', () => {
     const after = await fs.stat(packageJsonPath);
     await expect(fs.readFile(packageJsonPath, 'utf8')).resolves.toBe(contents);
     expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it('normalizes the platform TypeScript config before read-only sandbox execution', async () => {
+    const projectPath = await createProject();
+    const tsconfigPath = path.join(projectPath, 'tsconfig.json');
+    await fs.writeFile(tsconfigPath, JSON.stringify({
+      compilerOptions: { jsx: 'preserve', strict: true },
+      include: ['next-env.d.ts', '**/*.tsx'],
+    }));
+
+    await scaffoldBasicNextApp(projectPath, 'sandbox-ready-project');
+
+    const config = JSON.parse(await fs.readFile(tsconfigPath, 'utf8'));
+    const nextEnv = await fs.readFile(path.join(projectPath, 'next-env.d.ts'), 'utf8');
+    expect(config.compilerOptions).toMatchObject({
+      jsx: 'react-jsx',
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      plugins: [{ name: 'next' }],
+      strict: true,
+    });
+    expect(config.include).toEqual(expect.arrayContaining([
+      '.next/types/**/*.ts',
+      '.next/dev/types/**/*.ts',
+      '**/*.mts',
+    ]));
+    expect(nextEnv).toContain('import "./.next/types/routes.d.ts";');
+    expect(nextEnv).not.toContain('next/navigation-types/navigation');
   });
 });

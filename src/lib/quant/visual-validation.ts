@@ -31,12 +31,58 @@ export interface QuantVisualViewportResult {
     firstViewportLargeChartCount: number;
     tinyChartCount: number;
     squashedMetricCount: number;
+    contentRegionCount: number;
+    cardLikeSurfaceCount: number;
+    firstViewportCardLikeSurfaceCount: number;
+    cardGridClusterCount: number;
+    cardLikeSurfaceRatio: number;
+    firstViewportCardLikeSurfaceRatio: number;
+    hasFinancialWorkbenchMarker: boolean;
     oversizedHeroLike: boolean;
     horizontalOverflow: boolean;
     blankLike: boolean;
     hasMarketLanguage: boolean;
     hasDataSourceLanguage: boolean;
   };
+}
+
+export interface QuantSurfaceCompositionMetrics {
+  contentRegionCount: number;
+  cardLikeSurfaceCount: number;
+  firstViewportCardLikeSurfaceCount: number;
+  cardGridClusterCount: number;
+  cardLikeSurfaceRatio: number;
+  firstViewportCardLikeSurfaceRatio: number;
+}
+
+export function assessFinancialWorkbenchSurface(metrics: QuantSurfaceCompositionMetrics): {
+  failures: string[];
+  warnings: string[];
+} {
+  const cardGridDominates =
+    metrics.cardGridClusterCount > 0 ||
+    (metrics.firstViewportCardLikeSurfaceCount >= 4 && metrics.firstViewportCardLikeSurfaceRatio >= 0.65) ||
+    (metrics.cardLikeSurfaceCount >= 8 && metrics.cardLikeSurfaceRatio >= 0.6);
+
+  if (cardGridDominates) {
+    return {
+      failures: [
+        '页面由独立圆角卡片网格主导；金融看板应使用连续工作台画布，以分区线、数据带、主图、矩阵和表格组织内容。',
+      ],
+      warnings: [],
+    };
+  }
+
+  if (metrics.firstViewportCardLikeSurfaceCount >= 4 || metrics.cardLikeSurfaceCount >= 8) {
+    return {
+      failures: [],
+      warnings: [
+        '页面独立卡片式容器偏多，建议合并为连续数据区并减少圆角、阴影和重复外框。',
+      ],
+    };
+  }
+
+  return { failures: [], warnings: [] };
 }
 
 export interface QuantVisualValidationReport {
@@ -212,6 +258,47 @@ async function validateViewport(params: {
         const rect = element.getBoundingClientRect();
         return fontSize > 64 || rect.height > viewportHeight * 0.22;
       });
+      const contentRegions = Array.from(new Set(document.querySelectorAll(
+        'main section, main article, main [class*="card" i], main [class*="panel" i]'
+      ))).filter((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width >= 120 && rect.height >= 52 && style.visibility !== 'hidden' && style.display !== 'none';
+      });
+      const isDetachedUi = (element: Element) =>
+        element.matches('dialog,[role="dialog"],[role="alert"],[popover],.alert,.warning,.error,.tooltip,.popover,.toast');
+      const cardLikeRegions = contentRegions.filter((element) => {
+        if (isDetachedUi(element)) return false;
+        const style = window.getComputedStyle(element);
+        const parentStyle = element.parentElement ? window.getComputedStyle(element.parentElement) : null;
+        const radii = [
+          style.borderTopLeftRadius,
+          style.borderTopRightRadius,
+          style.borderBottomRightRadius,
+          style.borderBottomLeftRadius,
+        ].map((value) => Number.parseFloat(value || '0'));
+        const rounded = Math.max(...radii) >= 6;
+        const hasBorder = [style.borderTopStyle, style.borderRightStyle, style.borderBottomStyle, style.borderLeftStyle]
+          .some((value) => value !== 'none');
+        const elevated = style.boxShadow !== 'none' && !/^rgba?\(0, 0, 0, 0\)/.test(style.boxShadow);
+        const surfaceContrast = Boolean(
+          parentStyle &&
+          style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+          style.backgroundColor !== 'transparent' &&
+          style.backgroundColor !== parentStyle.backgroundColor
+        );
+        return rounded && (hasBorder || elevated || surfaceContrast);
+      });
+      const cardLikeSet = new Set(cardLikeRegions);
+      const cardGridClusterCount = Array.from(new Set(cardLikeRegions.map((element) => element.parentElement).filter(Boolean)))
+        .filter((parent): parent is HTMLElement => parent instanceof HTMLElement)
+        .filter((parent) => {
+          const display = window.getComputedStyle(parent).display;
+          if (display !== 'grid' && display !== 'flex') return false;
+          return Array.from(parent.children).filter((child) => cardLikeSet.has(child)).length >= 3;
+        }).length;
+      const firstViewportRegions = contentRegions.filter((element) => element.getBoundingClientRect().top < viewportHeight);
+      const firstViewportCardLikeRegions = cardLikeRegions.filter((element) => element.getBoundingClientRect().top < viewportHeight);
       return {
         textLength: bodyText.replace(/\s+/g, '').length,
         svgCount: document.querySelectorAll('svg').length,
@@ -234,6 +321,13 @@ async function validateViewport(params: {
         firstViewportLargeChartCount: largeCharts.filter((chart) => chart.top < viewportHeight).length,
         tinyChartCount: tinyCharts.length,
         squashedMetricCount,
+        contentRegionCount: contentRegions.length,
+        cardLikeSurfaceCount: cardLikeRegions.length,
+        firstViewportCardLikeSurfaceCount: firstViewportCardLikeRegions.length,
+        cardGridClusterCount,
+        cardLikeSurfaceRatio: cardLikeRegions.length / Math.max(1, contentRegions.length),
+        firstViewportCardLikeSurfaceRatio: firstViewportCardLikeRegions.length / Math.max(1, firstViewportRegions.length),
+        hasFinancialWorkbenchMarker: Boolean(document.querySelector('[data-visual-language="financial-workbench"]')),
         oversizedHeroLike: oversizedHeading && firstViewportGraphicCount === 0 && firstViewportTableCount === 0,
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
         blankLike: bodyText.trim().length < 80 && rects.length < 8,
@@ -270,8 +364,11 @@ async function validateViewport(params: {
       failures.push('页面主要由迷你图组成，缺少带坐标/刻度/上下文的主图。');
     }
     if (metrics.squashedMetricCount > 0) {
-      failures.push(`检测到 ${metrics.squashedMetricCount} 个数字或指标被挤压成多行，图表/卡片宽度需要调整。`);
+      failures.push(`检测到 ${metrics.squashedMetricCount} 个数字或指标被挤压成多行，图表或数据区宽度需要调整。`);
     }
+    const surfaceAssessment = assessFinancialWorkbenchSurface(metrics);
+    failures.push(...surfaceAssessment.failures);
+    warnings.push(...surfaceAssessment.warnings);
     if (!metrics.hasDataSourceLanguage) {
       warnings.push('页面缺少数据信源、更新时间或最终数据文件说明。');
     }

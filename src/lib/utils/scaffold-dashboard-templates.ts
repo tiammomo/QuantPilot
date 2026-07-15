@@ -1,4 +1,9 @@
 import { DASHBOARD_DATA_READER, DASHBOARD_PAGE_RUNTIME_PRELUDE } from './scaffold-dashboard-runtime-template';
+import {
+  comparisonWorkbenchCss,
+  holdingWorkbenchCss,
+  stockSelectionWorkbenchCss,
+} from './scaffold-visual-language';
 
 export function comparisonPageTemplate() {
   return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
@@ -357,7 +362,7 @@ export default async function Home() {
   const lowestVolatility = asRecord(leaders?.lowest_volatility);
 
   return (
-    <main className="comparison-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
+    <main className="comparison-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
       <section className="comparison-hero">
         <div>
           <p className="eyebrow">QuantPilot 多标的对比</p>
@@ -813,7 +818,7 @@ export default async function Home() {
   const topRanking = rankingRows[0] ?? rows.slice().sort((left, right) => (numeric(right.composite_score) ?? -1) - (numeric(left.composite_score) ?? -1))[0];
 
   return (
-    <main className="selection-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="stock-selection">
+    <main className="selection-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="stock-selection">
       <section className="selection-hero">
         <div>
           <p className="eyebrow">QuantPilot 多标的对比</p>
@@ -1156,6 +1161,8 @@ export function comparisonCss() {
     min-width: 0;
   }
 }
+
+${comparisonWorkbenchCss()}
 `;
 }
 
@@ -1620,6 +1627,8 @@ td small {
     padding: 7px 8px;
   }
 }
+
+${stockSelectionWorkbenchCss()}
 `;
 }
 
@@ -2105,7 +2114,7 @@ export default async function Home() {
   const totalPnlPct = numeric(portfolio?.total_pnl_pct);
 
   return (
-    <main className="holding-shell" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="holding-analysis">
+    <main className="holding-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="holding-analysis">
       <section className="holding-hero">
         <div>
           <p className="eyebrow">QuantPilot 持仓分析</p>
@@ -2581,5 +2590,7 @@ td small {
     gap: 8px;
   }
 }
+
+${holdingWorkbenchCss()}
 `;
 }

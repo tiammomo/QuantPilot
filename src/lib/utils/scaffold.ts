@@ -13,6 +13,7 @@ import {
   baseDashboardCssTemplate,
   generatedDevScriptContents,
 } from './scaffold-base-templates';
+import { ensureGeneratedTsConfig } from './scaffold-config';
 
 function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean {
   const normalizedPath = filePath.replaceAll(path.sep, '/');
@@ -94,6 +95,14 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
       !existing.includes('QUANTPILOT_WORKSPACE_ROOT') ||
       !existing.includes('NEXT_PRIVATE_BUILD_WORKER') ||
       !existing.includes("['next', 'build'")
+    );
+  }
+
+  if (normalizedPath.endsWith('/next-env.d.ts')) {
+    return (
+      existing.includes('next/navigation-types/navigation') ||
+      !existing.includes('import "./.next/types/routes.d.ts";') ||
+      !existing.includes('// NOTE: This file should not be edited')
     );
   }
 
@@ -595,39 +604,16 @@ export async function scaffoldBasicNextApp(
 `
   );
 
-  await writeFileIfMissing(
-    path.join(projectPath, 'tsconfig.json'),
-    `{
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
-}
-`
-  );
+  await ensureGeneratedTsConfig(path.join(projectPath, 'tsconfig.json'));
 
   await writeFileIfMissing(
     path.join(projectPath, 'next-env.d.ts'),
     `/// <reference types="next" />
-/// <reference types="next/navigation-types/navigation" />
 /// <reference types="next/image-types/global" />
+import "./.next/types/routes.d.ts";
 
-// 注意：此文件由 Next.js 自动维护，通常不需要手动编辑。
-// see https://nextjs.org/docs/basic-features/typescript for more information.
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
 `
   );
 
