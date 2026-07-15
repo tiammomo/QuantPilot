@@ -62,7 +62,7 @@ function isQuantAnalysisPlan(plan: QuantRunPlan): boolean {
 
 export function hasExplicitTradingPlanIntent(instruction: string): boolean {
   const normalized = instruction.replace(/\s+/g, '');
-  return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(normalized);
+  return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|(?:要|想|准备)买|推荐.*(?:买|交易)|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(normalized);
 }
 
 const SYMBOL_CODE_PATTERN = /^(?:6|0|3|5)\d{5}$/;

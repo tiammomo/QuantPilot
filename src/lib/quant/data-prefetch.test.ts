@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QuantRunPlan } from './workspace';
 import {
   extractQuantSymbolNameCandidates,
+  hasExplicitTradingPlanIntent,
   prefetchQuantDataForRunPlan,
 } from './data-prefetch';
 
@@ -17,6 +18,20 @@ afterEach(async () => {
       fs.rm(projectPath, { recursive: true, force: true })
     )
   );
+});
+
+describe('quant trading-plan intent', () => {
+  it.each([
+    '帮我推荐6月3日要买的股票，给我推荐10个',
+    '我准备买几只股票，给出研究计划',
+    '给我一个明确的买入区间和止损',
+  ])('recognizes explicit execution intent: %s', (question) => {
+    expect(hasExplicitTradingPlanIntent(question)).toBe(true);
+  });
+
+  it('does not add an execution plan to a neutral comparison request', () => {
+    expect(hasExplicitTradingPlanIntent('比较贵州茅台和宁德时代的财务质量')).toBe(false);
+  });
 });
 
 describe('quant data-prefetch symbol candidates', () => {

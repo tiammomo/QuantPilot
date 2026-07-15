@@ -985,8 +985,10 @@ async function runRepairPlanCase(testCase) {
     assertCondition(repairPlan.steps.some((step) => step.checkId === checkId), `修复计划缺少 ${checkId}`, failures);
   }
   assertCondition(
-    instruction.includes('app/**、data_file/final/** 和 evidence/**'),
-    '修复提示词应把 Agent 写权限限制在 app/final/evidence。',
+    instruction.includes('唯一可写范围：app/**') &&
+      !instruction.includes('唯一可写范围：app/**、data_file/final/**') &&
+      !instruction.includes('唯一可写范围：app/**、evidence/**'),
+    '纯 UI/代理失败的修复提示词应把 Agent 写权限精确限制在 app/**。',
     failures,
   );
   assertCondition(
