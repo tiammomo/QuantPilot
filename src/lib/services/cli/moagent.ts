@@ -7,6 +7,7 @@ import { prisma } from '@/lib/db/client';
 import { assertMoAgentSchemaReady } from '@/lib/db/moagent-schema-readiness';
 import { MoAgentContextManager } from '@/lib/agent/context';
 import { MoAgentRunEngine } from '@/lib/agent/core';
+import { parseMoAgentToolArguments } from '@/lib/agent/core/tool-arguments';
 import { DeepSeekProvider, DeepSeekProviderError } from '@/lib/agent/providers/deepseek';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { compileMoAgentSkills } from '@/lib/agent/skills';
@@ -169,7 +170,7 @@ async function raceWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Pro
 
 function parseToolArguments(toolCall: MoAgentToolCall): unknown {
   try {
-    return toolCall.arguments.trim() ? JSON.parse(toolCall.arguments) : {};
+    return parseMoAgentToolArguments(toolCall.arguments).value;
   } catch {
     return { rawArguments: toolCall.arguments };
   }
@@ -232,10 +233,48 @@ function toolTarget(input: unknown): string | undefined {
 function toolAction(name: string): string {
   if (/^(?:write_file)$/i.test(name)) return 'Created';
   if (/^(?:edit_file|apply_patch)$/i.test(name)) return 'Edited';
-  if (/^(?:read_file|read_file_range)$/i.test(name)) return 'Read';
+  if (/^(?:read_file|read_file_range|query_json|query_text_file|inspect_dashboard_contract|extract_image_evidence)$/i.test(name)) return 'Read';
   if (/^(?:list_files|search_files)$/i.test(name)) return 'Searched';
   if (/^(?:quant_api_get)$/i.test(name)) return 'Executed';
   return 'Generated';
+}
+
+function toolResultSummary(
+  toolCall: MoAgentToolCall,
+  result: MoAgentToolResult,
+): string {
+  const target = toolTarget(parseToolArguments(toolCall));
+  if (!result.ok) {
+    if (/^(?:INVALID_TOOL_ARGUMENTS|INVALID_TOOL_INPUT)$/.test(result.error.code)) {
+      return `${toolCall.name} 参数需要调整，MoAgent 将依据错误码修正调用。`;
+    }
+    if (/^(?:PATH_NOT_FOUND|EDIT_MATCH_NOT_FOUND)$/.test(result.error.code)) {
+      const details = isRecord(result.error.details) ? result.error.details : null;
+      const suggestions = Array.isArray(details?.suggestions)
+        ? details.suggestions.filter((value): value is string => typeof value === 'string').slice(0, 3)
+        : [];
+      return suggestions.length > 0
+        ? `${target || toolCall.name} 不存在；可改用 ${suggestions.join('、')}。`
+        : `${target || toolCall.name} 不存在，需要按工作区真实路径重新定位。`;
+    }
+    return `${toolCall.name} 本次未完成（${result.error.code}），后续步骤将按错误类型恢复。`;
+  }
+  if (toolCall.name === 'query_json') {
+    const data = isRecord(result.data) ? result.data : null;
+    if (data?.pathResolved === true) {
+      const requested = typeof data.requestedPath === 'string' ? data.requestedPath : target;
+      const resolved = typeof data.resolvedPath === 'string' ? data.resolvedPath : data.path;
+      const verb = data.correctionReason === 'artifact_handle' ? '解析' : '自动纠正';
+      return `已${verb} ${requested || '数据产物'} → ${resolved || '标准数据文件'}，并读取所需字段。`;
+    }
+    return `已读取 ${target || '结构化数据'} 的所需字段。`;
+  }
+  if (toolCall.name === 'query_text_file') return `已定位 ${target || '源码文件'} 的相关实现。`;
+  if (toolCall.name === 'inspect_dashboard_contract') return '已取得看板结构、数据绑定和可编辑入口。';
+  if (toolCall.name === 'edit_file') return `已更新 ${target || '目标文件'}。`;
+  if (toolCall.name === 'write_file') return `已写入 ${target || '目标文件'}。`;
+  if (toolCall.name === 'submit_result') return '已提交本次变更产物。';
+  return `${toolCall.name} 已完成。`;
 }
 
 function auditToolResult(result: MoAgentToolResult): Record<string, unknown> {
@@ -253,7 +292,8 @@ function auditToolResult(result: MoAgentToolResult): Record<string, unknown> {
     const safeKeys = [
       'path', 'endpoint', 'bytes', 'created', 'replacements', 'entryCount', 'matchCount',
       'statusCode', 'truncated', 'skippedUnsafeLinks', 'skippedSensitivePaths', 'artifactCount',
-      'beforeSha256', 'afterSha256',
+      'beforeSha256', 'afterSha256', 'requestedPath', 'resolvedPath', 'correctionReason',
+      'pathResolved', 'pathCorrected',
     ];
     for (const key of safeKeys) {
       const value = result.data[key];
@@ -938,6 +978,11 @@ async function executeMoAgentPhase(
               cliSource: 'moagent',
               requestId,
               isStreaming: true,
+              metadata: {
+                runtime: 'moagent',
+                isMoAgentIntermediateTurn: true,
+                hidden_from_ui: true,
+              },
             }),
           });
           break;
@@ -1001,6 +1046,15 @@ async function executeMoAgentPhase(
             successfulWorkspaceWriteCount += 1;
           }
           const output = auditToolResult(event.result);
+          const summary = toolResultSummary(event.toolCall, event.result);
+          const resultData = event.result.ok && isRecord(event.result.data)
+            ? event.result.data
+            : null;
+          const resultTarget = typeof resultData?.resolvedPath === 'string'
+            ? resultData.resolvedPath
+            : typeof resultData?.path === 'string'
+              ? resultData.path
+              : undefined;
           await persistToolMessage({
             projectId,
             requestId,
@@ -1015,6 +1069,15 @@ async function executeMoAgentPhase(
               tool_call_id: event.toolCall.id,
               operationId: event.operationId,
               success: event.result.ok,
+              resultStatus: event.result.ok ? 'completed' : 'failed',
+              summary,
+              ...(resultTarget ? { target: resultTarget, filePath: resultTarget } : {}),
+              ...(resultData?.pathResolved === true ? {
+                pathResolved: true,
+                pathCorrected: resultData.pathCorrected === true,
+                requestedPath: resultData.requestedPath,
+                correctionReason: resultData.correctionReason,
+              } : {}),
               durationMs: event.durationMs,
               eventId: event.eventId,
               eventSequence: event.sequence,

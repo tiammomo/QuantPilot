@@ -474,7 +474,7 @@ export function createReadFileTool(options: MoAgentFileToolOptions): MoAgentTool
       return {
         ok: true,
         data: {
-          path: input.path,
+          path: file.relativePath,
           bytes: file.bytes,
           truncated: output.truncated,
           originalChars: output.originalChars,
@@ -531,7 +531,7 @@ export function createReadFileRangeTool(options: MoAgentFileToolOptions): MoAgen
       return {
         ok: true,
         data: {
-          path: input.path,
+          path: file.relativePath,
           startLine: input.startLine,
           endLine: Math.min(input.endLine, lines.length),
           totalLines: lines.length,

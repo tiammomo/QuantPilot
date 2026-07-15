@@ -89,6 +89,8 @@ describe('compileMoAgentSkills', () => {
     expect(result.taskContext).not.toContain('holding-analysis：持仓分析模板');
     expect(result.taskContext).toContain('金融指标口径');
     expect(result.taskContext).toContain('图表选择');
+    expect(result.taskContext).toContain('data_file/final/dashboard-data.json');
+    expect(result.taskContext).toContain('绝不推断 public/data');
     expect(result.taskContext).not.toContain('references/scenario_templates.md');
     expect(result.skills[0].includedResources.map((resource) => resource.id)).toEqual([
       'scenario-template',

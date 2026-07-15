@@ -25,6 +25,7 @@ import type {
 } from '../types';
 import { MoAgentContextError, type MoAgentContextManager } from '../context';
 import { createMoAgentOperationId } from './operation-id';
+import { parseMoAgentToolArguments } from './tool-arguments';
 import { mutationOutcomeRequiresReconciliation } from './tool-outcome';
 
 const DEFAULT_MAX_TURNS = 48;
@@ -314,7 +315,7 @@ function readObservationFingerprint(
     return null;
   }
   try {
-    const parsed = toolCall.arguments.trim() ? JSON.parse(toolCall.arguments) : {};
+    const parsed = parseMoAgentToolArguments(toolCall.arguments).value;
     if (!isRecord(parsed)) return null;
     return createHash('sha256')
       .update(tool.name, 'utf8')
@@ -667,6 +668,159 @@ async function* abortableEvents(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const TOOL_INPUT_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  path: ['file', 'filePath', 'file_path', 'target', 'targetPath', 'target_path', 'endpoint'],
+  anchors: ['queries', 'query', 'searches'],
+  pointers: ['pointer', 'jsonPointers', 'json_pointers'],
+  oldText: ['old_text', 'before', 'search'],
+  newText: ['new_text', 'after', 'replacement'],
+  startLine: ['start_line', 'lineStart', 'line_start'],
+  endLine: ['end_line', 'lineEnd', 'line_end'],
+  maxMatchesPerAnchor: ['maxMatchesPerQuery', 'max_matches_per_anchor'],
+  artifacts: ['files', 'changedFiles', 'changed_files'],
+  summary: ['resultSummary', 'result_summary'],
+};
+
+function schemaProperties(tool: MoAgentTool | undefined): Set<string> {
+  const properties = isRecord(tool?.inputSchema.properties)
+    ? tool.inputSchema.properties
+    : {};
+  return new Set(Object.keys(properties));
+}
+
+function normalizeToolInputAliases(
+  value: unknown,
+  tool: MoAgentTool | undefined,
+): unknown {
+  if (!isRecord(value)) return value;
+  const output = { ...value };
+  const properties = schemaProperties(tool);
+  for (const [canonical, aliases] of Object.entries(TOOL_INPUT_ALIASES)) {
+    if (!properties.has(canonical) || output[canonical] !== undefined) continue;
+    const alias = aliases.find((candidate) => output[candidate] !== undefined);
+    if (!alias) continue;
+    output[canonical] = output[alias];
+    delete output[alias];
+  }
+  return output;
+}
+
+function canonicalRegisteredToolName(
+  value: string,
+  toolsByName: ReadonlyMap<string, MoAgentTool>,
+): string {
+  if (toolsByName.has(value)) return value;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const matches = [...toolsByName.keys()].filter((name) =>
+    name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') === normalized
+  );
+  return matches.length === 1 ? matches[0] : value;
+}
+
+function normalizedToolCallArguments(argumentsJson: string, tool: MoAgentTool | undefined): string {
+  try {
+    const parsed = parseMoAgentToolArguments(argumentsJson);
+    return JSON.stringify(normalizeToolInputAliases(parsed.value, tool));
+  } catch {
+    return argumentsJson;
+  }
+}
+
+function stringArray(value: unknown): string[] | null {
+  if (typeof value === 'string') return [value];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return null;
+  return value as string[];
+}
+
+/** Collapse duplicate reads and merge same-resource structured reads in one model turn. */
+function coalesceReadToolCalls(
+  toolCalls: readonly MoAgentToolCall[],
+  toolsByName: ReadonlyMap<string, MoAgentTool>,
+): MoAgentToolCall[] {
+  const output: MoAgentToolCall[] = [];
+  const exactReads = new Set<string>();
+  const mergeBucketByKey = new Map<string, number>();
+
+  for (const toolCall of toolCalls) {
+    const name = canonicalRegisteredToolName(toolCall.name, toolsByName);
+    const tool = toolsByName.get(name);
+    const normalized = {
+      ...toolCall,
+      name,
+      arguments: normalizedToolCallArguments(toolCall.arguments, tool),
+    };
+    if (toolExecutionPolicy(tool).effect !== 'read') {
+      output.push(normalized);
+      continue;
+    }
+
+    const exactKey = `${normalized.name}\0${normalized.arguments}`;
+    if (exactReads.has(exactKey)) continue;
+    exactReads.add(exactKey);
+
+    if (normalized.name !== 'query_json' && normalized.name !== 'query_text_file') {
+      output.push(normalized);
+      continue;
+    }
+
+    let record: Record<string, unknown>;
+    let canonicalRecord: Record<string, unknown>;
+    try {
+      const parsed = parseMoAgentToolArguments(normalized.arguments).value;
+      if (!isRecord(parsed)) {
+        output.push(normalized);
+        continue;
+      }
+      record = parsed;
+      const parsedInput = tool?.parseInput ? tool.parseInput(parsed) : parsed;
+      canonicalRecord = isRecord(parsedInput) ? parsedInput : parsed;
+      if (typeof canonicalRecord.path !== 'string') {
+        output.push(normalized);
+        continue;
+      }
+    } catch {
+      output.push(normalized);
+      continue;
+    }
+
+    const field = normalized.name === 'query_json' ? 'pointers' : 'anchors';
+    const aliases = normalized.name === 'query_json'
+      ? [canonicalRecord.pointers, canonicalRecord.pointer]
+      : [canonicalRecord.anchors, canonicalRecord.queries, canonicalRecord.query];
+    const values = aliases.map(stringArray).find((candidate) => candidate !== null) ?? null;
+    if (!values?.length) {
+      output.push(normalized);
+      continue;
+    }
+
+    const bucketKey = `${normalized.name}\0${canonicalRecord.path}`;
+    const existingIndex = mergeBucketByKey.get(bucketKey);
+    if (existingIndex === undefined) {
+      const canonical = { ...record, [field]: Array.from(new Set(values)) };
+      delete canonical[normalized.name === 'query_json' ? 'pointer' : 'queries'];
+      if (normalized.name === 'query_text_file') delete canonical.query;
+      mergeBucketByKey.set(bucketKey, output.length);
+      output.push({ ...normalized, arguments: JSON.stringify(canonical) });
+      continue;
+    }
+
+    const existing = output[existingIndex];
+    const existingRecord = parseMoAgentToolArguments(existing.arguments).value as Record<string, unknown>;
+    const existingValues = stringArray(existingRecord[field]) ?? [];
+    const mergedValues = Array.from(new Set([...existingValues, ...values]));
+    if (mergedValues.length > 16) {
+      output.push(normalized);
+      continue;
+    }
+    output[existingIndex] = {
+      ...existing,
+      arguments: JSON.stringify({ ...existingRecord, [field]: mergedValues }),
+    };
+  }
+
+  return output;
 }
 
 function toolFailure(code: string, message: string, details?: unknown): MoAgentToolResult {
@@ -1444,7 +1598,7 @@ export class MoAgentRunEngine {
           );
         }
 
-        const toolCalls: MoAgentToolCall[] = [...toolCallsByIndex.values()]
+        const rawToolCalls: MoAgentToolCall[] = [...toolCallsByIndex.values()]
           .sort((left, right) => left.index - right.index)
           .map((toolCall) => ({
             id: toolCall.id ?? `call_${turn}_${toolCall.index}`,
@@ -1452,12 +1606,13 @@ export class MoAgentRunEngine {
             arguments: toolCall.arguments,
           }));
         const toolCallIds = new Set<string>();
-        for (const toolCall of toolCalls) {
+        for (const toolCall of rawToolCalls) {
           if (toolCallIds.has(toolCall.id)) {
             throw new Error(`The model returned duplicate tool-call ID: ${toolCall.id}`);
           }
           toolCallIds.add(toolCall.id);
         }
+        const toolCalls = coalesceReadToolCalls(rawToolCalls, this.toolsByName);
         if (!sawUsage) {
           const estimatedOutputTokens = estimateOutputTokens(text, reasoningContent, toolCalls);
           turnUsage = {
@@ -1845,7 +2000,7 @@ export class MoAgentRunEngine {
 
     let parsed: unknown;
     try {
-      parsed = toolCall.arguments.trim() ? JSON.parse(toolCall.arguments) : {};
+      parsed = parseMoAgentToolArguments(toolCall.arguments).value;
     } catch (error) {
       return {
         result: toolFailure(

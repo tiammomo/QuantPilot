@@ -87,6 +87,20 @@ function toolTurn(options: {
   ];
 }
 
+function parallelToolTurn(calls: Array<{ id: string; name: string; arguments: string }>): MoAgentModelEvent[] {
+  return [
+    { type: 'response_start', responseId: 'response-parallel-tools', model: 'test-model' },
+    ...calls.map((call, index): MoAgentModelEvent => ({
+      type: 'tool_call_delta',
+      index,
+      id: call.id,
+      nameDelta: call.name,
+      argumentsDelta: call.arguments,
+    })),
+    { type: 'finish', reason: 'tool_calls', rawReason: 'tool_calls' },
+  ];
+}
+
 function terminalTool(
   execute = vi.fn(async (input: unknown) => ({ ok: true as const, data: input }))
 ): MoAgentTool {
@@ -314,6 +328,148 @@ describe('MoAgentRunEngine', () => {
       error: { code: 'TOOL_EXECUTION_FAILED', message: 'workspace unavailable' },
     });
     expect(events.filter((event) => event.type === 'tool_failed')).toHaveLength(2);
+  });
+
+  it('repairs bounded JSON formatting mistakes before tool input validation', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn({
+        name: 'lookup',
+        arguments: ['```json\n{"anchor":"line one\nline two",}\n```'],
+      }),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const lookup = vi.fn(async (input: unknown) => ({ ok: true as const, data: input }));
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [{
+        name: 'lookup',
+        description: 'Lookup',
+        inputSchema: { type: 'object' },
+        effect: 'read',
+        idempotency: 'intrinsic',
+        execute: lookup,
+      }, terminalTool()],
+    });
+
+    const result = await engine.run({ messages: initialMessages });
+
+    expect(result.status).toBe('completed');
+    expect(lookup).toHaveBeenCalledWith(
+      { anchor: 'line one\nline two' },
+      expect.any(Object),
+    );
+    const replayedAssistant = provider.requests[1].messages.find(
+      (message) => message.role === 'assistant',
+    );
+    expect(replayedAssistant?.role === 'assistant' ? replayedAssistant.toolCalls?.[0].arguments : null)
+      .toBe('{"anchor":"line one\\nline two"}');
+  });
+
+  it('coalesces same-file structured reads emitted in one model turn', async () => {
+    const provider = new ScriptedProvider([
+      parallelToolTurn([
+        {
+          id: 'call-source-one',
+          name: 'Query Text File',
+          arguments: '{"filePath":"app/page.tsx","anchors":["function Header"]}',
+        },
+        {
+          id: 'call-source-two',
+          name: 'query_text_file',
+          arguments: '{"path":"app/page.tsx","query":"function Chart"}',
+        },
+      ]),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const query = vi.fn(async (input: unknown) => ({ ok: true as const, data: input }));
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [{
+        name: 'query_text_file',
+        description: 'Query source',
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' }, anchors: { type: 'array' } },
+        },
+        effect: 'read',
+        idempotency: 'intrinsic',
+        execute: query,
+      }, terminalTool()],
+    });
+
+    const result = await engine.run({ messages: initialMessages });
+
+    expect(result.status).toBe('completed');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledWith({
+      path: 'app/page.tsx',
+      anchors: ['function Header', 'function Chart'],
+    }, expect.any(Object));
+    const replayedAssistant = provider.requests[1].messages.find(
+      (message) => message.role === 'assistant',
+    );
+    expect(replayedAssistant?.role === 'assistant' ? replayedAssistant.toolCalls : null)
+      .toHaveLength(1);
+  });
+
+  it('coalesces structured reads by the tool-parsed canonical artifact path', async () => {
+    const provider = new ScriptedProvider([
+      parallelToolTurn([
+        {
+          id: 'call-dashboard-alias',
+          name: 'query_json',
+          arguments: '{"path":"/public/data/dashboard.json","pointers":["/quote"]}',
+        },
+        {
+          id: 'call-symbol-alias',
+          name: 'query_json',
+          arguments: '{"path":"/public/data/600589.json","pointers":["/kline/bars"]}',
+        },
+      ]),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const query = vi.fn(async (input: unknown) => ({ ok: true as const, data: input }));
+    const canonicalPath = 'data_file/final/dashboard-data.json';
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [{
+        name: 'query_json',
+        description: 'Query JSON artifact',
+        inputSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' }, pointers: { type: 'array' } },
+        },
+        effect: 'read',
+        idempotency: 'intrinsic',
+        parseInput: (input: unknown) => {
+          const record = input as Record<string, unknown>;
+          return {
+            ...record,
+            path: String(record.path).startsWith('/public/data/')
+              ? canonicalPath
+              : record.path,
+          };
+        },
+        execute: query,
+      }, terminalTool()],
+    });
+
+    const result = await engine.run({ messages: initialMessages });
+
+    expect(result.status).toBe('completed');
+    expect(query).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledWith({
+      path: canonicalPath,
+      pointers: ['/quote', '/kline/bars'],
+    }, expect.any(Object));
+    const replayedAssistant = provider.requests[1].messages.find(
+      (message) => message.role === 'assistant',
+    );
+    expect(replayedAssistant?.role === 'assistant' ? replayedAssistant.toolCalls : null)
+      .toHaveLength(1);
   });
 
   it('fails closed before another provider turn when a mutation outcome is uncertain', async () => {

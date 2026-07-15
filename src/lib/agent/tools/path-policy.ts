@@ -44,6 +44,20 @@ const PUBLIC_ASSET_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpe?g|json|png|svg|webp|
 const STYLE_PATTERN = /\.(?:css|scss|sass|less)$/i;
 const SOURCE_PATTERN = /\.(?:css|ts|tsx)$/i;
 const SOURCE_DIRECTORIES = new Set(['hooks', 'lib', 'src', 'types']);
+const VIRTUAL_WORKSPACE_ROOTS = new Set([
+  '.quantpilot',
+  'app',
+  'components',
+  'data_file',
+  'evidence',
+  'hooks',
+  'lib',
+  'public',
+  'src',
+  'styles',
+  'types',
+  'uploads',
+]);
 
 export const DEFAULT_ALLOWED_WRITE_GLOBS = [
   'app/**',
@@ -122,14 +136,18 @@ function normalizeRequestedPath(requestedPath: string, allowRoot: boolean): stri
   if (requestedPath.includes('\0') || /[\r\n]/.test(requestedPath)) {
     throw new MoAgentToolError('INVALID_PATH', 'Workspace paths cannot contain control characters.');
   }
-  if (path.isAbsolute(requestedPath) || path.win32.isAbsolute(requestedPath)) {
+  const virtualRootMatch = requestedPath.match(/^\/([^/]+)(?:\/|$)/);
+  const normalizedRequest = virtualRootMatch && VIRTUAL_WORKSPACE_ROOTS.has(virtualRootMatch[1])
+    ? requestedPath.slice(1)
+    : requestedPath;
+  if (path.isAbsolute(normalizedRequest) || path.win32.isAbsolute(normalizedRequest)) {
     throw new MoAgentToolError('ABSOLUTE_PATH_DENIED', 'MoAgent tools accept workspace-relative paths only.');
   }
-  if (requestedPath.includes('\\')) {
+  if (normalizedRequest.includes('\\')) {
     throw new MoAgentToolError('INVALID_PATH', 'Use forward slashes in MoAgent workspace paths.');
   }
 
-  const normalized = path.posix.normalize(requestedPath.replace(/^\.\//, ''));
+  const normalized = path.posix.normalize(normalizedRequest.replace(/^\.\//, ''));
   if (normalized === '..' || normalized.startsWith('../')) {
     throw new MoAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
   }

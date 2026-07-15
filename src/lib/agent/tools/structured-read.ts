@@ -58,6 +58,100 @@ interface WorkspaceTextFile {
   content: string;
   bytes: number;
   sha256: string;
+  pathCorrection?: JsonPathCorrection;
+}
+
+const JSON_ARTIFACT_PATHS = {
+  final_dashboard: 'data_file/final/dashboard-data.json',
+  sources_evidence: 'evidence/sources.json',
+  data_quality_evidence: 'evidence/data_quality.json',
+  run_plan: '.quantpilot/run_plan.json',
+  validation_report: '.quantpilot/validation.json',
+} as const;
+
+type JsonArtifactId = keyof typeof JSON_ARTIFACT_PATHS;
+
+interface JsonPathCorrection {
+  requestedPath: string;
+  resolvedPath: string;
+  reason: 'artifact_handle' | 'recognized_dashboard_alias';
+}
+
+interface JsonArtifactReference {
+  artifact?: JsonArtifactId;
+  path: string;
+  requestedPath: string;
+  pathCorrection?: JsonPathCorrection;
+  requestedSymbol?: string;
+}
+
+function normalizedWorkspaceReference(value: string): string {
+  return value.trim().replace(/^\/+/, '').replace(/^\.\//, '');
+}
+
+function dashboardAliasSymbol(value: string): string | undefined {
+  return normalizedWorkspaceReference(value)
+    .match(/^public\/data\/(\d{6})(?:\.(?:sh|sz))?\.json$/i)?.[1];
+}
+
+function isRecognizedDashboardAlias(value: string): boolean {
+  const normalized = normalizedWorkspaceReference(value);
+  return /^(?:public\/data\/(?:dashboard(?:-data)?|\d{6}(?:\.(?:sh|sz))?)|data\/dashboard(?:-data)?)\.json$/i
+    .test(normalized);
+}
+
+function parseJsonArtifactReference(record: Record<string, unknown>): JsonArtifactReference {
+  const rawArtifact = record.artifact;
+  let artifact: JsonArtifactId | undefined;
+  if (rawArtifact !== undefined) {
+    if (
+      typeof rawArtifact !== 'string' ||
+      !Object.hasOwn(JSON_ARTIFACT_PATHS, rawArtifact)
+    ) {
+      throw new MoAgentToolError(
+        'INVALID_TOOL_INPUT',
+        `artifact must be one of: ${Object.keys(JSON_ARTIFACT_PATHS).join(', ')}.`,
+      );
+    }
+    artifact = rawArtifact as JsonArtifactId;
+  }
+
+  const explicitPath = record.path === undefined
+    ? undefined
+    : requiredString(record, 'path', { maxLength: 1_024 });
+  if (artifact) {
+    const resolvedPath = JSON_ARTIFACT_PATHS[artifact];
+    return {
+      artifact,
+      path: resolvedPath,
+      requestedPath: explicitPath ?? `artifact:${artifact}`,
+      pathCorrection: {
+        requestedPath: explicitPath ?? `artifact:${artifact}`,
+        resolvedPath,
+        reason: 'artifact_handle',
+      },
+    };
+  }
+  if (!explicitPath) {
+    throw new MoAgentToolError(
+      'INVALID_TOOL_INPUT',
+      'query_json requires either an authoritative artifact handle or a workspace-relative path.',
+    );
+  }
+  if (isRecognizedDashboardAlias(explicitPath)) {
+    const resolvedPath = JSON_ARTIFACT_PATHS.final_dashboard;
+    return {
+      path: resolvedPath,
+      requestedPath: explicitPath,
+      requestedSymbol: dashboardAliasSymbol(explicitPath),
+      pathCorrection: {
+        requestedPath: explicitPath,
+        resolvedPath,
+        reason: 'recognized_dashboard_alias',
+      },
+    };
+  }
+  return { path: explicitPath, requestedPath: explicitPath };
 }
 
 export interface MoAgentStructuredReadOptions extends Pick<
@@ -180,7 +274,11 @@ function tolerantBoolean(
 }
 
 interface QueryJsonInput {
+  artifact?: JsonArtifactId;
   path: string;
+  requestedPath: string;
+  pathCorrection?: JsonPathCorrection;
+  requestedSymbol?: string;
   pointers: string[];
   maxArrayItems: number;
   maxStringChars: number;
@@ -190,21 +288,107 @@ interface QueryJsonInput {
 
 function parseQueryJsonInput(value: unknown): QueryJsonInput {
   const record = inputRecord(value);
-  const pointers = parseStringList(firstDefined(record, ['pointers', 'pointer']), 'pointers', {
-    maxItems: MAX_JSON_POINTERS,
+  const reference = parseJsonArtifactReference(record);
+  const pointers = parseStringList(firstDefined(record, ['pointers', 'pointer']) ?? [''], 'pointers', {
+    maxItems: 64,
     maxChars: 512,
     allowEmpty: true,
     allowSingle: true,
+  }).slice(0, MAX_JSON_POINTERS).map((pointer) => {
+    const trimmed = pointer.trim();
+    if (!trimmed || trimmed.startsWith('/')) return trimmed;
+    if (trimmed.startsWith('$.')) return `/${trimmed.slice(2).split('.').join('/')}`;
+    return `/${trimmed.split('.').join('/')}`;
   });
   for (const pointer of pointers) decodeJsonPointer(pointer);
   return {
-    path: requiredString(record, 'path', { maxLength: 1_024 }),
+    ...reference,
     pointers,
     maxArrayItems: optionalInteger(record, 'maxArrayItems', 8, { min: 1, max: 50 }),
     maxStringChars: optionalInteger(record, 'maxStringChars', 600, { min: 32, max: 4_000 }),
     maxObjectKeys: optionalInteger(record, 'maxObjectKeys', 64, { min: 1, max: 200 }),
     maxDepth: optionalInteger(record, 'maxDepth', 8, { min: 1, max: 16 }),
   };
+}
+
+async function existingAuthoritativeJsonArtifacts(
+  runtime: StructuredReadRuntime,
+): Promise<string[]> {
+  const policy = await runtime.policy();
+  const candidates = Array.from(new Set(Object.values(JSON_ARTIFACT_PATHS)));
+  const existing = await Promise.all(candidates.map(async (candidate) => {
+    try {
+      await policy.resolveReadPath(candidate);
+      return candidate;
+    } catch {
+      return null;
+    }
+  }));
+  return existing.filter(
+    (candidate): candidate is NonNullable<typeof candidate> => candidate !== null,
+  );
+}
+
+async function readJsonQueryFile(
+  runtime: StructuredReadRuntime,
+  input: QueryJsonInput,
+  signal: AbortSignal,
+): Promise<WorkspaceTextFile> {
+  try {
+    const file = await readWorkspaceTextFile(runtime, input.path, signal);
+    return input.pathCorrection ? { ...file, pathCorrection: input.pathCorrection } : file;
+  } catch (error) {
+    if (!(error instanceof MoAgentToolError) || error.code !== 'PATH_NOT_FOUND') throw error;
+    const suggestions = await existingAuthoritativeJsonArtifacts(runtime);
+    throw new MoAgentToolError(
+      'PATH_NOT_FOUND',
+      suggestions.length > 0
+        ? `Workspace JSON path does not exist: ${input.requestedPath}. Use one of the authoritative artifacts: ${suggestions.join(', ')}.`
+        : `Workspace JSON path does not exist: ${input.requestedPath}.`,
+      {
+        requestedPath: input.requestedPath,
+        suggestions,
+        retry: suggestions.length === 1
+          ? { artifactPath: suggestions[0] }
+          : { chooseFrom: suggestions },
+      },
+    );
+  }
+}
+
+function normalizedSymbol(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  return String(value).match(/\d{6}/)?.[0] ?? null;
+}
+
+function finalDataSymbols(value: unknown): Set<string> {
+  const symbols = new Set<string>();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return symbols;
+  const root = value as Record<string, unknown>;
+  const add = (candidate: unknown) => {
+    const symbol = normalizedSymbol(candidate);
+    if (symbol) symbols.add(symbol);
+  };
+  add(root.symbol);
+  add(root.code);
+  if (root.quote && typeof root.quote === 'object' && !Array.isArray(root.quote)) {
+    const quote = root.quote as Record<string, unknown>;
+    add(quote.symbol);
+    add(quote.code);
+  }
+  if (Array.isArray(root.assets)) {
+    for (const asset of root.assets) {
+      if (asset && typeof asset === 'object' && !Array.isArray(asset)) {
+        const assetRecord = asset as Record<string, unknown>;
+        add(assetRecord.symbol);
+        add(assetRecord.code);
+        if (assetRecord.quote && typeof assetRecord.quote === 'object' && !Array.isArray(assetRecord.quote)) {
+          add((assetRecord.quote as Record<string, unknown>).symbol);
+        }
+      }
+    }
+  }
+  return symbols;
 }
 
 function decodeJsonPointer(pointer: string): string[] {
@@ -425,6 +609,7 @@ interface JsonQueryReport {
     omissionCount: number;
     omissions: ProjectionOmission[];
     omissionDetailsTruncated: boolean;
+    pathCorrection?: JsonPathCorrection;
   };
   queries: Array<Record<string, unknown>>;
 }
@@ -466,6 +651,7 @@ function buildJsonQueryReport(
       omissionCount: state.omissionCount,
       omissions: state.omissions,
       omissionDetailsTruncated: state.omissionCount > state.omissions.length,
+      ...(file.pathCorrection ? { pathCorrection: file.pathCorrection } : {}),
     },
     queries,
   };
@@ -530,6 +716,7 @@ function boundedJsonQueryReport(
       bytes: file.bytes,
       sha256: file.sha256,
       valuesOmittedForOutputBudget: true,
+      ...(file.pathCorrection ? { pathCorrection: file.pathCorrection } : {}),
       retry: {
         action: 'split_pointer_batch',
         suggestedPointersPerCall: '6-8',
@@ -561,14 +748,22 @@ export function createQueryJsonTool(
   const runtime = createRuntime(options);
   return {
     name: 'query_json',
-    description: 'Batch-query all required RFC 6901 JSON Pointers from one workspace JSON file in a single call (maximum 16); do not call once per pointer. For a dashboard, request quote, kline/technical summaries, financials, events, metrics, and conclusion together. Use exact nested paths where possible. Output is automatically bounded; large arrays keep early and recent samples with explicit omission metadata.',
+    description: 'Batch-query all required RFC 6901 JSON Pointers from one workspace JSON artifact in a single call (maximum 16); do not call once per pointer. Prefer artifact="final_dashboard" for platform-prepared dashboard data and never invent public/data paths. For a dashboard, request quote, kline/technical summaries, financials, events, metrics, and conclusion together. Output is automatically bounded.',
     effect: 'read',
     idempotency: 'intrinsic',
     observationCache: 'workspace_generation',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Workspace-relative JSON file.' },
+        artifact: {
+          type: 'string',
+          enum: Object.keys(JSON_ARTIFACT_PATHS),
+          description: 'Authoritative artifact handle. Prefer final_dashboard instead of guessing a file path.',
+        },
+        path: {
+          type: 'string',
+          description: 'Workspace-relative JSON file. Omit when artifact is supplied. Dashboard data is data_file/final/dashboard-data.json, never public/data/*.json.',
+        },
         pointers: {
           type: 'array',
           minItems: 1,
@@ -577,7 +772,7 @@ export function createQueryJsonTool(
           description: 'All needed paths in one array, for example ["/quote","/kline/bars","/technicalIndicators/summary","/financials/reports","/announcements/announcements","/computedMetrics","/conclusion"]. Use an empty string only to discover root keys.',
         },
       },
-      required: ['path', 'pointers'],
+      required: ['pointers'],
       additionalProperties: false,
     },
     parseInput: parseQueryJsonInput,
@@ -585,7 +780,7 @@ export function createQueryJsonTool(
       context.signal,
       runtime.timeoutMs,
       async (signal) => {
-        const file = await readWorkspaceTextFile(runtime, input.path, signal);
+        const file = await readJsonQueryFile(runtime, input, signal);
         let parsed: unknown;
         try {
           parsed = JSON.parse(file.content) as unknown;
@@ -598,6 +793,21 @@ export function createQueryJsonTool(
         if (parsed === undefined) {
           throw new MoAgentToolError('INVALID_JSON_FILE', `JSON has no root value: ${file.path}.`);
         }
+        if (input.requestedSymbol) {
+          const availableSymbols = finalDataSymbols(parsed);
+          if (!availableSymbols.has(input.requestedSymbol)) {
+            throw new MoAgentToolError(
+              'ARTIFACT_SYMBOL_MISMATCH',
+              `The requested alias names symbol ${input.requestedSymbol}, but the authoritative final dashboard covers: ${Array.from(availableSymbols).join(', ') || 'no explicit symbols'}.`,
+              {
+                requestedPath: input.requestedPath,
+                resolvedPath: file.path,
+                requestedSymbol: input.requestedSymbol,
+                availableSymbols: Array.from(availableSymbols),
+              },
+            );
+          }
+        }
         const rendered = boundedJsonQueryReport(
           file,
           parsed as JsonValue,
@@ -608,6 +818,13 @@ export function createQueryJsonTool(
           ok: true,
           data: {
             path: file.path,
+            ...(file.pathCorrection ? {
+              requestedPath: file.pathCorrection.requestedPath,
+              resolvedPath: file.pathCorrection.resolvedPath,
+              pathResolved: true,
+              pathCorrected: file.pathCorrection.reason === 'recognized_dashboard_alias',
+              correctionReason: file.pathCorrection.reason,
+            } : {}),
             bytes: file.bytes,
             sha256: file.sha256,
             queryCount: input.pointers.length,
@@ -629,15 +846,43 @@ interface QueryTextFileInput {
   maxMatchesPerAnchor: number;
 }
 
+function normalizeTextAnchors(value: unknown): string[] {
+  const rawItems = typeof value === 'string'
+    ? [value]
+    : Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : [];
+  const candidates: string[] = [];
+
+  for (const rawItem of rawItems) {
+    const trimmed = rawItem.trim();
+    if (!trimmed) continue;
+    const lines = trimmed.includes('\n') || trimmed.includes('\r')
+      ? trimmed.split(/\r?\n/)
+      : [trimmed];
+    for (const line of lines) {
+      const candidate = line.trim();
+      if (!candidate || /^```/.test(candidate)) continue;
+      // A short prefix remains a literal substring of the model-supplied
+      // source line and is substantially more likely to match than rejecting
+      // the whole call because one anchor exceeded the contract.
+      candidates.push(candidate.slice(0, 200));
+      if (candidates.length >= MAX_TEXT_ANCHORS) break;
+    }
+    if (candidates.length >= MAX_TEXT_ANCHORS) break;
+  }
+
+  return Array.from(new Set(candidates)).slice(0, MAX_TEXT_ANCHORS);
+}
+
 function parseQueryTextFileInput(value: unknown): QueryTextFileInput {
   const record = inputRecord(value);
+  const anchors = normalizeTextAnchors(firstDefined(record, ['anchors', 'queries', 'query']));
   return {
     path: requiredString(record, 'path', { maxLength: 1_024 }),
-    anchors: parseStringList(firstDefined(record, ['anchors', 'queries', 'query']), 'anchors', {
-      maxItems: MAX_TEXT_ANCHORS,
-      maxChars: 200,
-      allowSingle: true,
-    }),
+    // Missing/invalid anchor lists degrade to a bounded file-head query. This
+    // is useful evidence and avoids wasting a full model turn on a schema typo.
+    anchors: anchors.length ? anchors : [''],
     caseSensitive: tolerantBoolean(record, ['caseSensitive'], true),
     beforeLines: tolerantBoundedInteger(record, ['beforeLines'], 3, { min: 0, max: 50 }),
     afterLines: tolerantBoundedInteger(record, ['afterLines'], 48, { min: 0, max: 200 }),

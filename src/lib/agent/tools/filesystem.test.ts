@@ -83,6 +83,10 @@ describe('MoAgent typed filesystem tools', () => {
 
   it('rejects traversal and absolute paths, including absolute paths inside the workspace', async () => {
     const tool = createReadFileTool({ workspaceRoot: workspace });
+    await expect(invoke(tool, { path: '/app/page.tsx' })).resolves.toMatchObject({
+      ok: true,
+      data: { path: 'app/page.tsx' },
+    });
     await expect(invoke(tool, { path: '../secret.txt' })).resolves.toMatchObject({
       ok: false,
       error: { code: 'PATH_TRAVERSAL_DENIED' },

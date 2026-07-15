@@ -96,6 +96,102 @@ describe('MoAgent structured read tools', () => {
     expect(missing).toEqual({ pointer: '/not-found', found: false, valueType: null });
   });
 
+  it('resolves authoritative artifact handles and safely corrects recognized dashboard aliases', async () => {
+    const dashboard = {
+      symbol: '600589',
+      quote: { symbol: '600589.SH', price: 12.34 },
+    };
+    await fs.writeFile(
+      path.join(workspace, 'data_file', 'final', 'dashboard-data.json'),
+      JSON.stringify(dashboard),
+      'utf8',
+    );
+    const tool = createQueryJsonTool({ workspaceRoot: workspace });
+
+    const artifactResult = await invoke(tool, {
+      artifact: 'final_dashboard',
+      pointers: ['/quote'],
+    });
+    expect(artifactResult).toMatchObject({
+      ok: true,
+      data: {
+        path: 'data_file/final/dashboard-data.json',
+        requestedPath: 'artifact:final_dashboard',
+        resolvedPath: 'data_file/final/dashboard-data.json',
+        pathResolved: true,
+        pathCorrected: false,
+        correctionReason: 'artifact_handle',
+      },
+    });
+
+    for (const alias of ['/public/data/dashboard.json', '/public/data/600589.json']) {
+      const corrected = await invoke(tool, { path: alias, pointers: ['/quote'] });
+      expect(corrected).toMatchObject({
+        ok: true,
+        data: {
+          requestedPath: alias,
+          resolvedPath: 'data_file/final/dashboard-data.json',
+          pathResolved: true,
+          pathCorrected: true,
+          correctionReason: 'recognized_dashboard_alias',
+        },
+      });
+      if (!corrected.ok || !corrected.content) throw new Error('Expected corrected query');
+      expect(JSON.parse(corrected.content).$moagent.pathCorrection).toEqual({
+        requestedPath: alias,
+        resolvedPath: 'data_file/final/dashboard-data.json',
+        reason: 'recognized_dashboard_alias',
+      });
+    }
+  });
+
+  it('rejects symbol aliases that do not match the authoritative final artifact', async () => {
+    await fs.writeFile(
+      path.join(workspace, 'data_file', 'final', 'dashboard-data.json'),
+      JSON.stringify({ symbol: '600589', quote: { symbol: '600589.SH' } }),
+      'utf8',
+    );
+    const result = await invoke(createQueryJsonTool({ workspaceRoot: workspace }), {
+      path: '/public/data/000001.json',
+      pointers: ['/quote'],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'ARTIFACT_SYMBOL_MISMATCH',
+        details: {
+          requestedSymbol: '000001',
+          availableSymbols: ['600589'],
+        },
+      },
+    });
+  });
+
+  it('returns authoritative JSON candidates for an unknown missing path', async () => {
+    await fs.writeFile(
+      path.join(workspace, 'data_file', 'final', 'dashboard-data.json'),
+      JSON.stringify({ symbol: '600589' }),
+      'utf8',
+    );
+    const result = await invoke(createQueryJsonTool({ workspaceRoot: workspace }), {
+      path: 'public/data/not-real.json',
+      pointers: [''],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'PATH_NOT_FOUND',
+        details: {
+          requestedPath: 'public/data/not-real.json',
+          suggestions: ['data_file/final/dashboard-data.json'],
+        },
+      },
+    });
+    expect(result.content).toContain('data_file/final/dashboard-data.json');
+  });
+
   it('implements RFC 6901 escaping and exact array-index lookup', async () => {
     await fs.writeFile(
       path.join(workspace, 'evidence', 'pointer.json'),
@@ -115,10 +211,10 @@ describe('MoAgent structured read tools', () => {
       valueType: 'number',
       value: 2,
     });
-    expect(() => tool.parseInput?.({
+    expect(tool.parseInput?.({
       path: 'evidence/pointer.json',
       pointers: ['not-a-pointer'],
-    })).toThrow(/JSON Pointer/);
+    })).toMatchObject({ pointers: ['/not-a-pointer'] });
     expect(() => tool.parseInput?.({
       path: 'evidence/pointer.json',
       pointers: ['/bad~2escape'],
@@ -127,7 +223,7 @@ describe('MoAgent structured read tools', () => {
       path: 'evidence/pointer.json',
       pointer: '/a~1b/~0key/0/value',
     })).toMatchObject({ pointers: ['/a~1b/~0key/0/value'] });
-    expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual(['path', 'pointers']);
+    expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual(['artifact', 'path', 'pointers']);
   });
 
   it('keeps values for a dashboard-wide pointer batch within one bounded result', async () => {
@@ -273,6 +369,13 @@ describe('MoAgent structured read tools', () => {
       path: 'app/page.tsx',
       query: 'function ANCHOR_2()',
     })).toMatchObject({ anchors: ['function ANCHOR_2()'] });
+    expect(tool.parseInput?.({
+      path: 'app/page.tsx',
+      anchors: ['function ANCHOR_3() {\n  return 3;\n}', 'x'.repeat(260)],
+    })).toMatchObject({
+      anchors: ['function ANCHOR_3() {', 'return 3;', '}', 'x'.repeat(200)],
+    });
+    expect(tool.parseInput?.({ path: 'app/page.tsx' })).toMatchObject({ anchors: [''] });
     expect(Object.keys(tool.inputSchema.properties ?? {})).toEqual(['path', 'anchors']);
 
     const result = await invoke(tool, {
@@ -291,6 +394,20 @@ describe('MoAgent structured read tools', () => {
     if (!result.ok || !result.content) throw new Error('Expected fair anchor batch');
     expect(result.content.length).toBeLessThanOrEqual(2_400);
     for (const anchor of anchors) expect(result.content).toContain(anchor);
+  });
+
+  it('accepts workspace-root-style paths and returns the canonical relative path', async () => {
+    await fs.writeFile(
+      path.join(workspace, 'app', 'page.tsx'),
+      'export default function Page() { return <main />; }\n',
+      'utf8',
+    );
+    const result = await invoke(createQueryTextFileTool({ workspaceRoot: workspace }), {
+      path: '/app/page.tsx',
+      anchors: ['export default'],
+    });
+
+    expect(result).toMatchObject({ ok: true, data: { path: 'app/page.tsx' } });
   });
 
   it('fails closed for traversal, escaping symlinks, invalid JSON, and JSON text queries', async () => {
