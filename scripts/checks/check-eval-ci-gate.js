@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 
+require('tsconfig-paths/register');
+
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-eval-ci-gate.js'), {
   interopDefault: true,
 });
-const { summarizeE2eAgentExecution } = jiti('../../src/lib/eval/e2e-attestation.ts');
+const {
+  DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
+} = jiti('../../src/lib/eval/e2e-attestation.ts');
+const { attestEvalReport } = jiti('../../src/lib/eval/report-attestation.ts');
+const {
+  MOAGENT_BUILD_IDENTITY,
+  MOAGENT_FRAMEWORK_VERSION,
+} = jiti('../../src/lib/agent/framework-identity.ts');
 
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
+const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
+const E2E_SUITE_PATH = path.resolve('benchmarks/quantpilot/e2e-suite.json');
 
 function parseArgs(argv) {
   const args = {
@@ -19,6 +31,21 @@ function parseArgs(argv) {
     caseIds: [],
     mode: process.env.QUANTPILOT_EVAL_MODE || 'contract',
     maxAgeHours: Number.parseInt(process.env.QUANTPILOT_EVAL_MAX_AGE_HOURS || '168', 10),
+    maxTurnsPerCase: Number.parseInt(
+      process.env.MOAGENT_E2E_MAX_TURNS_PER_CASE ||
+      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase),
+      10,
+    ),
+    maxCacheMissInputTokensPerCase: Number.parseInt(
+      process.env.MOAGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE ||
+      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase),
+      10,
+    ),
+    maxUnexpectedToolFailures: Number.parseInt(
+      process.env.MOAGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES ||
+      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures),
+      10,
+    ),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -67,6 +94,39 @@ function parseArgs(argv) {
       args.minAverageScore = Number.parseInt(arg.slice('--min-average-score='.length), 10);
       continue;
     }
+    if (arg === '--max-turns-per-case' && argv[index + 1]) {
+      args.maxTurnsPerCase = Number.parseInt(argv[index + 1], 10);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--max-turns-per-case=')) {
+      args.maxTurnsPerCase = Number.parseInt(arg.slice('--max-turns-per-case='.length), 10);
+      continue;
+    }
+    if (arg === '--max-cache-miss-input-tokens-per-case' && argv[index + 1]) {
+      args.maxCacheMissInputTokensPerCase = Number.parseInt(argv[index + 1], 10);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--max-cache-miss-input-tokens-per-case=')) {
+      args.maxCacheMissInputTokensPerCase = Number.parseInt(
+        arg.slice('--max-cache-miss-input-tokens-per-case='.length),
+        10,
+      );
+      continue;
+    }
+    if (arg === '--max-unexpected-tool-failures' && argv[index + 1]) {
+      args.maxUnexpectedToolFailures = Number.parseInt(argv[index + 1], 10);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--max-unexpected-tool-failures=')) {
+      args.maxUnexpectedToolFailures = Number.parseInt(
+        arg.slice('--max-unexpected-tool-failures='.length),
+        10,
+      );
+      continue;
+    }
     if (arg === '--case' && argv[index + 1]) {
       args.caseIds.push(argv[index + 1]);
       index += 1;
@@ -79,7 +139,37 @@ function parseArgs(argv) {
   if (!['contract', 'e2e'].includes(args.mode)) {
     throw new Error(`不支持的评测模式：${args.mode}`);
   }
+  for (const [label, value] of [
+    ['maxTurnsPerCase', args.maxTurnsPerCase],
+    ['maxCacheMissInputTokensPerCase', args.maxCacheMissInputTokensPerCase],
+    ['maxUnexpectedToolFailures', args.maxUnexpectedToolFailures],
+  ]) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${label} 必须是非负整数`);
+    }
+  }
   return args;
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function expectedCases(args) {
+  const allCases = JSON.parse(fs.readFileSync(CASES_PATH, 'utf8'));
+  const configuredE2e = JSON.parse(fs.readFileSync(E2E_SUITE_PATH, 'utf8'));
+  const requestedIds = args.caseIds.length > 0
+    ? args.caseIds
+    : args.mode === 'e2e'
+      ? configuredE2e.caseIds
+      : allCases.map((testCase) => testCase.id);
+  const selected = new Set(requestedIds);
+  const cases = allCases.filter((testCase) => selected.has(testCase.id));
+  const missing = requestedIds.filter((id) => !cases.some((testCase) => testCase.id === id));
+  if (missing.length > 0 || cases.length !== selected.size) {
+    throw new Error(`评测门包含未知 case：${missing.join(', ')}`);
+  }
+  return cases;
 }
 
 function reportMode(report) {
@@ -150,24 +240,30 @@ function main() {
   const createdAtMs = Date.parse(report.createdAt || report.metadata?.finishedAt || '');
   const ageHours = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) / 3_600_000 : Number.POSITIVE_INFINITY;
 
-  if (reportMode(report) !== args.mode) {
-    problems.push(`报告模式 ${reportMode(report)} 与要求的 ${args.mode} 不一致`);
+  const cases = expectedCases(args);
+  const attestation = attestEvalReport(report, {
+    mode: args.mode,
+    expectedCaseIds: cases.map((testCase) => testCase.id),
+    expectedCasesSha256: sha256(JSON.stringify(cases)),
+    expectedPromptsSha256: sha256(
+      cases.map((testCase) => testCase.question || '').join('\n'),
+    ),
+    frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+    buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    qualityThresholds: {
+      maxTurnsPerCase: args.maxTurnsPerCase,
+      maxCacheMissInputTokensPerCase: args.maxCacheMissInputTokensPerCase,
+      maxUnexpectedToolFailures: args.maxUnexpectedToolFailures,
+    },
+  });
+  problems.push(...attestation.problems);
+  if (Number.isFinite(ageHours) && ageHours < -(5 / 60)) {
+    problems.push('报告时间位于允许时钟偏差之外的未来');
   }
   if (Number.isFinite(args.maxAgeHours) && args.maxAgeHours > 0 && ageHours > args.maxAgeHours) {
     problems.push(`报告已超过 ${args.maxAgeHours} 小时（当前 ${Math.round(ageHours)} 小时）`);
   }
-  if (args.mode === 'e2e' && report.metadata?.runtime?.agentExecuted !== true) {
-    problems.push('E2E 报告没有真实 Agent 执行标记');
-  }
-  if (args.mode === 'e2e') {
-    const executionSummary = summarizeE2eAgentExecution(Array.isArray(report.results) ? report.results : []);
-    if (executionSummary.unattestedCaseIds.length > 0) {
-      problems.push(
-        `E2E 报告包含未逐 case 证明真实 Agent 执行的用例：${executionSummary.unattestedCaseIds.join(', ')}`,
-      );
-    }
-  }
-
   if (args.requireNoFailed && failedCount > 0) {
     problems.push(`存在失败用例：${failedCount}`);
   }
@@ -180,6 +276,15 @@ function main() {
 
   console.log(`[eval-ci] mode=${args.mode} report=${path.relative(process.cwd(), reportPath)}`);
   console.log(`[eval-ci] passed=${passedCount}/${total} passRate=${passRate}% averageScore=${avgScore}`);
+  if (attestation.quality) {
+    console.log(
+      `[eval-ci] turns(avg/max)=${attestation.quality.summary.turns.average}/` +
+      `${attestation.quality.summary.turns.max.value} ` +
+      `cacheMiss(avg/max)=${attestation.quality.summary.cacheMissInputTokens.average}/` +
+      `${attestation.quality.summary.cacheMissInputTokens.max.value} ` +
+      `unexpectedToolFailures=${attestation.quality.summary.tools.unexpectedFailureCount}`,
+    );
+  }
 
   if (problems.length) {
     console.error('[eval-ci] 阻断：');

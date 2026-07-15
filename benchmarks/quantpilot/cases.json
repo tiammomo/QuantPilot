@@ -4,6 +4,7 @@
     "name": "贵州茅台基本面看板",
     "question": "贵州茅台最近财务怎么样？生成基本面看板。",
     "capabilityId": "fundamental_analysis",
+    "expectedVariantId": "fundamental-quality-scorecard",
     "expectedSymbol": "600519",
     "expectedAssetType": "stock",
     "expectedRawFiles": [
@@ -24,6 +25,7 @@
     "name": "沪深300技术趋势看板",
     "question": "生成沪深300最近120天趋势看板。",
     "capabilityId": "technical_analysis",
+    "expectedVariantId": "technical-kline-trader",
     "expectedSymbol": "000300",
     "expectedAssetType": "index",
     "expectedRawFiles": [
@@ -42,6 +44,7 @@
     "name": "沪深300ETF技术趋势看板",
     "question": "510300 沪深300ETF 最近120天走势如何？生成趋势看板。",
     "capabilityId": "technical_analysis",
+    "expectedVariantId": "technical-kline-trader",
     "expectedSymbol": "510300",
     "expectedAssetType": "etf",
     "expectedRawFiles": [
@@ -50,9 +53,9 @@
       "technical-indicators.json"
     ],
     "expectedDatasets": [
-      "510300_quote",
-      "510300_kline",
-      "510300_technical_indicators"
+      "quote",
+      "kline",
+      "technical_indicators"
     ]
   },
   {
@@ -60,6 +63,7 @@
     "name": "沪深300ETF均线突破回测",
     "question": "用最近一年的 20/60 日均线突破规则回测 510300，生成回测复盘看板。",
     "capabilityId": "backtest_review",
+    "expectedVariantId": "backtest-performance-review",
     "expectedSymbol": "510300",
     "expectedAssetType": "etf",
     "expectedRawFiles": [
@@ -91,6 +95,7 @@
       "300750"
     ],
     "expectedTemplateId": "stock-selection",
+    "expectedVariantId": "selection-ranking-matrix",
     "expectedRawFiles": [
       "batch-quotes.json",
       "quote.json",
@@ -122,6 +127,7 @@
     "question": "帮我推荐6月3日要买的股票，给我推荐10个",
     "capabilityId": "asset_comparison",
     "expectedTemplateId": "stock-selection",
+    "expectedVariantId": "selection-ranking-matrix",
     "expectedRawFiles": [
       "a-share-screener.json",
       "batch-quotes.json"
@@ -152,6 +158,7 @@
       "002624"
     ],
     "expectedTemplateId": "holding-analysis",
+    "expectedVariantId": "portfolio-rebalance-plan",
     "expectedRawFiles": [
       "batch-quotes.json",
       "quote.json",
@@ -185,6 +192,7 @@
     "expectedSymbol": "600030",
     "expectedAssetType": "stock",
     "expectedTemplateId": "single-stock-diagnosis",
+    "expectedVariantId": "single-stock-command-center",
     "expectedRawFiles": [
       "quote.json",
       "kline-daily-qfq.json",
@@ -234,6 +242,7 @@
       "002624"
     ],
     "expectedTemplateId": "holding-analysis",
+    "expectedVariantId": "portfolio-rebalance-plan",
     "expectedEvidenceFiles": [
       "evidence/image_extraction.json"
     ],
@@ -274,6 +283,7 @@
       "300750"
     ],
     "expectedTemplateId": "stock-selection",
+    "expectedVariantId": "selection-ranking-matrix",
     "expectedFinalFields": [
       "assets",
       "comparison",
@@ -312,6 +322,64 @@
       "quote",
       "kline",
       "financials"
+    ]
+  },
+  {
+    "id": "dashboard-renderer-capability-contract",
+    "name": "DashboardSpec 全变体能力矩阵",
+    "type": "renderer_capability_contract",
+    "question": "验证所有可视化变体都被显式登记，并且未实现的专业 renderer 必须失败关闭。",
+    "capabilityId": "stock_diagnosis",
+    "variantExpectations": [
+      { "templateId": "single-stock-diagnosis", "variantId": "single-stock-command-center", "supported": true },
+      { "templateId": "single-stock-diagnosis", "variantId": "single-stock-fundamental-snapshot", "supported": false },
+      { "templateId": "technical-timing", "variantId": "technical-kline-trader", "supported": false },
+      { "templateId": "technical-timing", "variantId": "technical-breakout-watch", "supported": false },
+      { "templateId": "fundamental-research", "variantId": "fundamental-quality-scorecard", "supported": false },
+      { "templateId": "fundamental-research", "variantId": "fundamental-report-trend", "supported": false },
+      { "templateId": "stock-selection", "variantId": "selection-ranking-matrix", "supported": true },
+      { "templateId": "stock-selection", "variantId": "selection-correlation-risk-map", "supported": false },
+      { "templateId": "stock-selection", "variantId": "selection-liquidity-trend-board", "supported": false },
+      { "templateId": "sector-rotation", "variantId": "sector-rotation-radar", "supported": false },
+      { "templateId": "sector-rotation", "variantId": "sector-capital-flow-board", "supported": false },
+      { "templateId": "strategy-research", "variantId": "strategy-hypothesis-canvas", "supported": false },
+      { "templateId": "strategy-research", "variantId": "strategy-signal-lab", "supported": false },
+      { "templateId": "backtest-review", "variantId": "backtest-performance-review", "supported": true },
+      { "templateId": "backtest-review", "variantId": "backtest-trade-forensics", "supported": false },
+      { "templateId": "holding-analysis", "variantId": "portfolio-risk-console", "supported": false },
+      { "templateId": "holding-analysis", "variantId": "portfolio-rebalance-plan", "supported": false }
+    ],
+    "selectionExpectations": [
+      {
+        "capabilityId": "sector_rotation",
+        "question": "对比 510300 和 159915 的板块轮动与相对强弱",
+        "symbolCount": 2,
+        "expectedTemplateId": "sector-rotation",
+        "expectedVariantId": "sector-rotation-radar"
+      },
+      {
+        "capabilityId": "sector_rotation",
+        "question": "观察板块主力资金净流入、净流出和成交额热度",
+        "symbolCount": 2,
+        "dataSignals": ["sectorCapitalFlow"],
+        "expectedTemplateId": "sector-rotation",
+        "expectedVariantId": "sector-capital-flow-board"
+      },
+      {
+        "capabilityId": "strategy_research",
+        "question": "研究一个均线突破策略假设与规则",
+        "symbolCount": 1,
+        "expectedTemplateId": "strategy-research",
+        "expectedVariantId": "strategy-hypothesis-canvas"
+      },
+      {
+        "capabilityId": "strategy_research",
+        "question": "定义入场、出场、过滤参数和择时信号",
+        "symbolCount": 1,
+        "dataSignals": ["technicalIndicators"],
+        "expectedTemplateId": "strategy-research",
+        "expectedVariantId": "strategy-signal-lab"
+      }
     ]
   }
 ]

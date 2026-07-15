@@ -12,6 +12,7 @@ export interface QuantEvalCase {
   expectedSymbols: string[];
   expectedAssetType: string | null;
   expectedTemplateId: string | null;
+  expectedVariantId: string | null;
   expectedDatasets: string[];
   expectedRawFiles: string[];
   expectedFinalFields: string[];
@@ -69,11 +70,88 @@ export interface QuantEvalResult {
   agentExecuted: boolean;
   agentExecution: {
     executed: boolean;
+    cli: string | null;
     provider: string | null;
     model: string | null;
     requestId: string | null;
+    runIds: string[];
+    runs: Array<{
+      id: string;
+      runInstanceId: string;
+      requestId: string | null;
+      status: string | null;
+      provider: string | null;
+      model: string | null;
+      frameworkVersion: string | null;
+      buildRevision: string | null;
+      startedAt: string | null;
+      completedAt: string | null;
+      turns: number;
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+        cachedInputTokens: number;
+        cacheMissInputTokens: number;
+        reasoningTokens: number;
+      };
+      tools: {
+        total: number;
+        succeeded: number;
+        failed: number;
+        uncertain: number;
+        unexpectedFailureCount: number;
+        workspaceWriteSucceeded: number;
+        submitResultSucceeded: number;
+      };
+    }>;
+    missionId: string | null;
+    generationId: string | null;
+    missionStatus: string | null;
+    candidateVersion: number;
+    acceptedReceiptId: string | null;
+    acceptedReceiptHash: string | null;
+    acceptedReceiptType: string | null;
+    acceptedReceiptVerdict: string | null;
+    acceptedSourceRunId: string | null;
+    acceptedSourceRequestId: string | null;
+    acceptedCandidateSource: string | null;
+    frameworkVersion: string | null;
+    buildRevision: string | null;
+    gitRevision: string | null;
     startedAt: string | null;
     completedAt: string | null;
+    turns: number;
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      cachedInputTokens: number;
+      cacheMissInputTokens: number;
+      reasoningTokens: number;
+    };
+    tools: {
+      total: number;
+      succeeded: number;
+      failed: number;
+      uncertain: number;
+      unexpectedFailureCount: number;
+      workspaceWriteSucceeded: number;
+      submitResultSucceeded: number;
+    };
+  } | null;
+  missionAcceptance: {
+    missionId: string | null;
+    generationId: string | null;
+    status: string | null;
+    candidateVersion: number;
+    acceptedReceiptId: string | null;
+    acceptedReceiptHash: string | null;
+    acceptedReceiptType: string | null;
+    acceptedReceiptVerdict: string | null;
+    acceptedSourceRunId: string | null;
+    acceptedSourceRequestId: string | null;
+    acceptedCandidateSource: string | null;
   } | null;
   capabilityId: string;
   capabilityLabel: string;
@@ -97,6 +175,28 @@ export interface QuantEvalResult {
   } | null;
 }
 
+export interface QuantEvalE2eQuality {
+  passed: boolean;
+  problems: string[];
+  thresholds: {
+    maxTurnsPerCase: number;
+    maxCacheMissInputTokensPerCase: number;
+    maxUnexpectedToolFailures: number;
+  };
+  summary: {
+    caseCount: number;
+    measuredCaseCount: number;
+    missingMetricsCaseIds: string[];
+    turns: { total: number; average: number; max: { id: string | null; value: number } };
+    cacheMissInputTokens: {
+      total: number;
+      average: number;
+      max: { id: string | null; value: number };
+    };
+    tools: { unexpectedFailureCount: number; affectedCaseIds: string[] };
+  };
+}
+
 export interface QuantEvalRun {
   id: string;
   fileName: string;
@@ -112,6 +212,7 @@ export interface QuantEvalRun {
   durationMs: number;
   metadata: {
     trigger: string | null;
+    reportSchemaVersion?: number | null;
     startedAt: string | null;
     finishedAt: string | null;
     command: string[];
@@ -127,16 +228,28 @@ export interface QuantEvalRun {
       agentExecuted?: boolean;
       executedCaseCount?: number;
       unattestedCaseIds?: string[];
+      frameworkVersion?: string | null;
+      buildRevision?: string | null;
     };
     suite?: {
       mode: QuantEvalExecutionMode;
       label: string;
+      executionClass?: 'deterministic_contract' | 'live_mission_e2e' | string;
+    };
+    retention?: {
+      databaseEvidenceRetained: boolean;
+      workspaceRetained: boolean;
     };
     provenance?: {
       gitCommit: string | null;
+      gitRevision?: string | null;
+      buildRevision?: string | null;
+      frameworkVersion?: string | null;
       casesSha256: string | null;
       promptsSha256: string | null;
     };
+    /** Duplicated into metadata JSON so DB-backed report reads retain it. */
+    e2eQuality?: QuantEvalE2eQuality | null;
     selection: {
       selectedCases: string[];
       limit: number | null;
@@ -160,6 +273,7 @@ export interface QuantEvalRun {
       >;
     };
   };
+  e2eQuality: QuantEvalE2eQuality | null;
   coverage: {
     byCapability: Record<string, { total: number; passed: number; failed: number }>;
     byType: Record<string, { total: number; passed: number; failed: number }>;
@@ -209,6 +323,7 @@ export interface CreateQuantEvalCaseInput {
   expectedSymbols?: string[];
   expectedAssetType?: string | null;
   expectedTemplateId?: string | null;
+  expectedVariantId?: string | null;
   expectedDatasets?: string[];
   expectedRawFiles?: string[];
   expectedFinalFields?: string[];

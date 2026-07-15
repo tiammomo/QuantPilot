@@ -8,6 +8,8 @@ const ROOT = process.cwd();
 const MARKET_DATA_ROOT = path.join(ROOT, 'services', 'market-data');
 const includeSecurity = process.argv.includes('--security');
 const includeRuntime = process.argv.includes('--runtime');
+const generateContractEvidence = process.argv.includes('--eval-contract');
+const includeE2eEvidence = process.argv.includes('--e2e-evidence');
 
 const checks = [
   ['AI provider boundary', 'npm', ['run', 'check:ai-provider-boundary'], ROOT],
@@ -35,6 +37,15 @@ if (includeSecurity) {
 }
 if (includeRuntime) {
   checks.push(['Runtime and infrastructure doctor', 'npm', ['run', 'doctor:full'], ROOT]);
+}
+if (generateContractEvidence) {
+  checks.push(
+    ['Generate current-build contract evidence', 'npm', ['run', 'benchmark:quant:contract'], ROOT],
+    ['Attest current-build contract evidence', 'npm', ['run', 'eval:ci'], ROOT],
+  );
+}
+if (includeE2eEvidence) {
+  checks.push(['Current-build live Mission E2E evidence', 'npm', ['run', 'eval:ci:e2e'], ROOT]);
 }
 
 const startedAt = performance.now();

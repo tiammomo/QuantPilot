@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "description": "MoAgent live Mission/EvidenceVerifier release regression suite",
+  "caseIds": [
+    "stock-diagnosis-citic-no-false-clarification",
+    "stock-fundamental-maotai",
+    "asset-comparison-bluechips"
+  ]
+}

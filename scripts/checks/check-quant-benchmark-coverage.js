@@ -19,6 +19,7 @@ function caseTags(testCase) {
   tags.add(testCase.type || (testCase.expectClarification ? 'clarification_required' : 'generated_project'));
   if (testCase.expectedAssetType) tags.add(`asset:${testCase.expectedAssetType}`);
   if (testCase.expectedTemplateId) tags.add(`template:${testCase.expectedTemplateId}`);
+  if (testCase.expectedVariantId) tags.add(`variant:${testCase.expectedVariantId}`);
   if (testCase.expectClarification) tags.add('intent:clarification_required');
   if (testCase.expectClarification === false) tags.add('intent:no_false_clarification');
   if (testCase.type === 'clarification_continuation') tags.add('intent:clarification_continuation');
@@ -28,6 +29,12 @@ function caseTags(testCase) {
   if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
+  if (testCase.type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  for (const expectation of testCase.selectionExpectations || []) {
+    if (expectation.capabilityId) tags.add(expectation.capabilityId);
+    if (expectation.expectedTemplateId) tags.add(`template:${expectation.expectedTemplateId}`);
+    if (expectation.expectedVariantId) tags.add(`variant:${expectation.expectedVariantId}`);
+  }
   if (testCase.expectedFinalFields?.includes('backtest')) tags.add('analysis:backtest');
   if (testCase.expectedFinalFields?.includes('portfolio')) tags.add('analysis:portfolio');
   if (testCase.expectedFinalFields?.includes('selectionRanking')) tags.add('analysis:selection');
@@ -52,6 +59,9 @@ function main() {
     }
     ids.add(testCase.id);
     capabilities.add(testCase.capabilityId);
+    for (const expectation of testCase.selectionExpectations || []) {
+      if (expectation.capabilityId) capabilities.add(expectation.capabilityId);
+    }
     for (const tag of caseTags(testCase)) {
       tags.add(tag);
     }
@@ -64,6 +74,8 @@ function main() {
     'asset_comparison',
     'portfolio_risk',
     'stock_diagnosis',
+    'sector_rotation',
+    'strategy_research',
   ];
   const requiredTags = [
     'asset:stock',
@@ -84,6 +96,9 @@ function main() {
     'analysis:portfolio',
     'analysis:selection',
     'data:multi_symbol',
+    'dashboard:renderer_capability',
+    'variant:sector-capital-flow-board',
+    'variant:strategy-signal-lab',
   ];
 
   const missingCapabilities = requiredCapabilities.filter((item) => !capabilities.has(item));

@@ -25,11 +25,13 @@ function buildCaseTags(testCase: JsonRecord): string[] {
   const type = inferCaseType(testCase);
   const assetType = stringValue(testCase.expectedAssetType);
   const templateId = stringValue(testCase.expectedTemplateId);
+  const variantId = stringValue(testCase.expectedVariantId);
 
   if (capabilityId) tags.add(capabilityId);
   if (type) tags.add(type);
   if (assetType) tags.add(`asset:${assetType}`);
   if (templateId) tags.add(`template:${templateId}`);
+  if (variantId) tags.add(`variant:${variantId}`);
   if (booleanValue(testCase.expectClarification)) tags.add('intent:clarification_required');
   if (testCase.expectClarification === false) tags.add('intent:no_false_clarification');
   if (testCase.imageAttachment) tags.add('input:image_attachment');
@@ -39,6 +41,15 @@ function buildCaseTags(testCase: JsonRecord): string[] {
   if (type === 'repair_plan') tags.add('validation:repair_plan');
   if (type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
+  if (type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  for (const expectation of readRecordArray(testCase.selectionExpectations)) {
+    const nestedCapabilityId = stringValue(expectation.capabilityId);
+    const nestedTemplateId = stringValue(expectation.expectedTemplateId);
+    const nestedVariantId = stringValue(expectation.expectedVariantId);
+    if (nestedCapabilityId) tags.add(nestedCapabilityId);
+    if (nestedTemplateId) tags.add(`template:${nestedTemplateId}`);
+    if (nestedVariantId) tags.add(`variant:${nestedVariantId}`);
+  }
   if (stringArray(testCase.expectedSymbols).length > 1) tags.add('data:multi_symbol');
 
   return Array.from(tags);
@@ -65,6 +76,7 @@ export function normalizeCase(testCase: JsonRecord): QuantEvalCase {
     expectedSymbols,
     expectedAssetType: stringValue(testCase.expectedAssetType) || null,
     expectedTemplateId: stringValue(testCase.expectedTemplateId) || null,
+    expectedVariantId: stringValue(testCase.expectedVariantId) || null,
     expectedDatasets: stringArray(testCase.expectedDatasets),
     expectedRawFiles: stringArray(testCase.expectedRawFiles),
     expectedFinalFields: stringArray(testCase.expectedFinalFields),
@@ -159,6 +171,7 @@ export async function createQuantEvalCase(input: CreateQuantEvalCaseInput): Prom
   if (expectedSymbols.length > 1) record.expectedSymbols = expectedSymbols;
   if (input.expectedAssetType) record.expectedAssetType = input.expectedAssetType;
   if (input.expectedTemplateId) record.expectedTemplateId = input.expectedTemplateId;
+  if (input.expectedVariantId) record.expectedVariantId = input.expectedVariantId;
   const expectedDatasets = normalizeStringList(input.expectedDatasets);
   const expectedRawFiles = normalizeStringList(input.expectedRawFiles);
   const expectedFinalFields = normalizeStringList(input.expectedFinalFields);

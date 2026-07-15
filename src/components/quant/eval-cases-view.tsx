@@ -146,6 +146,7 @@ function CreateCaseSheet({
   const [type, setType] = useState(typeOptions[0] ?? 'generated_project');
   const [expectedSymbols, setExpectedSymbols] = useState('');
   const [expectedTemplateId, setExpectedTemplateId] = useState('');
+  const [expectedVariantId, setExpectedVariantId] = useState('');
   const [expectedAssetType, setExpectedAssetType] = useState('');
   const [expectedDatasets, setExpectedDatasets] = useState('');
   const [expectedRawFiles, setExpectedRawFiles] = useState('');
@@ -167,6 +168,7 @@ function CreateCaseSheet({
     setType(typeOptions[0] ?? 'generated_project');
     setExpectedSymbols('');
     setExpectedTemplateId('');
+    setExpectedVariantId('');
     setExpectedAssetType('');
     setExpectedDatasets('');
     setExpectedRawFiles('');
@@ -199,6 +201,7 @@ function CreateCaseSheet({
                 type,
                 expectedSymbols: splitList(expectedSymbols),
                 expectedTemplateId: expectedTemplateId.trim() || undefined,
+                expectedVariantId: expectedVariantId.trim() || undefined,
                 expectedAssetType: expectedAssetType.trim() || undefined,
                 expectedDatasets: splitList(expectedDatasets),
                 expectedRawFiles: splitList(expectedRawFiles),
@@ -261,9 +264,15 @@ function CreateCaseSheet({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="case-asset-type">资产类型</Label>
-              <Input id="case-asset-type" value={expectedAssetType} onChange={(event) => setExpectedAssetType(event.target.value)} placeholder="stock / index / etf，可选" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="case-variant">变体 ID</Label>
+                <Input id="case-variant" value={expectedVariantId} onChange={(event) => setExpectedVariantId(event.target.value)} placeholder="selection-ranking-matrix" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="case-asset-type">资产类型</Label>
+                <Input id="case-asset-type" value={expectedAssetType} onChange={(event) => setExpectedAssetType(event.target.value)} placeholder="stock / index / etf，可选" />
+              </div>
             </div>
 
             <div className="space-y-1.5">

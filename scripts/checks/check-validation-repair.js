@@ -102,7 +102,11 @@ assertCondition(instruction.includes('构建、预览与自动验证由 QuantPil
 assertCondition(instruction.includes('submit_result'), '修复提示词应要求提交候选结果。', failures);
 assertCondition(!instruction.includes('npm run build'), '修复提示词不得要求 MoAgent 运行 build。', failures);
 assertCondition(
-  JSON.stringify(writableGlobs) === JSON.stringify(['app/**', 'data_file/final/**']),
+  JSON.stringify(writableGlobs) === JSON.stringify([
+    'app/page.tsx',
+    'app/globals.css',
+    'data_file/final/**',
+  ]),
   `repair 写入范围应只覆盖失败项，实际为 ${JSON.stringify(writableGlobs)}。`,
   failures,
 );

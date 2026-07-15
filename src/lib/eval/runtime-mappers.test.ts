@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mapDbEvalRun,
   mapDbQueueItem,
   normalizeResult,
   normalizeCoverage,
   normalizeQueueStatus,
+  normalizeRun,
   normalizeSkillLockSnapshot,
 } from './runtime-mappers';
 
@@ -147,5 +149,89 @@ describe('evaluation runtime mappers', () => {
         requestId: 'parent-run',
       },
     });
+  });
+
+  it('retains E2E quality telemetry through file and DB-backed report mapping', () => {
+    const quality = {
+      passed: true,
+      problems: [],
+      thresholds: {
+        maxTurnsPerCase: 20,
+        maxCacheMissInputTokensPerCase: 120_000,
+        maxUnexpectedToolFailures: 0,
+      },
+      summary: {
+        caseCount: 1,
+        measuredCaseCount: 1,
+        missingMetricsCaseIds: [],
+        turns: { total: 6, average: 6, max: { id: 'case-e2e', value: 6 } },
+        cacheMissInputTokens: {
+          total: 24_000,
+          average: 24_000,
+          max: { id: 'case-e2e', value: 24_000 },
+        },
+        tools: { unexpectedFailureCount: 0, affectedCaseIds: [] },
+      },
+    };
+    const run = normalizeRun('/tmp/report-1.json', 1, {
+      passed: true,
+      total: 0,
+      passedCount: 0,
+      failedCount: 0,
+      metadata: { e2eQuality: quality },
+      e2eQuality: quality,
+      results: [],
+    }, []);
+    const restored = mapDbEvalRun({
+      id: run.id,
+      fileName: run.fileName,
+      filePath: run.filePath,
+      reportCreatedAt: new Date(run.createdAt),
+      mtimeMs: run.mtimeMs,
+      passed: run.passed,
+      total: run.total,
+      passedCount: run.passedCount,
+      failedCount: run.failedCount,
+      passRate: run.passRate,
+      averageScore: run.averageScore,
+      durationMs: run.durationMs,
+      metadata: run.metadata,
+      coverage: run.coverage,
+      results: run.results,
+    });
+
+    expect(run.e2eQuality).toMatchObject({
+      passed: true,
+      summary: { turns: { average: 6 } },
+    });
+    expect(restored.e2eQuality).toEqual(run.e2eQuality);
+  });
+
+  it('fails safely for legacy DB JSON null instead of dropping the entire run list', () => {
+    const restored = mapDbEvalRun({
+      id: 'report-legacy-null',
+      fileName: 'report-legacy-null.json',
+      filePath: 'tmp/report-legacy-null.json',
+      reportCreatedAt: new Date('2026-07-15T00:00:00.000Z'),
+      mtimeMs: 1,
+      passed: false,
+      total: 0,
+      passedCount: 0,
+      failedCount: 0,
+      passRate: 0,
+      averageScore: 0,
+      durationMs: 0,
+      metadata: null,
+      coverage: null,
+      results: null,
+    });
+
+    expect(restored.metadata).toMatchObject({
+      reportSchemaVersion: null,
+      runtime: { cli: 'benchmark', model: 'deterministic' },
+    });
+    expect(restored.e2eQuality).toBeNull();
+    expect(restored.coverage.byCapability).toEqual({});
+    expect(restored.results).toEqual([]);
   });
 });

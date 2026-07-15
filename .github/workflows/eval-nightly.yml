@@ -24,6 +24,10 @@ jobs:
       QUANTPILOT_EVAL_TRIGGER: nightly
       MOAGENT_MAX_TURNS: '32'
       MOAGENT_TIMEOUT_MS: '900000'
+      MOAGENT_BUILD_REVISION: ${{ github.sha }}
+      MOAGENT_E2E_MAX_TURNS_PER_CASE: '20'
+      MOAGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE: '120000'
+      MOAGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES: '0'
 
     steps:
       - name: Check evaluation secret

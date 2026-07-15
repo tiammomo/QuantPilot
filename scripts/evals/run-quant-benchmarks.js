@@ -5,15 +5,21 @@ require('tsconfig-paths/register');
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
 const dotenv = require('dotenv');
 const { PrismaClient } = require('@prisma/client');
+const { NextRequest } = require('next/server');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-benchmarks.js'), {
   interopDefault: true,
 });
 
 const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../../src/lib/utils/scaffold.ts');
 const { writeInitialRunPlan } = jiti('../../src/lib/quant/workspace.ts');
+const {
+  serializeQuantVisualizationTemplate,
+} = jiti('../../src/lib/quant/visualization-templates.ts');
+const {
+  __dashboardSpecTesting,
+} = jiti('../../src/lib/agent/tools/dashboard-spec.ts');
 const { buildClarificationContinuation } = jiti('../../src/lib/quant/intent.ts');
 const { prefetchQuantDataForRunPlan } = jiti('../../src/lib/quant/data-prefetch.ts');
 const {
@@ -23,6 +29,7 @@ const {
 const {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
+  readQuantValidationReport,
   validateQuantProject,
 } = jiti('../../src/lib/quant/validation.ts');
 const { buildQuantProjectSettings } = jiti('../../src/lib/quant/capabilities.ts');
@@ -38,9 +45,20 @@ const {
   runBenchmarkRepairLoop,
 } = jiti('../../src/lib/eval/benchmark-repair.ts');
 const {
+  DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
+  evaluateMoAgentE2eQuality,
   isE2eAgentExecutionAttested,
   summarizeE2eAgentExecution,
+  summarizeMoAgentE2eQuality,
 } = jiti('../../src/lib/eval/e2e-attestation.ts');
+const {
+  MOAGENT_BUILD_IDENTITY,
+  MOAGENT_FRAMEWORK_VERSION,
+} = jiti('../../src/lib/agent/framework-identity.ts');
+const {
+  attestEvalReport,
+  EVAL_REPORT_SCHEMA_VERSION,
+} = jiti('../../src/lib/eval/report-attestation.ts');
 
 // Keep CLI evaluation consistent with the web launcher while preserving
 // explicitly provided CI environment variables. Local overrides load first.
@@ -49,6 +67,7 @@ dotenv.config({ path: path.resolve('.env') });
 
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
+const E2E_SUITE_PATH = path.resolve('benchmarks/quantpilot/e2e-suite.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
 
@@ -60,6 +79,8 @@ function parseArgs(argv) {
   let evaluatorId = process.env.QUANTPILOT_EVAL_EVALUATOR || 'rule-strict';
   let concurrency = Number.parseInt(process.env.QUANTPILOT_EVAL_CONCURRENCY || '1', 10);
   let mode = process.env.QUANTPILOT_EVAL_MODE || 'contract';
+  let cli = 'moagent';
+  let model = 'deepseek-v4-flash';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -102,17 +123,21 @@ function parseArgs(argv) {
       continue;
     }
     if (arg === '--cli' && argv[index + 1]) {
+      cli = argv[index + 1];
       index += 1;
       continue;
     }
     if (arg.startsWith('--cli=')) {
+      cli = arg.slice('--cli='.length);
       continue;
     }
     if (arg === '--model' && argv[index + 1]) {
+      model = argv[index + 1];
       index += 1;
       continue;
     }
     if (arg.startsWith('--model=')) {
+      model = arg.slice('--model='.length);
       continue;
     }
     if (arg === '--reasoning-effort' && argv[index + 1]) {
@@ -158,13 +183,21 @@ function parseArgs(argv) {
   if (!['contract', 'e2e'].includes(mode)) {
     throw new Error(`不支持的 benchmark mode：${mode}。请使用 contract 或 e2e。`);
   }
+  if (cli !== 'moagent') {
+    throw new Error(`benchmark 只接受 --cli=moagent，收到：${cli || '(empty)'}`);
+  }
+  if (model !== 'deepseek-v4-flash') {
+    throw new Error(
+      `MoAgent 1.7 真实 E2E 固定使用 deepseek-v4-flash，收到：${model || '(empty)'}`,
+    );
+  }
 
   return {
     selected,
     limit: Number.isFinite(limit) && limit > 0 ? limit : null,
     keepProjects,
-    cli: 'moagent',
-    model: 'deepseek-v4-flash',
+    cli,
+    model,
     reasoningEffort: '',
     trigger,
     evaluatorId: evaluatorId || 'rule-strict',
@@ -216,18 +249,6 @@ async function readSkillLockSnapshot() {
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
-}
-
-function readGitCommit() {
-  try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: process.cwd(),
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
-  }
 }
 
 async function readEvents(projectPath) {
@@ -282,6 +303,7 @@ function caseCoverageTags(testCase) {
   tags.add(testCase.type || 'generated_project');
   if (testCase.expectedAssetType) tags.add(`asset:${testCase.expectedAssetType}`);
   if (testCase.expectedTemplateId) tags.add(`template:${testCase.expectedTemplateId}`);
+  if (testCase.expectedVariantId) tags.add(`variant:${testCase.expectedVariantId}`);
   if (testCase.expectClarification) tags.add('intent:clarification_required');
   if (testCase.type === 'clarification_continuation') tags.add('intent:clarification_continuation');
   if (testCase.imageAttachment) tags.add('input:image_attachment');
@@ -290,6 +312,12 @@ function caseCoverageTags(testCase) {
   if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
+  if (testCase.type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  for (const expectation of testCase.selectionExpectations || []) {
+    if (expectation.capabilityId) tags.add(expectation.capabilityId);
+    if (expectation.expectedTemplateId) tags.add(`template:${expectation.expectedTemplateId}`);
+    if (expectation.expectedVariantId) tags.add(`variant:${expectation.expectedVariantId}`);
+  }
   if (testCase.expectedFinalFields?.includes('backtest')) tags.add('analysis:backtest');
   if (testCase.expectedFinalFields?.includes('portfolio')) tags.add('analysis:portfolio');
   if (testCase.expectedFinalFields?.includes('selectionRanking')) tags.add('analysis:selection');
@@ -542,6 +570,20 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
     assertCondition(
       finalTemplateId === testCase.expectedTemplateId,
       `final visualization.template_id 应为 ${testCase.expectedTemplateId}，实际为 ${finalTemplateId}`,
+      failures
+    );
+  }
+
+  if (testCase.expectedVariantId) {
+    const finalVariantId = finalData.visualization?.variant_id || finalData.visualization?.variantId;
+    assertCondition(
+      runPlan.visualization?.variantId === testCase.expectedVariantId,
+      `run_plan.visualization.variantId 应为 ${testCase.expectedVariantId}，实际为 ${runPlan.visualization?.variantId}`,
+      failures
+    );
+    assertCondition(
+      finalVariantId === testCase.expectedVariantId,
+      `final visualization.variant_id 应为 ${testCase.expectedVariantId}，实际为 ${finalVariantId}`,
       failures
     );
   }
@@ -956,6 +998,79 @@ function runRuntimeRegistryCase(testCase) {
   };
 }
 
+function runRendererCapabilityContractCase(testCase) {
+  const startedAt = Date.now();
+  const projectId = `benchmark-${testCase.id}`;
+  const projectPath = path.join(PROJECTS_DIR, projectId);
+  const failures = [];
+  const actualMatrix = __dashboardSpecTesting.capabilityMatrix.map((capability) => ({
+    templateId: capability.templateId,
+    variantId: capability.variantId,
+    supported: capability.supported,
+  }));
+  const expectedMatrix = Array.isArray(testCase.variantExpectations)
+    ? testCase.variantExpectations
+    : [];
+
+  assertCondition(
+    expectedMatrix.length > 0,
+    'renderer capability contract 必须声明非空 variantExpectations。',
+    failures,
+  );
+  assertCondition(
+    JSON.stringify(actualMatrix) === JSON.stringify(expectedMatrix),
+    `DashboardSpec renderer capability matrix 漂移：expected=${JSON.stringify(expectedMatrix)} actual=${JSON.stringify(actualMatrix)}`,
+    failures,
+  );
+
+  const selections = [];
+  for (const expectation of testCase.selectionExpectations || []) {
+    const selected = serializeQuantVisualizationTemplate(expectation.capabilityId, {
+      instruction: expectation.question,
+      symbolCount: expectation.symbolCount,
+      dataSignals: expectation.dataSignals,
+    });
+    const projection = {
+      capabilityId: expectation.capabilityId,
+      templateId: selected.templateId,
+      variantId: selected.variantId,
+    };
+    selections.push(projection);
+    assertCondition(
+      selected.templateId === expectation.expectedTemplateId,
+      `${expectation.capabilityId} template 应为 ${expectation.expectedTemplateId}，实际为 ${selected.templateId}`,
+      failures,
+    );
+    assertCondition(
+      selected.variantId === expectation.expectedVariantId,
+      `${expectation.capabilityId} variant 应为 ${expectation.expectedVariantId}，实际为 ${selected.variantId}`,
+      failures,
+    );
+  }
+
+  return {
+    id: testCase.id,
+    name: testCase.name,
+    question: testCase.question,
+    projectId,
+    projectPath,
+    durationMs: Date.now() - startedAt,
+    passed: failures.length === 0,
+    failures,
+    symbols: [],
+    prefetch: { skipped: true, summary: 'Renderer capability contract 不创建生成项目。' },
+    artifacts: { capabilityMatrix: actualMatrix, selections },
+    validation: {
+      status: failures.length === 0 ? 'passed' : 'failed',
+      checks: [{
+        id: 'renderer_capability_contract',
+        status: failures.length === 0 ? 'passed' : 'failed',
+        summary: 'DashboardSpec 变体覆盖、支持状态与选择路由检查。',
+      }],
+    },
+  };
+}
+
 async function runRepairPlanCase(testCase) {
   const startedAt = Date.now();
   const projectId = `benchmark-${testCase.id}`;
@@ -985,10 +1100,10 @@ async function runRepairPlanCase(testCase) {
     assertCondition(repairPlan.steps.some((step) => step.checkId === checkId), `修复计划缺少 ${checkId}`, failures);
   }
   assertCondition(
-    instruction.includes('唯一可写范围：app/**') &&
+    instruction.includes('唯一可写范围：app/page.tsx、app/globals.css 和 app/api/market/[...path]/route.ts') &&
       !instruction.includes('唯一可写范围：app/**、data_file/final/**') &&
       !instruction.includes('唯一可写范围：app/**、evidence/**'),
-    '纯 UI/代理失败的修复提示词应把 Agent 写权限精确限制在 app/**。',
+    '纯 UI/代理失败的修复提示词应把 Agent 写权限精确限制在失败项对应的 app 文件。',
     failures,
   );
   assertCondition(
@@ -1329,7 +1444,338 @@ async function runVisualCheck({ projectId, testCase }) {
   }
 }
 
+let chatActRoute = null;
+
+function loadChatActRoute() {
+  chatActRoute ??= jiti('../../src/app/api/chat/[project_id]/act/route.ts');
+  return chatActRoute;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readGenerationPrefetch(projectPath) {
+  const generation = await readJson(
+    path.join(projectPath, '.quantpilot/generation-state.json'),
+  ).catch(() => null);
+  const step = Array.isArray(generation?.steps)
+    ? generation.steps.find((item) => item?.id === 'data_prefetch')
+    : null;
+  return {
+    skipped: step?.status === 'skipped',
+    summary: typeof step?.summary === 'string' ? step.summary : '',
+    rawFiles: Array.isArray(step?.metadata?.rawFiles) ? step.metadata.rawFiles : [],
+    finalDataPath: typeof step?.metadata?.finalDataPath === 'string'
+      ? step.metadata.finalDataPath
+      : null,
+  };
+}
+
+async function waitForAcceptedMission({ projectPath, projectId, requestId }) {
+  const timeoutMs = Number.parseInt(
+    process.env.QUANTPILOT_E2E_MISSION_TIMEOUT_MS || '1200000',
+    10,
+  );
+  const deadline = Date.now() + (Number.isSafeInteger(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : 1_200_000);
+  while (Date.now() < deadline) {
+    const mission = await prisma.agentMission.findUnique({
+      where: { requestId },
+      include: { acceptedReceipt: true },
+    });
+    if (mission && ['failed', 'cancelled'].includes(mission.status)) {
+      throw new Error(
+        `MoAgent Mission ${mission.id} ended as ${mission.status}: ` +
+        `${mission.errorCode || 'UNKNOWN'} ${mission.errorMessage || ''}`.trim(),
+      );
+    }
+    if (mission?.status === 'completed' && mission.acceptedReceipt) {
+      const generation = await readJson(
+        path.join(projectPath, '.quantpilot/generation-state.json'),
+      ).catch(() => null);
+      const request = await prisma.userRequest.findUnique({
+        where: { id: requestId },
+        select: { projectId: true, status: true },
+      });
+      if (
+        generation?.status === 'completed' &&
+        request?.projectId === projectId &&
+        request.status === 'completed'
+      ) {
+        return mission;
+      }
+    }
+    await delay(1_000);
+  }
+  throw new Error(`等待 MoAgent Mission acceptance 超时：${requestId}`);
+}
+
+function aggregateNumber(records, field) {
+  return records.reduce((sum, record) => sum + Number(record[field] || 0), 0);
+}
+
+function toolExecutionSummary(executions) {
+  const statusCount = (status) =>
+    executions.filter((execution) => execution.status === status).length;
+  const failed = statusCount('failed');
+  const uncertain = statusCount('uncertain');
+  return {
+    total: executions.length,
+    succeeded: statusCount('succeeded'),
+    failed,
+    uncertain,
+    unexpectedFailureCount: failed + uncertain,
+    workspaceWriteSucceeded: executions.filter((execution) =>
+      execution.status === 'succeeded' && execution.effect === 'workspace_write').length,
+    submitResultSucceeded: executions.filter((execution) =>
+      execution.status === 'succeeded' && execution.toolName === 'submit_result').length,
+  };
+}
+
+function candidateSource(receipt) {
+  const payload = receipt?.payload;
+  return payload && typeof payload === 'object' && !Array.isArray(payload) &&
+    typeof payload.source === 'string'
+    ? payload.source
+    : null;
+}
+
+async function collectLiveAgentExecution({ projectId, requestId, mission }) {
+  const [runs, candidateReceipt] = await Promise.all([
+    prisma.agentRun.findMany({
+      // Root and validation-repair requests are the only physical executions
+      // admitted to this Mission lineage. Do not use a process-clock lower bound
+      // against database timestamps and do not aggregate unrelated project runs.
+      where: {
+        projectId,
+        OR: [
+          { requestId },
+          { requestId: { startsWith: `${requestId}-validation-repair` } },
+        ],
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      include: {
+        toolExecutions: {
+          select: {
+            status: true,
+            errorCode: true,
+            effect: true,
+            toolName: true,
+          },
+        },
+      },
+    }),
+    prisma.agentEvidenceReceipt.findFirst({
+      where: {
+        missionId: mission.id,
+        candidateVersion: mission.candidateVersion,
+        receiptType: 'candidate',
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ]);
+  const unique = (field) => Array.from(new Set(runs.map((run) => run[field])));
+  const only = (field) => {
+    const values = unique(field);
+    return values.length === 1 ? values[0] : null;
+  };
+  const toolExecutions = runs.flatMap((run) => run.toolExecutions);
+  const errorCodes = {};
+  for (const execution of toolExecutions) {
+    if (!execution.errorCode) continue;
+    errorCodes[execution.errorCode] = (errorCodes[execution.errorCode] || 0) + 1;
+  }
+  const runEvidence = runs.map((run) => ({
+    id: run.id,
+    runInstanceId: run.runInstanceId,
+    requestId: run.requestId,
+    status: run.status,
+    provider: run.provider,
+    model: run.model,
+    frameworkVersion: run.frameworkVersion,
+    buildRevision: run.buildRevision,
+    startedAt: run.startedAt?.toISOString() ?? null,
+    completedAt: run.finishedAt?.toISOString() ?? null,
+    turns: run.turnCount,
+    usage: {
+      inputTokens: run.inputTokens,
+      outputTokens: run.outputTokens,
+      totalTokens: run.totalTokens,
+      cachedInputTokens: run.cachedInputTokens,
+      cacheMissInputTokens: run.cacheMissInputTokens,
+      reasoningTokens: run.reasoningTokens,
+    },
+    tools: toolExecutionSummary(run.toolExecutions),
+  }));
+  const startedAt = runs.map((run) => run.startedAt)
+    .filter(Boolean)
+    .sort((left, right) => left.getTime() - right.getTime())[0] ?? null;
+  const completedAt = runs.map((run) => run.finishedAt)
+    .filter(Boolean)
+    .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
+
+  const aggregateTools = toolExecutionSummary(toolExecutions);
+  const acceptedCandidateSource =
+    candidateReceipt?.sourceRunId === mission.acceptedReceipt?.sourceRunId &&
+    candidateReceipt?.sourceRequestId === mission.acceptedReceipt?.sourceRequestId
+      ? candidateSource(candidateReceipt)
+      : null;
+  return {
+    executed: runs.length > 0,
+    cli: 'moagent',
+    provider: only('provider'),
+    model: only('model'),
+    requestId,
+    runIds: runs.map((run) => run.id),
+    runs: runEvidence,
+    missionId: mission.id,
+    generationId: mission.generationId,
+    missionStatus: mission.status,
+    candidateVersion: mission.candidateVersion,
+    acceptedReceiptId: mission.acceptedReceiptId,
+    acceptedReceiptHash: mission.acceptedReceipt?.receiptHash ?? null,
+    acceptedReceiptType: mission.acceptedReceipt?.receiptType ?? null,
+    acceptedReceiptVerdict: mission.acceptedReceipt?.verdict ?? null,
+    acceptedSourceRunId: mission.acceptedReceipt?.sourceRunId ?? null,
+    acceptedSourceRequestId: mission.acceptedReceipt?.sourceRequestId ?? null,
+    acceptedCandidateSource,
+    frameworkVersion: only('frameworkVersion'),
+    buildRevision: only('buildRevision'),
+    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    startedAt: startedAt?.toISOString() ?? null,
+    completedAt: completedAt?.toISOString() ?? null,
+    turns: aggregateNumber(runs, 'turnCount'),
+    usage: {
+      inputTokens: aggregateNumber(runs, 'inputTokens'),
+      outputTokens: aggregateNumber(runs, 'outputTokens'),
+      totalTokens: aggregateNumber(runs, 'totalTokens'),
+      cachedInputTokens: aggregateNumber(runs, 'cachedInputTokens'),
+      cacheMissInputTokens: aggregateNumber(runs, 'cacheMissInputTokens'),
+      reasoningTokens: aggregateNumber(runs, 'reasoningTokens'),
+    },
+    tools: {
+      ...aggregateTools,
+      errorCodes,
+    },
+  };
+}
+
+async function runLiveProductE2eCase(testCase, options) {
+  const startedAt = Date.now();
+  const projectId = `benchmark-${testCase.id}`;
+  const projectPath = path.join(PROJECTS_DIR, projectId);
+  const requestId = `${projectId}-run`;
+  await ensureBenchmarkProject({ projectId, projectPath, testCase });
+
+  const { POST } = loadChatActRoute();
+  const response = await POST(new NextRequest(
+    `http://127.0.0.1/api/chat/${encodeURIComponent(projectId)}/act`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        instruction: testCase.question,
+        displayInstruction: testCase.question,
+        requestId,
+        selectedModel: options.model,
+        quantCapabilityId: testCase.capabilityId,
+        quantCapabilitySource: 'benchmark',
+        isInitialPrompt: true,
+      }),
+    },
+  ), { params: Promise.resolve({ project_id: projectId }) });
+  const actResult = await response.json();
+  if (!response.ok || actResult?.success !== true || !actResult?.missionId) {
+    throw new Error(
+      `正式 /act 链路启动失败（HTTP ${response.status}）：${JSON.stringify(actResult)}`,
+    );
+  }
+
+  const mission = await waitForAcceptedMission({ projectPath, projectId, requestId });
+  const [plan, prefetch, validation] = await Promise.all([
+    readQuantRunPlan(projectPath),
+    readGenerationPrefetch(projectPath),
+    readQuantValidationReport(projectPath),
+  ]);
+  if (!plan || !validation) {
+    throw new Error('Mission completed without its run plan or authoritative validation report.');
+  }
+  const agentExecution = await collectLiveAgentExecution({
+    projectId,
+    requestId,
+    mission,
+  });
+  const artifactInspection = await inspectArtifacts({ projectPath, testCase, prefetch });
+  const visualCheck = await runVisualCheck({ projectId, testCase });
+  const eventAudit = await auditProjectEvents({
+    projectPath,
+    testCase,
+    expectFinalArtifacts: true,
+  });
+  await previewManager.stop(projectId);
+
+  const failures = [
+    ...artifactInspection.failures,
+    ...(visualCheck?.failures || []),
+    ...eventAudit.failures,
+    ...(validation.passed
+      ? []
+      : validation.checks
+        .filter((check) => check.status === 'failed')
+        .map(formatValidationFailure)),
+  ];
+  return {
+    id: testCase.id,
+    name: testCase.name,
+    question: testCase.question,
+    projectId,
+    projectPath,
+    durationMs: Date.now() - startedAt,
+    passed: failures.length === 0,
+    failures,
+    symbols: plan.symbols,
+    prefetch,
+    artifacts: artifactInspection,
+    visualCheck,
+    eventAudit,
+    repairAttempts: Number(mission.candidateVersion || 1) - 1,
+    platformRepairCount: 0,
+    requestId,
+    agentExecuted: agentExecution.executed,
+    agentExecution,
+    missionAcceptance: {
+      missionId: mission.id,
+      generationId: mission.generationId,
+      status: mission.status,
+      candidateVersion: mission.candidateVersion,
+      acceptedReceiptId: mission.acceptedReceiptId,
+      acceptedReceiptHash: mission.acceptedReceipt.receiptHash,
+      acceptedReceiptType: mission.acceptedReceipt.receiptType,
+      acceptedReceiptVerdict: mission.acceptedReceipt.verdict,
+      acceptedSourceRunId: mission.acceptedReceipt.sourceRunId,
+      acceptedSourceRequestId: mission.acceptedReceipt.sourceRequestId,
+      acceptedCandidateSource: agentExecution.acceptedCandidateSource,
+    },
+    validation: {
+      status: validation.status,
+      checks: validation.checks.map((check) => ({
+        id: check.id,
+        status: check.status,
+        summary: check.summary,
+        details: check.details ?? null,
+        metadata: check.metadata ?? null,
+      })),
+    },
+    executionMode: 'e2e',
+  };
+}
+
 async function runCase(testCase, options) {
+  if (options.mode === 'e2e') {
+    return runLiveProductE2eCase(testCase, options);
+  }
   if (testCase.type === 'runtime_registry') {
     return runRuntimeRegistryCase(testCase);
   }
@@ -1341,6 +1787,9 @@ async function runCase(testCase, options) {
   }
   if (testCase.type === 'source_degradation_contract') {
     return runSourceDegradationCase(testCase);
+  }
+  if (testCase.type === 'renderer_capability_contract') {
+    return runRendererCapabilityContractCase(testCase);
   }
   if (testCase.expectClarification) {
     return runClarificationCase(testCase);
@@ -1663,10 +2112,9 @@ async function main() {
   if (args.selected.size > 0) {
     cases = cases.filter((testCase) => args.selected.has(testCase.id));
   } else if (args.mode === 'e2e') {
-    cases = cases.filter((testCase) =>
-      !['runtime_registry', 'repair_plan', 'clarification_continuation', 'source_degradation_contract'].includes(testCase.type) &&
-      !testCase.expectClarification
-    );
+    const suite = await readJson(E2E_SUITE_PATH);
+    const suiteIds = new Set(Array.isArray(suite.caseIds) ? suite.caseIds : []);
+    cases = cases.filter((testCase) => suiteIds.has(testCase.id));
   }
   if (args.limit !== null) {
     cases = cases.slice(0, args.limit);
@@ -1680,21 +2128,20 @@ async function main() {
   console.log(`[QuantBenchmark] mode=${args.mode} evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
   const results = await runCasesWithConcurrency(cases, args.concurrency, args);
 
-  if (!args.keepProjects) {
-    for (const result of results) {
-      await cleanupBenchmarkProject(result);
-    }
-  }
-
   const coverage = buildCoverageSummary(cases, results);
   const agentExecutionSummary = summarizeE2eAgentExecution(results);
+  const e2eQuality = args.mode === 'e2e'
+    ? evaluateMoAgentE2eQuality(results, DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS)
+    : null;
+  const benchmarkFinishedAt = new Date().toISOString();
+  const reportCreatedAt = new Date().toISOString();
   const report = {
-    schemaVersion: 2,
-    createdAt: new Date().toISOString(),
+    schemaVersion: EVAL_REPORT_SCHEMA_VERSION,
+    createdAt: reportCreatedAt,
     metadata: {
       trigger: args.trigger,
       startedAt: benchmarkStartedAt,
-      finishedAt: new Date().toISOString(),
+      finishedAt: benchmarkFinishedAt,
       command: process.argv.slice(2),
       evaluator: {
         id: args.evaluatorId,
@@ -1707,17 +2154,26 @@ async function main() {
         agentExecuted: args.mode === 'e2e' && agentExecutionSummary.agentExecuted,
         executedCaseCount: agentExecutionSummary.executedCaseCount,
         unattestedCaseIds: args.mode === 'e2e' ? agentExecutionSummary.unattestedCaseIds : [],
+        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
         reasoningEffort: null,
       },
       suite: {
         mode: args.mode,
         label: args.mode === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约',
+        executionClass: args.mode === 'e2e'
+          ? 'live_mission_e2e'
+          : 'deterministic_contract',
       },
       provenance: {
-        gitCommit: readGitCommit(),
+        gitCommit: MOAGENT_BUILD_IDENTITY.gitRevision,
+        gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
         casesSha256: sha256(JSON.stringify(cases)),
         promptsSha256: sha256(cases.map((testCase) => testCase.question || '').join('\n')),
       },
+      e2eQuality,
       selection: {
         selectedCases: Array.from(args.selected),
         limit: args.limit,
@@ -1725,24 +2181,75 @@ async function main() {
         caseCount: cases.length,
         concurrency: args.concurrency,
       },
+      retention: {
+        databaseEvidenceRetained: args.mode === 'e2e',
+        workspaceRetained: args.mode === 'e2e' || args.keepProjects,
+      },
       skillLockSnapshot: await readSkillLockSnapshot(),
     },
-    passed: results.every((result) => result.passed),
+    passed: results.every((result) => result.passed) && (e2eQuality?.passed ?? true),
     total: results.length,
     passedCount: results.filter((result) => result.passed).length,
     failedCount: results.filter((result) => !result.passed).length,
     coverage,
+    e2eQuality,
     results,
   };
 
+  const inProcessAttestation = attestEvalReport(report, {
+    mode: args.mode,
+    expectedCaseIds: cases.map((testCase) => testCase.id),
+    expectedCasesSha256: report.metadata.provenance.casesSha256,
+    expectedPromptsSha256: report.metadata.provenance.promptsSha256,
+    frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+    buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    qualityThresholds: DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
+    now: new Date(reportCreatedAt),
+  });
+  report.attestation = {
+    schemaVersion: 1,
+    verifiedAt: reportCreatedAt,
+    passed: inProcessAttestation.passed,
+    problems: inProcessAttestation.problems,
+  };
+  if (!inProcessAttestation.passed) report.passed = false;
+
   const reportPath = path.join(REPORTS_DIR, `report-${Date.now()}.json`);
   await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+
+  // E2E evidence remains queryable for the subsequent CI gate. A later run's
+  // deterministic project bootstrap deletes its own prior lineage. Contract
+  // fixtures do not carry durable AgentRun/Mission evidence and may be removed.
+  if (args.mode === 'contract' && !args.keepProjects) {
+    for (const result of results) {
+      await cleanupBenchmarkProject(result);
+    }
+  }
   console.log(`\n[QuantBenchmark] report: ${path.relative(process.cwd(), reportPath)}`);
   console.log(`[QuantBenchmark] ${args.mode} ${report.passed ? 'ALL PASSED' : 'FAILED'} (${report.passedCount}/${report.total})`);
   console.log(`[QuantBenchmark] capabilities: ${Object.keys(coverage.byCapability).join(', ')}`);
   console.log(`[QuantBenchmark] coverage tags: ${Object.keys(coverage.byTag).length}`);
-  if (!args.keepProjects) {
+  if (e2eQuality) {
+    const quality = summarizeMoAgentE2eQuality(results);
+    console.log(
+      `[QuantBenchmark] MoAgent quality turns(avg/max)=` +
+      `${quality.turns.average}/${quality.turns.max.value} ` +
+      `cacheMiss(avg/max)=${quality.cacheMissInputTokens.average}/` +
+      `${quality.cacheMissInputTokens.max.value} ` +
+      `unexpectedToolFailures=${quality.tools.unexpectedFailureCount}`,
+    );
+    for (const problem of e2eQuality.problems) {
+      console.log(`[QuantBenchmark] quality gate: ${problem}`);
+    }
+  }
+  if (args.mode === 'e2e') {
+    console.log('[QuantBenchmark] E2E AgentRun/Mission evidence retained for the external gate.');
+  } else if (!args.keepProjects) {
     console.log('[QuantBenchmark] 临时 benchmark 项目已清理。使用 --keep-projects 可保留项目目录。');
+  }
+  for (const problem of inProcessAttestation.problems) {
+    console.log(`[QuantBenchmark] evidence attestation: ${problem}`);
   }
 
   if (!report.passed) {

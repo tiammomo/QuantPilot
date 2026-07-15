@@ -59,6 +59,7 @@ export async function POST(request: Request) {
         expectedSymbols: Array.isArray(body.expectedSymbols) ? body.expectedSymbols.map(String) : undefined,
         expectedAssetType: typeof body.expectedAssetType === 'string' ? body.expectedAssetType : undefined,
         expectedTemplateId: typeof body.expectedTemplateId === 'string' ? body.expectedTemplateId : undefined,
+        expectedVariantId: typeof body.expectedVariantId === 'string' ? body.expectedVariantId : undefined,
         expectedDatasets: Array.isArray(body.expectedDatasets) ? body.expectedDatasets.map(String) : undefined,
         expectedRawFiles: Array.isArray(body.expectedRawFiles) ? body.expectedRawFiles.map(String) : undefined,
         expectedFinalFields: Array.isArray(body.expectedFinalFields) ? body.expectedFinalFields.map(String) : undefined,

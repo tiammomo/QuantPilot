@@ -82,10 +82,14 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
   const evaluator = isRecord(metadata.evaluator) ? metadata.evaluator : {};
   const suite = isRecord(metadata.suite) ? metadata.suite : {};
   const provenance = isRecord(metadata.provenance) ? metadata.provenance : {};
+  const retention = isRecord(metadata.retention) ? metadata.retention : {};
   const concurrency = normalizeEvalConcurrency(selection.concurrency ?? evaluator.concurrency);
 
   return {
     trigger: stringValue(metadata.trigger) || null,
+    reportSchemaVersion: Number.isSafeInteger(report.schemaVersion)
+      ? numberValue(report.schemaVersion)
+      : null,
     startedAt: stringValue(metadata.startedAt) || stringValue(report.createdAt) || null,
     finishedAt: stringValue(metadata.finishedAt) || stringValue(report.createdAt) || null,
     command: stringArray(metadata.command),
@@ -101,16 +105,27 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       agentExecuted: booleanValue(runtime.agentExecuted),
       executedCaseCount: numberValue(runtime.executedCaseCount),
       unattestedCaseIds: stringArray(runtime.unattestedCaseIds),
+      frameworkVersion: stringValue(runtime.frameworkVersion) || null,
+      buildRevision: stringValue(runtime.buildRevision) || null,
     },
     suite: {
       mode: stringValue(suite.mode) === 'e2e' ? 'e2e' : 'contract',
       label: stringValue(suite.label) || (stringValue(suite.mode) === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约'),
+      executionClass: stringValue(suite.executionClass) || undefined,
+    },
+    retention: {
+      databaseEvidenceRetained: booleanValue(retention.databaseEvidenceRetained),
+      workspaceRetained: booleanValue(retention.workspaceRetained),
     },
     provenance: {
       gitCommit: stringValue(provenance.gitCommit) || null,
+      gitRevision: stringValue(provenance.gitRevision) || null,
+      buildRevision: stringValue(provenance.buildRevision) || null,
+      frameworkVersion: stringValue(provenance.frameworkVersion) || null,
       casesSha256: stringValue(provenance.casesSha256) || null,
       promptsSha256: stringValue(provenance.promptsSha256) || null,
     },
+    e2eQuality: normalizeE2eQuality(metadata.e2eQuality),
     selection: {
       selectedCases: stringArray(selection.selectedCases),
       limit: typeof selection.limit === 'number' ? selection.limit : null,
@@ -209,6 +224,18 @@ export function mapDbEvalRun(record: {
   coverage: unknown;
   results: unknown;
 }): QuantEvalRun {
+  const coverage = normalizeCoverage(record.coverage);
+  const results = readRecordArray(record.results).map((result) =>
+    normalizeResult(result, new Map(), coverage.caseTags));
+  const metadataRecord = isRecord(record.metadata) ? record.metadata : {};
+  const metadata = normalizeMetadata(
+    {
+      metadata: metadataRecord,
+      schemaVersion: metadataRecord.reportSchemaVersion,
+      createdAt: record.reportCreatedAt.toISOString(),
+    },
+    results,
+  );
   return {
     id: record.id,
     fileName: record.fileName,
@@ -222,9 +249,10 @@ export function mapDbEvalRun(record: {
     passRate: record.passRate,
     averageScore: record.averageScore,
     durationMs: record.durationMs,
-    metadata: record.metadata as QuantEvalRun['metadata'],
-    coverage: record.coverage as QuantEvalRun['coverage'],
-    results: Array.isArray(record.results) ? record.results as QuantEvalResult[] : [],
+    metadata,
+    e2eQuality: metadata.e2eQuality ?? null,
+    coverage,
+    results,
   };
 }
 
@@ -402,6 +430,66 @@ export function normalizeEventAudit(result: JsonRecord): QuantEvalResult['eventA
   };
 }
 
+function normalizeAgentUsage(value: unknown) {
+  const usage = isRecord(value) ? value : {};
+  return {
+    inputTokens: numberValue(usage.inputTokens),
+    outputTokens: numberValue(usage.outputTokens),
+    totalTokens: numberValue(usage.totalTokens),
+    cachedInputTokens: numberValue(usage.cachedInputTokens),
+    cacheMissInputTokens: numberValue(usage.cacheMissInputTokens),
+    reasoningTokens: numberValue(usage.reasoningTokens),
+  };
+}
+
+function normalizeAgentTools(value: unknown) {
+  const tools = isRecord(value) ? value : {};
+  return {
+    total: numberValue(tools.total),
+    succeeded: numberValue(tools.succeeded),
+    failed: numberValue(tools.failed),
+    uncertain: numberValue(tools.uncertain),
+    unexpectedFailureCount: numberValue(tools.unexpectedFailureCount),
+    workspaceWriteSucceeded: numberValue(tools.workspaceWriteSucceeded),
+    submitResultSucceeded: numberValue(tools.submitResultSucceeded),
+  };
+}
+
+function normalizeAgentRun(value: JsonRecord) {
+  return {
+    id: stringValue(value.id),
+    runInstanceId: stringValue(value.runInstanceId),
+    requestId: stringValue(value.requestId) || null,
+    status: stringValue(value.status) || null,
+    provider: stringValue(value.provider) || null,
+    model: stringValue(value.model) || null,
+    frameworkVersion: stringValue(value.frameworkVersion) || null,
+    buildRevision: stringValue(value.buildRevision) || null,
+    startedAt: stringValue(value.startedAt) || null,
+    completedAt: stringValue(value.completedAt) || null,
+    turns: numberValue(value.turns),
+    usage: normalizeAgentUsage(value.usage),
+    tools: normalizeAgentTools(value.tools),
+  };
+}
+
+function normalizeMissionAcceptance(value: unknown): QuantEvalResult['missionAcceptance'] {
+  if (!isRecord(value)) return null;
+  return {
+    missionId: stringValue(value.missionId) || null,
+    generationId: stringValue(value.generationId) || null,
+    status: stringValue(value.status) || null,
+    candidateVersion: numberValue(value.candidateVersion),
+    acceptedReceiptId: stringValue(value.acceptedReceiptId) || null,
+    acceptedReceiptHash: stringValue(value.acceptedReceiptHash) || null,
+    acceptedReceiptType: stringValue(value.acceptedReceiptType) || null,
+    acceptedReceiptVerdict: stringValue(value.acceptedReceiptVerdict) || null,
+    acceptedSourceRunId: stringValue(value.acceptedSourceRunId) || null,
+    acceptedSourceRequestId: stringValue(value.acceptedSourceRequestId) || null,
+    acceptedCandidateSource: stringValue(value.acceptedCandidateSource) || null,
+  };
+}
+
 export function normalizeResult(
   raw: JsonRecord,
   casesById: Map<string, QuantEvalCase>,
@@ -409,8 +497,8 @@ export function normalizeResult(
 ): QuantEvalResult {
   const id = stringValue(raw.id, 'unknown');
   const testCase = casesById.get(id);
-  const capabilityId = testCase?.capabilityId ?? 'unknown';
-  const type = testCase?.type ?? 'generated_project';
+  const capabilityId = testCase?.capabilityId ?? stringValue(raw.capabilityId, 'unknown');
+  const type = testCase?.type ?? stringValue(raw.type, 'generated_project');
   const validation = isRecord(raw.validation) ? raw.validation : {};
   const checks = normalizeChecks(validation.checks);
   const agentExecution = isRecord(raw.agentExecution) ? raw.agentExecution : null;
@@ -433,18 +521,39 @@ export function normalizeResult(
     agentExecution: agentExecution
       ? {
           executed: booleanValue(agentExecution.executed),
+          cli: stringValue(agentExecution.cli) || null,
           provider: stringValue(agentExecution.provider) || null,
           model: stringValue(agentExecution.model) || null,
           requestId: stringValue(agentExecution.requestId) || null,
+          runIds: stringArray(agentExecution.runIds),
+          runs: readRecordArray(agentExecution.runs).map(normalizeAgentRun),
+          missionId: stringValue(agentExecution.missionId) || null,
+          generationId: stringValue(agentExecution.generationId) || null,
+          missionStatus: stringValue(agentExecution.missionStatus) || null,
+          candidateVersion: numberValue(agentExecution.candidateVersion),
+          acceptedReceiptId: stringValue(agentExecution.acceptedReceiptId) || null,
+          acceptedReceiptHash: stringValue(agentExecution.acceptedReceiptHash) || null,
+          acceptedReceiptType: stringValue(agentExecution.acceptedReceiptType) || null,
+          acceptedReceiptVerdict: stringValue(agentExecution.acceptedReceiptVerdict) || null,
+          acceptedSourceRunId: stringValue(agentExecution.acceptedSourceRunId) || null,
+          acceptedSourceRequestId: stringValue(agentExecution.acceptedSourceRequestId) || null,
+          acceptedCandidateSource: stringValue(agentExecution.acceptedCandidateSource) || null,
+          frameworkVersion: stringValue(agentExecution.frameworkVersion) || null,
+          buildRevision: stringValue(agentExecution.buildRevision) || null,
+          gitRevision: stringValue(agentExecution.gitRevision) || null,
           startedAt: stringValue(agentExecution.startedAt) || null,
           completedAt: stringValue(agentExecution.completedAt) || null,
+          turns: numberValue(agentExecution.turns),
+          usage: normalizeAgentUsage(agentExecution.usage),
+          tools: normalizeAgentTools(agentExecution.tools),
         }
       : null,
+    missionAcceptance: normalizeMissionAcceptance(raw.missionAcceptance),
     capabilityId,
     capabilityLabel: EVAL_CAPABILITY_LABELS[capabilityId] ?? capabilityId,
     type,
     typeLabel: EVAL_TYPE_LABELS[type] ?? type,
-    tags: caseTags[id] ?? testCase?.tags ?? [],
+    tags: caseTags[id] ?? testCase?.tags ?? stringArray(raw.tags),
     validationStatus: normalizeStatus(validation.status),
     validationChecks: checks,
     eventAudit: normalizeEventAudit(raw),
@@ -460,6 +569,52 @@ export function durationSum(results: QuantEvalResult[]): number {
 export function averageScore(results: QuantEvalResult[]): number {
   if (!results.length) return 0;
   return Math.round(results.reduce((total, result) => total + result.score, 0) / results.length);
+}
+
+function normalizeE2eQuality(value: unknown): QuantEvalRun['e2eQuality'] {
+  if (!isRecord(value)) return null;
+  const thresholds = isRecord(value.thresholds) ? value.thresholds : {};
+  const summary = isRecord(value.summary) ? value.summary : {};
+  const turns = isRecord(summary.turns) ? summary.turns : {};
+  const turnMax = isRecord(turns.max) ? turns.max : {};
+  const cacheMiss = isRecord(summary.cacheMissInputTokens)
+    ? summary.cacheMissInputTokens
+    : {};
+  const cacheMissMax = isRecord(cacheMiss.max) ? cacheMiss.max : {};
+  const tools = isRecord(summary.tools) ? summary.tools : {};
+  return {
+    passed: booleanValue(value.passed),
+    problems: stringArray(value.problems),
+    thresholds: {
+      maxTurnsPerCase: numberValue(thresholds.maxTurnsPerCase),
+      maxCacheMissInputTokensPerCase: numberValue(
+        thresholds.maxCacheMissInputTokensPerCase,
+      ),
+      maxUnexpectedToolFailures: numberValue(thresholds.maxUnexpectedToolFailures),
+    },
+    summary: {
+      caseCount: numberValue(summary.caseCount),
+      measuredCaseCount: numberValue(summary.measuredCaseCount),
+      missingMetricsCaseIds: stringArray(summary.missingMetricsCaseIds),
+      turns: {
+        total: numberValue(turns.total),
+        average: numberValue(turns.average),
+        max: { id: stringValue(turnMax.id) || null, value: numberValue(turnMax.value) },
+      },
+      cacheMissInputTokens: {
+        total: numberValue(cacheMiss.total),
+        average: numberValue(cacheMiss.average),
+        max: {
+          id: stringValue(cacheMissMax.id) || null,
+          value: numberValue(cacheMissMax.value),
+        },
+      },
+      tools: {
+        unexpectedFailureCount: numberValue(tools.unexpectedFailureCount),
+        affectedCaseIds: stringArray(tools.affectedCaseIds),
+      },
+    },
+  };
 }
 
 export function normalizeRun(filePath: string, statMtimeMs: number, report: JsonRecord, cases: QuantEvalCase[]): QuantEvalRun {
@@ -489,6 +644,7 @@ export function normalizeRun(filePath: string, statMtimeMs: number, report: Json
     averageScore: averageScore(results),
     durationMs: durationSum(results),
     metadata,
+    e2eQuality: normalizeE2eQuality(report.e2eQuality) ?? metadata.e2eQuality ?? null,
     coverage,
     results,
   };
