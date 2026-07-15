@@ -104,13 +104,13 @@ function componentMode(component) {
   return component.required ? 'required' : 'optional';
 }
 
-function hasBundledAgentRuntime() {
-  try {
-    return fs.readdirSync(path.join(ROOT, 'node_modules', '@anthropic-ai'))
-      .some((name) => name.startsWith('claude-agent-sdk-'));
-  } catch {
-    return false;
-  }
+function hasMoAgentRuntime() {
+  return [
+    'src/lib/agent/core/run-engine.ts',
+    'src/lib/agent/providers/deepseek.ts',
+    'src/lib/agent/tools/index.ts',
+    'src/lib/services/cli/moagent.ts',
+  ].every((file) => fs.existsSync(path.join(ROOT, file)));
 }
 
 async function checkDatabase() {
@@ -291,15 +291,15 @@ async function main() {
     deepSeekApiKey ? 'deepseek-v4-flash · 官方直连 · API Key 已配置' : 'DEEPSEEK_API_KEY 未配置。',
     [
       deepSeekApiKey ? null : '在 .env.local 中填写 DeepSeek 官方 API Key。',
-      '模型固定为 deepseek-v4-flash，Base URL 固定为 https://api.deepseek.com/anthropic。',
+      '模型固定为 deepseek-v4-flash，Base URL 固定为 https://api.deepseek.com。',
     ]
   );
 
-  const bundledAgentRuntime = hasBundledAgentRuntime();
+  const bundledAgentRuntime = hasMoAgentRuntime();
   addCheck(
     'Agent 执行引擎',
     bundledAgentRuntime ? 'ok' : 'fail',
-    bundledAgentRuntime ? '项目内置执行引擎已安装。' : '项目内置执行引擎缺失。',
+    bundledAgentRuntime ? 'MoAgent 自研执行内核已就绪。' : 'MoAgent 自研执行内核缺失。',
     [
       bundledAgentRuntime ? null : '运行 npm install 重新安装依赖。',
     ]

@@ -16,7 +16,7 @@
 | 数据库入口 | `src/lib/db/`、`prisma/` | Prisma 管理的主业务表 |
 | 市场数据服务 | `services/market-data/` | 行情、K 线、财务、公告、补数、基础组件和回测 API |
 | SQL 初始化 | `sqls/` | `quant` schema、TimescaleDB hypertable、股票池和基础组件表 |
-| Skills 源码 | `.claude/skills/` | Agent 的本地能力包、领域规则和生成约束 |
+| Skills 兼容源 | 仓库根目录 `.claude/skills/` | 当前 Agent 执行源；受 registry/lock、版本与 SHA-256 完整性校验，source 优先、tgz fallback。项目初始化另配置 workspace `.moagent/skills/` 参考镜像，但执行阶段不从镜像发现能力 |
 | 生成工作空间 | `data/projects/` | 每个 AI 生成项目的源码、数据、证据和验证报告 |
 | 本地基础设施 | `docker-compose.yml`、`deploy/observability/` | TimescaleDB、Redis、Loki、Grafana 和 Alloy |
 | 脚本 | `scripts/` | 启动、构建、检查、数据库迁移、评测和 skill 打包 |

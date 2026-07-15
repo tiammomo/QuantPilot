@@ -32,7 +32,7 @@ const {
   getModelDefinitionsForCli,
   normalizeModelId,
 } = jiti('../../src/lib/constants/cliModels.ts');
-const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/claude.ts');
+const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/moagent.ts');
 const {
   failBenchmarkGenerationRun,
   runBenchmarkRepairLoop,
@@ -163,7 +163,7 @@ function parseArgs(argv) {
     selected,
     limit: Number.isFinite(limit) && limit > 0 ? limit : null,
     keepProjects,
-    cli: 'claude',
+    cli: 'moagent',
     model: 'deepseek-v4-flash',
     reasoningEffort: '',
     trigger,
@@ -373,7 +373,7 @@ async function ensureBenchmarkProject({ projectId, projectPath, testCase }) {
       description: testCase.question,
       initialPrompt: testCase.question,
       repoPath: projectPath,
-      preferredCli: 'claude',
+      preferredCli: 'moagent',
       selectedModel,
       settings: JSON.stringify({
         quant: buildQuantProjectSettings(testCase.capabilityId),
@@ -927,11 +927,11 @@ function runRuntimeRegistryCase(testCase) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
-  const deepSeekModels = getModelDefinitionsForCli('claude');
+  const deepSeekModels = getModelDefinitionsForCli('moagent');
 
   assertCondition(deepSeekModels.length === 1, `平台应只暴露 1 个模型，实际 ${deepSeekModels.length} 个。`, failures);
   assertCondition(deepSeekModels[0]?.id === 'deepseek-v4-flash', `唯一模型应为 deepseek-v4-flash，实际 ${deepSeekModels[0]?.id}`, failures);
-  assertCondition(getDefaultModelForCli('claude') === 'deepseek-v4-flash', `默认模型应为 deepseek-v4-flash，实际 ${getDefaultModelForCli('claude')}`, failures);
+  assertCondition(getDefaultModelForCli('moagent') === 'deepseek-v4-flash', `默认模型应为 deepseek-v4-flash，实际 ${getDefaultModelForCli('moagent')}`, failures);
   assertCondition(normalizeModelId('codex', 'gpt-5.5') === 'deepseek-v4-flash', '任何旧供应商或模型输入都应收敛到 DeepSeek V4 Flash。', failures);
 
   return {
@@ -947,7 +947,7 @@ function runRuntimeRegistryCase(testCase) {
     prefetch: { skipped: true, summary: '运行时注册表用例不创建生成项目。' },
     artifacts: {
       deepSeekModels,
-      defaultModel: getDefaultModelForCli('claude'),
+      defaultModel: getDefaultModelForCli('moagent'),
     },
     validation: {
       status: failures.length === 0 ? 'passed' : 'failed',
@@ -1490,7 +1490,6 @@ async function runCase(testCase, options) {
           projectPath,
           instruction,
           'deepseek-v4-flash',
-          undefined,
           repairRequestId,
         );
       },
@@ -1628,7 +1627,7 @@ async function runBenchmarkCase(testCase, options) {
     result.passed = false;
     result.failures = Array.from(new Set([
       ...(result.failures || []),
-      '该 E2E case 未实际执行 DeepSeek Agent，不能作为真实生成通过证据。',
+      '该 E2E case 未实际执行 MoAgent，不能作为真实生成通过证据。',
     ]));
   }
   console.log(`[QuantBenchmark] ${testCase.id} ${result.passed ? 'PASS' : 'FAIL'}`);

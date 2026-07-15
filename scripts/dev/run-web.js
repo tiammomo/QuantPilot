@@ -125,31 +125,12 @@ async function ensureDatabaseSynced() {
     return;
   }
 
-  let prisma;
-  try {
-    prisma = new PrismaClient();
-  } catch (error) {
-    console.warn(
-      '⚠️  Failed to initialize Prisma Client, attempting to sync automatically:',
-      error instanceof Error ? error.message : error
-    );
-    await runPrismaDbPush();
-    return;
-  }
-
-  try {
-    await prisma.project.findFirst({ select: { id: true } });
-  } catch (error) {
-    console.warn(
-      '⚠️  Prisma schema check failed, attempting to sync automatically:',
-      error instanceof Error ? error.message : error
-    );
-    await runPrismaDbPush();
-  } finally {
-    if (prisma) {
-      await prisma.$disconnect().catch(() => {});
-    }
-  }
+  // A connectivity check against one long-lived table cannot detect newly added
+  // models or constraints. That allowed development to start with `projects`
+  // available while the MoAgent runtime tables were still absent. `db push` is
+  // idempotent and performs the full schema diff; importantly, it also fails
+  // closed when Prisma detects a potentially destructive change.
+  await runPrismaDbPush();
 }
 
 function delay(ms) {

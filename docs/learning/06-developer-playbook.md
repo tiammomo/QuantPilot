@@ -17,7 +17,7 @@
 | `prisma/` | PostgreSQL 主业务 schema |
 | `sqls/` | PostgreSQL / TimescaleDB 初始化 SQL |
 | `scripts/` | 开发、构建、检查、数据库、评测和 skills 脚本 |
-| `.claude/skills/` | QuantPilot 核心 skills |
+| `.claude/skills/` | 当前 Agent 的 source-first 编译输入，受 registry/lock、版本与 SHA-256 完整性校验；workspace `.moagent/skills/` 只是项目初始化参考镜像 |
 | `docs/` | 项目知识、教学和排障 |
 | `data/projects/` | 本地生成工作空间，默认不提交 |
 
@@ -33,7 +33,7 @@ QuantPilot 不是单纯的前端项目，也不是单纯的数据服务。改代
 | 平台业务 | 项目、消息、设置、评测、策略状态 | `src/lib/services/` 或 `src/lib/quant/` |
 | 市场数据 | 行情接口、补数、股票池分页、因子口径 | `services/market-data/` 和 `sqls/` |
 | 数据结构 | 新表、新字段、索引、初始化数据 | `prisma/schema.prisma` 或 `sqls/*.sql` |
-| 生成能力 | Agent 反复生成不好看的页面或用错数据 | `.claude/skills/` 和评测用例 |
+| 生成能力 | Agent 反复生成不好看的页面或用错数据 | 仓库 Skill 兼容源 `.claude/skills/`、MoAgent 编译器和评测用例 |
 | 运维基础 | 日志、健康检查、降级模式、端口 | `docker-compose.yml`、`deploy/`、`src/lib/ops/` |
 
 分层的意义是降低连带风险。比如股票池页面显示问题不应该直接改数据库表；DDE 字段缺失也不是靠前端写死一个 `0` 解决，而是要先明确数据源和入库口径。

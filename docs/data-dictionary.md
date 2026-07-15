@@ -18,9 +18,14 @@
 | --- | --- | --- |
 | `projects` | `Project` | 首页项目、workspace 路径、CLI 偏好和预览状态 |
 | `messages` | `Message` | 用户、助手、工具调用和错误消息 |
-| `sessions` | `Session` | DeepSeek Agent 会话状态 |
-| `tool_usages` | `ToolUsage` | 工具输入输出、耗时和错误 |
+| `sessions` | `Session` | 旧版 Agent session 兼容记录；MoAgent 当前运行不依赖 provider session |
+| `tool_usages` | `ToolUsage` | 旧版通用工具记录；包含 raw input/output，不得用于 MoAgent durable ledger |
 | `user_requests` | `UserRequest` | 用户请求队列和执行状态 |
+| `agent_runs` | `AgentRun` | MoAgent 物理执行、run/workspace 双重 fencing、usage、终态和 provenance hashes |
+| `agent_workspace_leases` | `AgentWorkspaceLease` | 每个 project/canonical workspace 的跨进程独占 lease、active run 和单调 fencing token |
+| `agent_events` | `AgentEvent` | 经过安全 projector 的低频生命周期事件；源 sequence 可有间隙 |
+| `agent_checkpoints` | `AgentCheckpoint` | 只用于 `replan_required` 的安全边界元数据，不保存 messages/prompt/reasoning |
+| `agent_tool_executions` | `AgentToolExecution` | framework operation ID、effect/idempotency、`prepared`/`commit_authorized`/`uncertain` 状态、run/workspace fencing token 与安全 receipt |
 | `env_vars` | `EnvVar` | 项目环境变量，写入 workspace `.env` |
 | `service_tokens` | `ServiceToken` | 外部服务 token；新写入使用 AES-256-GCM 加密，旧明文记录在读取时渐进迁移 |
 | `project_service_connections` | `ProjectServiceConnection` | GitHub/Vercel/Supabase 项目连接 |
@@ -39,6 +44,8 @@
 | `eval_schedules` | `EvalSchedule` | 定时评测配置 |
 
 Prisma 表只管理平台状态，不承载大体量 K 线和生成源码。工作空间原件仍在 `data/projects/`。
+
+MoAgent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；文件内容仍以工作空间为事实源。`agent_workspace_leases.workspace_key` 是 deployment namespace 与 canonical realpath 的哈希，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。
 
 ## 量化时序表
 

@@ -147,7 +147,7 @@ Alloy: http://localhost:12345
 DEEPSEEK_API_KEY="your-deepseek-api-key"
 ```
 
-平台固定使用 `deepseek-v4-flash` 和 `https://api.deepseek.com/anthropic`。不要设置自定义 Base URL、模型别名、备用模型或中转站变量；这些配置不会被读取。
+平台固定使用 `deepseek-v4-flash`，由 MoAgent 直连 `https://api.deepseek.com/chat/completions`。不要设置自定义 Base URL、模型别名、备用模型或中转站变量；这些配置不会被读取。
 
 然后重启并检查：
 
@@ -167,7 +167,7 @@ curl "http://127.0.0.1:8000/api/v1/quotes/realtime/600519"
 再检查生成项目中是否存在：
 
 ```text
-.claude/skills/
+.moagent/skills/
 .quantpilot/run_plan.json
 .quantpilot/generation-state.json
 .quantpilot/generation-queue.json
@@ -244,11 +244,21 @@ npm run package:skills
 .claude/skill-packages/<skill-id>.tgz
 ```
 
-如果需要临时安装 legacy alias：
+这里的 `.claude/**` 表示仓库根目录保留的 Skill 源兼容区，也是当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。MoAgent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.moagent/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
 
-```bash
-QUANTPILOT_INSTALL_LEGACY_SKILLS=1 npm run dev
-```
+## MoAgent 提示 workspace resource lock 被占用
+
+`<workspace>/.moagent-workspace.lock/owner.json` 是 fail-closed 的物理写锁。它包含 `instanceId`、`hostname`、`pid`、`purpose`，以及适用时的 `projectId`、`requestId`、`runId`、`operationId`；容器环境应设置 `MOAGENT_INSTANCE_ID` 为可定位的 pod/instance ID。
+
+不要根据 `acquiredAt` 超时自动删锁，也不要只看到本机 PID 不存在就删除。按下面顺序处理：
+
+1. 暂停该 project 的新 generation，并 drain 所有可能挂载同一 workspace 的应用实例。
+2. 读取 `owner.json`，在对应 instance/host 确认进程与 run 已停止；如果实例不可达，按崩溃现场处理。
+3. 在 PostgreSQL 查询该 project/run 的 `agent_runs`、`agent_workspace_leases` 和 `agent_tool_executions`，重点检查 `prepared`、`commit_authorized`、`uncertain` 的 workspace/external write。
+4. 用 operation receipt、`pre_state_hash`、`post_state_hash` 和目标文件当前 SHA-256 判断副作用是否发生。无法证明时保持阻断，不要重放。
+5. 只有确认没有存活 writer，且所有相关未决 operation 已通过受控人工流程完成调和后，才能移除孤儿锁目录并重新发起一个全新的 replan run。
+
+当前仓库还没有 reconciliation admin/worker，删除锁本身也不会清除数据库中的未决 ledger。因此这是一条人工应急路径，不是无人值守的生产恢复闭环；在该闭环和目标共享卷多主机验收完成前，不要让多个应用实例并发运行同一 project 的完整 generation pipeline。
 
 ## 策略补数看起来卡住
 

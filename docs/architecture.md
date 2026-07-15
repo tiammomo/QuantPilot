@@ -6,7 +6,9 @@ QuantPilot 的核心链路是：用户提出量化研究问题，主工作台调
 flowchart LR
   U[用户问题/图片] --> W[Next.js 工作台 :3000]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
-  W --> R[Agent Runtime]
+  W --> G[MoAgent Mission Graph]
+  G --> R[MoAgent Runtime]
+  G --> DB
   R --> S[QuantPilot Skills]
   W --> M[市场数据后端 :8000]
   W --> SC[服务目录 config/service-catalog.json]
@@ -17,6 +19,7 @@ flowchart LR
   R --> P[data/projects/project-*]
   M --> P
   P --> V[生成项目预览 :4100+]
+  G --> V
   P --> H[运行治理中心 /ops-platform]
   W --> T[策略平台 /strategy-platform]
   W --> C[量化业务知识中心 /business-knowledge]
@@ -45,23 +48,44 @@ flowchart LR
 4. 信息完整后生成 `.quantpilot/run_plan.json`。
 5. 平台根据 run plan 调用 `8000` 后端获取真实数据。
 6. 数据、来源和质量报告写入工作空间。
-7. Agent 使用可视化 skill 生成 Next.js 看板。
-8. 平台执行自动验证、产物契约检查和视觉检查。
-9. 失败时生成修复计划并触发自动修复。
-10. 工作空间健康、生成观测和评测平台提供运行后的治理入口。
+7. Agent 使用可视化 skill 生成 Next.js 候选看板，并以 `candidate_complete` 结束本次物理执行。
+8. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
+9. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
+10. 只有 accepted receipt 在数据库事务中关联到 Mission 后，请求才进入 `completed`；工作空间健康、生成观测和评测平台继续提供运行后的治理入口。
 
 ## 运行时
 
 | 内部执行器 | 模型 | 接口边界 | 用途 |
 | --- | --- | --- | --- |
-| `claude` | `deepseek-v4-flash` | DeepSeek 官方 API `https://api.deepseek.com/anthropic` | 分析、生成与评测 |
+| `moagent` | `deepseek-v4-flash` | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 分析、生成与评测 |
 
-`claude` 仅是 Agent SDK 的内部执行器标识，不代表 Anthropic 模型接入。平台不接受自定义 Base URL、备用模型或第三方中转配置。
+MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。平台不接受自定义 Base URL、备用模型或第三方中转配置。运行前由 Context Manager 控制输入预算；物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。数据库唯一 active Mission slot 保证同一项目不会被两个合规入口同时创建非终态 generation。
 
 模型和 CLI 的注册入口：
 
 - `src/lib/constants/cliModels.ts`
-- `src/lib/services/cli/claude.ts`
+- `src/lib/agent/`
+- `src/lib/services/cli/moagent.ts`
+
+完整设计、事件与工具边界见 [MoAgent 架构](moagent.md)。
+
+## Agent 与 Mission 完成边界
+
+`AgentRun` 表示一次有预算、有 lease 的物理模型循环，`AgentMission` 表示一次用户请求的产品交付合同。`submit_result` 只能证明 Agent 已提交当前工作空间候选，不能证明 build、数据契约、视觉质量或持久预览已经通过。因此 `AgentRun.candidate_complete` 后，UserRequest 仍保持处理中。
+
+MissionSpec 由平台按 run plan 编译并物化为 planning、data prefetch、workspace generation、validation、evidence verification 和 preview readiness 节点。当前 candidate version 的验证报告、冻结 subject manifest 和本地持久预览 HTTP 探针全部通过后，EvidenceVerifier 生成带 subject/receipt SHA-256 的 accepted receipt；Mission store 以 CAS version 事务同时写 receipt 引用和 `AgentMission.completed`。旧 candidate version、spec/request identity 不匹配或验证期间工作空间变化都会失败关闭，Agent 自述不会参与这个决策。
+
+数据库中的完成关系为：
+
+```text
+AgentRun.candidate_complete
+  -> AgentMission.candidate_complete
+  -> AgentMission.verifying
+  -> accepted AgentEvidenceReceipt
+  -> AgentMission.completed
+```
+
+Mission 表只保存有界结构和摘要哈希，不保存 prompt、hidden reasoning、HTML、截图、完整构建日志或原始工具输出。三张表及其索引/外键属于应用启动前的强制 schema readiness 合同：`agent_missions`、`agent_mission_nodes`、`agent_evidence_receipts`。
 
 ## 服务目录
 
@@ -109,7 +133,7 @@ QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续
 
 本地基础设施默认使用 Docker 中的 PostgreSQL + TimescaleDB + Redis + Loki/Grafana/Alloy：
 
-- PostgreSQL 承载 Prisma 管理的主业务表，包括工作空间、项目、评测、设置和运行记录。
+- PostgreSQL 承载 Prisma 管理的主业务表，包括工作空间、项目、评测、设置、物理 AgentRun、Mission Graph 节点和 evidence receipt。
 - TimescaleDB 承载 `quant.stock_bars`、`quant.stock_factors`、`quant.strategy_signals` 和 `quant.portfolio_snapshots` 等时序表。
 - Redis 承载短期缓存，优先用于板块资金、行情摘要和后续任务进度。
 - Loki/Grafana/Alloy 承载集中日志采集和运维排查；Loki 未启动时运行治理中心会降级读取本地文件日志。

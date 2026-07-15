@@ -13,7 +13,8 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
 - 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
-- Skills 能力层：管理 `.claude/skills`，沉淀量化规划、数据质量、可视化生成和自修复能力。
+- MoAgent 自研执行层：直接连接 DeepSeek，负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交。
+- Skills 能力层：通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 `.moagent/skills`，当前 Agent 执行仍从仓库兼容源按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力。
 - 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
 
 ## 快速启动
@@ -96,6 +97,7 @@ npm run dev
 | 不知道从哪篇开始 | [文档导读](docs/START_HERE.md) |
 | 想系统学习项目 | [教学路径](docs/learning/README.md) |
 | 想参与开发或判断代码放哪 | [项目结构与分层边界](docs/project-structure.md) / [模块边界](docs/module-boundaries.md) |
+| 想理解或扩展 Agent 框架 | [MoAgent 架构](docs/moagent.md) |
 | 想查接口、字段或数据源口径 | [API 总览](docs/api-reference.md) / [数据字典](docs/data-dictionary.md) / [行情数据源知识库](docs/market-data-source-knowledge.md) |
 | 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](docs/research-automation-guide.md) |
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |

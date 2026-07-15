@@ -103,7 +103,7 @@
     {
       "id": "agent-runtime",
       "name": "Agent 运行时",
-      "summary": "DeepSeek V4 Flash 官方直连、流式消息、预览、用户请求和技能注入。",
+      "summary": "MoAgent 自研运行内核、DeepSeek 官方直连、类型化工具、流式消息和技能编译。",
       "owner": "agent-platform",
       "paths": [
         "src/lib/services/agent-runtime.ts",
@@ -111,8 +111,8 @@
         "src/lib/services/stream.ts",
         "src/lib/services/preview.ts",
         "src/lib/services/user-requests.ts",
-        "src/lib/services/claude-skills.ts",
-        "src/lib/services/quant-image-mcp.ts",
+        "src/lib/agent/**",
+        "src/lib/services/moagent-prompts.ts",
         "src/lib/services/cli/**",
         "src/app/api/chat/**",
         "src/app/[project_id]/**",
@@ -125,8 +125,11 @@
       ],
       "publicSurface": [
         "@/lib/services/agent-runtime",
-        "@/lib/services/cli/claude",
-        "@/lib/services/claude-skills"
+        "@/lib/services/cli/moagent",
+        "@/lib/agent/core",
+        "@/lib/agent/providers/deepseek",
+        "@/lib/agent/tools",
+        "@/lib/agent/skills"
       ]
     },
     {
@@ -136,7 +139,6 @@
       "owner": "quant-platform",
       "paths": [
         "src/lib/quant/**",
-        "src/lib/services/quant-image-mcp.ts",
         "src/app/api/quant/**",
         "src/app/api/research/**",
         "src/app/strategy-platform/**",

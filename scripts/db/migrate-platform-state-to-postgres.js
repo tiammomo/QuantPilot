@@ -216,7 +216,7 @@ async function migrateEvalQueue() {
     if (!item?.id) continue;
     const data = {
       status: item.status || 'failed',
-      cli: 'claude',
+      cli: 'moagent',
       model: 'deepseek-v4-flash',
       reasoningEffort: '',
       selectedCases: Array.isArray(item.selectedCases) ? item.selectedCases : [],
@@ -280,7 +280,7 @@ async function migrateEvalSchedule() {
   const data = {
     enabled: Boolean(schedule.enabled),
     intervalHours: Number(schedule.intervalHours || 24),
-    cli: 'claude',
+    cli: 'moagent',
     model: 'deepseek-v4-flash',
     reasoningEffort: '',
     selectedCases: Array.isArray(schedule.selectedCases) ? schedule.selectedCases : [],

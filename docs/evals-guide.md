@@ -12,9 +12,9 @@ http://localhost:3000/eval-platform
 
 默认评测运行时：
 
-- 执行器：`DeepSeek Agent`
+- 执行器：`MoAgent`
 - 模型：`DeepSeek V4 Flash`
-- Reasoning：不展示、不传递
+- Reasoning：由服务端 `MOAGENT_REASONING` 控制；thinking 内容只在当前 tool-call 循环内回放，不展示、不持久化
 
 评测不提供其他运行时、模型对比或自定义 Base URL，确保生成链路和回归链路使用同一个官方模型边界。
 
@@ -25,7 +25,7 @@ http://localhost:3000/eval-platform
 | 仪表盘 | 总体通过率、失败用例、运行队列和最新报告 |
 | 测试用例 | 搜索固定用例，运行单用例或当前筛选范围 |
 | 评测集 | 按能力、输入类型和专项场景组织批量回归，支持分页 |
-| 评测器 | 配置运行器、模型、范围和推理强度，执行 dry-run |
+| 评测器 | 选择评测策略、数据集、范围和并发，执行 dry-run；运行器固定为 MoAgent，模型固定为 DeepSeek V4 Flash |
 | 运行队列 | 查看排队、运行中、已完成和可取消任务 |
 | 运行记录 | 浏览历史报告、模型表现和 Skill 版本影响 |
 | 失败修复 | 汇总失败用例、修复单和 warning 用例 |

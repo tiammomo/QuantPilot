@@ -5,7 +5,7 @@ const path = require('path');
 
 const ROOT = process.cwd();
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
-const OFFICIAL_BASE_URL = 'https://api.deepseek.com/anthropic';
+const OFFICIAL_BASE_URL = 'https://api.deepseek.com';
 
 function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -20,75 +20,99 @@ function pass(message) {
   console.log(`✅ ${message}`);
 }
 
-console.log('\n🔒 AI 接入边界检查：仅 DeepSeek V4 Flash 官方直连\n');
+console.log('\n🔒 MoAgent AI 接入边界检查：仅 DeepSeek V4 Flash 官方直连\n');
 
 const envExample = read('.env.example');
 if (!/^DEEPSEEK_API_KEY=/m.test(envExample)) {
   fail('.env.example 必须声明 DEEPSEEK_API_KEY');
 } else {
-  pass('唯一公开 API 凭据为 DEEPSEEK_API_KEY');
+  pass('唯一公开模型凭据为 DEEPSEEK_API_KEY');
 }
 
-const forbiddenEnvKeys = [
+for (const key of [
   'ANTHROPIC_BASE_URL',
   'OPENAI_API_KEY',
   'CODEX_OPENAI_API_KEY',
   'MINIMAX_API_KEY',
-  'CLAUDE_CODE_MODEL_',
-];
-for (const key of forbiddenEnvKeys) {
+]) {
   if (envExample.includes(key)) fail(`.env.example 不得暴露旧供应商或中转配置：${key}`);
 }
 
 const modelRegistry = read('src/lib/constants/models.ts');
 if (!modelRegistry.includes(`DEEPSEEK_MODEL_ID = '${DEEPSEEK_MODEL}'`)) {
   fail(`模型注册表必须锁定为 ${DEEPSEEK_MODEL}`);
-} else if (!modelRegistry.includes(OFFICIAL_BASE_URL)) {
+} else if (!modelRegistry.includes(`DEEPSEEK_OFFICIAL_BASE_URL = '${OFFICIAL_BASE_URL}'`)) {
   fail(`模型注册表必须锁定 DeepSeek 官方地址 ${OFFICIAL_BASE_URL}`);
 } else {
   pass(`模型与地址已锁定：${DEEPSEEK_MODEL} · ${OFFICIAL_BASE_URL}`);
 }
 
-const adapterDirectory = path.join(ROOT, 'src/lib/services/cli');
-const adapters = fs.readdirSync(adapterDirectory)
-  .filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'))
-  .sort();
-if (adapters.length !== 1 || adapters[0] !== 'claude.ts') {
-  fail(`运行时适配器目录只允许保留内部执行引擎 claude.ts，当前为：${adapters.join(', ') || '空'}`);
-} else {
-  pass('其他 CLI / 模型供应商适配器已移除');
+const requiredRuntimeFiles = [
+  'src/lib/agent/types.ts',
+  'src/lib/agent/core/run-engine.ts',
+  'src/lib/agent/providers/deepseek.ts',
+  'src/lib/agent/tools/index.ts',
+  'src/lib/agent/skills/compiler.ts',
+  'src/lib/services/cli/moagent.ts',
+];
+for (const file of requiredRuntimeFiles) {
+  if (!fs.existsSync(path.join(ROOT, file))) fail(`MoAgent 运行时缺少：${file}`);
 }
 
-const runtime = read('src/lib/services/cli/claude.ts');
-const forbiddenRuntimeInputs = [
+const removedRuntimeFiles = [
+  'src/lib/services/cli/claude.ts',
+  'src/lib/services/quant-image-mcp.ts',
+];
+for (const file of removedRuntimeFiles) {
+  if (fs.existsSync(path.join(ROOT, file))) fail(`旧 Agent 运行时仍然存在：${file}`);
+}
+
+const packageJson = read('package.json');
+const nextConfig = read('next.config.js');
+const sdkPackageName = ['@anthropic-ai', 'claude-agent-sdk'].join('/');
+if (packageJson.includes(sdkPackageName) || nextConfig.includes(sdkPackageName)) {
+  fail('依赖或 Next.js 配置中仍存在外部 Agent SDK');
+} else {
+  pass('外部 Agent SDK 已从依赖和构建配置移除');
+}
+
+const provider = read('src/lib/agent/providers/deepseek.ts');
+if (!provider.includes('/chat/completions') || !provider.includes('globalThis.fetch')) {
+  fail('DeepSeek Provider 必须由 MoAgent 直接调用 /chat/completions');
+} else if (provider.includes('/anthropic')) {
+  fail('DeepSeek Provider 不得继续使用 Anthropic 兼容端点');
+} else {
+  pass('MoAgent 通过 OpenAI-compatible SSE 直连 DeepSeek');
+}
+
+const runtime = read('src/lib/services/cli/moagent.ts');
+for (const input of [
   'process.env.ANTHROPIC_BASE_URL',
   'process.env.OPENAI_API_KEY',
   'process.env.CODEX_OPENAI_API_KEY',
   'process.env.MINIMAX_API_KEY',
-];
-for (const input of forbiddenRuntimeInputs) {
-  if (runtime.includes(input)) fail(`运行时不得读取旧供应商或中转配置：${input}`);
+  'process.env.DEEPSEEK_BASE_URL',
+]) {
+  if (runtime.includes(input)) fail(`MoAgent 不得读取旧供应商或自定义中转配置：${input}`);
 }
 if (!runtime.includes('process.env.DEEPSEEK_API_KEY')) {
-  fail('运行时必须只读取 DEEPSEEK_API_KEY');
-} else if (!runtime.includes('const runtimeEnv: Record<string, string | undefined> = {}')) {
-  fail('运行时必须从空白白名单构造执行环境，禁止继承宿主供应商凭据');
-} else if (!runtime.includes('CLAUDE_CODE_SUBAGENT_MODEL: runtimeModel')) {
-  fail('子 Agent 模型也必须锁定为 DeepSeek V4 Flash');
+  fail('MoAgent 必须只读取 DEEPSEEK_API_KEY');
+} else if (!runtime.includes('baseUrl: DEEPSEEK_OFFICIAL_BASE_URL')) {
+  fail('MoAgent 必须使用锁定的 DeepSeek 官方 Base URL');
 } else {
-  pass('主 Agent、子 Agent 与凭据入口均已锁定到 DeepSeek');
+  pass('MoAgent 凭据和 Provider 地址边界正确');
 }
 
-const removedAdapters = ['codex.ts', 'codex-config.ts', 'cursor.ts', 'qwen.ts', 'glm.ts'];
-const removedAssets = ['claude.png', 'cursor.png', 'gemini.png', 'glm.svg', 'oai.png', 'qwen.png'];
-for (const name of removedAdapters) {
-  if (fs.existsSync(path.join(adapterDirectory, name))) fail(`旧适配器仍然存在：${name}`);
-}
-for (const name of removedAssets) {
-  if (fs.existsSync(path.join(ROOT, 'public', name))) fail(`旧供应商品牌资源仍然存在：public/${name}`);
+const route = read('src/app/api/chat/[project_id]/act/route.ts');
+if (!route.includes('import("@/lib/services/cli/moagent")')) {
+  fail('聊天执行链路尚未切换至 MoAgent');
+} else if (route.includes('activeClaudeSessionId')) {
+  fail('聊天执行链路仍依赖供应商 session id');
+} else {
+  pass('QuantPilot 主执行链路已切换至 MoAgent');
 }
 
 if (!process.exitCode) {
-  pass('DeepSeek 单供应商边界完整');
+  pass('MoAgent 单供应商边界完整');
   console.log('');
 }

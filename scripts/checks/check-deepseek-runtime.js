@@ -21,24 +21,24 @@ function readEnvValue(key) {
   return '';
 }
 
-function bundledRuntimeExists() {
-  const scopeDir = path.join(process.cwd(), 'node_modules', '@anthropic-ai');
-  try {
-    return fs.readdirSync(scopeDir).some((name) => name.startsWith('claude-agent-sdk-'));
-  } catch {
-    return false;
-  }
+function moAgentRuntimeExists() {
+  return [
+    'src/lib/agent/core/run-engine.ts',
+    'src/lib/agent/providers/deepseek.ts',
+    'src/lib/agent/tools/index.ts',
+    'src/lib/services/cli/moagent.ts',
+  ].every((file) => fs.existsSync(path.join(process.cwd(), file)));
 }
 
-console.log('\n🔍 DeepSeek V4 Flash 官方直连检查\n');
+console.log('\n🔍 MoAgent · DeepSeek V4 Flash 官方直连检查\n');
 console.log(`模型：deepseek-v4-flash`);
-console.log(`官方接口：https://api.deepseek.com/anthropic`);
+console.log(`官方接口：https://api.deepseek.com/chat/completions`);
 
-if (!bundledRuntimeExists()) {
-  console.error('❌ 本地 Agent 执行引擎缺失，请运行 npm install。');
+if (!moAgentRuntimeExists()) {
+  console.error('❌ MoAgent 自研执行内核不完整。');
   process.exit(1);
 }
-console.log('✅ 本地 Agent 执行引擎已安装');
+console.log('✅ MoAgent 核心、Provider、Tools 与产品接入层已就绪');
 
 if (!readEnvValue('DEEPSEEK_API_KEY')) {
   console.error('❌ DEEPSEEK_API_KEY 未配置，请写入 .env.local。');

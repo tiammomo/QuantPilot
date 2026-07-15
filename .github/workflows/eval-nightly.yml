@@ -22,8 +22,8 @@ jobs:
       PROJECTS_DIR: ./tmp/e2e-projects
       QUANTPILOT_EVAL_MODE: e2e
       QUANTPILOT_EVAL_TRIGGER: nightly
-      DEEPSEEK_AGENT_MAX_TURNS: '32'
-      DEEPSEEK_AGENT_EXECUTION_TIMEOUT_MS: '900000'
+      MOAGENT_MAX_TURNS: '32'
+      MOAGENT_TIMEOUT_MS: '900000'
 
     steps:
       - name: Check evaluation secret

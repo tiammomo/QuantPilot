@@ -18,7 +18,7 @@ QuantPilot 可以理解成四条主线叠在一起：
 | --- | --- | --- |
 | 产品主线 | 用户在哪里提问、看项目、管理平台能力 | `src/app/page.tsx`、`src/app/*/*Client.tsx` |
 | 数据主线 | 行情、K 线、因子、股票池和补数如何进入本地库 | `services/market-data/`、`sqls/` |
-| 生成主线 | 用户问题如何变成工作空间、页面和证据文件 | `.claude/skills/`、`src/lib/quant/validation.ts` |
+| 生成主线 | 用户问题如何变成工作空间、页面和证据文件 | `src/lib/agent/`、仓库 Skill 兼容源 `.claude/skills/`、`src/lib/quant/validation.ts` |
 | 质量主线 | 如何判断页面真的可用，失败后如何修复 | `docs/evals-guide.md`、`src/lib/eval/index.ts`、`src/lib/ops/` |
 
 学习时不要一开始就陷进某个组件。先判断当前任务属于哪条主线，再顺着链路阅读。很多问题看起来是页面问题，真正原因可能是数据缺字段；也有些看起来像数据问题，最后发现是 skill 把多标的任务生成成了单股模板。
@@ -73,7 +73,7 @@ QuantPilot 可以理解成四条主线叠在一起：
 | 项目聊天怎么运行 Agent | `src/app/[project_id]/chat/` | `src/lib/services/cli/`、`src/lib/quant/workspace.ts` |
 | 策略平台怎么取数据 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | `src/lib/quant/strategies.ts`、`services/market-data/` |
 | 市场数据怎么入库 | `services/market-data/src/quantpilot_market_data/api.py` | `database.py`、`providers/`、`sqls/` |
-| Skills 怎么安装到工作空间 | `src/lib/utils/scaffold.ts` | `.claude/skills.registry.json`、`scripts/skills/` |
+| Skills 怎么配置到工作空间 | `src/lib/agent/skills/compiler.ts`、`src/lib/services/project.ts` | 仓库 registry/lock 与 SHA-256 完整性校验、workspace `.moagent/skills/`；Agent 执行阶段只读编译 |
 | 验证怎么判断失败 | `src/lib/quant/validation.ts` | `artifact-contracts.ts`、`visual-validation.ts` |
 | 运行治理中心怎么聚合健康 | `src/app/ops-platform/` | `src/lib/ops/`、`src/lib/quant/workspace-health.ts` |
 

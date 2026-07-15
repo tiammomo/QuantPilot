@@ -51,7 +51,7 @@ async function inferProject(projectDirName) {
     repoPath,
     initialPrompt: generationState?.originalInstruction || '',
     templateType: 'nextjs',
-    preferredCli: manifest?.runtime?.cli || generationState?.cliPreference || 'claude',
+    preferredCli: manifest?.runtime?.cli || generationState?.cliPreference || 'moagent',
     selectedModel: manifest?.runtime?.model || generationState?.selectedModel || null,
     settings: JSON.stringify({
       quant: {
