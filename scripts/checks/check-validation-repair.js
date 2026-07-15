@@ -10,6 +10,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-vali
 const {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
+  quantValidationRepairWritableGlobs,
 } = jiti('../../src/lib/quant/validation.ts');
 
 function assertCondition(condition, message, failures) {
@@ -55,6 +56,7 @@ const plan = buildQuantValidationRepairPlan(report);
 const instruction = buildQuantValidationRepairInstruction(report, {
   originalInstruction: '分析贵州茅台最近财务和 K 线，生成可视化看板。',
 });
+const writableGlobs = quantValidationRepairWritableGlobs(report);
 
 assertCondition(plan.status === 'needed', 'repair plan 状态应为 needed。', failures);
 assertCondition(plan.repairPlanPath === '.quantpilot/validation-repair-plan.json', 'repair plan 路径不正确。', failures);
@@ -92,9 +94,18 @@ assertCondition(
 );
 assertCondition(instruction.includes('移除外部 CDN'), '修复提示词应包含外部 CDN 禁用规则。', failures);
 assertCondition(instruction.includes('金融图表'), '修复提示词应包含金融图表修复要求。', failures);
-assertCondition(instruction.includes('.quantpilot/visual-validation.json'), '修复提示词应要求读取视觉验收报告。', failures);
 assertCondition(instruction.includes('真实数据形态检查'), '修复提示词应覆盖真实数据形态失败。', failures);
-assertCondition(instruction.includes('npm run build'), '修复提示词应要求修复后运行 build。', failures);
+assertCondition(instruction.includes('失败 ID：artifact_policy、chart_presence、final_data_file'), '修复提示词应固定本轮失败 ID。', failures);
+assertCondition(instruction.includes('定向读取'), '修复提示词应要求按失败指针定向读取。', failures);
+assertCondition(instruction.includes('整个 `.quantpilot/**`'), '修复提示词应保持平台目录只读。', failures);
+assertCondition(instruction.includes('构建、预览与自动验证由 QuantPilot 平台统一执行'), '修复提示词应把 build/preview/validation 交给平台。', failures);
+assertCondition(instruction.includes('submit_result'), '修复提示词应要求提交候选结果。', failures);
+assertCondition(!instruction.includes('npm run build'), '修复提示词不得要求 MoAgent 运行 build。', failures);
+assertCondition(
+  JSON.stringify(writableGlobs) === JSON.stringify(['app/**', 'data_file/final/**']),
+  `repair 写入范围应只覆盖失败项，实际为 ${JSON.stringify(writableGlobs)}。`,
+  failures,
+);
 
 if (failures.length > 0) {
   console.error('[validation-repair] failed');

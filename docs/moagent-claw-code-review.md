@@ -46,11 +46,18 @@ Claw Code 的 [README（固定提交）](https://github.com/ultraworkers/claw-co
 2. **Independent EvidenceVerifier**：当前 run 的固定验证集合、完整 subject/evidence manifest、本机持久预览 HTTP 与验证期间文件稳定性全部通过后，才在同一事务写 accepted receipt、Mission 完成和 UserRequest 完成。验收面会完整哈希现存源码目录、final/evidence、构建配置与锁文件，并对报告和 manifest 双读防漂移。
 3. **Generation slot 与验证认领**：PostgreSQL 唯一 active slot 阻止同一项目在多个 Web worker 中并发创建非终态 Mission；candidate 还必须通过 CAS 独占认领后才能开始 validation/evidence，终态释放 slot。完整的跨进程阶段 lease/fencing 仍是后续增强项。
 
+### MoAgent 1.6：System Prompt × Skills 收口已落地
+
+1. **四层提示合同**：稳定 Kernel、动态 Task Packet、按阶段投影的 Skill Capsules、最后注入且明确标为 untrusted data 的 initial dashboard contract。跨层重复的权限、完成语义和工具清单已经移除。
+2. **原子 runtime capsule**：不再按字符均分并截断完整 `SKILL.md`。编译器按 phase、附件、标的解析状态、template/variant 和实际 typed-tool 面选择能力；required capsule 超预算直接失败。
+3. **精确 reference 注入**：场景模板与视觉判读按 Markdown section 选择并做 hash provenance，模型不再自行查找相对路径。生产默认预算从 16000/6000 字符收敛到 6000/4000 字符。
+4. **语义阶段与自适应推理**：空/stale 数据制品不会关闭取数工具；图片进入附件证据阶段；UI 生成默认 medium reasoning，数据与 repair 使用 high。
+
 没有照搬的机制包括：通用 ToolSearch（当前预取 profile 只有约 6～7 个工具，检索本身反而有成本）、无界 subagent、并行 writer、completion replay、thinking/raw tool 数据持久化，以及本地 JSON/Markdown 权威状态。
 
 ## 审计结论
 
-早期固定审计从 Claw Code 吸收了请求边界、流建立前失败恢复和事件身份；扩展复核又把信息增益、缓存前缀、语义编辑、任务隔离与独立验收纳入比较。当前已实现 Observation Ledger、Prompt Prefix Ledger、阶段化工具面、Mission Graph、EvidenceVerifier 和 generation active slot；完整阶段 fencing、ContextCapsule 与 Semantic Edit 仍明确留在路线图，不能把审计建议写成现有能力。
+早期固定审计从 Claw Code 吸收了请求边界、流建立前失败恢复和事件身份；扩展复核又把信息增益、缓存前缀、语义编辑、任务隔离与独立验收纳入比较。当前已实现 Observation Ledger、Prompt Prefix Ledger、阶段化工具面、原子 Skill Capsules、Mission Graph、EvidenceVerifier 和 generation active slot；完整阶段 fencing、跨轮 Trusted ContextCapsule 与 Semantic Edit 仍明确留在路线图，不能把审计建议写成现有能力。
 
 | 主题 | 决策 | MoAgent 状态 |
 | --- | --- | --- |
@@ -166,7 +173,7 @@ PostgreSQL active slot 已阻止同项目的并发非终态 Mission，并以 gen
 ### P1：可信扩展面
 
 1. **Trusted ContextCapsule + EvidenceIndex**：从任务合同、工具 receipt、artifact hash 和验证结果生成有上限、可重复合并的目标/决策/产物/失败/剩余工作索引；不让模型总结不可信原始工具输出，也不把 capsule 当数据库权威状态。
-2. **Lazy Skill sections 与 node-scoped schema**：system 只保留 capability manifest，Mission node 按 section/hash/budget 加载正文；工具 schema 由 node 直接裁剪，而不是每轮把完整 registry 交给模型。
+2. **Node-scoped schema 继续收口（Skill 侧已实现）**：system 已只保留 Skill manifest，运行时按 phase/signal/hash/budget 注入原子 capsule 与选定 reference；剩余工作是让 Mission node 直接驱动更细粒度的工具 schema，而不是只依赖当前运行阶段切换。
 3. **Semantic Edit**：为 TypeScript/TSX/CSS 提供受路径策略和写栅栏保护的 AST/LSP 定位、编辑与诊断，减少整文件读取和脆弱文本替换。它必须复用现有 operation ledger，不能绕过 typed writer。
 4. **ModelProfile + BudgetReservation**：先只定义 DeepSeek profile，记录 context/output、reasoning replay、tool protocol、cache usage 与 estimator calibration；每次请求前预留最坏 input/cache-miss 预算，响应后再按实报调账。
 5. **Trusted typed middleware**：只允许经过注册的进程内 middleware 读取结构化上下文，并执行 deny、redact、annotate 或收紧预算；不能拼接 Shell、任意改写工具参数或扩大权限。

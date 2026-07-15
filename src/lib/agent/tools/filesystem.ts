@@ -27,6 +27,7 @@ const IGNORED_SEARCH_DIRECTORIES = new Set([
 export interface MoAgentFileToolOptions {
   workspaceRoot: string;
   allowedWriteGlobs?: readonly string[];
+  includeDefaultWriteGlobs?: boolean;
   /** JSON paths that must be inspected through one batched query_json call, never raw readers. */
   structuredJsonReadGlobs?: readonly string[];
   timeoutMs?: number;
@@ -52,6 +53,7 @@ function createRuntime(options: MoAgentFileToolOptions): FileToolRuntime {
     policy: () => policyPromise ??= MoAgentWorkspacePolicy.create({
       workspaceRoot: options.workspaceRoot,
       allowedWriteGlobs: options.allowedWriteGlobs,
+      includeDefaultWriteGlobs: options.includeDefaultWriteGlobs,
     }),
     timeoutMs: options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
     maxOutputChars: options.maxOutputChars ?? DEFAULT_TOOL_OUTPUT_CHARS,

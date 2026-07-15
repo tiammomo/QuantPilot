@@ -64,6 +64,8 @@ export const DEFAULT_ALLOWED_WRITE_GLOBS = [
 export interface MoAgentWorkspacePolicyOptions {
   workspaceRoot: string;
   allowedWriteGlobs?: readonly string[];
+  /** Defaults true. Repair scopes can remove the normal source-write surface. */
+  includeDefaultWriteGlobs?: boolean;
 }
 
 export interface ResolvedWorkspacePath {
@@ -239,10 +241,16 @@ async function assertNoSymlinkComponents(workspaceRoot: string, absolutePath: st
 export class MoAgentWorkspacePolicy {
   readonly workspaceRoot: string;
   readonly allowedWriteGlobs: readonly string[];
+  readonly includeDefaultWriteGlobs: boolean;
 
-  private constructor(workspaceRoot: string, allowedWriteGlobs: readonly string[]) {
+  private constructor(
+    workspaceRoot: string,
+    allowedWriteGlobs: readonly string[],
+    includeDefaultWriteGlobs: boolean,
+  ) {
     this.workspaceRoot = workspaceRoot;
     this.allowedWriteGlobs = allowedWriteGlobs;
+    this.includeDefaultWriteGlobs = includeDefaultWriteGlobs;
   }
 
   static async create(options: MoAgentWorkspacePolicyOptions): Promise<MoAgentWorkspacePolicy> {
@@ -258,7 +266,11 @@ export class MoAgentWorkspacePolicy {
     if (!stat.isDirectory()) {
       throw new MoAgentToolError('INVALID_WORKSPACE', `MoAgent workspace is not a directory: ${absoluteRoot}.`);
     }
-    return new MoAgentWorkspacePolicy(canonicalRoot, options.allowedWriteGlobs ?? []);
+    return new MoAgentWorkspacePolicy(
+      canonicalRoot,
+      options.allowedWriteGlobs ?? [],
+      options.includeDefaultWriteGlobs !== false,
+    );
   }
 
   async resolveReadPath(requestedPath: string, options: { allowRoot?: boolean } = {}): Promise<ResolvedWorkspacePath> {
@@ -332,13 +344,21 @@ export class MoAgentWorkspacePolicy {
 
     const extraAllowsLexical = this.allowedWriteGlobs.some((glob) => matchesWorkspaceGlob(relativePath, glob));
     const extraAllowsCanonical = this.allowedWriteGlobs.some((glob) => matchesWorkspaceGlob(canonicalRelativePath, glob));
-    const lexicalAllowed = isDefaultWritablePath(relativePath) || extraAllowsLexical;
-    const canonicalAllowed = isDefaultWritablePath(canonicalRelativePath) || extraAllowsCanonical;
+    const lexicalAllowed =
+      (this.includeDefaultWriteGlobs && isDefaultWritablePath(relativePath)) || extraAllowsLexical;
+    const canonicalAllowed =
+      (this.includeDefaultWriteGlobs && isDefaultWritablePath(canonicalRelativePath)) ||
+      extraAllowsCanonical;
     if (!lexicalAllowed || !canonicalAllowed) {
       throw new MoAgentToolError(
         'WRITE_PATH_DENIED',
         `MoAgent profile does not allow writing to ${relativePath}.`,
-        { allowedWriteGlobs: [...DEFAULT_ALLOWED_WRITE_GLOBS, ...this.allowedWriteGlobs] },
+        {
+          allowedWriteGlobs: [
+            ...(this.includeDefaultWriteGlobs ? DEFAULT_ALLOWED_WRITE_GLOBS : []),
+            ...this.allowedWriteGlobs,
+          ],
+        },
       );
     }
 

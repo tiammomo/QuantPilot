@@ -421,6 +421,7 @@ describe("inspect_dashboard_contract tool", () => {
       const tools = createMoAgentTools({
         workspaceRoot: workspace,
         profile,
+        ...(profile === "repair" ? { profileAllowedWriteGlobs: [] } : {}),
         includeImageExtraction: false,
       });
       expect(

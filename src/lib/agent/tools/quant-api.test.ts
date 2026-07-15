@@ -278,6 +278,7 @@ describe('MoAgent typed quant and terminal tools', () => {
     const repairWrite = createMoAgentTools({
       workspaceRoot: workspace,
       profile: 'repair',
+      profileAllowedWriteGlobs: ['data_file/final/**', 'evidence/**'],
       includeImageExtraction: false,
     }).find((tool) => tool.name === 'write_file')!;
 

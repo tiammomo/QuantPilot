@@ -2305,64 +2305,45 @@ async function writeValidationReport(projectPath: string, report: QuantValidatio
 }
 
 function actionsForFailedCheck(check: QuantValidationCheck): string[] {
-  const common = [
-    '本轮只修改 app/**、data_file/final/** 和 evidence/**；.quantpilot/** 由平台维护，只能读取。',
-    '保留已经获取到的真实数据，不要改成 mock 或静态样例。',
-  ];
-
   switch (check.id) {
     case 'next_build':
       return [
-        ...common,
-        '运行或根据报告修复 TypeScript、Next.js、CSS 或依赖错误。',
+        '根据失败详情定位并修复 TypeScript、Next.js 或 CSS 错误。',
         '动态 JSON 字段必须使用 JsonRecord、asRecord、asArray、numeric 等守卫函数处理。',
-        '不要通过新增大型图表依赖绕开类型问题。',
       ];
     case 'preview_http_200':
       return [
-        ...common,
-        '确认 app/page.tsx、app/layout.tsx、app/globals.css 和 package.json 能让 Next.js 预览启动。',
-        '修复运行时异常、端口预览错误或页面加载时抛出的异常。',
+        '根据失败详情修复页面加载时抛出的运行时异常。',
+        '保持 app/page.tsx、app/layout.tsx 和 app/globals.css 的导入与渲染链路有效。',
       ];
     case 'visual_presentation':
       return [
-        ...common,
-        '查看 .quantpilot/visual-validation.json 和 tmp/visual-checks 下的截图。',
+        '只查看 .quantpilot/visual-validation.json 指向的失败 viewport、截图与指标。',
         '修复桌面/移动端布局：首屏不能空白，不能横向溢出，文本不能互相遮挡。',
         '把独立白色圆角卡片网格合并为连续金融工作台：主画布共用背景，以细分区线、连续指标带、主图、矩阵和表格建立层级；移除重复圆角、阴影和 card 套 card。',
         '移动端 390x844 首屏必须露出一个可用的核心图表、矩阵或表格；如果摘要区过高，压缩或下移次要指标、信源、模板说明和免责声明。',
-        '技术分析页移动端优先顺序是：数据状态、标的与价格、K 线主图、成交量/信号；财务、公告、信源和场景模板放到下方。',
-        '补齐真实金融语义和图表元素：K 线、成交量、财务趋势、持仓/风险或回测图表必须按任务展示。',
-        '页面需要显示数据信源、更新时间或 dashboard-data.json 绑定说明。',
       ];
     case 'final_data_file':
       return [
-        ...common,
         '生成或修复 data_file/final/dashboard-data.json。',
         '读取 .quantpilot/run_plan.json 和现有 raw/final/evidence 数据，按真实数据重组 final 文件，不要只创建空 JSON。',
-        '如果原始需求、平台只读 run_plan.symbols 或 final 数据显示是多标的对比/相关性/累计收益任务，按平台修正后的只读计划同步 final 数据和页面；不得自行改写 run_plan。',
         '确保 final 数据包含 symbol/name/source/as_of、quote.price/change_percent/quote_time，以及 kline.bars[] 或 history.bars[]；每根 K 线至少包含 date/open/high/low/close/volume 或 amount。',
         '多标的任务必须覆盖 run_plan.symbols 中的全部代码，并写入 requestedSymbols、assets[] 与 comparison.rows[]；comparison.rows[] 必须包含 symbol/name、价格或收益、回撤/波动/成交额等可排序字段。',
         'final 数据必须包含 visualization.template_id、variant_id、required_components 和 rendered_components，并与 run_plan.visualization.templateId 对齐。',
-        '修复后重新检查 data_file/final/dashboard-data.json 不含 mock/demo/placeholder/sample 等标记，并能被页面读取。',
       ];
     case 'evidence_files':
       return [
-        ...common,
         '生成 evidence/sources.json，记录 source、endpoint、fetched_at/as_of、样本量和 artifact_path。',
         '生成 evidence/data_quality.json，记录 status、datasets/checks、缺失字段、警告和限制。',
         '不要把鉴权凭据、会话凭据或密钥值写入 evidence。',
       ];
     case 'artifact_contracts':
       return [
-        ...common,
-        '查看 .quantpilot/artifact-contracts.json 中失败的契约项。',
+        '只查看 .quantpilot/artifact-contracts.json 中失败的契约项。',
         '只修复 evidence/*.json 或 data_file/final/dashboard-data.json 的结构字段；run_plan、generation-state 和其他 .quantpilot 结构由平台重建。',
-        '不要只让页面 build 通过；关键 JSON 产物必须满足平台契约，后续健康检查和链路观测依赖这些字段。',
       ];
     case 'artifact_policy':
       return [
-        ...common,
         '移除外部 CDN、远程脚本、远程样式、远程字体、远程媒体和浏览器直连外部 API。',
         '页面资源必须本地化；浏览器取数只能读取 data_file/final/dashboard-data.json 或同源 /api/market/**。',
         '移除 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据、占位数据和明文密钥。',
@@ -2373,42 +2354,154 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
           `${check.summary}\n${check.details ?? ''}`
         );
         return [
-        ...common,
         '让 app/page.tsx 使用 QuantPilot 标准数据绑定结构读取 data_file/final/dashboard-data.json。',
         '保留 DATA_FILE、readDashboardData()、getBars() 或 data-source-file={DATA_FILE} 等标准入口。',
         ...(tradingPlanFailure
           ? [
               '必须实际编辑 app/page.tsx：删除 getTradingPlanRows、priceRange、TradingPlanPanel、tradingRows 变量和 <TradingPlanPanel ... /> 调用。',
               '必须实际编辑 app/globals.css：删除 .trading-plan-grid、.trade-card、.trade-title、.trade-rationale、.trade-abandon 等交易计划样式，或确保页面不再引用这些 class。',
-              '用 rg "短线交易计划|交易计划|买入区间|止损|目标价|仓位上限" app data_file 检查，除“不是买卖建议/不构成交易指令”这类免责声明外，不得再命中页面交易执行内容。',
-              '不要只读取文件或解释计划；必须使用 Edit/MultiEdit/Write 工具完成删除，然后运行 npm run build。',
+              '除“不是买卖建议/不构成交易指令”这类免责声明外，页面不得残留短线交易计划、买入区间、止损、目标价或仓位上限。',
             ]
           : []),
-        '如果页面残留持仓矩阵、调仓优先级或 holding-analysis，但平台只读计划显示任务实际是多标的对比/相关性看板，只修 final visualization.template_id 和页面，将其改回 stock-selection 多标的结构。',
         '不要把完整行情、K 线、财务或公告对象内联到页面代码。',
         ];
       }
     case 'chart_presence':
       return [
-        ...common,
         '补齐真实金融图表：K 线/OHLC、成交量、均线、财务趋势、收益/回撤/波动或风险指标。',
         '图表必须有语义染色、坐标/图例/tooltip/title 等读图辅助。',
-        '多标的任务必须展示对比矩阵、收益对比、波动/回撤或相对强弱摘要。',
         '用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”时必须绘制带日期轴、统一尺度和图例的折线图，不能用柱状图、指标卡或 sparkline 替代。',
         '用户明确要求“相关性矩阵/热力图/分散风险图谱”时必须绘制真实矩阵或热力图，并展示标的标签、数值和颜色刻度。',
       ];
     case 'market_proxy':
       return [
-        ...common,
         '创建 app/api/market/[...path]/route.ts。',
         '将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/** 并保留 query 参数。',
         '前端刷新行情时调用 /api/market/**，不要从浏览器直连 8000 或外部接口。',
       ];
     default:
       return [
-        ...common,
-        '根据失败详情修复对应产物，并重新确保 build、HTTP、数据、evidence、图表和代理检查通过。',
+        '根据失败摘要和细节定位关联文件，只修复该失败项。',
       ];
+  }
+}
+
+const REPAIR_SCOPE_BY_CHECK_ID: Record<string, readonly string[]> = {
+  next_build: ['app/**'],
+  preview_http_200: ['app/**'],
+  visual_presentation: ['app/**'],
+  final_data_file: ['data_file/final/**'],
+  evidence_files: ['evidence/**'],
+  artifact_contracts: ['data_file/final/**', 'evidence/**'],
+  artifact_policy: ['app/**'],
+  dashboard_data_binding: ['app/**', 'data_file/final/**'],
+  chart_presence: ['app/**'],
+  market_proxy: ['app/**'],
+};
+
+function repairWritablePaths(failedChecks: QuantValidationCheck[]): string[] {
+  const paths = new Set<string>();
+  for (const check of failedChecks) {
+    for (const writablePath of REPAIR_SCOPE_BY_CHECK_ID[check.id] ?? ['app/**']) {
+      paths.add(writablePath);
+    }
+  }
+  const preferredOrder = ['app/**', 'data_file/final/**', 'evidence/**'];
+  return [...paths].sort((left, right) => {
+    const leftIndex = preferredOrder.indexOf(left);
+    const rightIndex = preferredOrder.indexOf(right);
+    return (leftIndex < 0 ? preferredOrder.length : leftIndex)
+      - (rightIndex < 0 ? preferredOrder.length : rightIndex);
+  });
+}
+
+/**
+ * Converts platform-owned validation failures into the only additional paths
+ * a repair run may mutate. The typed-tool policy consumes this result; the
+ * prompt is explanatory and is never the authority boundary.
+ */
+export function quantValidationRepairWritableGlobs(
+  report: QuantValidationReport,
+): string[] {
+  return repairWritablePaths(report.checks.filter((check) => check.status === 'failed'));
+}
+
+function formatChineseList(values: string[]): string {
+  if (values.length <= 1) {
+    return values[0] ?? '无';
+  }
+  if (values.length === 2) {
+    return `${values[0]} 和 ${values[1]}`;
+  }
+  return `${values.slice(0, -1).join('、')} 和 ${values.at(-1)}`;
+}
+
+function targetedReadsForFailedChecks(failedChecks: QuantValidationCheck[]): string[] {
+  const paths = new Set<string>([
+    '.quantpilot/validation.json（仅失败项）',
+    '.quantpilot/validation-repair-plan.json（仅本轮步骤）',
+  ]);
+  for (const check of failedChecks) {
+    switch (check.id) {
+      case 'visual_presentation':
+        paths.add('.quantpilot/visual-validation.json（仅失败 viewport 和其截图路径）');
+        paths.add('app/page.tsx 与 app/globals.css（只读相关区段）');
+        break;
+      case 'next_build':
+      case 'preview_http_200':
+        paths.add('失败详情点名的 app/** 文件与相关导入');
+        break;
+      case 'final_data_file':
+        paths.add('.quantpilot/run_plan.json（只读 symbols/visualization）');
+        paths.add('data_file/final/dashboard-data.json');
+        break;
+      case 'evidence_files':
+        paths.add('evidence/sources.json 与 evidence/data_quality.json');
+        break;
+      case 'artifact_contracts':
+        paths.add('.quantpilot/artifact-contracts.json（仅失败契约）');
+        paths.add('失败契约指向的 final/evidence 文件');
+        break;
+      case 'dashboard_data_binding':
+        paths.add('app/page.tsx 的数据读取与绑定区段');
+        paths.add('data_file/final/dashboard-data.json 的顶层结构');
+        break;
+      case 'chart_presence':
+      case 'artifact_policy':
+      case 'market_proxy':
+        paths.add('失败详情点名的 app/** 文件与相关区段');
+        break;
+      default:
+        paths.add('失败详情明确指向的文件或区段');
+    }
+  }
+  return [...paths];
+}
+
+function completionConditionForFailedCheck(check: QuantValidationCheck): string {
+  switch (check.id) {
+    case 'next_build':
+      return '报告点名的类型、导入或样式错误已在关联 app 文件中消除。';
+    case 'preview_http_200':
+      return '报告点名的页面加载异常已消除，渲染入口不再抛错。';
+    case 'visual_presentation':
+      return '失败 viewport 的首屏主体可见，且无空白、横向溢出或文本遮挡。';
+    case 'final_data_file':
+      return 'dashboard-data.json 覆盖计划标的、真实数据字段和 visualization 契约。';
+    case 'evidence_files':
+      return 'sources 与 data_quality evidence 完整记录来源、时效、质量和限制。';
+    case 'artifact_contracts':
+      return 'artifact-contracts 报告中的失败 JSON 字段已在 final/evidence 中补齐。';
+    case 'artifact_policy':
+      return '报告点名的远程资源、浏览器外连、mock 或敏感字面量已移除。';
+    case 'dashboard_data_binding':
+      return '页面通过标准入口读取 final 数据，且未内联完整行情对象。';
+    case 'chart_presence':
+      return '用户任务要求的核心金融图表及读图辅助已实际渲染。';
+    case 'market_proxy':
+      return '同源 /api/market/** 路由按报告要求存在并保留查询参数。';
+    default:
+      return `${check.name} 的失败摘要已被对应文件修改直接解决。`;
   }
 }
 
@@ -2657,40 +2750,38 @@ export function buildQuantValidationRepairInstruction(
   const original = options.originalInstruction
     ? `\n原始用户需求：\n${truncateForPrompt(options.originalInstruction, 1_000)}\n`
     : '';
+  const failedCheckIds = failedChecks.map((check) => check.id);
+  const writablePaths = repairWritablePaths(failedChecks);
+  const targetedReads = targetedReadsForFailedChecks(failedChecks);
+  const completionConditions = failedChecks
+    .map((check) => `- ${check.id}：${completionConditionForFailedCheck(check)}`)
+    .join('\n');
 
-  return `QuantPilot 自动验证未通过，请修复失败项并保持已有真实数据与分析内容。${original}
+  return `QuantPilot failure-scoped repair packet
+
+目标：只修复本轮失败项，保留已有真实数据、有效分析和无关页面内容。${original}
+
+修复范围：
+- 失败 ID：${failedCheckIds.join('、') || '报告状态异常但未提供失败 ID'}
+- 唯一可写范围：${formatChineseList(writablePaths)}
+- 整个 \`.quantpilot/**\` 是平台只读计划、报告与状态；你不得修改它。其结构修复和重新生成由平台负责。
+- 定向读取：${targetedReads.join('；')}
+- 不要扫描或通读未被失败项指向的目录和文件。
 
 失败项：
 ${failedSummary || '无失败项，但验证报告状态为失败，请重新检查产物。'}
 
-结构化修复计划已写入：
-${VALIDATION_REPAIR_PLAN_RELATIVE_PATH}
-
-请按下面步骤逐项修复：
+最小修复动作：
 ${repairSteps || '请重新检查验证报告并补齐缺失产物。'}
 
-修复要求：
-1. 本轮只修改当前生成项目中的 app/**、data_file/final/** 和 evidence/**，不要修改其他目录或父级 QuantPilot 平台工程。
-2. 不要只回复说明，必须实际修改文件并让页面可访问。
-3. 必须先读取 .quantpilot/validation.json、.quantpilot/validation-repair-plan.json、.quantpilot/run_plan.json、data_file/final/dashboard-data.json、evidence/sources.json、evidence/data_quality.json、app/page.tsx 和 app/globals.css；如果存在 .quantpilot/visual-validation.json，也必须读取截图路径和 viewport metrics。
-4. 整个 \`.quantpilot/**\`（包括 run_plan、validation、repair plan、visual/artifact 报告、generation-state、queue 和 events）都是平台只读计划/报告/状态。绝对不得编辑、删除或伪造；结构修复和重新生成由平台负责。
-5. 不要安装 Playwright/Chromium、不要修改包依赖来规避视觉验收。若失败细节是浏览器运行时缺失，该项由平台处理；你只修复真实的页面、数据和 evidence 失败。
-6. 如果失败项包含“最终数据文件存在，但没有通过真实数据形态检查”，必须修复 final 数据契约：单标的包含 symbol/name/source/as_of、quote.price/change_percent/quote_time、kline.bars[]；多标的包含 requestedSymbols、assets[]、comparison.rows[]，且覆盖 run_plan.symbols 全部标的。
-7. 不允许把取到的行情、K 线、财务、公告数据整段硬编码到 app/page.tsx；即使是真实数据，整段内联到页面代码也视为失败。
-8. 最终数据必须保留在 data_file/final/dashboard-data.json，页面必须读取该数据文件，或通过同源 /api/market/** 获取/刷新数据。
-9. 必须写入 evidence/sources.json 和 evidence/data_quality.json，记录来源、端点、时间戳、样本长度、缺失字段、警告和限制。
-10. 必须创建 app/api/market/[...path]/route.ts，将 /api/market/** 转发到 http://127.0.0.1:8000/api/v1/**，并保留 query 参数。
-11. 不得引用外部 CDN、远程脚本、远程样式或浏览器直连外部接口；页面资源必须本地化，浏览器取数只能走 final 数据文件或同源 /api/market/**。
-12. 不得留下 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据等 mock/static 产物，也不得写入任何鉴权凭据、会话凭据或密钥值。
-13. 保留或增强金融图表：K 线/量价/均线/财务趋势/公告事件至少覆盖当前用户问题所需内容。
-14. 移动端不能只在首屏展示标题、指标卡和说明；390x844 首屏内必须能看到核心图表、矩阵或表格的主体区域。
-15. 如果 final 数据包含 assets[] 或 comparison，必须生成多标的对比页面：展示全部标的、指标矩阵、收益对比、波动/回撤对比和相对强弱摘要，不能只展示主标的。
-16. 如果失败细节提示 run_plan 或 visualization.template_id 与任务语义不一致，平台会先重建只读 run_plan；你不得修改它，只需根据原始用户需求、平台计划、requestedSymbols、assets[] 和 comparison 修复 final 数据与页面。多标的对比/相关性/累计收益任务应呈现 stock-selection 多标的结构，不要强行改成 holding-analysis。
-17. 如果用户明确要求“累计收益曲线/收益曲线/净值曲线/折线图”，必须绘制带日期轴、统一尺度和图例的折线图；如果要求“相关性矩阵/热力图”，必须绘制真实矩阵/热力图。
-18. 未被用户明确要求时，不得新增短线交易计划、买卖点、止损、目标价或调仓指令；可以只保留研究结论、风险和数据限制。
-19. 修复后在当前生成项目目录内运行 npm run build；如果平台验证仍产生新的失败项，继续修复，不要停在“自动修复计划”页面。
-20. 最终必须确保 npm run build、预览 HTTP 200、数据文件、evidence、产物策略、页面数据绑定、图表存在性、视觉验收和 /api/market 代理都能通过平台验证。
-21. 不要启动开发服务器，QuantPilot 会统一管理预览。`;
+完成条件（平台复验前候选）：
+${completionConditions || '- 报告未提供失败 ID；仅提交已能由失败详情证明的修复。'}
+
+执行契约：
+1. 使用本轮提供的 typed tools 定向读取和修改；只在需要新建失败产物时使用 write_file，否则优先 edit_file。
+2. 必须实际修改失败项关联文件，但不得顺带重写未失败模块；不得写入 mock、占位数据、凭据或密钥。
+3. 不要执行 shell、安装依赖、启动开发服务器、构建、预览或循环复验。构建、预览与自动验证由 QuantPilot 平台统一执行。
+4. 完成上述失败项对应修改后，调用 submit_result，artifacts 只列出本轮实际修改的工作区相对路径；提交即结束本次物理运行，等待平台独立验证。`;
 }
 
 async function publishValidationSummary(

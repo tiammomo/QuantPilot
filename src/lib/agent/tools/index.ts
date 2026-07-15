@@ -11,6 +11,8 @@ import { createSubmitResultTool } from './submit-result';
 
 export interface CreateMoAgentToolsOptions extends MoAgentFileToolOptions {
   profile?: MoAgentToolProfile;
+  /** Trusted per-run override for the profile's extra write surface. */
+  profileAllowedWriteGlobs?: readonly string[];
   quantApi?: MoAgentQuantApiToolOptions;
   /** Disable the live quant-data tool when the platform already prepared all datasets. */
   includeQuantApi?: boolean;
@@ -27,12 +29,6 @@ export type MoAgentToolProfile = 'generation' | 'repair';
 /** Generation authors source/UI only; platform-prepared final/evidence stay untouched. */
 export const MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS = [] as const;
 
-/** Repair gets narrowly scoped authority for validation-directed data contract fixes. */
-export const MOAGENT_REPAIR_ALLOWED_WRITE_GLOBS = [
-  'data_file/final/**',
-  'evidence/**',
-] as const;
-
 /** Platform-prefetched data is queried structurally instead of replayed raw. */
 export const MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS = [
   'data_file/final/**/*.json',
@@ -47,9 +43,8 @@ const MOAGENT_GENERIC_READ_TOOL_NAMES = new Set([
 ]);
 
 export function allowedWriteGlobsForMoAgentProfile(profile: MoAgentToolProfile): readonly string[] {
-  return profile === 'repair'
-    ? MOAGENT_REPAIR_ALLOWED_WRITE_GLOBS
-    : MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS;
+  // Repair must supply its platform-compiled failure scope explicitly.
+  return profile === 'repair' ? [] : MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS;
 }
 
 /**
@@ -58,8 +53,11 @@ export function allowedWriteGlobsForMoAgentProfile(profile: MoAgentToolProfile):
  */
 export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentTool[] {
   const profile = options.profile ?? 'generation';
+  if (profile === 'repair' && options.profileAllowedWriteGlobs === undefined) {
+    throw new Error('MoAgent repair tools require a trusted failure-scoped write allowlist.');
+  }
   const allowedWriteGlobs = [
-    ...allowedWriteGlobsForMoAgentProfile(profile),
+    ...(options.profileAllowedWriteGlobs ?? allowedWriteGlobsForMoAgentProfile(profile)),
     ...(options.allowedWriteGlobs ?? []),
   ];
   const structuredJsonReadGlobs = options.structuredJsonReadGlobs ?? (

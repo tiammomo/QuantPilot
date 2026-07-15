@@ -20,8 +20,11 @@ const mocks = vi.hoisted(() => ({
   isRunCancelled: vi.fn(),
   createTools: vi.fn(),
   compileSkills: vi.fn(),
-  hasPreparedArtifacts: vi.fn(),
+  assessPreparedArtifacts: vi.fn(),
+  buildUserPrompt: vi.fn(),
   readRunPlan: vi.fn(),
+  readValidationReport: vi.fn(),
+  repairWritableGlobs: vi.fn(),
   assertSchemaReady: vi.fn(),
   durableRecord: vi.fn(),
   durableInterrupt: vi.fn(),
@@ -55,7 +58,8 @@ vi.mock('@/lib/agent/tools', () => ({
 vi.mock('@/lib/services/moagent-prompts', () => ({
   buildQuantPilotSystemPrompt: vi.fn(() => 'system prompt'),
   buildQuantPilotTaskPrompt: vi.fn(async (instruction: string) => instruction),
-  hasPlatformPreparedQuantArtifacts: mocks.hasPreparedArtifacts,
+  buildQuantPilotUserPrompt: mocks.buildUserPrompt,
+  assessPlatformPreparedQuantArtifacts: mocks.assessPreparedArtifacts,
 }));
 
 vi.mock('@/lib/services/moagent-provenance', () => ({
@@ -79,6 +83,11 @@ vi.mock('@/lib/services/moagent-recovery', () => ({
 
 vi.mock('@/lib/quant/workspace', () => ({
   readQuantRunPlan: mocks.readRunPlan,
+}));
+
+vi.mock('@/lib/quant/validation', () => ({
+  readQuantValidationReport: mocks.readValidationReport,
+  quantValidationRepairWritableGlobs: mocks.repairWritableGlobs,
 }));
 
 vi.mock('@/lib/db/moagent-schema-readiness', () => ({
@@ -161,11 +170,35 @@ describe('MoAgent terminal ownership', () => {
     mocks.durableInterrupt.mockResolvedValue(undefined);
     mocks.durableClose.mockResolvedValue(undefined);
     mocks.createTools.mockReturnValue([{ name: 'submit_result', terminal: true }]);
-    mocks.hasPreparedArtifacts.mockResolvedValue(false);
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: false,
+      reasons: ['platform artifacts are not ready'],
+    });
+    mocks.buildUserPrompt.mockImplementation(({
+      taskPacket,
+      skillContext,
+      initialDashboardContract,
+    }: {
+      taskPacket: string;
+      skillContext: string;
+      initialDashboardContract: string | null;
+    }) => [
+      taskPacket,
+      skillContext ? `skill_context：${skillContext}` : null,
+      initialDashboardContract
+        ? `initial_dashboard_contract：${initialDashboardContract}`
+        : 'initial_dashboard_contract：不可用。请先调用 inspect_dashboard_contract 一次。',
+    ].filter(Boolean).join('\n\n'));
     mocks.readRunPlan.mockResolvedValue(null);
+    mocks.readValidationReport.mockResolvedValue({
+      status: 'failed',
+      checks: [{ id: 'visual_presentation', status: 'failed' }],
+    });
+    mocks.repairWritableGlobs.mockReturnValue(['app/**']);
     mocks.assertSchemaReady.mockResolvedValue({ ready: true, issues: [] });
     mocks.compileSkills.mockResolvedValue({
       systemContext: 'verified skill context',
+      taskContext: 'verified task skill context',
       resolvedSkillIds: ['run-planner'],
       skills: [],
     });
@@ -182,6 +215,7 @@ describe('MoAgent terminal ownership', () => {
       racedRunIds: [],
     });
     delete process.env.MOAGENT_TIMEOUT_MS;
+    delete process.env.MOAGENT_REASONING_EFFORT;
   });
 
   afterEach(async () => {
@@ -403,7 +437,11 @@ describe('MoAgent terminal ownership', () => {
       { role: 'user', content: '用户消息即使 ID 碰巧带 repair 后缀也要保留' },
       {
         role: 'user',
-        content: '本轮任务\n\ninitial_dashboard_contract：不可用。请先调用 inspect_dashboard_contract 一次。',
+        content: [
+          '本轮任务',
+          'skill_context：verified task skill context',
+          'initial_dashboard_contract：不可用。请先调用 inspect_dashboard_contract 一次。',
+        ].join('\n\n'),
       },
     ]);
   });
@@ -451,7 +489,11 @@ describe('MoAgent terminal ownership', () => {
       { role: 'user', content: '请分析大位科技并生成诊断看板' },
       {
         role: 'user',
-        content: '只修复当前 validation report 中的失败项\n\ninitial_dashboard_contract：不可用。请先调用 inspect_dashboard_contract 一次。',
+        content: [
+          '只修复当前 validation report 中的失败项',
+          'skill_context：verified task skill context',
+          'initial_dashboard_contract：不可用。请先调用 inspect_dashboard_contract 一次。',
+        ].join('\n\n'),
       },
     ]);
   });
@@ -468,10 +510,16 @@ describe('MoAgent terminal ownership', () => {
       'request-capability-skills',
     );
 
-    expect(mocks.compileSkills).toHaveBeenCalledWith({
+    expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       capabilityId: 'asset_comparison',
-      maxSystemContextChars: 16_000,
-    });
+      phase: 'data-preparation',
+      hasAttachments: false,
+      hasResolvedSymbols: false,
+      templateId: expect.any(String),
+      variantId: expect.any(String),
+      availableToolNames: ['submit_result'],
+      maxSystemContextChars: expect.any(Number),
+    }));
     expect(mocks.compileSkills.mock.calls[0]?.[0]).not.toHaveProperty('additionalSkillIds');
   });
 
@@ -494,11 +542,12 @@ describe('MoAgent terminal ownership', () => {
 
   it('uses the compact targeted profile when platform artifacts are already prepared', async () => {
     mocks.run.mockResolvedValue(result('completed'));
-    mocks.hasPreparedArtifacts.mockResolvedValue(true);
-    mocks.readRunPlan.mockResolvedValue({
+    mocks.assessPreparedArtifacts.mockResolvedValue({ ready: true, reasons: [] });
+    const runPlan = {
       status: 'planned',
       requestedCapabilityId: 'stock_diagnosis',
-    });
+    };
+    mocks.readRunPlan.mockResolvedValue(runPlan);
 
     await executeMoAgent(
       'project-test',
@@ -508,11 +557,18 @@ describe('MoAgent terminal ownership', () => {
       'request-prepared-profile',
     );
 
-    expect(mocks.compileSkills).toHaveBeenCalledWith({
+    expect(mocks.assessPreparedArtifacts).toHaveBeenCalledWith(workspace, runPlan);
+    expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       capabilityId: 'stock_diagnosis',
       requiredSkillIds: ['dashboard-visualization'],
-      maxSystemContextChars: 6_000,
-    });
+      phase: 'workspace-generation',
+      hasAttachments: false,
+      hasResolvedSymbols: false,
+      templateId: expect.any(String),
+      variantId: expect.any(String),
+      availableToolNames: ['submit_result'],
+      maxSystemContextChars: expect.any(Number),
+    }));
     expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
       profile: 'generation',
       includeImageExtraction: false,
@@ -530,6 +586,50 @@ describe('MoAgent terminal ownership', () => {
       requireTerminalTool: true,
       requireWorkspaceWriteBeforeTerminal: true,
     }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
+      reasoning: { enabled: true, effort: 'medium' },
+      metadata: expect.objectContaining({
+        skillPhase: 'workspace-generation',
+      }),
+    }), expect.any(Object));
+  });
+
+  it('keeps a planned run in data preparation when semantic artifacts are incomplete', async () => {
+    mocks.run.mockResolvedValue(result('completed'));
+    const runPlan = {
+      status: 'planned',
+      requestedCapabilityId: 'stock_diagnosis',
+      symbols: [{ symbol: '600519', market: 'CN' }],
+    };
+    mocks.readRunPlan.mockResolvedValue(runPlan);
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: false,
+      reasons: ['final data has no usable market payload'],
+    });
+
+    await executeMoAgent(
+      'project-test',
+      workspace,
+      '基于平台计划生成个股诊断',
+      'deepseek-v4-flash',
+      'request-semantically-unprepared',
+    );
+
+    expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
+      capabilityId: 'stock_diagnosis',
+      phase: 'data-preparation',
+      hasResolvedSymbols: true,
+    }));
+    expect(mocks.compileSkills.mock.calls[0]?.[0]).not.toHaveProperty('requiredSkillIds');
+    expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
+      profile: 'generation',
+      includeQuantApi: true,
+      targetedReadsOnly: false,
+    }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
+      reasoning: { enabled: true, effort: 'high' },
+      metadata: expect.objectContaining({ skillPhase: 'data-preparation' }),
+    }), expect.any(Object));
   });
 
   it('uses the repair profile only through the trusted repair entry point', async () => {
@@ -546,12 +646,92 @@ describe('MoAgent terminal ownership', () => {
 
     expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
       profile: 'repair',
+      profileAllowedWriteGlobs: [],
+      includeDefaultWriteGlobs: true,
     }));
+    expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'validation-repair',
+      requiredSkillIds: ['dashboard-visualization'],
+    }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
+      reasoning: { enabled: true, effort: 'high' },
+      metadata: expect.objectContaining({ skillPhase: 'validation-repair' }),
+    }), expect.any(Object));
     expect(mocks.registerRun).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-test',
       requestId: 'request-parent',
     }));
     expect(mocks.completeRun).toHaveBeenCalledWith('project-test', 'request-parent');
+  });
+
+  it('removes source writes and dashboard context from a data-only repair', async () => {
+    mocks.run.mockResolvedValue(result('completed'));
+    mocks.readValidationReport.mockResolvedValue({
+      status: 'failed',
+      checks: [{ id: 'final_data_file', status: 'failed' }],
+    });
+    mocks.repairWritableGlobs.mockReturnValue(['data_file/final/**']);
+
+    await applyRepairChanges(
+      'project-test',
+      workspace,
+      'repair final data only',
+      'deepseek-v4-flash',
+      'request-data-repair-child',
+      'request-parent',
+    );
+
+    expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({
+      profile: 'repair',
+      profileAllowedWriteGlobs: ['data_file/final/**'],
+      includeDefaultWriteGlobs: false,
+    }));
+    expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'validation-repair',
+      requiredSkillIds: ['data-quality'],
+    }));
+    expect(mocks.buildUserPrompt).toHaveBeenCalledWith(expect.objectContaining({
+      initialDashboardContract: null,
+      requireDashboardContract: false,
+    }));
+  });
+
+  it('fails closed before tool or provider setup when repair has no failed report', async () => {
+    mocks.readValidationReport.mockResolvedValue(null);
+
+    await expect(applyRepairChanges(
+      'project-test',
+      workspace,
+      'repair the validation findings',
+      'deepseek-v4-flash',
+      'request-repair-missing-report',
+      'request-parent',
+    )).rejects.toThrow('缺少当前平台失败报告');
+
+    expect(mocks.createTools).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the platform marks the repair report stale', async () => {
+    mocks.readValidationReport.mockResolvedValue({
+      status: 'failed',
+      checks: [
+        { id: 'visual_presentation', status: 'failed' },
+        { id: 'validation_report_stale', status: 'warning' },
+      ],
+    });
+
+    await expect(applyRepairChanges(
+      'project-test',
+      workspace,
+      'repair stale findings',
+      'deepseek-v4-flash',
+      'request-stale-repair-child',
+      'request-parent',
+    )).rejects.toThrow('缺少当前平台失败报告');
+
+    expect(mocks.createTools).not.toHaveBeenCalled();
+    expect(mocks.run).not.toHaveBeenCalled();
   });
 
   it('fails closed when the request cannot be claimed as running', async () => {

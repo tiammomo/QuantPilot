@@ -267,6 +267,20 @@ describe('MoAgent typed filesystem tools', () => {
       path: 'evidence/data_quality.json',
       content: '{"status":"ok"}\n',
     })).resolves.toMatchObject({ ok: true });
+
+    const dataOnlyRepairWrite = createWriteFileTool({
+      workspaceRoot: workspace,
+      includeDefaultWriteGlobs: false,
+      allowedWriteGlobs: ['data_file/final/**'],
+    });
+    await expect(invoke(dataOnlyRepairWrite, {
+      path: 'app/page.tsx',
+      content: 'export default function Page() { return null; }\n',
+    })).resolves.toMatchObject({ ok: false, error: { code: 'WRITE_PATH_DENIED' } });
+    await expect(invoke(dataOnlyRepairWrite, {
+      path: 'data_file/final/dashboard-data.json',
+      content: '{"series":[]}\n',
+    })).resolves.toMatchObject({ ok: true });
   });
 
   it('does not allow root executable hooks or internal symlink aliases by default', async () => {
