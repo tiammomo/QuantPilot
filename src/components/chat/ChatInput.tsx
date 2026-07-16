@@ -1,12 +1,32 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Pause, SendHorizontal, MessageSquare, Image as ImageIcon, Wrench } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock3,
+  Image as ImageIcon,
+  ListPlus,
+  Loader2,
+  MessageSquare,
+  Pause,
+  SendHorizontal,
+  SlidersHorizontal,
+  Sparkles,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  buildQuickQuestions,
+  inferQuestionFocus,
+  inferQuestionTimeRange,
+  inferSymbolSearchQuery,
+  questionOutputLabel,
+} from './question-composer';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
-interface UploadedImage {
+export interface UploadedImage {
   id: string;
   filename: string;
   path: string;
@@ -37,6 +57,7 @@ interface ChatInputProps {
   mode?: 'act' | 'chat';
   onModeChange?: (mode: 'act' | 'chat') => void;
   projectId?: string;
+  projectName?: string;
   preferredCli?: string;
   selectedModel?: string;
   modelOptions?: ModelPickerOption[];
@@ -48,6 +69,26 @@ interface ChatInputProps {
   isRunning?: boolean;
   onPause?: () => void;
   isPausing?: boolean;
+  queuedMessages?: Array<{ id: string; message: string }>;
+  onRemoveQueuedMessage?: (id: string) => void;
+}
+
+interface ResolvedSymbol {
+  symbol: string;
+  name?: string;
+  market?: string;
+  asset_type?: string;
+}
+
+interface QueryRewritePreview {
+  status?: 'ready' | 'partial' | 'needs_clarification' | 'refused';
+  timeRange?: { label?: string } | null;
+  analysisFocus?: { label?: string } | null;
+  unresolvedTargets?: string[];
+  safety?: {
+    decision?: 'allow' | 'refuse';
+    message?: string | null;
+  };
 }
 
 export default function ChatInput({
@@ -57,6 +98,7 @@ export default function ChatInput({
   mode = 'act',
   onModeChange,
   projectId,
+  projectName = '',
   preferredCli = 'moagent',
   selectedModel = '',
   modelOptions = [],
@@ -67,17 +109,25 @@ export default function ChatInput({
   cliChangeDisabled = false,
   isRunning = false,
   onPause,
-  isPausing = false
+  isPausing = false,
+  queuedMessages = [],
+  onRemoveQueuedMessage,
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [resolvedSymbols, setResolvedSymbols] = useState<ResolvedSymbol[]>([]);
+  const [queryRewritePreview, setQueryRewritePreview] = useState<QueryRewritePreview | null>(null);
+  const [isResolvingSymbol, setIsResolvingSymbol] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submissionLockRef = useRef(false);
+  const [loadedDraftStorageKey, setLoadedDraftStorageKey] = useState<string | null>(null);
   const supportsImageUpload = true;
+  const draftStorageKey = projectId ? `quantpilot:question-draft:${projectId}` : null;
 
   const modelOptionsForCli = useMemo(
     () => modelOptions.filter(option => option.cli === preferredCli),
@@ -95,6 +145,13 @@ export default function ChatInput({
   const imageUploadTitle = selectedModelSupportsImages
     ? '上传图片，模型可直接识别图片内容'
     : '上传图片作为附件上下文；当前模型不支持原生视觉识别，Agent 会读取附件清单并标注需要人工确认的字段。';
+  const symbolSearchQuery = useMemo(
+    () => message.trim() ? inferSymbolSearchQuery(message, projectName) : null,
+    [message, projectName],
+  );
+  const questionTimeRange = useMemo(() => inferQuestionTimeRange(message), [message]);
+  const questionFocus = useMemo(() => inferQuestionFocus(message), [message]);
+  const quickQuestions = useMemo(() => buildQuickQuestions(projectName), [projectName]);
 
   useEffect(() => {
     if (!disabled && !cliChangeDisabled && !modelChangeDisabled) {
@@ -102,13 +159,69 @@ export default function ChatInput({
     }
   }, [disabled, cliChangeDisabled, modelChangeDisabled]);
 
+  useEffect(() => {
+    if (!projectId || !draftStorageKey) return;
+    setMessage(window.localStorage.getItem(draftStorageKey) ?? '');
+    setLoadedDraftStorageKey(draftStorageKey);
+  }, [draftStorageKey, projectId]);
+
+  useEffect(() => {
+    if (!projectId || !draftStorageKey || loadedDraftStorageKey !== draftStorageKey) return;
+    if (message) {
+      window.localStorage.setItem(draftStorageKey, message);
+    } else {
+      window.localStorage.removeItem(draftStorageKey);
+    }
+  }, [draftStorageKey, loadedDraftStorageKey, message, projectId]);
+
+  useEffect(() => {
+    const query = message.trim();
+    if (!query) {
+      setResolvedSymbols([]);
+      setQueryRewritePreview(null);
+      setIsResolvingSymbol(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setIsResolvingSymbol(true);
+      try {
+        const response = await fetch(`${API_BASE}/api/quant/query/rewrite`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, purpose: 'preview' }),
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        const rewrite = payload?.data;
+        const results = rewrite?.resolvedSymbols;
+        setResolvedSymbols(Array.isArray(results) ? results.slice(0, 3) : []);
+        setQueryRewritePreview(rewrite && typeof rewrite === 'object' ? rewrite : null);
+      } catch (error) {
+        if (!(error instanceof Error && error.name === 'AbortError')) {
+          setResolvedSymbols([]);
+          setQueryRewritePreview(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsResolvingSymbol(false);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [message]);
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
     }
 
     // Prevent multiple submissions with both state and ref locks
-    if (isSubmitting || disabled || isUploading || isRunning || submissionLockRef.current) {
+    if (isSubmitting || disabled || isUploading || submissionLockRef.current) {
       return;
     }
 
@@ -124,6 +237,7 @@ export default function ChatInput({
       // Send message and images separately - unified_manager will add image references
       onSendMessage(message.trim(), uploadedImages);
       setMessage('');
+      if (draftStorageKey) window.localStorage.removeItem(draftStorageKey);
       setUploadedImages([]);
       if (textareaRef.current) {
         textareaRef.current.style.height = '40px';
@@ -141,7 +255,7 @@ export default function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       // Check all locks before submitting
-      if (!isSubmitting && !disabled && !isUploading && !isRunning && !submissionLockRef.current && (message.trim() || uploadedImages.length > 0)) {
+      if (!isSubmitting && !disabled && !isUploading && !submissionLockRef.current && (message.trim() || uploadedImages.length > 0)) {
         handleSubmit();
       }
     }
@@ -409,6 +523,51 @@ export default function ChatInput({
           </div>
         )}
 
+        {queuedMessages.length > 0 && (
+          <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-amber-900">
+              <span>已排队 {queuedMessages.length} 条补充要求</span>
+              <span className="font-normal text-amber-700">当前任务结束后自动执行</span>
+            </div>
+            <div className="mt-1.5 space-y-1">
+              {queuedMessages.slice(0, 2).map((queued, index) => (
+                <div key={queued.id} className="flex items-center gap-2 text-xs text-amber-900">
+                  <span className="shrink-0 text-amber-600">{index + 1}.</span>
+                  <span className="min-w-0 flex-1 truncate">{queued.message}</span>
+                  {onRemoveQueuedMessage && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveQueuedMessage(queued.id)}
+                      className="rounded-full p-0.5 text-amber-700 hover:bg-amber-100 hover:text-amber-950"
+                      aria-label={`移除排队要求：${queued.message}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!message.trim() && (
+          <div className="platform-nav-scroll mb-1.5 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            {quickQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                onClick={() => {
+                  setMessage(question);
+                  requestAnimationFrame(() => textareaRef.current?.focus());
+                }}
+                className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600 transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -418,7 +577,7 @@ export default function ChatInput({
             className="w-full ring-offset-background placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[15px] leading-6 md:text-sm bg-transparent focus:bg-transparent rounded-md px-2 py-2 text-slate-900 border-0"
             id="chatinput"
             aria-label="向 QuantPilot 发送消息"
-            placeholder={placeholder}
+            placeholder={isRunning ? '补充要求将在当前任务结束后自动执行…' : placeholder}
             disabled={disabled || isUploading || isSubmitting}
             style={{ minHeight: '84px' }}
           />
@@ -436,6 +595,98 @@ export default function ChatInput({
             </div>
           )}
         </div>
+
+        {message.trim() && (
+          <div className="mx-1 mt-1.5 rounded-xl border border-slate-200/80 bg-slate-50/80 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              发送前识别
+              <span className="font-normal text-slate-400">可直接发送，系统仍会做正式核验</span>
+            </div>
+            {queryRewritePreview?.safety?.decision === 'refuse' && (
+              <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
+                {queryRewritePreview.safety.message}
+              </div>
+            )}
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {isResolvingSymbol ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  正在识别标的
+                </span>
+              ) : resolvedSymbols.length > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800">
+                  <CheckCircle2 className="h-3 w-3" />
+                  {resolvedSymbols[0].name || symbolSearchQuery} · {resolvedSymbols[0].symbol}{resolvedSymbols[0].market ? `.${resolvedSymbols[0].market}` : ''}
+                  {resolvedSymbols.length > 1 ? ` +${resolvedSymbols.length - 1}` : ''}
+                </span>
+              ) : symbolSearchQuery ? (
+                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+                  {symbolSearchQuery} · 待执行时确认
+                </span>
+              ) : null}
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+                <Clock3 className="h-3 w-3" />
+                {queryRewritePreview?.timeRange?.label || questionTimeRange}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+                {queryRewritePreview?.analysisFocus?.label || questionFocus}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+                {questionOutputLabel(mode)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {showAdvancedOptions && (
+          <div className="mx-1 mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 sm:grid-cols-2">
+            <label className="space-y-1 text-[11px] font-medium text-slate-500">
+              执行引擎
+              <select
+                value={preferredCli}
+                onChange={(event) => {
+                  onCliChange?.(event.target.value);
+                  requestAnimationFrame(() => textareaRef.current?.focus());
+                }}
+                disabled={cliChangeDisabled || !onCliChange}
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
+                aria-label="选择执行引擎"
+              >
+                {cliOptions.length === 0 && <option value={preferredCli}>{preferredCli}</option>}
+                {cliOptions.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.available}>
+                    {option.name}{!option.available ? '（不可用）' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-[11px] font-medium text-slate-500">
+              分析模型
+              <select
+                value={selectedModelValue}
+                onChange={(event) => {
+                  const option = modelOptionsForCli.find((item) => item.id === event.target.value);
+                  if (option) {
+                    onModelChange?.(option);
+                    requestAnimationFrame(() => textareaRef.current?.focus());
+                  }
+                }}
+                disabled={modelChangeDisabled || !onModelChange || modelOptionsForCli.length === 0}
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
+                aria-label="选择分析模型"
+              >
+                {modelOptionsForCli.length === 0 && <option value="">暂无可用模型</option>}
+                {modelOptionsForCli.length > 0 && selectedModelValue === '' && <option value="" disabled>选择模型</option>}
+                {modelOptionsForCli.map((option) => (
+                  <option key={option.id} value={option.id} disabled={!option.available}>
+                    {option.name}{!option.available ? '（不可用）' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -463,92 +714,72 @@ export default function ChatInput({
                 />
               </button>
             )}
-            <select
-              value={preferredCli}
-              onChange={(e) => {
-                onCliChange?.(e.target.value);
-                requestAnimationFrame(() => textareaRef.current?.focus());
-              }}
-              disabled={cliChangeDisabled || !onCliChange}
-              className="h-8 min-w-[118px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
-              aria-label="选择助手"
-            >
-              {cliOptions.length === 0 && <option value={preferredCli}>{preferredCli}</option>}
-              {cliOptions.map(option => (
-                <option key={option.id} value={option.id} disabled={!option.available}>
-                  {option.name}{!option.available ? '（不可用）' : ''}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedModelValue}
-              onChange={(e) => {
-                const option = modelOptionsForCli.find(opt => opt.id === e.target.value);
-                if (option) {
-                  onModelChange?.(option);
-                  requestAnimationFrame(() => textareaRef.current?.focus());
-                }
-              }}
-              disabled={modelChangeDisabled || !onModelChange || modelOptionsForCli.length === 0}
-              className="h-8 min-w-[136px] rounded-md border border-transparent bg-transparent px-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60"
-              aria-label="选择模型"
-            >
-              {modelOptionsForCli.length === 0 && <option value="">暂无可用模型</option>}
-              {modelOptionsForCli.length > 0 && selectedModelValue === '' && (
-                <option value="" disabled>选择模型</option>
-              )}
-              {modelOptionsForCli.map(option => (
-                <option key={option.id} value={option.id} disabled={!option.available}>
-                  {option.name}{!option.available ? '（不可用）' : ''}
-                </option>
-              ))}
-            </select>
             <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5">
-            <button
-              type="button"
-              onClick={() => onModeChange?.('act')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
-                mode === 'act'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 '
-              }`}
-              title="Act Mode: AI can modify code and create/delete files"
-            >
-              <Wrench className="h-3.5 w-3.5" />
-              <span>Act</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange?.('chat')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 ${
-                mode === 'chat'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 '
-              }`}
-              title="Chat Mode: AI provides answers without modifying code"
-            >
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>Chat</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => onModeChange?.('act')}
+                aria-pressed={mode === 'act'}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                  mode === 'act' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="获取真实数据并生成可交付看板"
+              >
+                <Wrench className="h-3.5 w-3.5" />
+                <span>生成看板</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onModeChange?.('chat')}
+                aria-pressed={mode === 'chat'}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+                  mode === 'chat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="只回答问题，不修改当前看板"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                <span>只做问答</span>
+              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedOptions((visible) => !visible)}
+              aria-expanded={showAdvancedOptions}
+              className={`flex h-8 items-center gap-1 rounded-full px-2 text-xs transition-colors ${
+                showAdvancedOptions ? 'bg-slate-100 text-slate-800' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+              }`}
+              title="执行引擎与模型设置"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              高级
+            </button>
+            <span className="hidden text-[10px] text-slate-400 xl:inline">Enter 发送 · Shift+Enter 换行</span>
           </div>
 
+          {isRunning && (
+            <Button
+              type="button"
+              onClick={onPause}
+              size="icon"
+              variant="destructive"
+              className="size-8 shrink-0 rounded-full"
+              disabled={isPausing || !onPause}
+              title="暂停当前任务"
+              aria-label="暂停当前任务"
+            >
+              <Pause className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             id="chatinput-send-message-button"
-            type={isRunning ? 'button' : 'submit'}
-            onClick={isRunning ? onPause : undefined}
-            size="icon"
-            variant={isRunning ? 'destructive' : 'default'}
-            className="size-8 rounded-full transition-all duration-150 ease-out hover:scale-110 disabled:hover:scale-100"
-            disabled={
-              isRunning
-                ? isPausing || !onPause
-                : disabled || isSubmitting || isUploading || (!message.trim() && uploadedImages.length === 0)
-            }
-            title={isRunning ? '暂停当前任务' : '发送'}
-            aria-label={isRunning ? '暂停当前任务' : '发送消息'}
+            type="submit"
+            variant="default"
+            className="h-8 shrink-0 rounded-full px-3 text-xs transition-all duration-150 ease-out hover:scale-[1.03] disabled:hover:scale-100"
+            disabled={disabled || isSubmitting || isUploading || (!message.trim() && uploadedImages.length === 0)}
+            title={isRunning ? '加入补充要求队列' : '发送消息'}
+            aria-label={isRunning ? '加入补充要求队列' : '发送消息'}
           >
-            {isRunning ? <Pause className="h-4 w-4" /> : <SendHorizontal className="h-4 w-4" />}
+            {isRunning ? <ListPlus className="h-4 w-4" /> : <SendHorizontal className="h-4 w-4" />}
+            <span>{isRunning ? '加入要求' : '发送'}</span>
           </Button>
         </div>
 

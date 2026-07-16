@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef, useCallback, useMemo, type ChangeEvent, type KeyboardEvent, type UIEvent } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { MotionDiv, MotionH3, MotionP, MotionButton } from '@/lib/motion';
 import { useRouter, useSearchParams, useParams, usePathname } from 'next/navigation';
@@ -10,7 +10,7 @@ import { VscJson } from 'react-icons/vsc';
 import { ExternalLink, Files, MessageSquareText, MonitorPlay } from 'lucide-react';
 import ChatLog from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
-import ChatInput from '@/components/chat/ChatInput';
+import ChatInput, { type UploadedImage } from '@/components/chat/ChatInput';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
@@ -29,6 +29,15 @@ import {
   type ActiveModelOption,
 } from '@/lib/utils/cliOptions';
 import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+import {
+  CHAT_PANE_DEFAULT_WIDTH,
+  CHAT_PANE_MAX_WIDTH,
+  CHAT_PANE_MIN_WIDTH,
+  CHAT_PANE_WIDTH_STORAGE_KEY,
+  PREVIEW_PANE_MIN_WIDTH,
+  clampChatPaneWidth,
+  parseStoredChatPaneWidth,
+} from './pane-layout';
 import { planPreviewReconciliation } from './preview-reconciliation';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
@@ -43,6 +52,24 @@ const CLI_ORDER = ACTIVE_CLI_IDS;
 
 type MobileWorkspaceView = 'chat' | 'preview' | 'files';
 type ProjectAvailability = 'checking' | 'available' | 'missing' | 'error';
+
+type QueuedFollowUp = {
+  id: string;
+  message: string;
+  images: UploadedImage[];
+  mode: 'act' | 'chat';
+};
+
+type RunActImage = {
+  id?: string;
+  filename?: string;
+  name?: string;
+  path?: string;
+  url: string;
+  assetUrl?: string;
+  publicUrl?: string;
+  base64?: string;
+};
 
 const sanitizeCli = (cli?: string | null) => sanitizeActiveCli(cli, DEFAULT_ACTIVE_CLI);
 
@@ -271,9 +298,26 @@ export default function ChatPage() {
   const [mode, setMode] = useState<'act' | 'chat'>('act');
   const [isRunning, setIsRunning] = useState(false);
   const [isPausingAgent, setIsPausingAgent] = useState(false);
+  const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
+  const queuedFollowUpsRef = useRef<QueuedFollowUp[]>([]);
+  const queueDispatchingRef = useRef(false);
+  const runActRef = useRef<((
+    messageOverride?: string,
+    externalImages?: RunActImage[],
+    modeOverride?: 'act' | 'chat',
+  ) => Promise<void>) | null>(null);
   const [isSseFallbackActive, setIsSseFallbackActive] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [mobileWorkspaceView, setMobileWorkspaceView] = useState<MobileWorkspaceView>('chat');
+  const [chatPaneWidth, setChatPaneWidth] = useState(CHAT_PANE_DEFAULT_WIDTH);
+  const [isChatPaneResizing, setIsChatPaneResizing] = useState(false);
+  const chatPaneRef = useRef<HTMLDivElement>(null);
+  const chatPaneWidthRef = useRef(CHAT_PANE_DEFAULT_WIDTH);
+  const chatPanePreferredWidthRef = useRef(CHAT_PANE_DEFAULT_WIDTH);
+  const chatPaneResizeRef = useRef({
+    startX: 0,
+    startWidth: CHAT_PANE_DEFAULT_WIDTH,
+  });
   const [deviceMode, setDeviceMode] = useState<'desktop'|'mobile'>('desktop');
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<{name: string; url: string; base64?: string; path?: string}[]>([]);
@@ -351,6 +395,93 @@ export default function ChatPage() {
       sessionStorage.setItem('selectedModel', sanitized);
     }
   }, [preferredCli]);
+
+  const persistChatPaneWidth = useCallback((width: number) => {
+    const nextWidth = clampChatPaneWidth(width, window.innerWidth);
+    chatPaneWidthRef.current = nextWidth;
+    chatPanePreferredWidthRef.current = nextWidth;
+    setChatPaneWidth(nextWidth);
+    window.localStorage.setItem(CHAT_PANE_WIDTH_STORAGE_KEY, String(nextWidth));
+  }, []);
+
+  const resetChatPaneWidth = useCallback(() => {
+    const nextWidth = clampChatPaneWidth(CHAT_PANE_DEFAULT_WIDTH, window.innerWidth);
+    chatPaneWidthRef.current = nextWidth;
+    chatPanePreferredWidthRef.current = CHAT_PANE_DEFAULT_WIDTH;
+    setChatPaneWidth(nextWidth);
+    window.localStorage.removeItem(CHAT_PANE_WIDTH_STORAGE_KEY);
+  }, []);
+
+  const startChatPaneResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    chatPaneResizeRef.current = {
+      startX: event.clientX,
+      startWidth: chatPaneRef.current?.getBoundingClientRect().width ?? chatPaneWidthRef.current,
+    };
+    setIsChatPaneResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const storedWidth = parseStoredChatPaneWidth(
+      window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY),
+      CHAT_PANE_MAX_WIDTH + PREVIEW_PANE_MIN_WIDTH,
+    );
+    if (storedWidth !== null) {
+      const visibleWidth = clampChatPaneWidth(storedWidth, window.innerWidth);
+      chatPanePreferredWidthRef.current = storedWidth;
+      chatPaneWidthRef.current = visibleWidth;
+      setChatPaneWidth(visibleWidth);
+    }
+
+    const clampToViewport = () => {
+      const nextWidth = clampChatPaneWidth(
+        chatPanePreferredWidthRef.current,
+        window.innerWidth,
+      );
+      chatPaneWidthRef.current = nextWidth;
+      setChatPaneWidth(nextWidth);
+    };
+    window.addEventListener('resize', clampToViewport);
+    return () => window.removeEventListener('resize', clampToViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!isChatPaneResizing) return;
+
+    const move = (event: PointerEvent) => {
+      const nextWidth = clampChatPaneWidth(
+        chatPaneResizeRef.current.startWidth + event.clientX - chatPaneResizeRef.current.startX,
+        window.innerWidth,
+      );
+      chatPaneWidthRef.current = nextWidth;
+      chatPanePreferredWidthRef.current = nextWidth;
+      setChatPaneWidth(nextWidth);
+    };
+    const stop = () => {
+      window.localStorage.setItem(
+        CHAT_PANE_WIDTH_STORAGE_KEY,
+        String(chatPanePreferredWidthRef.current),
+      );
+      setIsChatPaneResizing(false);
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+  }, [isChatPaneResizing]);
 
   const sendInitialPrompt = useCallback(async (initialPrompt: string) => {
     if (initialPromptSent) {
@@ -1146,7 +1277,8 @@ const persistProjectPreferences = useCallback(
 
       if (
         snapshot.status === 'cancelled' ||
-        snapshot.status === 'needs_clarification'
+        snapshot.status === 'needs_clarification' ||
+        snapshot.status === 'refused'
       ) {
         setIsRunning(false);
       }
@@ -2042,10 +2174,15 @@ const persistProjectPreferences = useCallback(
     });
   };
 
-  async function runAct(messageOverride?: string, externalImages?: any[]) {
+  async function runAct(
+    messageOverride?: string,
+    externalImages?: RunActImage[],
+    modeOverride?: 'act' | 'chat',
+  ) {
     const visibleMessage = (messageOverride || prompt).trim();
     let finalMessage = visibleMessage;
-    const imagesToUse = externalImages || uploadedImages;
+    const imagesToUse: RunActImage[] = externalImages || uploadedImages;
+    const effectiveMode = modeOverride ?? mode;
 
     if (!finalMessage.trim() && imagesToUse.length === 0) {
       alert('Please enter a task description or upload an image.');
@@ -2053,7 +2190,7 @@ const persistProjectPreferences = useCallback(
     }
 
     // Add additional instructions in Chat Mode
-    if (mode === 'chat') {
+    if (effectiveMode === 'chat') {
       finalMessage = finalMessage + "\n\nDo not modify code, only answer to the user's request.";
     }
 
@@ -2063,7 +2200,7 @@ const persistProjectPreferences = useCallback(
       imageCount: imagesToUse.length,
       cliPreference: preferredCli,
       model: selectedModel,
-      mode
+      mode: effectiveMode,
     });
 
     // Check for duplicate pending requests
@@ -2303,6 +2440,7 @@ const persistProjectPreferences = useCallback(
       const result = await r.json();
       requestAccepted =
         result?.status !== 'intent_clarification_required' &&
+        result?.status !== 'intent_refused' &&
         result?.status !== 'cancelled';
 
       console.log('📸 Act API response received:', {
@@ -2336,7 +2474,7 @@ const persistProjectPreferences = useCallback(
           ? result.user_message_id
           : '';
 
-      createRequest(resolvedRequestId, userMessageId, finalMessage, mode);
+      createRequest(resolvedRequestId, userMessageId, finalMessage, effectiveMode);
 
       // Refresh data after completion
       await loadTree('.');
@@ -2373,6 +2511,36 @@ const persistProjectPreferences = useCallback(
       pendingRequestsRef.current.delete(requestFingerprint);
     }
   }
+
+  useEffect(() => {
+    runActRef.current = runAct;
+  });
+
+  useEffect(() => {
+    queuedFollowUpsRef.current = queuedFollowUps;
+  }, [queuedFollowUps]);
+
+  useEffect(() => {
+    if (generationBusy || queueDispatchingRef.current || queuedFollowUps.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      const next = queuedFollowUpsRef.current[0];
+      if (!next || !runActRef.current) return;
+      queueDispatchingRef.current = true;
+      setQueuedFollowUps((current) => current.filter((item) => item.id !== next.id));
+      void runActRef.current(next.message, next.images, next.mode).finally(() => {
+        queueDispatchingRef.current = false;
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [generationBusy, queuedFollowUps.length]);
+
+  useEffect(() => {
+    setQueuedFollowUps([]);
+    queuedFollowUpsRef.current = [];
+    queueDispatchingRef.current = false;
+  }, [projectId]);
 
   const pauseAgent = useCallback(async () => {
     if (isPausingAgent) {
@@ -2751,6 +2919,9 @@ const persistProjectPreferences = useCallback(
       `}</style>
 
       <div className="chat-workspace relative flex h-dvh flex-col overflow-hidden" role="main">
+        {isChatPaneResizing && (
+          <div className="fixed inset-0 z-[100] cursor-col-resize" aria-hidden="true" />
+        )}
         <nav
           className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/95 px-2 backdrop-blur lg:hidden"
           aria-label="移动端工作区视图"
@@ -2809,6 +2980,8 @@ const persistProjectPreferences = useCallback(
         <div className="flex min-h-0 w-full flex-1">
           {/* Left: Chat window */}
           <div
+            ref={chatPaneRef}
+            style={{ '--chat-pane-width': `${chatPaneWidth}px` } as CSSProperties}
             className={`chat-pane relative z-10 h-full shrink-0 flex-col border-r border-border/70 bg-background/94 backdrop-blur-xl ${
               mobileWorkspaceView === 'chat' ? 'flex' : 'hidden lg:flex'
             }`}
@@ -2874,14 +3047,25 @@ const persistProjectPreferences = useCallback(
             <div className="shrink-0 border-t border-border/60 bg-background/80 p-3 backdrop-blur sm:p-4">
               <ChatInput
                 onSendMessage={(message, images) => {
-                  // Pass images to runAct
-                  runAct(message, images);
+                  if (generationBusy) {
+                    const queued: QueuedFollowUp = {
+                      id: crypto.randomUUID(),
+                      message,
+                      images: images ?? [],
+                      mode,
+                    };
+                    queuedFollowUpsRef.current = [...queuedFollowUpsRef.current, queued];
+                    setQueuedFollowUps(queuedFollowUpsRef.current);
+                    return;
+                  }
+                  void runAct(message, images, mode);
                 }}
-                disabled={generationBusy}
+                disabled={false}
                 placeholder={mode === 'act' ? "向 QuantPilot 描述你的量化需求..." : "和 QuantPilot 讨论项目细节..."}
                 mode={mode}
                 onModeChange={setMode}
                 projectId={projectId}
+                projectName={projectName}
                 preferredCli={preferredCli}
                 selectedModel={selectedModel}
                 modelOptions={modelOptions}
@@ -2893,8 +3077,50 @@ const persistProjectPreferences = useCallback(
                 isRunning={generationBusy}
                 onPause={pauseAgent}
                 isPausing={isPausingAgent}
+                queuedMessages={queuedFollowUps.map(({ id, message }) => ({ id, message }))}
+                onRemoveQueuedMessage={(queuedId) => {
+                  setQueuedFollowUps((current) => {
+                    const removed = current.find((item) => item.id === queuedId);
+                    removed?.images.forEach((image) => {
+                      if (image.url.startsWith('blob:')) URL.revokeObjectURL(image.url);
+                    });
+                    const next = current.filter((item) => item.id !== queuedId);
+                    queuedFollowUpsRef.current = next;
+                    return next;
+                  });
+                }}
               />
             </div>
+
+            <div
+              role="separator"
+              aria-label="调整对话区和看板区宽度"
+              aria-orientation="vertical"
+              aria-valuemin={CHAT_PANE_MIN_WIDTH}
+              aria-valuemax={CHAT_PANE_MAX_WIDTH}
+              aria-valuenow={chatPaneWidth}
+              tabIndex={0}
+              title="左右拖动调整对话区宽度；双击恢复默认"
+              onPointerDown={startChatPaneResize}
+              onDoubleClick={resetChatPaneWidth}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft') {
+                  event.preventDefault();
+                  persistChatPaneWidth(chatPaneWidthRef.current - 24);
+                }
+                if (event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  persistChatPaneWidth(chatPaneWidthRef.current + 24);
+                }
+                if (event.key === 'Home') {
+                  event.preventDefault();
+                  resetChatPaneWidth();
+                }
+              }}
+              className={`absolute -right-1.5 top-0 z-30 hidden h-full w-3 touch-none cursor-col-resize items-center justify-center outline-none lg:flex after:h-16 after:w-1 after:rounded-full after:bg-border/80 after:shadow-sm after:transition-[height,background-color,opacity] hover:after:h-24 hover:after:bg-primary/70 focus-visible:after:h-24 focus-visible:after:bg-primary/70 ${
+                isChatPaneResizing ? 'after:h-24 after:bg-primary' : ''
+              }`}
+            />
           </div>
 
           {/* Right: Preview/Code area */}

@@ -44,7 +44,8 @@ export function planPreviewReconciliation(params: {
   if (
     snapshot.status === 'failed' ||
     snapshot.status === 'cancelled' ||
-    snapshot.status === 'needs_clarification'
+    snapshot.status === 'needs_clarification' ||
+    snapshot.status === 'refused'
   ) {
     return { action: 'wait' };
   }

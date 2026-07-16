@@ -255,7 +255,7 @@
   }
 
   .chat-pane {
-    width: clamp(20rem, 29vw, 27rem);
+    width: var(--chat-pane-width, clamp(20rem, 29vw, 27rem));
     box-shadow: 10px 0 36px -30px hsl(var(--shadow-color) / 0.55);
   }
 
