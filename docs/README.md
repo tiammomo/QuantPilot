@@ -77,6 +77,8 @@ flowchart TB
   W --> EP[评测平台]
 ```
 
+AI 工作台的最终回复会附带完整业务回合耗时与累计 Token 用量；统计覆盖主 MoAgent run 和自动修复 run，并保存在消息 metadata 中，因此刷新或实时通道重连后仍可恢复，同时不会进入下一轮模型上下文。详细口径见 [MoAgent 架构](moagent.md#回合耗时与-token-口径)。
+
 ## 文档维护规则
 
 - README 只保留定位、启动和导航；复杂知识放到 `docs/`。

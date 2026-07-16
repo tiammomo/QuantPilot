@@ -121,8 +121,11 @@ npm run eval:ci:e2e
 ```
 
 E2E 门默认要求 `benchmarks/quantpilot/e2e-suite.json` 中的完整发布回归集，
-同时要求报告来自当前 checkout/build。默认效率阈值为每 case 最多 20 turns、
-120000 cache-miss input tokens，整套不允许 unexpected tool failure；可通过
+同时要求报告来自当前 checkout/build。DeepSeek live-model、零模型 standard
+product control 与 repair/cancellation/crash runtime control 分开验真，不能相互
+冒充。默认效率阈值按 source run 加最多三次受限 repair run 的整条 case lineage
+聚合为最多 12 turns、84000 cache-miss input tokens；它不是任一单独 lane 的运行
+预算。整套不允许 unexpected tool failure；可通过
 对应 CLI 参数或 `MOAGENT_E2E_*` 环境变量收紧，但不应将契约报告改名绕过。
 E2E runner 会先从 PostgreSQL 采集并验真 AgentRun/Mission lineage、写入报告，
 并保留该 case 的数据库证据与工作空间供随后 CI gate 核查；不会在报告生成前

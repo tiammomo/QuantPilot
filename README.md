@@ -13,7 +13,7 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
 - 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
-- MoAgent 自研执行层：直接连接 DeepSeek，负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交。
+- MoAgent 自研执行层：直接连接 DeepSeek，负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
 - Skills 能力层：通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 `.moagent/skills`，当前 Agent 执行仍从仓库兼容源按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力。
 - 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
 
