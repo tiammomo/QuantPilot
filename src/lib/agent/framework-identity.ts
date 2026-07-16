@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
-export const MOAGENT_VERSION = '1.7.0' as const;
+export const MOAGENT_VERSION = '1.8.0' as const;
 export const MOAGENT_FRAMEWORK_VERSION = `moagent:${MOAGENT_VERSION}` as const;
 
 const REVISION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/+~-]{0,191}$/;

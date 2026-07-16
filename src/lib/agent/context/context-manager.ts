@@ -85,10 +85,26 @@ export interface MoAgentContextCompactionMetadata {
 
 export interface MoAgentContextPreparationOptions {
   contextCapsule?: MoAgentTrustedContextCapsuleCheckpoint | null;
+  /**
+   * Exact framework-owned suffix messages for this provider request. They are
+   * included in token accounting and never persisted in canonical history.
+   */
+  requestLocalMessages?: readonly MoAgentMessage[];
+  /** Suppress the capsule's legacy standalone suffix when it is already wrapped. */
+  emitContextCapsuleRequestLocalMessage?: boolean;
+  /** Optional per-turn tightening of the manager's configured input budget. */
+  inputBudgetTokens?: number;
 }
 
 export interface MoAgentPreparedContext {
+  /**
+   * Canonical history that may be retained by the run engine. Framework-owned
+   * request-local controls deliberately stay outside this array so changing a
+   * checkpoint never mutates the provider's stable system prefix.
+   */
   messages: MoAgentMessage[];
+  /** Framework-generated suffixes to append only to the current provider request. */
+  requestLocalMessages: MoAgentMessage[];
   estimate: MoAgentContextEstimate;
   compaction: MoAgentContextCompactionMetadata;
 }
@@ -441,6 +457,7 @@ function applyTrustedContextCapsule(
   checkpoint: MoAgentTrustedContextCapsuleCheckpoint,
 ): {
   groups: ContextGroup[];
+  requestLocalMessage: MoAgentMessage;
   telemetry?: MoAgentTrustedContextCapsuleTelemetry;
   replacedGroups: ContextGroup[];
 } {
@@ -462,40 +479,18 @@ function applyTrustedContextCapsule(
     const callIds = toolCallIds(group);
     return callIds.length > 0 && callIds.every((callId) => coveredToolCallIds.has(callId));
   });
-  const previousCapsuleAlreadyCurrent = previousCapsules.length === 1 &&
-    previousCapsules[0].entries[0].message.role === 'system' &&
-    previousCapsules[0].entries[0].message.content === checkpoint.content;
-  if (replaceableToolGroups.length === 0 && previousCapsuleAlreadyCurrent) {
-    return { groups, replacedGroups: [] };
-  }
-  // Even when only the active DeepSeek protocol atom is covered, install the
-  // framework capsule without replacing that atom. This permits its untrusted
-  // result body to be summarized under pressure while the trusted outcome fact
-  // remains available.
-
+  // Historical v1 runs persisted the capsule as a leading system message.
+  // Remove that legacy representation while preserving its telemetry. New
+  // checkpoints are request-local suffixes and are never retained in canonical
+  // history, so a changing checkpoint cannot invalidate the system prefix.
   const removed = new Set([...previousCapsules, ...replaceableToolGroups]);
   const retained = groups.filter((group) => !removed.has(group));
-  const capsuleGroup: ContextGroup = {
-    kind: 'message',
-    entries: [{
-      originalIndex: Math.max(
-        -1,
-        ...groups.flatMap((group) => originalIndexes(group)),
-      ) + 1,
-      message: { role: 'system', content: checkpoint.content },
-    }],
-    protected: true,
-    activeToolCluster: false,
-  };
-  const firstNonSystem = retained.findIndex((group) =>
-    group.entries.some((entry) => entry.message.role !== 'system'));
-  const insertionIndex = firstNonSystem < 0 ? retained.length : firstNonSystem;
-  retained.splice(insertionIndex, 0, capsuleGroup);
   const replacedMessages = [...previousCapsules, ...replaceableToolGroups]
     .reduce((count, group) => count + group.entries.length, 0);
 
   return {
     groups: retained,
+    requestLocalMessage: { role: 'user', content: checkpoint.content },
     replacedGroups: replaceableToolGroups,
     telemetry: {
       applied: true,
@@ -561,16 +556,39 @@ export class MoAgentContextManager {
     tools: readonly MoAgentToolDefinition[] = [],
     preparation: MoAgentContextPreparationOptions = {},
   ): MoAgentPreparedContext {
+    if (
+      preparation.inputBudgetTokens !== undefined &&
+      (!Number.isSafeInteger(preparation.inputBudgetTokens) || preparation.inputBudgetTokens <= 0)
+    ) {
+      throw new MoAgentContextError(
+        'INVALID_CONTEXT_CONFIGURATION',
+        'inputBudgetTokens must be a positive safe integer when provided',
+        { field: 'inputBudgetTokens', value: preparation.inputBudgetTokens },
+      );
+    }
+    const inputBudgetTokens = Math.min(
+      this.inputBudgetTokens,
+      preparation.inputBudgetTokens ?? this.inputBudgetTokens,
+    );
     let groups = buildGroups(messages);
-    const originalInputTokens = this.estimate(flattenGroups(groups), tools);
+    const requestLocalMessages = cloneMessages(preparation.requestLocalMessages ?? []);
     let contextCapsuleTelemetry: MoAgentTrustedContextCapsuleTelemetry | undefined;
     const capsuleReplacedGroups: ContextGroup[] = [];
     if (preparation.contextCapsule) {
       const applied = applyTrustedContextCapsule(groups, preparation.contextCapsule);
       groups = applied.groups;
+      if (preparation.emitContextCapsuleRequestLocalMessage !== false) {
+        requestLocalMessages.push(applied.requestLocalMessage);
+      }
       contextCapsuleTelemetry = applied.telemetry;
       capsuleReplacedGroups.push(...applied.replacedGroups);
     }
+    const estimateGroups = (candidateGroups: readonly ContextGroup[]): number =>
+      this.estimate([...flattenGroups(candidateGroups), ...requestLocalMessages], tools);
+    const originalInputTokens = this.estimate(
+      [...messages.map(cloneMessage), ...requestLocalMessages],
+      tools,
+    );
     const systemMessageIndexes = groups.flatMap((group) =>
       group.entries
         .filter((entry) => entry.message.role === 'system')
@@ -603,9 +621,9 @@ export class MoAgentContextManager {
         roles: group.entries.map((entry) => entry.message.role),
       }),
     );
-    preparedInputTokens = this.estimate(flattenGroups(groups), tools);
+    preparedInputTokens = estimateGroups(groups);
 
-    if (preparedInputTokens > this.inputBudgetTokens) {
+    if (preparedInputTokens > inputBudgetTokens) {
       reasoning: for (const group of groups) {
         // DeepSeek thinking-mode replays reasoning_content with tool_calls.
         // Never split that provider protocol atom: retained tool clusters keep
@@ -619,13 +637,13 @@ export class MoAgentContextManager {
           const { reasoningContent: _removed, ...withoutReasoning } = entry.message;
           entry.message = withoutReasoning as MoAgentAssistantMessage;
           removedReasoning.push({ messageIndex: entry.originalIndex, originalUtf8Bytes });
-          preparedInputTokens = this.estimate(flattenGroups(groups), tools);
-          if (preparedInputTokens <= this.inputBudgetTokens) break reasoning;
+          preparedInputTokens = estimateGroups(groups);
+          if (preparedInputTokens <= inputBudgetTokens) break reasoning;
         }
       }
     }
 
-    if (preparedInputTokens > this.inputBudgetTokens) {
+    if (preparedInputTokens > inputBudgetTokens) {
       outer: for (const group of groups) {
         if (group.protected || group.kind !== 'tool_call_cluster') continue;
         for (const entry of group.entries) {
@@ -633,19 +651,19 @@ export class MoAgentContextManager {
           const originalMessage = entry.message;
           const summary = summarizeToolResult(originalMessage);
           entry.message = summary.message;
-          const candidateTokens = this.estimate(flattenGroups(groups), tools);
+          const candidateTokens = estimateGroups(groups);
           if (candidateTokens < preparedInputTokens) {
             preparedInputTokens = candidateTokens;
             summarizedToolResults.push({ messageIndex: entry.originalIndex, ...summary.metadata });
           } else {
             entry.message = originalMessage;
           }
-          if (preparedInputTokens <= this.inputBudgetTokens) break outer;
+          if (preparedInputTokens <= inputBudgetTokens) break outer;
         }
       }
     }
 
-    if (preparedInputTokens > this.inputBudgetTokens) {
+    if (preparedInputTokens > inputBudgetTokens) {
       const retained: ContextGroup[] = [];
       let resolved = false;
       for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
@@ -660,11 +678,11 @@ export class MoAgentContextManager {
           messageIndexes: originalIndexes(group),
           roles: group.entries.map((entry) => entry.message.role),
         });
-        preparedInputTokens = this.estimate(
-          flattenGroups([...retained, ...groups.slice(groupIndex + 1)]),
-          tools
-        );
-        if (preparedInputTokens <= this.inputBudgetTokens) {
+        preparedInputTokens = estimateGroups([
+          ...retained,
+          ...groups.slice(groupIndex + 1),
+        ]);
+        if (preparedInputTokens <= inputBudgetTokens) {
           retained.push(...groups.slice(groupIndex + 1));
           groups = retained;
           resolved = true;
@@ -673,11 +691,11 @@ export class MoAgentContextManager {
       }
       if (!resolved) {
         groups = retained;
-        preparedInputTokens = this.estimate(flattenGroups(groups), tools);
+        preparedInputTokens = estimateGroups(groups);
       }
     }
 
-    if (preparedInputTokens > this.inputBudgetTokens && activeToolGroup) {
+    if (preparedInputTokens > inputBudgetTokens && activeToolGroup) {
       // A provider requires one result for every call in a parallel tool-call
       // cluster. Keep the assistant call and every adjacent result message,
       // but allow the largest result bodies to become deterministic summaries
@@ -698,19 +716,22 @@ export class MoAgentContextManager {
         const originalMessage = entry.message;
         const summary = summarizeToolResult(originalMessage);
         entry.message = summary.message;
-        const candidateTokens = this.estimate(flattenGroups(groups), tools);
+        const candidateTokens = estimateGroups(groups);
         if (candidateTokens < preparedInputTokens) {
           preparedInputTokens = candidateTokens;
           summarizedToolResults.push({ messageIndex: entry.originalIndex, ...summary.metadata });
         } else {
           entry.message = originalMessage;
         }
-        if (preparedInputTokens <= this.inputBudgetTokens) break;
+        if (preparedInputTokens <= inputBudgetTokens) break;
       }
     }
 
     const preparedMessages = flattenGroups(groups);
-    preparedInputTokens = this.estimate(preparedMessages, tools);
+    preparedInputTokens = this.estimate(
+      [...preparedMessages, ...requestLocalMessages],
+      tools,
+    );
     const compaction: MoAgentContextCompactionMetadata = {
       applied:
         contextCapsuleTelemetry?.applied === true ||
@@ -731,28 +752,36 @@ export class MoAgentContextManager {
       contextWindowTokens: this.options.contextWindowTokens,
       reservedOutputTokens: this.options.reservedOutputTokens,
       maxInputTokens: this.options.maxInputTokens,
-      inputBudgetTokens: this.inputBudgetTokens,
+      inputBudgetTokens,
       originalInputTokens,
       preparedInputTokens,
     };
 
-    if (preparedInputTokens > this.inputBudgetTokens) {
+    if (preparedInputTokens > inputBudgetTokens) {
       const protectedMessages = groups
         .filter((group) => group.protected)
         .flatMap((group) => group.entries.map((entry) => entry.message));
       throw new MoAgentContextError(
         'CONTEXT_BUDGET_EXCEEDED',
-        `Prepared context requires ${preparedInputTokens} estimated tokens but the input budget is ${this.inputBudgetTokens}`,
+        `Prepared context requires ${preparedInputTokens} estimated tokens but the input budget is ${inputBudgetTokens}`,
         {
           ...estimate,
-          requiredReductionTokens: preparedInputTokens - this.inputBudgetTokens,
-          protectedInputTokens: this.estimate(protectedMessages, tools),
+          requiredReductionTokens: preparedInputTokens - inputBudgetTokens,
+          protectedInputTokens: this.estimate(
+            [...protectedMessages, ...requestLocalMessages],
+            tools,
+          ),
           compaction,
         }
       );
     }
 
-    return { messages: cloneMessages(preparedMessages), estimate, compaction };
+    return {
+      messages: cloneMessages(preparedMessages),
+      requestLocalMessages: cloneMessages(requestLocalMessages),
+      estimate,
+      compaction,
+    };
   }
 
   private estimate(

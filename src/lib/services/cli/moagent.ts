@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/db/client';
 import { assertMoAgentSchemaReady } from '@/lib/db/moagent-schema-readiness';
 import { MoAgentContextManager } from '@/lib/agent/context';
-import { MoAgentRunEngine } from '@/lib/agent/core';
+import { createMoAgentPhaseGraph, MoAgentRunEngine } from '@/lib/agent/core';
 import {
   MOAGENT_BUILD_REVISION,
   MOAGENT_FRAMEWORK_VERSION,
@@ -14,6 +14,7 @@ import {
 } from '@/lib/agent/framework-identity';
 import { parseMoAgentToolArguments } from '@/lib/agent/core/tool-arguments';
 import { DeepSeekProvider, DeepSeekProviderError } from '@/lib/agent/providers/deepseek';
+import { MoAgentDeterministicToolPlanProvider } from '@/lib/agent/providers/deterministic-tool-plan';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { compileMoAgentSkills } from '@/lib/agent/skills';
 import {
@@ -34,7 +35,6 @@ import {
   DEEPSEEK_MODEL_ID,
   DEEPSEEK_OFFICIAL_BASE_URL,
   MOAGENT_DEFAULT_MODEL,
-  getMoAgentModelDisplayName,
 } from '@/lib/constants/cliModels';
 import { createRealtimeMessage, serializeMessage } from '@/lib/serializers/chat';
 import {
@@ -158,16 +158,6 @@ function optionalPositiveIntegerEnv(name: string): number | undefined {
   return value;
 }
 
-function reasoningEffortForPhase(
-  phase: 'data-preparation' | 'workspace-generation' | 'validation-repair',
-): 'low' | 'medium' | 'high' | 'max' {
-  const configured = process.env.MOAGENT_REASONING_EFFORT?.trim().toLowerCase();
-  if (configured && ['low', 'medium', 'high', 'max'].includes(configured)) {
-    return configured as 'low' | 'medium' | 'high' | 'max';
-  }
-  return phase === 'workspace-generation' ? 'medium' : 'high';
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -260,10 +250,25 @@ function toolTarget(input: unknown): string | undefined {
 function toolAction(name: string): string {
   if (/^(?:write_file)$/i.test(name)) return 'Created';
   if (/^(?:edit_file|apply_patch|semantic_edit|apply_dashboard_spec)$/i.test(name)) return 'Edited';
-  if (/^(?:read_file|read_file_range|query_json|query_text_file|inspect_dashboard_contract|extract_image_evidence)$/i.test(name)) return 'Read';
+  if (/^(?:read_file|read_file_range|query_json|query_text_file|inspect_dashboard_contract|quant_extract_uploaded_image|extract_image_evidence)$/i.test(name)) return 'Read';
   if (/^(?:list_files|search_files)$/i.test(name)) return 'Searched';
   if (/^(?:quant_api_get)$/i.test(name)) return 'Executed';
   return 'Generated';
+}
+
+function toolStartSummary(name: string, target?: string): string {
+  if (name === 'query_json') return `正在读取 ${target || '结构化数据'} 的必要字段。`;
+  if (name === 'query_text_file') return `正在定位 ${target || '源码文件'} 的相关实现。`;
+  if (name === 'inspect_dashboard_contract') return '正在核验看板结构、数据绑定和可编辑入口。';
+  if (name === 'apply_dashboard_spec') return '正在按权威任务合同编译标准看板。';
+  if (name === 'semantic_edit') return `正在对 ${target || '目标源码'} 执行版本化语义编辑。`;
+  if (name === 'quant_api_get') return `正在从 ${target || '量化数据接口'} 获取真实数据。`;
+  if (name === 'quant_extract_uploaded_image' || name === 'extract_image_evidence') {
+    return '正在提取图片中的可验证金融字段。';
+  }
+  if (name === 'submit_result') return '正在提交本次候选产物，后续由平台独立验证。';
+  if (name === 'write_file' || name === 'edit_file') return `正在更新 ${target || '目标文件'}。`;
+  return `正在执行 ${name}。`;
 }
 
 function toolResultSummary(
@@ -413,6 +418,9 @@ function formatRunFailure(result: MoAgentRunResult): string {
       }
       if (result.error?.code === 'MAX_RUN_CACHE_MISS_INPUT_TOKENS') {
         return 'MoAgent 已达到本次非缓存输入 Token 成本预算，任务未正常提交。';
+      }
+      if (result.error?.code === 'MAX_RUN_PREPARED_INPUT_TOKENS') {
+        return 'MoAgent 已达到网络请求前的累计输入 Token 预留上限，任务未正常提交。';
       }
       return 'MoAgent 已达到本次输出 Token 预算，任务未正常提交。';
     case 'timeout':
@@ -609,9 +617,6 @@ async function executeMoAgentPhase(
   };
 
   try {
-    if (!apiKey) {
-      throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
-    }
     if (await cancellationRequested()) stopForCancellation();
     // Never mutate schema from a request path. A deployment with a partial or
     // stale durable-runtime catalog must fail before leases or provider calls.
@@ -653,7 +658,7 @@ async function executeMoAgentPhase(
     if (cancellationReason || abortController.signal.aborted || await cancellationRequested()) {
       stopForCancellation(cancellationReason ?? '用户暂停了当前任务');
     }
-    publishStatus('starting', `正在初始化 MoAgent（${getMoAgentModelDisplayName(resolvedModel)}）...`);
+    publishStatus('starting', '正在初始化 MoAgent 并核验可信工作区状态...');
 
     const runPlan = await readQuantRunPlan(workspace);
     const capabilityId = runPlan?.requestedCapabilityId ?? runPlan?.capabilityId ?? null;
@@ -685,6 +690,29 @@ async function executeMoAgentPhase(
     const preparedIntent = profile === 'generation' && platformPrepared && !images?.length
       ? standardCompilerEligible ? 'standard' as const : 'custom' as const
       : null;
+    const phaseGraph = createMoAgentPhaseGraph({
+      profile,
+      platformPrepared,
+      preparedIntent,
+      hasAttachments: Boolean(images?.length),
+      dashboardSpecReady: preparedAssessment.dashboardSpecReady,
+    });
+    if (phaseGraph.providerMode === 'model' && !apiKey) {
+      throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
+    }
+    publishStatus(
+      'agent_phase_selected',
+      phaseGraph.providerMode === 'deterministic'
+        ? '已进入可信标准看板编译路径，本轮不调用模型。'
+        : `已进入 ${phaseGraph.phase} 执行阶段。`,
+      {
+        lane: phaseGraph.lane,
+        phase: phaseGraph.phase,
+        providerMode: phaseGraph.providerMode,
+        maxTurns: phaseGraph.budgets.maxTurns,
+        maxToolCalls: phaseGraph.budgets.maxToolCalls,
+      },
+    );
     if (
       profile === 'repair' &&
       (!repairReport ||
@@ -726,6 +754,11 @@ async function executeMoAgentPhase(
       throw new Error('MoAgent repair 无法把当前失败安全归因到明确文件，拒绝启动宽权限自动修复。');
     }
     const repairNeedsSourceWrites = repairWriteGlobs?.some((glob) => glob.startsWith('app/')) ?? false;
+    const repairUsesCertifiedSourceScope = repairWriteGlobs?.every((glob) =>
+      MOAGENT_PREPARED_SOURCE_WRITE_GLOBS.includes(
+        glob as (typeof MOAGENT_PREPARED_SOURCE_WRITE_GLOBS)[number],
+      ),
+    ) ?? false;
     const repairProfileWriteGlobs = repairWriteGlobs;
     const runtimeProfileWriteGlobs = profile === 'repair'
       ? repairProfileWriteGlobs
@@ -733,10 +766,27 @@ async function executeMoAgentPhase(
         ? [...MOAGENT_PREPARED_SOURCE_WRITE_GLOBS]
         : undefined;
     const canWriteDashboardSource = profile !== 'repair' || repairNeedsSourceWrites;
-    const includeDashboardSpec = canWriteDashboardSource && (
-      (profile === 'repair' && needsDashboardRepairSkill) ||
-      (profile !== 'repair' && preparedIntent === 'standard')
+    // Validation repair has already received a deterministic platform repair
+    // attempt. Do not expose the full renderer again to the model: if its
+    // preconditions changed, the call can only fail deterministically and burn
+    // another turn. Remaining source failures use one hash-guarded edit lane.
+    const includeDashboardSpec = profile !== 'repair' &&
+      canWriteDashboardSource && preparedIntent === 'standard';
+    const repairNeedsFileWrites = profile === 'repair' && Boolean(
+      needsDataRepairSkill || repairWriteGlobs?.some((glob) => !glob.startsWith('app/')),
     );
+    const allowedRepairMutationToolNames = profile === 'repair'
+      ? [
+          ...(repairNeedsFileWrites ? ['write_file', 'edit_file'] : []),
+          ...(repairNeedsSourceWrites ? ['semantic_edit'] : []),
+        ]
+      : undefined;
+    const repairPreparedSurface = profile === 'repair' &&
+      repairNeedsSourceWrites &&
+      repairUsesCertifiedSourceScope &&
+      !repairNeedsFileWrites
+        ? 'custom' as const
+        : null;
     const supplementalWriteGlobs = profile === 'repair'
       ? []
       : !platformPrepared || images?.length
@@ -759,11 +809,18 @@ async function executeMoAgentPhase(
         : {}),
       maxOutputChars: maxToolOutputChars,
       includeImageExtraction: Boolean(images?.length),
-      includeQuantApi: !platformPrepared,
-      targetedReadsOnly: platformPrepared,
-      ...(preparedIntent ? { preparedSurface: preparedIntent } : {}),
+      includeQuantApi: !(platformPrepared || repairPreparedSurface),
+      targetedReadsOnly: platformPrepared || Boolean(repairPreparedSurface),
+      ...(preparedIntent || repairPreparedSurface
+        ? { preparedSurface: preparedIntent ?? repairPreparedSurface! }
+        : {}),
       includeDashboardSpec,
+      includeDashboardInspector:
+        !(platformPrepared || repairPreparedSurface) && dashboardContractRequired,
       includeSemanticEdit: canWriteDashboardSource,
+      ...(allowedRepairMutationToolNames
+        ? { allowedMutationToolNames: allowedRepairMutationToolNames }
+        : {}),
       resourceLockWaitTimeoutMs: positiveIntegerEnv(
         'MOAGENT_RESOURCE_LOCK_WAIT_MS',
         5_000
@@ -853,41 +910,91 @@ async function executeMoAgentPhase(
       { role: 'user', content: userPrompt },
     ];
 
-    const provider = new DeepSeekProvider({
-      apiKey,
-      baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
-      headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
-      maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
-      maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
-      initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
-      maxRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_MAX_MS', 10_000),
-    });
-    const maxTurnOutputTokens = positiveIntegerEnv(
-      'MOAGENT_MAX_TURN_OUTPUT_TOKENS',
-      positiveIntegerEnv('MOAGENT_MAX_OUTPUT_TOKENS', 12_000),
+    const provider = phaseGraph.providerMode === 'deterministic'
+      ? new MoAgentDeterministicToolPlanProvider({
+          name: 'moagent-trusted-renderer',
+          steps: [
+            {
+              name: 'apply_dashboard_spec',
+              arguments: { templateId, variantId },
+            },
+            {
+              name: 'submit_result',
+              arguments: {
+                summary: `已通过可信渲染器生成 ${templateId}/${variantId} 标准量化看板。`,
+                artifacts: ['app/page.tsx', 'app/globals.css'],
+                notes: '零模型 Token 的确定性编译结果，等待平台独立验证。',
+              },
+            },
+          ],
+        })
+      : new DeepSeekProvider({
+          apiKey: apiKey!,
+          baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
+          headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
+          maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
+          maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
+          initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
+          maxRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_MAX_MS', 10_000),
+        });
+    const runtimeModel = phaseGraph.providerMode === 'deterministic'
+      ? 'moagent-deterministic-renderer-v1'
+      : resolvedModel;
+    const configuredMaxTurnOutputTokens = phaseGraph.providerMode === 'deterministic'
+      ? 1
+      : positiveIntegerEnv(
+          'MOAGENT_MAX_TURN_OUTPUT_TOKENS',
+          positiveIntegerEnv('MOAGENT_MAX_OUTPUT_TOKENS', 12_000),
+        );
+    const maxRunOutputTokens = Math.min(
+      optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_OUTPUT_TOKENS') ??
+        phaseGraph.budgets.maxOutputTokens,
+      phaseGraph.budgets.maxOutputTokens,
     );
-    const maxRunOutputTokens = positiveIntegerEnv(
-      'MOAGENT_MAX_RUN_OUTPUT_TOKENS',
-      maxTurnOutputTokens * 2,
+    const maxTurnOutputTokens = Math.min(
+      configuredMaxTurnOutputTokens,
+      maxRunOutputTokens,
     );
-    const contextManager = new MoAgentContextManager({
+    const contextManager = phaseGraph.providerMode === 'model' ? new MoAgentContextManager({
       // Reserve only one provider turn. The cumulative run output budget is a
       // separate control and must not shrink every turn's input context.
       contextWindowTokens: positiveIntegerEnv('MOAGENT_CONTEXT_WINDOW_TOKENS', 128_000),
       reservedOutputTokens: maxTurnOutputTokens,
-      maxInputTokens: positiveIntegerEnv('MOAGENT_MAX_INPUT_TOKENS', 48_000),
-      contextCapsuleMaxUtf8Bytes: positiveIntegerEnv(
-        'MOAGENT_CONTEXT_CAPSULE_MAX_BYTES',
-        8_192,
+      maxInputTokens: Math.min(
+        positiveIntegerEnv('MOAGENT_MAX_INPUT_TOKENS', 48_000),
+        phaseGraph.budgets.maxPreparedInputTokens,
       ),
-    });
+      contextCapsuleMaxUtf8Bytes: Math.min(
+        optionalPositiveIntegerEnv('MOAGENT_CONTEXT_CAPSULE_MAX_BYTES') ?? 2_048,
+        2_048,
+      ),
+    }) : undefined;
+    const configuredMaxTurns = optionalPositiveIntegerEnv('MOAGENT_MAX_TURNS');
+    const configuredMaxToolCalls = optionalPositiveIntegerEnv('MOAGENT_MAX_TOTAL_TOOL_CALLS');
+    const maxRunInputTokens =
+      optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_INPUT_TOKENS') ?? 160_000;
+    const maxRunCacheMissInputTokens = Math.min(
+      optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_CACHE_MISS_INPUT_TOKENS') ??
+        phaseGraph.budgets.maxCacheMissInputTokens,
+      phaseGraph.budgets.maxCacheMissInputTokens,
+    );
+    const maxRunPreparedInputTokens = Math.min(
+      phaseGraph.budgets.maxCumulativePreparedInputTokens,
+      maxRunInputTokens,
+    );
     const engine = new MoAgentRunEngine({
       provider,
-      model: resolvedModel,
+      model: runtimeModel,
       tools,
       contextManager,
-      maxTurns: positiveIntegerEnv('MOAGENT_MAX_TURNS', 12),
-      maxTotalToolCalls: positiveIntegerEnv('MOAGENT_MAX_TOTAL_TOOL_CALLS', 20),
+      maxTurns: Math.min(
+        configuredMaxTurns ?? phaseGraph.budgets.maxTurns,
+        phaseGraph.budgets.maxTurns,
+      ),
+      maxTotalToolCalls: Math.min(
+        configuredMaxToolCalls ?? phaseGraph.budgets.maxToolCalls,
+        phaseGraph.budgets.maxToolCalls,
+      ),
       preWriteReadOnlyTurnThreshold: positiveIntegerEnv(
         'MOAGENT_PRE_WRITE_READ_ONLY_TURNS',
         3,
@@ -898,10 +1005,12 @@ async function executeMoAgentPhase(
       ),
       maxTokens: maxRunOutputTokens,
       maxTokensPerTurn: maxTurnOutputTokens,
-      maxRunInputTokens:
-        optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_INPUT_TOKENS') ?? 160_000,
-      maxRunCacheMissInputTokens:
-        optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_CACHE_MISS_INPUT_TOKENS') ?? 120_000,
+      maxRunInputTokens,
+      maxRunCacheMissInputTokens,
+      ...(phaseGraph.providerMode === 'model'
+        ? { maxRunPreparedInputTokens }
+        : {}),
+      progressStallTurns: phaseGraph.budgets.progressStallTurns,
       timeoutMs: Math.max(1, deadlineAt - Date.now()),
       requireTerminalTool: true,
       requireWorkspaceWriteBeforeTerminal: true,
@@ -932,7 +1041,7 @@ async function executeMoAgentPhase(
           workspaceKey,
           requestId,
           provider: provider.name,
-          model: resolvedModel,
+          model: runtimeModel,
           frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
           buildRevision: MOAGENT_BUILD_REVISION,
           profileHash: `sha256:${hashMoAgentProvenance({
@@ -941,6 +1050,7 @@ async function executeMoAgentPhase(
             skillPhase,
             platformPrepared,
             preparedIntent,
+            phaseGraph,
             templateId,
             variantId,
           })}`,
@@ -1001,8 +1111,8 @@ async function executeMoAgentPhase(
       signal: abortController.signal,
       temperature: 0.2,
       reasoning: {
-        enabled: process.env.MOAGENT_REASONING !== '0',
-        effort: reasoningEffortForPhase(skillPhase),
+        enabled: phaseGraph.providerMode === 'model' && process.env.MOAGENT_REASONING !== '0',
+        effort: phaseGraph.reasoningEffort,
       },
       metadata: {
         projectId,
@@ -1012,6 +1122,7 @@ async function executeMoAgentPhase(
         skillPhase,
         platformPrepared,
         preparedIntent,
+        phaseGraph,
         templateId,
         variantId,
         skillContextCharacters: skillBundle.totalCharacters,
@@ -1118,6 +1229,9 @@ async function executeMoAgentPhase(
               tool_call_id: event.toolCall.id,
               operationId: event.operationId,
               action: toolAction(event.toolCall.name),
+              summary: toolStartSummary(event.toolCall.name, target),
+              isTransientToolMessage: true,
+              resultStatus: 'running',
               eventId: event.eventId,
               eventSequence: event.sequence,
               ...(target ? { filePath: target, target } : {}),
@@ -1157,6 +1271,7 @@ async function executeMoAgentPhase(
               operationId: event.operationId,
               success: event.result.ok,
               resultStatus: event.result.ok ? 'completed' : 'failed',
+              isTransientToolMessage: false,
               summary,
               ...(resultTarget ? { target: resultTarget, filePath: resultTarget } : {}),
               ...(resultData?.pathResolved === true ? {
@@ -1242,6 +1357,8 @@ async function executeMoAgentPhase(
       runtime: 'moagent',
       turns: result.turns,
       usage: result.usage,
+      lane: phaseGraph.lane,
+      providerMode: phaseGraph.providerMode,
       skills: skillBundle.resolvedSkillIds,
       candidateWorkspaceSha256: candidate.workspaceSha256,
     });

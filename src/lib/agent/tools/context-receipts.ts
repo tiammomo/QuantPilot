@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type {
   MoAgentTool,
   MoAgentToolContextReceipt,
@@ -59,10 +61,25 @@ function dashboardSpecReceipt(result: MoAgentToolResult): MoAgentToolContextRece
     .slice(0, 16)
     .map((file) => stringField(file, 'path'))
     .filter((path): path is string => path !== undefined);
+  const artifactEntries = result.data.files
+    .slice(0, 16)
+    .map((file) => ({
+      path: stringField(file, 'path'),
+      afterSha256: stringField(file, 'afterSha256'),
+    }))
+    .filter((file): file is { path: string; afterSha256: string } =>
+      file.path !== undefined && file.afterSha256 !== undefined)
+    .sort((left, right) => left.path.localeCompare(right.path));
+  const artifactSha256 = artifactEntries.length > 0
+    ? createHash('sha256')
+        .update(JSON.stringify(artifactEntries), 'utf8')
+        .digest('hex')
+    : undefined;
   return {
     targetReferences: targets.length > 0
       ? targets
       : ['app/page.tsx', 'app/globals.css'],
+    ...(artifactSha256 ? { artifactSha256 } : {}),
   };
 }
 
@@ -113,7 +130,7 @@ export function firstPartyContextReceiptProjector(
     case 'write_file':
     case 'edit_file':
     case 'apply_patch':
-      return (input, result) => pathReceipt(input, result);
+      return (input, result) => pathReceipt(input, result, { digestKey: 'afterSha256' });
     case 'semantic_edit':
       return (input, result) => pathReceipt(input, result, { digestKey: 'afterSha256' });
     case 'inspect_dashboard_contract':

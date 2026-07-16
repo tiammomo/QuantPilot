@@ -173,6 +173,9 @@ describe('MoAgent QuantPilot prompts', () => {
     expect(prompt).toContain('submit_result');
     expect(prompt).toContain('artifact=final_dashboard');
     expect(prompt).toContain('never invent public/data/dashboard.json');
+    expect(prompt).toContain('platform owns the visible five-stage progress');
+    expect(prompt).toContain('Keep assistant text empty on tool turns');
+    expect(prompt).not.toContain('one short plan');
     expect(prompt).not.toContain('Available typed tools are exactly');
     expect(prompt.length).toBeLessThan(2_000);
   });

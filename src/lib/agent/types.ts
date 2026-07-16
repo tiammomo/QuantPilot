@@ -298,6 +298,7 @@ export interface MoAgentRunEventResult {
 /** Deterministic control-plane reasons for asking a long-running agent to converge. */
 export type MoAgentConvergenceReason =
   | 'repeated_read_observation'
+  | 'progress_stalled'
   | 'exploration_read_loop'
   | 'post_write_read_loop'
   | 'tool_limit'

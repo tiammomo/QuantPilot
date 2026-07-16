@@ -35,14 +35,18 @@ const mocks = vi.hoisted(() => ({
   auditRecovery: vi.fn(),
 }));
 
-vi.mock('@/lib/agent/core', () => ({
-  MoAgentRunEngine: class {
-    constructor(options: unknown) {
-      mocks.engineOptions(options);
-    }
-    run = mocks.run;
-  },
-}));
+vi.mock('@/lib/agent/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agent/core')>();
+  return {
+    ...actual,
+    MoAgentRunEngine: class {
+      constructor(options: unknown) {
+        mocks.engineOptions(options);
+      }
+      run = mocks.run;
+    },
+  };
+});
 
 vi.mock('@/lib/agent/providers/deepseek', () => ({
   DeepSeekProvider: class { readonly name = 'deepseek'; },
@@ -259,6 +263,80 @@ describe('MoAgent terminal ownership', () => {
     expect(mocks.markCompleted).not.toHaveBeenCalled();
     expect(mocks.markFailed).not.toHaveBeenCalled();
     expect(mocks.completeRun).toHaveBeenCalledWith('project-test', 'request-success');
+  });
+
+  it('projects a typed tool call as executing and then settles the same call with a result', async () => {
+    mocks.run.mockImplementation(async (
+      _input: unknown,
+      runtime: { observers?: Array<(event: unknown) => Promise<void>> },
+    ) => {
+      const observer = runtime.observers?.[0];
+      expect(observer).toBeDefined();
+      await observer?.({
+        type: 'tool_started',
+        runId: 'run-test',
+        eventId: 'event-tool-started',
+        sequence: 1,
+        timestamp: 1,
+        turn: 1,
+        operationId: 'operation-query-json',
+        toolCall: {
+          id: 'tool-query-json',
+          name: 'query_json',
+          arguments: '{"path":"data_file/final/dashboard-data.json"}',
+        },
+      });
+      await observer?.({
+        type: 'tool_completed',
+        runId: 'run-test',
+        eventId: 'event-tool-completed',
+        sequence: 2,
+        timestamp: 2,
+        turn: 1,
+        operationId: 'operation-query-json',
+        effect: 'read',
+        terminal: false,
+        durationMs: 4,
+        toolCall: {
+          id: 'tool-query-json',
+          name: 'query_json',
+          arguments: '{"path":"data_file/final/dashboard-data.json"}',
+        },
+        result: {
+          ok: true,
+          data: { path: 'data_file/final/dashboard-data.json' },
+          content: '{"symbol":"600589"}',
+        },
+      });
+      return result('completed');
+    });
+
+    await executeMoAgent(
+      'project-test',
+      workspace,
+      '生成量化看板',
+      'deepseek-v4-flash',
+      'request-tool-lifecycle',
+    );
+
+    expect(mocks.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      messageType: 'tool_use',
+      metadata: expect.objectContaining({
+        toolCallId: 'tool-query-json',
+        isTransientToolMessage: true,
+        resultStatus: 'running',
+        summary: expect.stringContaining('正在读取'),
+      }),
+    }));
+    expect(mocks.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      messageType: 'tool_result',
+      metadata: expect.objectContaining({
+        toolCallId: 'tool-query-json',
+        isTransientToolMessage: false,
+        resultStatus: 'completed',
+        summary: expect.stringContaining('已读取'),
+      }),
+    }));
   });
 
   it('publishes a single agent-stage failure for a failed run', async () => {
@@ -604,10 +682,12 @@ describe('MoAgent terminal ownership', () => {
     }));
     expect(mocks.createInspector).toHaveBeenCalledTimes(1);
     expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
-      maxTurns: 12,
-      maxTotalToolCalls: 20,
+      maxTurns: 3,
+      maxTotalToolCalls: 8,
       maxRunInputTokens: 160_000,
-      maxRunCacheMissInputTokens: 120_000,
+      maxRunCacheMissInputTokens: 24_000,
+      maxRunPreparedInputTokens: 72_000,
+      progressStallTurns: 1,
       preWriteReadOnlyTurnThreshold: 3,
       postWriteReadOnlyTurnThreshold: 2,
       requireTerminalTool: true,
@@ -619,6 +699,39 @@ describe('MoAgent terminal ownership', () => {
         skillPhase: 'workspace-generation',
       }),
     }), expect.any(Object));
+  });
+
+  it('does not let a stricter cache-miss breaker shrink cumulative prepared input', async () => {
+    mocks.run.mockResolvedValue(result('completed'));
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: true,
+      reasons: [],
+      dashboardSpecReady: true,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    });
+    mocks.readRunPlan.mockResolvedValue({
+      status: 'planned',
+      requestedCapabilityId: 'stock_diagnosis',
+    });
+    process.env.MOAGENT_MAX_RUN_CACHE_MISS_INPUT_TOKENS = '1000';
+
+    try {
+      await executeMoAgent(
+        'project-test',
+        workspace,
+        '只重构现有看板视觉',
+        'deepseek-v4-flash',
+        'request-independent-input-budgets',
+      );
+    } finally {
+      delete process.env.MOAGENT_MAX_RUN_CACHE_MISS_INPUT_TOKENS;
+    }
+
+    expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
+      maxRunCacheMissInputTokens: 1_000,
+      maxRunPreparedInputTokens: 72_000,
+    }));
   });
 
   it('routes an ordinary prepared generation through the compiler surface without source inspection', async () => {
@@ -655,8 +768,57 @@ describe('MoAgent terminal ownership', () => {
       includeSemanticEdit: true,
     }));
     expect(mocks.createInspector).not.toHaveBeenCalled();
+    expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'moagent-deterministic-renderer-v1',
+      maxTurns: 2,
+      maxTotalToolCalls: 2,
+      maxRunCacheMissInputTokens: 1,
+    }));
+    expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
+      reasoning: { enabled: false, effort: 'low' },
+      metadata: expect.objectContaining({
+        phaseGraph: expect.objectContaining({
+          lane: 'deterministic_standard',
+          providerMode: 'deterministic',
+        }),
+      }),
+    }), expect.any(Object));
     expect(mocks.buildUserPrompt).toHaveBeenCalledWith(expect.objectContaining({
       initialDashboardContract: expect.stringContaining('trusted_dashboard_spec'),
+    }));
+  });
+
+  it('runs the trusted standard compiler without a model API key', async () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    mocks.run.mockResolvedValue(result('completed'));
+    mocks.assessPreparedArtifacts.mockResolvedValue({
+      ready: true,
+      reasons: [],
+      dashboardSpecReady: true,
+      dashboardSpecErrorCode: null,
+      dashboardSpecReasons: [],
+    });
+    mocks.readRunPlan.mockResolvedValue({
+      runId: 'plan-zero-model',
+      status: 'planned',
+      requestedCapabilityId: 'stock_diagnosis',
+      visualization: {
+        templateId: 'single-stock-diagnosis',
+        variantId: 'single-stock-command-center',
+      },
+    });
+
+    await expect(executeMoAgent(
+      'project-test',
+      workspace,
+      '生成标准个股诊断看板',
+      'deepseek-v4-flash',
+      'request-zero-model',
+    )).resolves.toBeDefined();
+
+    expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
+      provider: expect.objectContaining({ name: 'moagent-trusted-renderer' }),
+      model: 'moagent-deterministic-renderer-v1',
     }));
   });
 
@@ -735,6 +897,12 @@ describe('MoAgent terminal ownership', () => {
       reasoning: { enabled: true, effort: 'high' },
       metadata: expect.objectContaining({ skillPhase: 'data-preparation' }),
     }), expect.any(Object));
+    expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
+      maxTurns: 8,
+      maxRunInputTokens: 160_000,
+      maxRunCacheMissInputTokens: 60_000,
+      maxRunPreparedInputTokens: 160_000,
+    }));
   });
 
   it('uses the repair profile only through the trusted repair entry point', async () => {
@@ -756,15 +924,25 @@ describe('MoAgent terminal ownership', () => {
         'app/globals.css',
       ],
       includeDefaultWriteGlobs: false,
+      preparedSurface: 'custom',
+      includeDashboardSpec: false,
+      includeDashboardInspector: false,
+      allowedMutationToolNames: ['semantic_edit'],
     }));
     expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'validation-repair',
       requiredSkillIds: ['dashboard-visualization'],
     }));
     expect(mocks.run).toHaveBeenCalledWith(expect.objectContaining({
-      reasoning: { enabled: true, effort: 'high' },
+      reasoning: { enabled: true, effort: 'medium' },
       metadata: expect.objectContaining({ skillPhase: 'validation-repair' }),
     }), expect.any(Object));
+    expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
+      maxTurns: 3,
+      maxRunCacheMissInputTokens: 20_000,
+      maxRunPreparedInputTokens: 60_000,
+      progressStallTurns: 1,
+    }));
     expect(mocks.registerRun).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'project-test',
       requestId: 'request-parent',
@@ -793,6 +971,9 @@ describe('MoAgent terminal ownership', () => {
       profile: 'repair',
       profileAllowedWriteGlobs: ['data_file/final/**'],
       includeDefaultWriteGlobs: false,
+      includeDashboardSpec: false,
+      includeDashboardInspector: false,
+      allowedMutationToolNames: ['write_file', 'edit_file'],
     }));
     expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'validation-repair',

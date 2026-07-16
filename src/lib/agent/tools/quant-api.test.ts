@@ -340,6 +340,63 @@ describe('MoAgent typed quant and terminal tools', () => {
     })).toThrow(/outside the certified app source scope/);
   });
 
+  it('narrows a repair episode to its trusted mutation strategy', () => {
+    const repair = createMoAgentTools({
+      workspaceRoot: workspace,
+      profile: 'repair',
+      profileAllowedWriteGlobs: ['app/page.tsx', 'app/globals.css'],
+      includeQuantApi: false,
+      includeImageExtraction: false,
+      includeDashboardSpec: true,
+      includeSemanticEdit: true,
+      allowedMutationToolNames: ['semantic_edit'],
+    });
+
+    expect(repair.some((tool) => tool.name === 'semantic_edit')).toBe(true);
+    expect(repair.filter((tool) => tool.effect === 'workspace_write').map((tool) => tool.name))
+      .toEqual(['semantic_edit']);
+    expect(repair.some((tool) => tool.name === 'submit_result')).toBe(true);
+  });
+
+  it('treats extension tools without an effect as mutations in the allowlist gate', () => {
+    const implicitMutator: MoAgentTool = {
+      name: 'implicit_mutator',
+      description: 'Effect intentionally omitted.',
+      inputSchema: { type: 'object' },
+      execute: () => ({ ok: true, data: {} }),
+    };
+    const repair = createMoAgentTools({
+      workspaceRoot: workspace,
+      profile: 'repair',
+      profileAllowedWriteGlobs: ['app/page.tsx'],
+      includeQuantApi: false,
+      includeImageExtraction: false,
+      includeSemanticEdit: true,
+      allowedMutationToolNames: ['semantic_edit'],
+      additionalTools: [implicitMutator],
+    });
+
+    expect(repair.some((tool) => tool.name === 'implicit_mutator')).toBe(false);
+    expect(repair.some((tool) => tool.name === 'semantic_edit')).toBe(true);
+  });
+
+  it('omits dashboard inspection after orchestration already preflighted the contract', () => {
+    const tools = createMoAgentTools({
+      workspaceRoot: workspace,
+      includeDashboardInspector: false,
+      includeImageExtraction: false,
+    });
+
+    expect(tools.some((tool) => tool.name === 'inspect_dashboard_contract')).toBe(false);
+  });
+
+  it('rejects unknown mutation allowlist entries', () => {
+    expect(() => createMoAgentTools({
+      workspaceRoot: workspace,
+      allowedMutationToolNames: ['shell'],
+    })).toThrow(/Unknown MoAgent mutation tool allowlist entries: shell/);
+  });
+
   it('applies the named generation and repair write profiles', async () => {
     const generationWrite = createMoAgentTools({
       workspaceRoot: workspace,

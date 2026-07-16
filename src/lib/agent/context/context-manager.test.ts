@@ -72,6 +72,35 @@ describe('MoAgentContextManager', () => {
     expect(tokenEstimator).toHaveBeenCalledWith(prepared.messages, tools);
   });
 
+  it('accounts for the exact request-local envelope and honors a per-turn budget', () => {
+    const messages: MoAgentMessage[] = [
+      { role: 'system', content: 'Stable policy' },
+      { role: 'user', content: 'Build the workspace' },
+    ];
+    const envelope: MoAgentMessage = {
+      role: 'user',
+      content: '[MoAgent Framework Request-Local Control Envelope v1]\n{"nonce":"n","controls":["x"]}',
+    };
+    const required = jsonEstimator([...messages, envelope], []);
+    const context = manager(10_000);
+
+    const prepared = context.prepare(messages, [], {
+      requestLocalMessages: [envelope],
+      inputBudgetTokens: required,
+    });
+
+    expect(prepared.messages).toEqual(messages);
+    expect(prepared.requestLocalMessages).toEqual([envelope]);
+    expect(prepared.estimate).toMatchObject({
+      inputBudgetTokens: required,
+      preparedInputTokens: required,
+    });
+    expect(() => context.prepare(messages, [], {
+      requestLocalMessages: [envelope],
+      inputBudgetTokens: required - 1,
+    })).toThrowError(expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }));
+  });
+
   it('returns independent message objects without compacting a context already under budget', () => {
     const messages: MoAgentMessage[] = [
       { role: 'system', content: 'Policy' },

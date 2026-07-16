@@ -264,10 +264,10 @@ describe('MoAgent trusted context capsule', () => {
       ...cluster(['call-final-active'], 100),
     ], [], { contextCapsule: session.checkpoint('writing') });
     const serialized = JSON.stringify(second.messages);
-    const capsule = second.messages.find((message) =>
-      message.role === 'system' && message.content.startsWith(TRUSTED_CONTEXT_CAPSULE_PREFIX));
-    expect(capsule?.role).toBe('system');
-    const payload = capsule?.role === 'system' ? capsulePayload(capsule.content) : {};
+    const capsule = second.requestLocalMessages.find((message) =>
+      message.role === 'user' && message.content.startsWith(TRUSTED_CONTEXT_CAPSULE_PREFIX));
+    expect(capsule?.role).toBe('user');
+    const payload = capsule?.role === 'user' ? capsulePayload(capsule.content) : {};
 
     expect(serialized).not.toContain('untrusted-call-same-target-old');
     expect(serialized).not.toContain('untrusted-call-same-target-new');
@@ -279,7 +279,7 @@ describe('MoAgent trusted context capsule', () => {
       ]),
     });
     expect(second.compaction.contextCapsule).toMatchObject({
-      replacedPreviousCapsule: true,
+      replacedPreviousCapsule: false,
       operationTombstones: 2,
     });
   });
@@ -411,11 +411,14 @@ describe('MoAgent trusted context capsule', () => {
     expect(serialized).toContain('active DeepSeek reasoning');
     expect(serialized).toContain('active-a');
     expect(serialized).toContain('active-b');
-    expect(prepared.messages.filter((message) => message.role === 'system')).toHaveLength(2);
+    expect(prepared.messages.filter((message) => message.role === 'system')).toHaveLength(1);
     expect(prepared.messages.find((message) => message.role === 'user')).toEqual({
       role: 'user',
       content: 'Current task',
     });
+    expect(prepared.requestLocalMessages).toEqual([
+      { role: 'user', content: session.checkpoint('writing')!.content },
+    ]);
     expect(prepared.compaction.contextCapsule).toMatchObject({
       applied: true,
       version: 1,

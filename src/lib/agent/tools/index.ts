@@ -29,8 +29,16 @@ export interface CreateMoAgentToolsOptions extends MoAgentFileToolOptions {
   preparedSurface?: 'standard' | 'custom';
   /** Expose the trusted platform-template compiler for prepared dashboard generations. */
   includeDashboardSpec?: boolean;
+  /** Expose source/data contract inspection when orchestration has not already preflighted it. */
+  includeDashboardInspector?: boolean;
   /** Expose hash-guarded AST/CSS/range edits after targeted source reads. */
   includeSemanticEdit?: boolean;
+  /**
+   * Trusted orchestration allowlist for mutating tools. This narrows repair
+   * episodes to one mutation strategy instead of asking the model to choose
+   * among overlapping write/edit/patch/compiler surfaces.
+   */
+  allowedMutationToolNames?: readonly string[];
   imageExtraction?: Omit<MoAgentImageExtractionToolOptions, 'workspaceRoot'>;
   includeImageExtraction?: boolean;
   /** Product-specific typed tools (for example image extraction). */
@@ -138,12 +146,14 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
     : options.preparedSurface === 'custom'
       ? [queryJsonTool, queryTextFileTool, semanticEditTool!, submitResultTool]
       : null;
-  const tools: MoAgentTool[] = [
+  const candidateTools: MoAgentTool[] = [
     ...(preparedTools ?? [
       ...(options.targetedReadsOnly
         ? fileTools.filter((tool) => !MOAGENT_GENERIC_READ_TOOL_NAMES.has(tool.name))
         : fileTools),
-      createInspectDashboardContractTool(options),
+      ...(options.includeDashboardInspector === false
+        ? []
+        : [createInspectDashboardContractTool(options)]),
       queryJsonTool,
       queryTextFileTool,
       ...(dashboardSpecTool ? [dashboardSpecTool] : []),
@@ -163,6 +173,35 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
       ...(options.additionalTools ?? []),
     ]),
   ];
+  const allowedMutationToolNames = options.allowedMutationToolNames
+    ? new Set(options.allowedMutationToolNames)
+    : null;
+  const registeredMutationToolNames = new Set(
+    candidateTools
+      // Missing effect is conservatively external_write everywhere else in
+      // the runtime; the orchestration allowlist must use the same rule.
+      .filter((tool) => {
+        const effect = tool.effect ?? 'external_write';
+        return effect === 'workspace_write' || effect === 'external_write';
+      })
+      .map((tool) => tool.name),
+  );
+  if (
+    allowedMutationToolNames &&
+    [...allowedMutationToolNames].some((name) => !registeredMutationToolNames.has(name))
+  ) {
+    const unknown = [...allowedMutationToolNames]
+      .filter((name) => !registeredMutationToolNames.has(name));
+    throw new Error(`Unknown MoAgent mutation tool allowlist entries: ${unknown.join(', ')}`);
+  }
+  const tools = allowedMutationToolNames
+    ? candidateTools.filter((tool) => {
+        const effect = tool.effect ?? 'external_write';
+        return (
+          effect !== 'workspace_write' && effect !== 'external_write'
+        ) || allowedMutationToolNames.has(tool.name);
+      })
+    : candidateTools;
   const seen = new Set<string>();
   const additionalTools = new Set(options.additionalTools ?? []);
   for (const tool of tools) {
