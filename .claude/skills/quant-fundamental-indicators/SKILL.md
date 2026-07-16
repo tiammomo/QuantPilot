@@ -1,37 +1,34 @@
 ---
 name: quant-fundamental-indicators
-description: Use this skill when a quantitative task needs derived fundamental indicators such as net margin, average ROE, average gross margin, and latest financial quality metrics.
+description: Validate or derive A-share fundamental indicators such as net margin, ROE, gross margin, and growth summaries from normalized reports. Use for profitability quality, financial trend summaries, derived indicator checks, or preparing fundamentalIndicators points and summary.
 ---
 
-# QuantPilot 财务衍生指标能力
+# QuantPilot 财务衍生指标
 
-本 skill 用于从 QuantPilot 后端获取标准化财务衍生指标，适用于基本面分析、盈利质量分析、财务趋势看板和个股诊断。
+## 执行流程
 
-## API
+1. 确认标的和财务报告已标准化。
+2. 优先读取 `/api/v1/indicators/fundamental/{symbol}?limit=8` 的后端标准结果。
+3. 若接口缺失且真实 reports 足够，只推导有明确公式的指标；不要从缺少分母的数据猜 ROE。
+4. 保留每期 `points`、样本数、期间和 percentage-point 语义，再构建 `summary`。
+5. 将结果写入 `fundamentalIndicators`；样本不足、分母为零或单位冲突必须写入 warnings。
+
+## 按需加载参考
+
+- 当自行计算净利率、汇总 ROE/毛利率、判断百分比单位或解释亏损期时，读取 [财务指标方法与质量门](references/indicator-methodology.md)。
+- 直接透传已校验的后端 `fundamentalIndicators` 时，只需核对 receipt，无需加载全部公式。
+
+## 确定性脚本
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/indicators/fundamental/600519?limit=8'
+python3 scripts/derive_indicators.py financials.json
+python3 scripts/derive_indicators.py - < financials.json
 ```
 
-## 返回内容
+脚本读取 JSON 文件或 stdin，向 stdout 输出 `points`、`summary` 与 `data_quality`；`-o/--output` 可选。
 
-接口返回：
+## Workspace 协作与质量门
 
-- `points`: 每个报告期的营收、归母净利润、营收同比、净利润同比、毛利率、ROE、净利率。
-- `summary`: 最新报告期、最新营收、最新归母净利润、最新同比、最新毛利率、最新 ROE、平均 ROE、平均毛利率、平均净利率。
-- `as_of`、`fetched_at`、`source`、`data_quality`。
-
-## 工作流程
-
-1. 先确认标的已经解析为标准代码。
-2. 先获取财务摘要或确认财务摘要能力可用。
-3. 调用 `indicators/fundamental` 获取后端标准化衍生指标。
-4. 将指标写入 `data_file/raw/<run_id>/fundamental-indicators.json` 或 `data_file/final/dashboard-data.json` 的 `fundamentalIndicators` 字段。
-5. 页面生成时优先读取 `fundamentalIndicators.summary` 展示盈利能力、利润率和成长质量。
-6. 样本不足或 `data_quality.status` 不是 `ok` 时，必须在页面或结论中说明限制。
-
-## 禁止事项
-
-- 不要把财务摘要当完整三张表。
-- 不要用单期财务指标下长期确定性结论。
-- 不要把百分比字段重复乘以 100。
+- 继承平台阶段；只贡献报告期、衍生指标、样本量、来源和限制。
+- 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
+- 不重复乘以 100，不把算术平均称为加权平均，不用单期指标给确定性长期结论。

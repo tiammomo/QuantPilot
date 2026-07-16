@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
+import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -28,6 +29,7 @@ interface RegistrySkill {
   inputs?: string[];
   outputs?: string[];
   scripts?: string[];
+  references?: string[];
   endpoints?: string[];
   legacyAliases?: string[];
   validation?: string[];
@@ -57,6 +59,7 @@ export interface SkillItem {
   inputs: string[];
   outputs: string[];
   scripts: string[];
+  references: string[];
   endpoints: string[];
   validation: string[];
   legacyAliases: string[];
@@ -355,6 +358,38 @@ function normalizeSkillScope(value: RegistrySkill['scope']): SkillScope {
   return 'workflow';
 }
 
+function resolvePackageDirectory(policy: JsonRecord): string {
+  const configured = typeof policy.packageDir === 'string'
+    ? policy.packageDir.replaceAll('\\', '/')
+    : '.claude/skill-packages';
+  if (
+    !configured ||
+    path.isAbsolute(configured) ||
+    configured.split('/').includes('..')
+  ) {
+    return path.join(ROOT, '.claude', 'skill-packages');
+  }
+  return path.resolve(ROOT, configured);
+}
+
+function hasValidAgentMetadata(source: string, skillId: string): boolean {
+  try {
+    const document = loadYaml(source, { schema: JSON_SCHEMA });
+    if (!document || typeof document !== 'object' || Array.isArray(document)) return false;
+    const agentInterface = (document as JsonRecord).interface;
+    if (!agentInterface || typeof agentInterface !== 'object' || Array.isArray(agentInterface)) return false;
+    const fields = agentInterface as JsonRecord;
+    for (const field of ['display_name', 'short_description', 'default_prompt']) {
+      if (typeof fields[field] !== 'string' || !String(fields[field]).trim()) return false;
+    }
+    const shortLength = Array.from(String(fields.short_description)).length;
+    return shortLength >= 25 && shortLength <= 64 &&
+      String(fields.default_prompt).includes(`$${skillId}`);
+  } catch {
+    return false;
+  }
+}
+
 export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const [registry, changelog, lock] = await Promise.all([
     readJson(REGISTRY_PATH),
@@ -365,7 +400,7 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const policy = registry.policy && typeof registry.policy === 'object'
     ? (registry.policy as JsonRecord)
     : {};
-  const packageDir = path.join(ROOT, '.claude', 'skill-packages');
+  const packageDir = resolvePackageDirectory(policy);
   const coreSkills = Array.isArray(registry.coreSkills) ? registry.coreSkills as RegistrySkill[] : [];
   const changelogSkills = changelog.skills && typeof changelog.skills === 'object'
     ? changelog.skills as Record<string, { releases?: SkillRelease[] }>
@@ -406,15 +441,59 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
     const packageChanged = Boolean(lockEntry?.packageSha256 && packageSha256 && lockEntry.packageSha256 !== packageSha256);
     const versionMismatch = Boolean(lockEntry?.version && lockEntry.version !== skill.version);
     const missing: string[] = [];
+    const sourceDirectoryPaths = new Set(sourceDirectories.map((directory) => directory.path));
+    const referenceFiles = sourceFiles.filter((file) =>
+      file.path.startsWith('references/') && file.path.endsWith('.md'));
+    const scriptFiles = sourceFiles.filter((file) =>
+      file.path.startsWith('scripts/') && /\.(?:py|js|mjs|sh)$/.test(file.path));
+    const registeredScripts = new Set(asStringArray(skill.scripts));
+    const registeredReferences = new Set(asStringArray(skill.references));
+    const skillSource = await fs.readFile(skillFilePath, 'utf8').catch(() => '');
+    const agentSource = await fs.readFile(
+      path.join(sourceDir, 'agents', 'openai.yaml'),
+      'utf8',
+    ).catch(() => '');
 
     if (!(await pathExists(skillFilePath))) missing.push('SKILL.md');
+    for (const requiredDirectory of ['references', 'scripts', 'agents']) {
+      if (!sourceDirectoryPaths.has(requiredDirectory)) missing.push(`${requiredDirectory}/`);
+    }
+    if (referenceFiles.length === 0) missing.push('references/*.md');
+    if (scriptFiles.length === 0) missing.push('scripts/*');
     if (!currentRelease) missing.push('changelog');
+    if (currentRelease && !currentRelease.snapshot?.exists) missing.push('current_snapshot');
     if (!lockEntry) missing.push('lock');
+    if (lockEntry && !lockEntry.version) missing.push('lock.version');
+    if (lockEntry && !lockEntry.sourceSha256) missing.push('lock.sourceSha256');
+    if (lockEntry && !lockEntry.packageSha256) missing.push('lock.packageSha256');
+    if (lockEntry && !Number.isSafeInteger(lockEntry.fileCount)) missing.push('lock.fileCount');
+    const expectedPackagePath = path.relative(ROOT, packagePath).replaceAll(path.sep, '/');
+    if (lockEntry && lockEntry.packagePath !== expectedPackagePath) missing.push('lock.packagePath');
     if (!packageExists) missing.push('package');
     for (const scriptPath of asStringArray(skill.scripts)) {
       if (!sourceFiles.some((file) => file.path === scriptPath)) {
         missing.push(`script:${scriptPath}`);
       }
+    }
+    for (const referencePath of asStringArray(skill.references)) {
+      if (!sourceFiles.some((file) => file.path === referencePath)) {
+        missing.push(`reference:${referencePath}`);
+      }
+    }
+    for (const scriptFile of scriptFiles) {
+      if (!registeredScripts.has(scriptFile.path)) missing.push(`registry:${scriptFile.path}`);
+      if (!skillSource.includes(scriptFile.path)) missing.push(`navigation:${scriptFile.path}`);
+    }
+    for (const referenceFile of referenceFiles) {
+      if (!registeredReferences.has(referenceFile.path)) missing.push(`registry:${referenceFile.path}`);
+      if (!skillSource.includes(`](${referenceFile.path})`)) {
+        missing.push(`navigation:${referenceFile.path}`);
+      }
+    }
+    if (!sourceFiles.some((file) => file.path === 'agents/openai.yaml')) {
+      missing.push('agents/openai.yaml');
+    } else if (!hasValidAgentMetadata(agentSource, skill.id)) {
+      missing.push('agents/openai.yaml:invalid');
     }
     if (sourceChanged) missing.push('source_hash');
     if (packageChanged) missing.push('package_hash');
@@ -432,14 +511,15 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       inputs: asStringArray(skill.inputs),
       outputs: asStringArray(skill.outputs),
       scripts: asStringArray(skill.scripts),
+      references: asStringArray(skill.references),
       endpoints: asStringArray(skill.endpoints),
       validation: asStringArray(skill.validation),
-      legacyAliases: [
+      legacyAliases: Array.from(new Set([
         ...asStringArray(skill.legacyAliases),
         ...Object.entries(legacyAliases)
           .filter(([, target]) => target === skill.id)
           .map(([alias]) => alias),
-      ],
+      ])),
       changelog: {
         currentRelease,
         releases,

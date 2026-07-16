@@ -1,0 +1,4 @@
+interface:
+  display_name: "证券标识解析"
+  short_description: "将名称、简称和代码解析为唯一标准证券标识并处理歧义"
+  default_prompt: "Use $quant-symbol-resolver to resolve the user security identifiers before any market-data lookup."

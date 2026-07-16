@@ -1,0 +1,4 @@
+interface:
+  display_name: "运行规划"
+  short_description: "校验任务意图、标的、时间范围、能力与验收合同的一致性"
+  default_prompt: "Use $run-planner to validate the platform-created run plan and identify only material ambiguities."

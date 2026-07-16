@@ -1,0 +1,4 @@
+interface:
+  display_name: "技术指标"
+  short_description: "校验均线、收益、回撤、波动、成交量指标的统一口径和样本限制"
+  default_prompt: "Use $quant-technical-indicators to validate technical metrics computed from local adjusted bars."

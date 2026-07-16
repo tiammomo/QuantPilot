@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -200,13 +202,53 @@ def assess(question: str, capability: str | None = None) -> dict[str, Any]:
     }
 
 
-def main() -> None:
+def load_json_input(value: str) -> dict[str, Any]:
+    """Load a JSON object from a literal, a file path, or stdin (``-``)."""
+
+    if value == "-":
+        raw = sys.stdin.read()
+    else:
+        candidate = Path(value)
+        try:
+            is_file = candidate.is_file()
+        except OSError:
+            is_file = False
+        raw = candidate.read_text(encoding="utf-8") if is_file else value
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("--input must resolve to a JSON object")
+    return parsed
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Assess whether a QuantPilot task needs clarification.")
-    parser.add_argument("--question", required=True, help="User question or task instruction.")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--question", help="User question or task instruction (legacy-compatible interface).")
+    source.add_argument(
+        "--input",
+        help="JSON object literal, JSON file path, or '-' for stdin; expects question and optional capability.",
+    )
     parser.add_argument("--capability", default=None, help="Optional QuantPilot capability id.")
-    args = parser.parse_args()
-    print(json.dumps(assess(args.question, args.capability), ensure_ascii=False, indent=2))
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        payload = load_json_input(args.input) if args.input is not None else {}
+        question = payload.get("question", args.question)
+        capability = payload.get("capability", args.capability)
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("question must be a non-empty string")
+        if capability is not None and not isinstance(capability, str):
+            raise ValueError("capability must be a string or null")
+        result = assess(question, capability)
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

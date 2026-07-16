@@ -7,6 +7,18 @@ description: Use this skill whenever a QuantPilot task includes uploaded images 
 
 本 skill 用于承接用户上传的图片附件，尤其是券商持仓、账户、成交或自选股截图。它负责把图片输入转换为可追溯的结构化证据，再交给行情、指标、数据质量和可视化能力继续处理。
 
+## 资源与确定性归一化
+
+处理持仓/账户截图时读取 [portfolio-image-contract.md](references/portfolio-image-contract.md)。它定义图片元数据、视觉字段、外部补全值之间的证据边界，以及无法识别时的失败规则。
+
+在视觉工具返回真实字段后运行归一化脚本：
+
+```bash
+python .claude/skills/image-extraction/scripts/normalize_extraction.py --input extraction-input.json
+```
+
+`--input` 支持 JSON 对象、文件路径或 `-`（stdin）。脚本只向 stdout 输出 JSON，不执行 OCR、不联网、不写文件；它把金额/百分比等格式确定性归一化，把无法可靠解析的值置为 `null` 并加入 `manual_confirmation_fields`。无效输入以非零状态退出。由平台把输出写入证据文件。
+
 ## 何时必须使用
 
 当出现以下任意情况时，必须先使用本能力：
@@ -22,7 +34,7 @@ description: Use this skill whenever a QuantPilot task includes uploaded images 
    - 默认参数：`{"attachmentContextPath": ".quantpilot/attachments.json", "prompt": "<用户问题>"}`
    - 该工具会校验图片文件是否存在，并返回格式、尺寸、哈希、字段契约和缺失字段。
 3. 如果 `mcp__MiniMax__understand_image` 可用，再调用它识别图片视觉内容。
-4. 将结果写入：
+4. 用 `normalize_extraction.py` 标准化识别字段，由平台将结果写入：
 
 ```text
 evidence/image_extraction.json
@@ -51,17 +63,11 @@ data_file/final/dashboard-data.json -> imageExtraction
 - `data-quality` 必须把截图识别、行情补全和人工确认字段分开说明。
 - `dashboard-visualization` 生成持仓/调仓看板时，必须展示图片字段来源和缺失项。
 
-## 可见过程叙述要求
+## Workspace 回答协作
 
-推荐输出：
-
-```markdown
-现在使用 `image-extraction` 读取上传截图，先确认图片文件和可提取字段。
-
-• Skill `image-extraction` executing...
-
-已确认图片文件存在，下一步识别持仓字段；无法确认的字段会写入 evidence/image_extraction.json。
-```
+- 继承平台统一的五阶段进度；不自行重启阶段、重复进度标题、重复问题识别表或维护 Todo。
+- 只提供本 skill 已确认的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位式 “Skill executing...”。
+- 本 skill 只贡献附件数量、图片哈希、已识别字段、置信边界和待人工确认字段；阶段编号与展示由平台统一维护。
 
 ## 禁止事项
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "金融可视化看板"
+  short_description: "将真实量化数据生成可验证、响应式的金融研究工作台与证据"
+  default_prompt: "Use $dashboard-visualization to build a real-data financial research workspace from the validated task artifacts."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "平台 UI 产品设计"
+  short_description: "设计和评审一致、响应式、可访问的 QuantPilot 平台界面"
+  default_prompt: "Use $platform-ui-product-design to improve this QuantPilot platform page with complete responsive states."

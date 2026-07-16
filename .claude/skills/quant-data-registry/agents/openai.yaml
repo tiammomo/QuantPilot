@@ -1,0 +1,4 @@
+interface:
+  display_name: "数据注册与信源选择"
+  short_description: "核验本地数据覆盖、候选信源、字段完整性、降级路径和审计记录"
+  default_prompt: "Use $quant-data-registry to select the smallest auditable QuantPilot data source for this task."

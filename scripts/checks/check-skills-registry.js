@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const yaml = require('js-yaml');
+const tar = require('tar');
 
 const root = process.cwd();
 const registryPath = path.join(root, '.claude', 'skills.registry.json');
@@ -15,7 +17,16 @@ function fail(message) {
 }
 
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-const packageDir = path.join(root, registry.policy.packageDir || '.claude/skill-packages');
+const configuredPackageDir = registry.policy?.packageDir || '.claude/skill-packages';
+if (
+  typeof configuredPackageDir !== 'string' ||
+  !configuredPackageDir ||
+  path.isAbsolute(configuredPackageDir) ||
+  configuredPackageDir.replaceAll('\\', '/').split('/').includes('..')
+) {
+  fail('registry.policy.packageDir must be a safe repository-relative path');
+}
+const packageDir = path.resolve(root, configuredPackageDir);
 const checkLegacyPackages = process.argv.includes('--include-legacy');
 const checkLock = process.argv.includes('--check-lock');
 
@@ -45,6 +56,187 @@ function listFiles(dir) {
   }).sort();
 }
 
+const forbiddenSkillFiles = new Set([
+  'README.md',
+  'CHANGELOG.md',
+  'INSTALLATION_GUIDE.md',
+  'QUICK_REFERENCE.md',
+]);
+
+function assertRegularDirectory(dir, label) {
+  const stat = fs.existsSync(dir) ? fs.lstatSync(dir) : null;
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+    fail(`${label} must be a regular directory`);
+  }
+}
+
+function assertRegularFile(filePath, label) {
+  const stat = fs.existsSync(filePath) ? fs.lstatSync(filePath) : null;
+  if (!stat?.isFile() || stat.isSymbolicLink()) {
+    fail(`${label} must be a regular file`);
+  }
+}
+
+function assertSafeSkillTree(dir, sourceDir, skillId) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '.DS_Store') continue;
+    const absolutePath = path.join(dir, entry.name);
+    const relativePath = path.relative(sourceDir, absolutePath).replaceAll(path.sep, '/');
+    const stat = fs.lstatSync(absolutePath);
+    if (stat.isSymbolicLink()) {
+      fail(`skill ${skillId} contains a symlink: ${relativePath}`);
+    }
+    if (stat.isDirectory()) {
+      assertSafeSkillTree(absolutePath, sourceDir, skillId);
+      continue;
+    }
+    if (!stat.isFile()) {
+      fail(`skill ${skillId} contains an unsupported filesystem entry: ${relativePath}`);
+    }
+    if (forbiddenSkillFiles.has(path.basename(absolutePath))) {
+      fail(`skill ${skillId} contains an auxiliary file that does not belong in a skill: ${relativePath}`);
+    }
+  }
+}
+
+function resourceFiles(dir, predicate) {
+  return listFiles(dir).filter((filePath) => predicate(path.basename(filePath)));
+}
+
+function unquoteYamlScalar(value) {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function validateAgentMetadata(agentSource, skillId) {
+  let document;
+  try {
+    document = yaml.load(agentSource, { schema: yaml.JSON_SCHEMA });
+  } catch (error) {
+    fail(`skill ${skillId} agents/openai.yaml is invalid YAML: ${error.message}`);
+  }
+  if (
+    !document ||
+    typeof document !== 'object' ||
+    Array.isArray(document) ||
+    !document.interface ||
+    typeof document.interface !== 'object' ||
+    Array.isArray(document.interface)
+  ) {
+    fail(`skill ${skillId} agents/openai.yaml must contain a root interface mapping`);
+  }
+  const interfaceBlock = agentSource.match(
+    /^interface:\s*(?:#.*)?\r?\n((?:^[ \t]+.*(?:\r?\n|$))*)/m,
+  )?.[1] ?? '';
+  for (const field of ['display_name', 'short_description', 'default_prompt']) {
+    const value = document.interface[field];
+    if (typeof value !== 'string' || value.trim() === '') {
+      fail(`skill ${skillId} agents/openai.yaml interface.${field} must be a non-empty string`);
+    }
+    if (!new RegExp(`^  ${field}:\\s*".+"\\s*$`, 'm').test(interfaceBlock)) {
+      fail(`skill ${skillId} agents/openai.yaml must quote interface.${field}`);
+    }
+  }
+  const shortLength = Array.from(document.interface.short_description).length;
+  if (shortLength < 25 || shortLength > 64) {
+    fail(`skill ${skillId} interface.short_description must contain 25-64 characters`);
+  }
+  if (!document.interface.default_prompt.includes(`$${skillId}`)) {
+    fail(`skill ${skillId} interface.default_prompt must mention $${skillId}`);
+  }
+}
+
+function validateCompleteSkillPackage(skillId) {
+  const sourceDir = path.join(skillsDir, skillId);
+  assertRegularDirectory(sourceDir, `skill ${skillId}`);
+  assertSafeSkillTree(sourceDir, sourceDir, skillId);
+
+  const skillFile = path.join(sourceDir, 'SKILL.md');
+  const referenceDir = path.join(sourceDir, 'references');
+  const scriptDir = path.join(sourceDir, 'scripts');
+  const agentDir = path.join(sourceDir, 'agents');
+  const agentFile = path.join(sourceDir, 'agents', 'openai.yaml');
+  assertRegularFile(skillFile, `complete skill ${skillId} SKILL.md`);
+  assertRegularDirectory(referenceDir, `complete skill ${skillId} references/`);
+  assertRegularDirectory(scriptDir, `complete skill ${skillId} scripts/`);
+  assertRegularDirectory(agentDir, `complete skill ${skillId} agents/`);
+  assertRegularFile(agentFile, `complete skill ${skillId} agents/openai.yaml`);
+
+  const allReferenceFiles = listFiles(referenceDir);
+  const allScriptFiles = listFiles(scriptDir);
+  const referenceFiles = resourceFiles(referenceDir, (name) => name.endsWith('.md'));
+  const scriptFiles = resourceFiles(scriptDir, (name) => /\.(?:py|js|mjs|sh)$/.test(name));
+  if (referenceFiles.length !== allReferenceFiles.length) {
+    fail(`complete skill ${skillId} references/ may only contain Markdown reference files`);
+  }
+  if (scriptFiles.length !== allScriptFiles.length) {
+    fail(`complete skill ${skillId} scripts/ contains an unsupported script type`);
+  }
+  if (referenceFiles.length === 0) {
+    fail(`complete skill ${skillId} must contain at least one references/*.md file`);
+  }
+  if (scriptFiles.length === 0) {
+    fail(`complete skill ${skillId} must contain at least one executable script resource`);
+  }
+
+  const skillSource = fs.readFileSync(skillFile, 'utf8');
+  const frontmatterMatch = skillSource.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!frontmatterMatch) fail(`skill ${skillId} must start with YAML frontmatter`);
+  const frontmatterEntries = frontmatterMatch[1]
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.trim().startsWith('#'))
+    .map((line) => {
+      const separator = line.indexOf(':');
+      return separator < 1
+        ? [line.trim(), '']
+        : [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
+    });
+  const frontmatterKeys = new Set(frontmatterEntries.map(([key]) => key));
+  if (
+    frontmatterEntries.length !== 2 ||
+    frontmatterKeys.size !== 2 ||
+    !frontmatterKeys.has('name') ||
+    !frontmatterKeys.has('description')
+  ) {
+    fail(`skill ${skillId} frontmatter must contain only name and description`);
+  }
+  const frontmatter = Object.fromEntries(frontmatterEntries);
+  if (unquoteYamlScalar(frontmatter.name) !== skillId) {
+    fail(`skill ${skillId} frontmatter name must match its directory`);
+  }
+  if (!unquoteYamlScalar(frontmatter.description)) {
+    fail(`skill ${skillId} frontmatter description must be non-empty`);
+  }
+
+  for (const referenceFile of referenceFiles) {
+    const relativePath = path.relative(sourceDir, referenceFile).replaceAll(path.sep, '/');
+    if (!skillSource.includes(`](${relativePath})`)) {
+      fail(`skill ${skillId} must directly link reference ${relativePath} from SKILL.md`);
+    }
+  }
+  for (const scriptFile of scriptFiles) {
+    const relativePath = path.relative(sourceDir, scriptFile).replaceAll(path.sep, '/');
+    if (!skillSource.includes(relativePath)) {
+      fail(`skill ${skillId} must document script ${relativePath} in SKILL.md`);
+    }
+  }
+
+  validateAgentMetadata(fs.readFileSync(agentFile, 'utf8'), skillId);
+
+  return {
+    references: referenceFiles.map((filePath) =>
+      path.relative(sourceDir, filePath).replaceAll(path.sep, '/')),
+    scripts: scriptFiles.map((filePath) =>
+      path.relative(sourceDir, filePath).replaceAll(path.sep, '/')),
+  };
+}
+
 function hashSkillSource(skillId) {
   const sourceDir = path.join(skillsDir, skillId);
   const files = listFiles(sourceDir);
@@ -62,6 +254,69 @@ function hashSkillSource(skillId) {
   };
 }
 
+function hashPackagedSkillSource(packagePath, skillId) {
+  const prefix = `${skillId}/`;
+  const files = new Map();
+  let entryCount = 0;
+  let totalBytes = 0;
+  try {
+    tar.t({
+      file: packagePath,
+      sync: true,
+      onentry(entry) {
+        entryCount += 1;
+        if (entryCount > 500) fail(`package ${skillId} contains too many entries`);
+        const normalized = entry.path.replace(/^(?:\.\/)+/, '').replace(/\/$/, '');
+        const segments = normalized.split('/');
+        if (
+          !normalized ||
+          normalized.includes('\\') ||
+          path.posix.isAbsolute(normalized) ||
+          segments.some((segment) => !segment || segment === '.' || segment === '..') ||
+          (normalized !== skillId && !normalized.startsWith(prefix))
+        ) {
+          fail(`package ${skillId} contains an unsafe entry: ${entry.path}`);
+        }
+        if (!['File', 'Directory'].includes(entry.type)) {
+          fail(`package ${skillId} contains an unsafe entry type: ${entry.type}`);
+        }
+        if (entry.type !== 'File') return;
+        const relativePath = normalized.slice(prefix.length);
+        if (!relativePath || files.has(relativePath)) {
+          fail(`package ${skillId} contains a duplicate or invalid file entry: ${relativePath}`);
+        }
+        if (relativePath.startsWith('scripts/') && ((entry.mode ?? 0) & 0o111) === 0) {
+          fail(`package ${skillId} contains a non-executable script: ${relativePath}`);
+        }
+        if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > 10 * 1024 * 1024) {
+          fail(`package ${skillId} contains a file with an invalid expanded size: ${relativePath}`);
+        }
+        const chunks = [];
+        entry.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          totalBytes += buffer.byteLength;
+          if (totalBytes > 50 * 1024 * 1024) {
+            fail(`package ${skillId} exceeds expanded size limits`);
+          }
+          chunks.push(buffer);
+        });
+        entry.on('end', () => files.set(relativePath, Buffer.concat(chunks)));
+      },
+    });
+  } catch (error) {
+    fail(`package ${skillId} cannot be inspected: ${error.message}`);
+  }
+  const hash = crypto.createHash('sha256');
+  for (const relativePath of [...files.keys()].sort()) {
+    const content = files.get(relativePath);
+    hash.update(relativePath);
+    hash.update('\0');
+    hash.update(content);
+    hash.update('\0');
+  }
+  return { fileCount: files.size, sourceSha256: hash.digest('hex') };
+}
+
 function parseJsonFile(filePath, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -72,6 +327,21 @@ function parseJsonFile(filePath, fallback = null) {
 
 function isSemver(version) {
   return /^\d+\.\d+\.\d+$/.test(version);
+}
+
+function validateLockPackagePath(skillId, lockEntry, expectedPackagePath) {
+  const normalized = typeof lockEntry?.packagePath === 'string'
+    ? lockEntry.packagePath.replaceAll('\\', '/')
+    : '';
+  const expected = path.relative(root, expectedPackagePath).replaceAll(path.sep, '/');
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized.split('/').includes('..') ||
+    normalized !== expected
+  ) {
+    fail(`lock packagePath mismatch for ${skillId}: expected=${expected}, lock=${normalized || '<missing>'}`);
+  }
 }
 
 const validScopes = new Set(['workflow', 'quant', 'input', 'evidence', 'platform', 'visualization']);
@@ -108,6 +378,24 @@ function validateCapsuleRegistry(coreSkillIds) {
     typeof capsules.skills !== 'object' || Array.isArray(capsules.skills)) {
     fail('config/moagent-skill-capsules.json must use schemaVersion 1 and contain skills');
   }
+  const responseContract = capsules.workspaceResponseContract;
+  if (!responseContract || responseContract.schemaVersion !== 1 ||
+    responseContract.owner !== 'platform') {
+    fail('workspaceResponseContract must be a platform-owned schemaVersion 1 contract');
+  }
+  assertStringArray(
+    responseContract.stageLabels,
+    'workspaceResponseContract.stageLabels',
+    { allowEmpty: false },
+  );
+  if (responseContract.stageLabels.length !== 5) {
+    fail('workspaceResponseContract must define exactly five stage labels');
+  }
+  assertStringArray(
+    responseContract.rules,
+    'workspaceResponseContract.rules',
+    { allowEmpty: false },
+  );
 
   for (const capsuleId of Object.keys(capsules.skills)) {
     if (!coreSkillIds.has(capsuleId)) {
@@ -237,6 +525,28 @@ for (const skill of registry.coreSkills) {
   }
   ids.add(skill.id);
 
+  for (const resourceField of ['scripts', 'references']) {
+    assertStringArray(skill[resourceField], `core skill ${skill.id}.${resourceField}`, {
+      allowEmpty: false,
+    });
+    for (const resourcePath of skill[resourceField]) {
+      const normalizedPath = resourcePath.replaceAll('\\', '/');
+      const expectedPrefix = `${resourceField}/`;
+      if (
+        !normalizedPath.startsWith(expectedPrefix) ||
+        normalizedPath.startsWith('/') ||
+        normalizedPath.split('/').includes('..')
+      ) {
+        fail(`core skill ${skill.id} has an unsafe ${resourceField} path: ${resourcePath}`);
+      }
+      const absolutePath = path.join(skillsDir, skill.id, normalizedPath);
+      const stat = fs.existsSync(absolutePath) ? fs.lstatSync(absolutePath) : null;
+      if (!stat?.isFile() || stat.isSymbolicLink()) {
+        fail(`core skill ${skill.id} resource is missing or unsafe: ${normalizedPath}`);
+      }
+    }
+  }
+
   const skillFile = path.join(skillsDir, skill.id, 'SKILL.md');
   if (!fs.existsSync(skillFile)) {
     fail(`core skill SKILL.md not found: ${skill.id}`);
@@ -258,11 +568,23 @@ for (const skill of registry.coreSkills) {
   if (!currentRelease.date || !currentRelease.summary || !Array.isArray(currentRelease.changes) || currentRelease.changes.length === 0) {
     fail(`invalid changelog release ${skill.id}@${skill.version}; date, summary and changes are required`);
   }
+  const snapshotPath = path.join(packageDir, 'versions', skill.id, `${skill.version}.tgz`);
+  if (!fs.existsSync(snapshotPath)) {
+    fail(`current release snapshot missing for ${skill.id}@${skill.version}`);
+  }
+  const snapshotStat = fs.lstatSync(snapshotPath);
+  if (!snapshotStat.isFile() || snapshotStat.isSymbolicLink()) {
+    fail(`current release snapshot must be a regular file for ${skill.id}@${skill.version}`);
+  }
+  if (checkLock && fs.existsSync(packagePath) && sha256(fs.readFileSync(snapshotPath)) !== sha256(fs.readFileSync(packagePath))) {
+    fail(`current release snapshot does not match package for ${skill.id}@${skill.version}`);
+  }
 
   const lockEntry = lock.skills?.[skill.id];
   if (!lockEntry) {
     fail(`missing lock entry for core skill: ${skill.id}`);
   }
+  validateLockPackagePath(skill.id, lockEntry, packagePath);
   if (lockEntry.version !== skill.version) {
     fail(`lock version mismatch for ${skill.id}: registry=${skill.version}, lock=${lockEntry.version}`);
   }
@@ -281,6 +603,13 @@ for (const skill of registry.coreSkills) {
     if (lockEntry.packageSha256 !== packageSha256) {
       fail(`package hash mismatch for ${skill.id}; run npm run package:skills -- ${skill.id}`);
     }
+    const packageSourceHash = hashPackagedSkillSource(packagePath, skill.id);
+    if (
+      packageSourceHash.sourceSha256 !== lockEntry.sourceSha256 ||
+      packageSourceHash.fileCount !== lockEntry.fileCount
+    ) {
+      fail(`package content does not match source lock for ${skill.id}`);
+    }
   }
 }
 
@@ -298,6 +627,64 @@ for (const [alias, target] of Object.entries(aliases)) {
   const packagePath = path.join(packageDir, `${alias}.tgz`);
   if (checkLegacyPackages && aliasSourceExists && fs.existsSync(packageDir) && !fs.existsSync(packagePath)) {
     fail(`legacy alias package not found: ${path.relative(root, packagePath)}`);
+  }
+  if (checkLegacyPackages && checkLock && aliasSourceExists) {
+    const lockEntry = lock.skills?.[alias];
+    const targetVersion = registry.coreSkills.find((skill) => skill.id === target)?.version;
+    if (!lockEntry) fail(`missing lock entry for legacy alias source: ${alias}`);
+    validateLockPackagePath(alias, lockEntry, packagePath);
+    if (lockEntry.version !== targetVersion) {
+      fail(`lock version mismatch for legacy alias ${alias}: target=${targetVersion}, lock=${lockEntry.version}`);
+    }
+    const sourceHash = hashSkillSource(alias);
+    if (
+      lockEntry.sourceSha256 !== sourceHash.sourceSha256 ||
+      lockEntry.fileCount !== sourceHash.fileCount
+    ) {
+      fail(`source hash mismatch for legacy alias ${alias}; run npm run package:skills -- --include-legacy`);
+    }
+    const packageSha256 = sha256(fs.readFileSync(packagePath));
+    if (lockEntry.packageSha256 !== packageSha256) {
+      fail(`package hash mismatch for legacy alias ${alias}; run npm run package:skills -- --include-legacy`);
+    }
+    const packageSourceHash = hashPackagedSkillSource(packagePath, alias);
+    if (
+      packageSourceHash.sourceSha256 !== lockEntry.sourceSha256 ||
+      packageSourceHash.fileCount !== lockEntry.fileCount
+    ) {
+      fail(`package content does not match source lock for legacy alias ${alias}`);
+    }
+  }
+}
+
+const knownSkillIds = new Set([...ids, ...Object.keys(aliases)]);
+const sourceEntries = fs.readdirSync(skillsDir, { withFileTypes: true })
+  .filter((entry) => entry.name !== '.DS_Store');
+for (const entry of sourceEntries) {
+  const sourcePath = path.join(skillsDir, entry.name);
+  const stat = fs.lstatSync(sourcePath);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    fail(`skills source root may contain only regular skill directories: ${entry.name}`);
+  }
+}
+const sourceSkillIds = sourceEntries.map((entry) => entry.name).sort();
+for (const sourceSkillId of sourceSkillIds) {
+  if (!knownSkillIds.has(sourceSkillId)) {
+    fail(`skill source directory is not registered as a core skill or alias: ${sourceSkillId}`);
+  }
+  const resources = validateCompleteSkillPackage(sourceSkillId);
+  const coreSkill = registry.coreSkills.find((skill) => skill.id === sourceSkillId);
+  if (coreSkill) {
+    for (const resourceField of ['scripts', 'references']) {
+      const registered = [...coreSkill[resourceField]].sort();
+      const discovered = [...resources[resourceField]].sort();
+      if (JSON.stringify(registered) !== JSON.stringify(discovered)) {
+        fail(
+          `core skill ${sourceSkillId}.${resourceField} must list every packaged resource; ` +
+          `registered=${JSON.stringify(registered)}, discovered=${JSON.stringify(discovered)}`
+        );
+      }
+    }
   }
 }
 

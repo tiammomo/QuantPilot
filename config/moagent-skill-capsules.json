@@ -1,6 +1,22 @@
 {
   "schemaVersion": 1,
   "description": "MoAgent runtime capsules. SKILL.md remains the governed source material; only these phase-compatible, tool-compatible capsules enter model context.",
+  "workspaceResponseContract": {
+    "schemaVersion": 1,
+    "owner": "platform",
+    "stageLabels": [
+      "正在理解问题",
+      "正在准备数据与证据",
+      "正在分析并生成工作区",
+      "正在执行平台校验",
+      "已完成/未完成"
+    ],
+    "rules": [
+      "平台统一维护五阶段编号、问题识别表和进度状态，Skill 不得自行重启或重复这些内容。",
+      "Skill 只贡献当前领域的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位执行文案。",
+      "只有自动校验、独立证据验收和持久预览全部成功后，平台才允许投影第五阶段已完成。"
+    ]
+  },
   "skills": {
     "run-planner": {
       "priority": 100,

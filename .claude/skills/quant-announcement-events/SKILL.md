@@ -1,37 +1,34 @@
 ---
 name: quant-announcement-events
-description: Use this skill to fetch A-share announcement/event data for explaining stock moves, corporate actions, earnings notices, and risk events.
+description: Fetch, deduplicate, classify, and evidence-check A-share announcements for earnings, dividends, repurchases, holdings changes, litigation, restructuring, suspension, and other corporate events. Use for event timelines, stock-move context, corporate actions, or announcement risk review.
 ---
 
-# QuantPilot 公告事件能力
+# QuantPilot 公告事件
 
-获取上市公司公告列表，用于事件驱动分析和行情归因。
+## 执行流程
 
-## API
+1. 解析标准证券代码，调用 `/api/v1/events/announcements/{symbol}?limit=20`。
+2. 按公告标识或“日期 + 规范化标题”去重，保留原始标题、披露时间、来源、URL/PDF URL。
+3. 用脚本做确定性主题分类和“需要正文核验”标记；分类不是情绪或影响结论。
+4. 涉及金额、比例、交易对手、条件或风险结论时读取公告正文；标题证据不足则明确缺口。
+5. 生成按时间排序的事件线；与价格联动只能描述时间邻近和待验证假设。
+
+## 按需加载参考
+
+- 当需要事件归类、正文证据、时间归因、去重或风险判断时，读取 [公告证据合同与因果边界](references/announcement-evidence-contract.md)。
+- 仅展示已核验公告链接列表时，可不加载完整因果边界说明。
+
+## 确定性脚本
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/events/announcements/600519?limit=20'
+python3 scripts/classify_events.py announcements.json
+python3 scripts/classify_events.py - < announcements.json
 ```
 
-返回重点字段：
+脚本向 stdout 输出去重后的 events、taxonomy 和 data quality；`-o/--output` 可选。无可识别公告时非零退出。
 
-- `title`
-- `notice_date`
-- `display_time`
-- `columns`
-- `url`
-- `pdf_url`
-- `source`
+## Workspace 协作与质量门
 
-## 工作流程
-
-1. 必要时先用 `quant-symbol-resolver`。
-2. 获取最近公告，筛选业绩、分红、回购、减持、诉讼、并购、停复牌等事件。
-3. 分析公告和价格/成交额变化之间的可能关系。
-4. 如果需要更深入内容，再基于 `url` 或 `pdf_url` 读取公告详情。
-5. 可视化时用事件时间线、事件标签和影响摘要。
-
-## 禁止事项
-
-- 不要只凭标题下结论，要说明不确定性。
-- 不要把公告事件和价格因果关系说死。
+- 继承平台阶段；只贡献标的、事件类型、公告时间、来源、证据链接和不确定性。
+- 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
+- 不凭标题断言利好/利空，不把公告与价格相关性说成已证明因果。

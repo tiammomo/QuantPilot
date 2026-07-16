@@ -9,6 +9,19 @@ description: Generate, repair, or enhance real-data Next.js/HTML quantitative da
 
 视觉和交互直接遵循本 skill 内的 Continuous Financial Workbench、可访问性、响应式、图表可读性和反模式约束；运行时 skill capsule 会注入当前任务所需的场景与判读片段，无需再加载其他 UI skill。功能正确但明显粗糙、不专业或像默认模板的页面不算完成。
 
+## Bundled Resources
+
+- 只读取与权威 `templateId` 匹配的 [场景化模板段落](references/scenario_templates.md)，不要顺序加载整份模板矩阵。
+- 选择指标与主图前读取 [可视化判读清单](references/visual_judgement.md) 中相关标题。
+- 校验 final 数据形态、模板、标的覆盖和 mock/远程资源风险时读取 [Dashboard 数据契约](references/dashboard-data-contract.md)。
+- 在提交页面前运行 `python scripts/validate_dashboard_contract.py --input data_file/final/dashboard-data.json`；多标的任务为每个标的追加 `--expected-symbol <symbol>`。
+
+## Workspace 回答协作
+
+- 继承平台统一的五阶段进度；不自行重启阶段、重复进度标题、重复问题识别表或维护 Todo。
+- 只提供本 skill 已确认的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位式 “Skill executing...”。
+- 本 skill 只贡献模板与变体、真实数据绑定、必备组件、修改产物、视觉缺口和待平台验收项；阶段编号与展示由平台统一维护。
+
 ## 何时必须使用
 
 当用户希望生成、修复或增强以下内容时，必须使用本 skill：

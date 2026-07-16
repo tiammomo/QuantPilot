@@ -9,6 +9,18 @@ description: Use this skill when designing, refactoring, reviewing, or polishing
 
 本 skill 参考 `nextlevelbuilder/ui-ux-pro-max-skill` 的设计智能思路：先判断产品类型，再选择页面模式、视觉风格、配色、字体、动效、UX 规则、技术栈规则和图表规则。QuantPilot 的落地版见 `references/ui-ux-pro-max-adapter.md`。
 
+## Bundled Resources
+
+- 设计或评审具体平台页面前，读取 [QuantPilot UI/UX 适配规则](references/ui-ux-pro-max-adapter.md)。
+- 定义页面状态、响应式断点或验收证据时，读取 [平台 UI 交付契约](references/platform-ui-contract.md)。
+- 实现后把状态矩阵保存为 JSON，并运行 `python scripts/validate_state_matrix.py --input <state-matrix.json>`；脚本只校验确定性覆盖，不替代浏览器视觉检查。
+
+## Workspace 回答协作
+
+- 继承平台统一的五阶段进度；不自行重启阶段、重复进度标题、重复问题识别表或维护 Todo。
+- 只提供本 skill 已确认的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位式 “Skill executing...”。
+- 本 skill 只贡献目标页面、设计决策、响应式断点、交互状态和验证结果；阶段编号与展示由平台统一维护。
+
 ## 何时使用
 
 - 用户要求“页面更好看”“UI 优化”“前端重构”“布局调整”“补页面入口”“控制台/设置/列表/表格/弹窗更专业”。
@@ -19,12 +31,13 @@ description: Use this skill when designing, refactoring, reviewing, or polishing
 ## 标准工作流
 
 1. 先读取目标页面、相邻组件和设计基线：`docs/ui-shadcn-migration.md`、`src/components/ui/*`、`src/components/quant/*primitives*`。
-2. 读取 `references/ui-ux-pro-max-adapter.md`，按“产品类型 -> 页面模式 -> 风格 -> 配色 -> 字体 -> UX 规则 -> 技术栈规则 -> 图表规则”做一次设计决策。
+2. 读取 [QuantPilot UI/UX 适配规则](references/ui-ux-pro-max-adapter.md)，按“产品类型 -> 页面模式 -> 风格 -> 配色 -> 字体 -> UX 规则 -> 技术栈规则 -> 图表规则”做一次设计决策。
 3. 明确信息层级：顶部任务栏或页面标题、主工作流、关键指标、列表/图表、详情面板、次级诊断。
 4. 优先复用现有组件和 token；只有多个页面会共同受益时才新增业务 primitive。
 5. 补齐状态：loading、empty、error、success、disabled、pending、long text、权限/连接缺失和列表分页。
 6. 实现后至少跑 `npm run lint` 和 `npm run type-check`；大范围 UI 变更再跑 `npm run build` 或页面 smoke。
 7. 对可视页面变更，检查 375px、768px、1440px 宽度下无文字溢出、遮挡、布局跳动和不可点击控件。
+8. 按 [平台 UI 交付契约](references/platform-ui-contract.md) 记录状态矩阵，并用 `scripts/validate_state_matrix.py` 先做机器可检的完整性检查。
 
 ## QuantPilot 视觉原则
 

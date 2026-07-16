@@ -7,6 +7,24 @@ description: Use this skill after fetching quantitative data and before visualiz
 
 本 skill 用于把“已经取到的数据”变成可追溯证据。任何量化分析任务在生成可视化页面前，都必须检查数据质量，并写入 `evidence/sources.json` 与 `evidence/data_quality.json`。
 
+## 资源与确定性评估
+
+生成/修复证据文件或判断 `ok`、`warning`、`error` 边界时，读取 [evidence-contract.md](references/evidence-contract.md)。其中定义两个 evidence 文件的结构、时间语义、敏感信息禁令和失败模式。
+
+把真实数据集元数据交给评估脚本：
+
+```bash
+python .claude/skills/data-quality/scripts/assess_data_quality.py --input quality-input.json
+```
+
+`--input` 支持 JSON 对象、文件路径或 `-`（stdin）。脚本只向 stdout 输出 JSON，其中 `sources` 和 `data_quality` 可分别由平台落盘；脚本不联网、不读写项目文件、不生成时间戳。结构无效或发现敏感凭据时以非零状态退出。
+
+## Workspace 回答协作
+
+- 继承平台统一的五阶段进度；不自行重启阶段、重复进度标题、重复问题识别表或维护 Todo。
+- 只提供本 skill 已确认的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位式 “Skill executing...”。
+- 本 skill 只贡献数据集状态、来源、时效、样本量、缺失字段、警告和限制；阶段编号与展示由平台统一维护。
+
 ## 何时必须使用
 
 当任务涉及以下任意内容时，在完成取数后、生成页面前必须使用：
@@ -91,7 +109,7 @@ evidence/data_quality.json
    - 外部数据源是否失败、降级或过旧。
 4. 写入 `evidence/sources.json`，记录每个数据集的来源、接口、时间戳和本地文件路径。
 5. 写入 `evidence/data_quality.json`，记录状态、检查项、缺失字段、警告和限制说明。
-6. 在对话中输出数据质量摘要；`data_quality_checked` 事件由平台写入只读的 `.quantpilot/events.jsonl`。
+6. 向平台提交可验证的数据质量摘要；`data_quality_checked` 事件与用户可见阶段由平台统一维护。
 7. 然后再交给 `dashboard-visualization` 生成页面。
 
 ## 状态规则

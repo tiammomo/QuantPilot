@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { spawn } from 'child_process';
+import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
+import * as tar from 'tar';
 import { getSkillsDashboardData, type SkillsDashboardData } from '@/lib/quant/skills-dashboard';
 
 type JsonRecord = Record<string, unknown>;
@@ -82,6 +84,16 @@ const TEMP_DIR = path.join(ROOT, 'tmp', 'skill-uploads');
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_EDITABLE_FILE_BYTES = 512 * 1024;
+const MAX_ARCHIVE_ENTRIES = 250;
+const MAX_EXTRACTED_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_EXTRACTED_TOTAL_BYTES = 50 * 1024 * 1024;
+const REQUIRED_SKILL_DIRECTORIES = ['references', 'scripts', 'agents'] as const;
+const FORBIDDEN_SKILL_FILENAMES = new Set([
+  'README.md',
+  'CHANGELOG.md',
+  'INSTALLATION_GUIDE.md',
+  'QUICK_REFERENCE.md',
+]);
 const EDITABLE_SOURCE_EXTENSIONS = new Set([
   '.css',
   '.html',
@@ -149,7 +161,15 @@ async function getSkillMdPath(skillId: string) {
 }
 
 async function getPackageDir() {
-  return path.join(ROOT, '.claude', 'skill-packages');
+  const registry = await readJson(REGISTRY_PATH);
+  const policy = isRecord(registry.policy) ? registry.policy : {};
+  const configured = typeof policy.packageDir === 'string'
+    ? policy.packageDir.replaceAll('\\', '/')
+    : '.claude/skill-packages';
+  if (!configured || path.isAbsolute(configured) || configured.split('/').includes('..')) {
+    throw new Error('registry.policy.packageDir 必须是仓库内安全相对路径。');
+  }
+  return path.resolve(ROOT, configured);
 }
 
 async function getSkillVersion(skillId: string) {
@@ -210,6 +230,7 @@ async function resolveSkillFilePath(skillId: string, filePath?: string | null) {
   if (!isInside(sourceDir, absolutePath)) {
     throw new Error('文件路径必须位于当前 skill 目录内。');
   }
+  await assertSafeSkillTree(sourceDir, sourceDir, skillId);
   return {
     sourceDir,
     relativePath,
@@ -225,6 +246,7 @@ async function resolveSkillFolderPath(skillId: string, folderPath?: string | nul
   if (absolutePath === sourceDir || !isInside(sourceDir, absolutePath)) {
     throw new Error('文件夹路径必须位于当前 skill 目录内。');
   }
+  await assertSafeSkillTree(sourceDir, sourceDir, skillId);
   return {
     sourceDir,
     relativePath,
@@ -240,6 +262,9 @@ function isEditableSkillFile(relativePath: string): boolean {
 function validateTextFileContent(relativePath: string, content: string) {
   if (!isEditableSkillFile(relativePath)) {
     throw new Error(`不支持在线编辑该文件类型：${relativePath}`);
+  }
+  if (FORBIDDEN_SKILL_FILENAMES.has(path.basename(relativePath))) {
+    throw new Error(`Skill 包中不允许创建 ${path.basename(relativePath)}。`);
   }
   if (Buffer.byteLength(content, 'utf8') > MAX_EDITABLE_FILE_BYTES) {
     throw new Error('文件超过 512KB，不适合在线编辑。');
@@ -260,6 +285,188 @@ function validateTextFileContent(relativePath: string, content: string) {
       throw new Error(`${relativePath} 不是合法 JSON。`);
     }
   }
+}
+
+async function assertSafeSkillTree(dir: string, sourceDir: string, skillId: string): Promise<void> {
+  if (dir === sourceDir) {
+    const rootStat = await fs.lstat(sourceDir).catch(() => null);
+    if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) {
+      throw new Error(`${skillId} 的源码根目录必须是普通目录。`);
+    }
+  }
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === '.DS_Store') continue;
+    const absolutePath = path.join(dir, entry.name);
+    const relativePath = path.relative(sourceDir, absolutePath).replaceAll(path.sep, '/');
+    const stat = await fs.lstat(absolutePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`${skillId} 不允许包含软链接：${relativePath}。`);
+    }
+    if (stat.isDirectory()) {
+      await assertSafeSkillTree(absolutePath, sourceDir, skillId);
+      continue;
+    }
+    if (!stat.isFile()) {
+      throw new Error(`${skillId} 包含不支持的文件系统条目：${relativePath}。`);
+    }
+  }
+}
+
+function isReferenceResource(relativePath: string) {
+  return relativePath.startsWith('references/') && relativePath.endsWith('.md');
+}
+
+function isScriptResource(relativePath: string) {
+  return relativePath.startsWith('scripts/') && /\.(?:py|js|mjs|sh)$/.test(relativePath);
+}
+
+async function ensureSkillScriptsExecutable(sourceDir: string) {
+  for (const filePath of await listFiles(path.join(sourceDir, 'scripts'))) {
+    const relativePath = path.relative(sourceDir, filePath).replaceAll(path.sep, '/');
+    if (isScriptResource(relativePath)) await fs.chmod(filePath, 0o755);
+  }
+}
+
+function validateAgentMetadata(agentSource: string, skillId: string) {
+  let document: unknown;
+  try {
+    document = loadYaml(agentSource, { schema: JSON_SCHEMA });
+  } catch (error) {
+    throw new Error(
+      `${skillId} 的 agents/openai.yaml 不是合法 YAML：${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (!isRecord(document) || !isRecord(document.interface)) {
+    throw new Error(`${skillId} 的 agents/openai.yaml 必须包含根级 interface 对象。`);
+  }
+  const interfaceBlock = agentSource.match(
+    /^interface:\s*(?:#.*)?\r?\n((?:^[ \t]+.*(?:\r?\n|$))*)/m,
+  )?.[1] ?? '';
+  for (const field of ['display_name', 'short_description', 'default_prompt']) {
+    const value = document.interface[field];
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error(`${skillId} 的 interface.${field} 必须是非空字符串。`);
+    }
+    if (!new RegExp(`^  ${field}:\\s*".+"\\s*$`, 'm').test(interfaceBlock)) {
+      throw new Error(`${skillId} 的 interface.${field} 必须使用双引号。`);
+    }
+  }
+  const shortDescription = String(document.interface.short_description);
+  const shortLength = Array.from(shortDescription).length;
+  if (shortLength < 25 || shortLength > 64) {
+    throw new Error(`${skillId} 的 interface.short_description 必须为 25–64 个字符。`);
+  }
+  if (!String(document.interface.default_prompt).includes(`$${skillId}`)) {
+    throw new Error(`${skillId} 的 interface.default_prompt 必须显式引用 $${skillId}。`);
+  }
+}
+
+async function assertRequiredResourcesSurviveRemoval(sourceDir: string, removalPath: string) {
+  const files = await listFiles(sourceDir);
+  const remaining = files
+    .filter((filePath) => !isInside(removalPath, filePath))
+    .map((filePath) => path.relative(sourceDir, filePath).replaceAll(path.sep, '/'));
+  if (!remaining.some(isReferenceResource)) {
+    throw new Error('不能删除最后一个 reference；每个 Skill 必须保留 references/*.md。');
+  }
+  if (!remaining.some(isScriptResource)) {
+    throw new Error('不能删除最后一个 script；每个 Skill 必须保留确定性脚本。');
+  }
+}
+
+async function validateCompleteSkillDirectory(skillId: string) {
+  const sourceDir = path.join(SKILLS_DIR, skillId);
+  const skillFile = path.join(sourceDir, 'SKILL.md');
+  const agentFile = path.join(sourceDir, 'agents', 'openai.yaml');
+  const skillStat = await fs.lstat(skillFile).catch(() => null);
+  if (!skillStat?.isFile() || skillStat.isSymbolicLink()) {
+    throw new Error(`${skillId} 必须包含普通文件 SKILL.md。`);
+  }
+  const skillSource = await fs.readFile(skillFile, 'utf8').catch(() => null);
+  if (!skillSource) throw new Error(`${skillId} 缺少 SKILL.md。`);
+  await assertSafeSkillTree(sourceDir, sourceDir, skillId);
+
+  for (const directory of REQUIRED_SKILL_DIRECTORIES) {
+    const stat = await fs.lstat(path.join(sourceDir, directory)).catch(() => null);
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`${skillId} 必须包含普通目录 ${directory}/。`);
+    }
+  }
+  const agentStat = await fs.lstat(agentFile).catch(() => null);
+  if (!agentStat?.isFile() || agentStat.isSymbolicLink()) {
+    throw new Error(`${skillId} 必须包含 agents/openai.yaml。`);
+  }
+
+  const referenceDir = path.join(sourceDir, 'references');
+  const scriptDir = path.join(sourceDir, 'scripts');
+  const sourceFiles = await listFiles(sourceDir);
+  const relativeFiles = sourceFiles.map((filePath) =>
+    path.relative(sourceDir, filePath).replaceAll(path.sep, '/'));
+  const allReferences = relativeFiles.filter((relativePath) => relativePath.startsWith('references/'));
+  const allScripts = relativeFiles.filter((relativePath) => relativePath.startsWith('scripts/'));
+  const references = allReferences.filter(isReferenceResource).sort();
+  const scripts = allScripts.filter(isScriptResource).sort();
+  if (references.length === 0) throw new Error(`${skillId} 至少需要一个 references/*.md。`);
+  if (scripts.length === 0) throw new Error(`${skillId} 至少需要一个确定性 script。`);
+  if (references.length !== allReferences.length) {
+    throw new Error(`${skillId} 的 references/ 只能包含 Markdown reference。`);
+  }
+  if (scripts.length !== allScripts.length) {
+    throw new Error(`${skillId} 的 scripts/ 包含不支持的脚本类型。`);
+  }
+  for (const script of scripts) {
+    const stat = await fs.lstat(path.join(sourceDir, script));
+    if ((stat.mode & 0o111) === 0) {
+      throw new Error(`${skillId} 的脚本必须可执行：${script}。`);
+    }
+  }
+  const { skill: registrySkill } = await resolveCoreSkill(skillId);
+  const registeredReferences = Array.isArray(registrySkill.references)
+    ? registrySkill.references.map(String).sort()
+    : [];
+  const registeredScripts = Array.isArray(registrySkill.scripts)
+    ? registrySkill.scripts.map(String).sort()
+    : [];
+  if (JSON.stringify(registeredReferences) !== JSON.stringify(references)) {
+    throw new Error(`${skillId} 的 registry.references 必须完整登记所有 reference。`);
+  }
+  if (JSON.stringify(registeredScripts) !== JSON.stringify(scripts)) {
+    throw new Error(`${skillId} 的 registry.scripts 必须完整登记所有 script。`);
+  }
+
+  for (const filePath of sourceFiles) {
+    if (FORBIDDEN_SKILL_FILENAMES.has(path.basename(filePath))) {
+      throw new Error(`${skillId} 不应包含 ${path.basename(filePath)}。`);
+    }
+  }
+  for (const reference of references) {
+    if (!skillSource.includes(`](${reference})`)) {
+      throw new Error(`${skillId} 的 SKILL.md 必须直接链接 ${reference}。`);
+    }
+  }
+  for (const script of scripts) {
+    if (!skillSource.includes(script)) {
+      throw new Error(`${skillId} 的 SKILL.md 必须说明 ${script} 的使用方式。`);
+    }
+  }
+
+  const frontmatter = skillSource.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+  if (!frontmatter) throw new Error(`${skillId} 的 SKILL.md 缺少 YAML frontmatter。`);
+  const entries = frontmatter.split(/\r?\n/).filter((line) => line.trim()).map((line) => {
+    const separator = line.indexOf(':');
+    return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] as const;
+  });
+  const keys = new Set(entries.map(([key]) => key));
+  if (entries.length !== 2 || keys.size !== 2 || !keys.has('name') || !keys.has('description')) {
+    throw new Error(`${skillId} 的 frontmatter 只能包含 name 和 description。`);
+  }
+  const name = entries.find(([key]) => key === 'name')?.[1].replace(/^["']|["']$/g, '');
+  if (name !== skillId) throw new Error(`${skillId} 的 frontmatter name 必须与目录一致。`);
+  const description = entries.find(([key]) => key === 'description')?.[1].replace(/^["']|["']$/g, '');
+  if (!description) throw new Error(`${skillId} 的 frontmatter description 不能为空。`);
+
+  validateAgentMetadata(await fs.readFile(agentFile, 'utf8'), skillId);
 }
 
 export async function readSkillSource(skillId: string): Promise<SkillSourceData> {
@@ -305,18 +512,20 @@ export async function saveSkillFile(params: SaveSkillSourceParams): Promise<Skil
   validateTextFileContent(resolved.relativePath, content);
   await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
   await fs.writeFile(resolved.absolutePath, `${content}\n`, 'utf8');
+  if (isScriptResource(resolved.relativePath)) await fs.chmod(resolved.absolutePath, 0o755);
   return readSkillFile(params.skillId, resolved.relativePath);
 }
 
 export async function deleteSkillFile(params: DeleteSkillFileParams): Promise<SkillsDashboardData> {
   const resolved = await resolveSkillFilePath(params.skillId, params.filePath);
-  if (resolved.relativePath === 'SKILL.md') {
-    throw new Error('不能删除 SKILL.md。');
+  if (resolved.relativePath === 'SKILL.md' || resolved.relativePath === 'agents/openai.yaml') {
+    throw new Error('不能删除 Skill 的必需入口或 Agent 元数据。');
   }
   const stat = await fs.stat(resolved.absolutePath).catch(() => null);
   if (!stat?.isFile()) {
     throw new Error(`文件不存在：${resolved.relativePath}`);
   }
+  await assertRequiredResourcesSurviveRemoval(resolved.sourceDir, resolved.absolutePath);
   await fs.rm(resolved.absolutePath, { force: true });
   return getSkillsDashboardData();
 }
@@ -336,10 +545,14 @@ export async function createSkillFolder(params: SkillFolderParams): Promise<Skil
 
 export async function deleteSkillFolder(params: SkillFolderParams): Promise<SkillsDashboardData> {
   const resolved = await resolveSkillFolderPath(params.skillId, params.folderPath);
+  if (REQUIRED_SKILL_DIRECTORIES.includes(resolved.relativePath as typeof REQUIRED_SKILL_DIRECTORIES[number])) {
+    throw new Error('不能删除 references、scripts 或 agents 必需目录。');
+  }
   const stat = await fs.lstat(resolved.absolutePath).catch(() => null);
   if (!stat?.isDirectory() || stat.isSymbolicLink()) {
     throw new Error(`文件夹不存在：${resolved.relativePath}`);
   }
+  await assertRequiredResourcesSurviveRemoval(resolved.sourceDir, resolved.absolutePath);
   await fs.rm(resolved.absolutePath, { recursive: true, force: true });
   return getSkillsDashboardData();
 }
@@ -362,13 +575,15 @@ export async function publishSkillVersion(params: PublishSkillVersionParams): Pr
   const release = normalizeRelease(params);
   const resolved = await resolveCoreSkill(params.skillId);
   const previousVersion = typeof resolved.skill.version === 'string' ? resolved.skill.version : null;
-  const packageDir = path.join(ROOT, '.claude', 'skill-packages');
+  const packageDir = await getPackageDir();
   const packagePath = path.join(packageDir, `${params.skillId}.tgz`);
-  const [registryBackup, changelogBackup, lockBackup, packageBackup] = await Promise.all([
+  const releaseSnapshotPath = await getVersionPackagePath(params.skillId, release.version);
+  const [registryBackup, changelogBackup, lockBackup, packageBackup, releaseSnapshotBackup] = await Promise.all([
     fs.readFile(REGISTRY_PATH, 'utf8'),
     fs.readFile(CHANGELOG_PATH, 'utf8').catch(() => null),
     fs.readFile(LOCK_PATH, 'utf8').catch(() => null),
     fs.readFile(packagePath).catch(() => null),
+    fs.readFile(releaseSnapshotPath).catch(() => null),
   ]);
 
   try {
@@ -404,6 +619,7 @@ export async function publishSkillVersion(params: PublishSkillVersionParams): Pr
 
     await packageSkill(params.skillId);
     await ensureVersionSnapshot(params.skillId, release.version);
+    await runCommand('npm', ['run', 'check:skills'], ROOT);
     return getSkillsDashboardData();
   } catch (error) {
     await Promise.all([
@@ -417,6 +633,10 @@ export async function publishSkillVersion(params: PublishSkillVersionParams): Pr
       packageBackup === null
         ? fs.rm(packagePath, { force: true })
         : fs.mkdir(path.dirname(packagePath), { recursive: true }).then(() => fs.writeFile(packagePath, packageBackup)),
+      releaseSnapshotBackup === null
+        ? fs.rm(releaseSnapshotPath, { force: true })
+        : fs.mkdir(path.dirname(releaseSnapshotPath), { recursive: true })
+          .then(() => fs.writeFile(releaseSnapshotPath, releaseSnapshotBackup)),
     ]);
     throw error;
   }
@@ -448,6 +668,7 @@ async function runCommand(command: string, args: string[], cwd: string) {
 }
 
 async function packageSkill(skillId: string) {
+  await validateCompleteSkillDirectory(skillId);
   await runCommand('npm', ['run', 'package:skills', '--', skillId], ROOT);
 }
 
@@ -459,7 +680,27 @@ async function ensureVersionSnapshot(skillId: string, version?: string | null) {
   if (!sourceStat?.isFile()) return null;
   const snapshotPath = await getVersionPackagePath(skillId, targetVersion);
   await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
-  await fs.copyFile(sourcePackage, snapshotPath);
+  const existingStat = await fs.lstat(snapshotPath).catch(() => null);
+  if (existingStat) {
+    if (!existingStat.isFile() || existingStat.isSymbolicLink()) {
+      throw new Error(`${skillId}@${targetVersion} 的版本快照不是普通文件。`);
+    }
+    const [sourceBuffer, snapshotBuffer] = await Promise.all([
+      fs.readFile(sourcePackage),
+      fs.readFile(snapshotPath),
+    ]);
+    if (!sourceBuffer.equals(snapshotBuffer)) {
+      throw new Error(`${skillId}@${targetVersion} 的版本快照已存在且不可覆盖。`);
+    }
+    return snapshotPath;
+  }
+  const temporaryPath = `${snapshotPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  await fs.copyFile(sourcePackage, temporaryPath);
+  try {
+    await fs.rename(temporaryPath, snapshotPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
   return snapshotPath;
 }
 
@@ -468,41 +709,90 @@ function isInside(parent: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-async function assertNoUnsafeExtractedPath(dir: string) {
+async function assertNoUnsafeExtractedPath(
+  dir: string,
+  root = dir,
+  state = { entries: 0, totalBytes: 0 },
+) {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    if (!isInside(dir, fullPath)) {
+    if (!isInside(root, fullPath)) {
       throw new Error('压缩包包含不安全路径。');
     }
-    if (entry.isSymbolicLink()) {
+    state.entries += 1;
+    if (state.entries > MAX_ARCHIVE_ENTRIES) {
+      throw new Error(`压缩包展开条目不得超过 ${MAX_ARCHIVE_ENTRIES} 个。`);
+    }
+    const stat = await fs.lstat(fullPath);
+    if (stat.isSymbolicLink()) {
       throw new Error('压缩包不得包含软链接。');
     }
-    if (entry.isDirectory()) {
-      await assertNoUnsafeExtractedPath(fullPath);
+    if (stat.isDirectory()) {
+      await assertNoUnsafeExtractedPath(fullPath, root, state);
+      continue;
+    }
+    if (!stat.isFile()) {
+      throw new Error('压缩包只能包含普通文件和目录。');
+    }
+    if (stat.size > MAX_EXTRACTED_FILE_BYTES) {
+      throw new Error('压缩包包含超过 10MB 的单个文件。');
+    }
+    state.totalBytes += stat.size;
+    if (state.totalBytes > MAX_EXTRACTED_TOTAL_BYTES) {
+      throw new Error('压缩包展开后的文件总量不得超过 50MB。');
     }
   }
+  return state;
 }
 
 async function validateTarArchive(archivePath: string, extractDir: string) {
-  const listing = await runCommand('tar', ['-tzf', archivePath], ROOT);
-  for (const rawEntry of listing.split('\n')) {
-    const entry = rawEntry.trim();
-    if (!entry) continue;
-    const normalized = entry.replace(/^\.\//, '');
-    const destination = path.resolve(extractDir, normalized);
-    if (!normalized || path.isAbsolute(normalized) || !isInside(extractDir, destination)) {
-      throw new Error('压缩包包含不安全路径。');
-    }
-  }
-
-  const verboseListing = await runCommand('tar', ['-tvzf', archivePath], ROOT);
-  const hasLinkEntry = verboseListing
-    .split('\n')
-    .some((line) => line.startsWith('l') || line.startsWith('h'));
-  if (hasLinkEntry) {
-    throw new Error('压缩包不得包含软链接或硬链接。');
-  }
+  const entries = new Set<string>();
+  let totalBytes = 0;
+  let validationError: Error | null = null;
+  await tar.t({
+    file: archivePath,
+    onentry: (entry) => {
+      if (validationError) return;
+      const normalized = entry.path.replace(/^(?:\.\/)+/, '').replace(/\/$/, '');
+      const destination = path.resolve(extractDir, normalized);
+      if (
+        !normalized ||
+        normalized.includes('\\') ||
+        path.isAbsolute(normalized) ||
+        normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..') ||
+        !isInside(extractDir, destination)
+      ) {
+        validationError = new Error('压缩包包含不安全路径。');
+        return;
+      }
+      if (entries.has(normalized)) {
+        validationError = new Error('压缩包不得包含重复条目。');
+        return;
+      }
+      entries.add(normalized);
+      if (entries.size > MAX_ARCHIVE_ENTRIES) {
+        validationError = new Error(`压缩包条目不得超过 ${MAX_ARCHIVE_ENTRIES} 个。`);
+        return;
+      }
+      if (!['File', 'Directory'].includes(entry.type)) {
+        validationError = new Error('压缩包只能包含普通文件和目录。');
+        return;
+      }
+      if (entry.type === 'File') {
+        if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > MAX_EXTRACTED_FILE_BYTES) {
+          validationError = new Error('压缩包包含尺寸无效或超过 10MB 的文件。');
+          return;
+        }
+        totalBytes += entry.size;
+        if (totalBytes > MAX_EXTRACTED_TOTAL_BYTES) {
+          validationError = new Error('压缩包展开后的文件总量不得超过 50MB。');
+        }
+      }
+    },
+  });
+  if (validationError !== null) throw validationError;
+  if (entries.size === 0) throw new Error('压缩包不能为空。');
 }
 
 async function listFiles(dir: string): Promise<string[]> {
@@ -609,7 +899,15 @@ async function unpackSkillPackage(skillId: string, packagePath: string, targetDi
   await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(targetDir, { recursive: true });
   await validateTarArchive(packagePath, targetDir);
-  await runCommand('tar', ['--no-same-owner', '-xzf', packagePath, '-C', targetDir], ROOT);
+  await tar.x({
+    file: packagePath,
+    cwd: targetDir,
+    preserveOwner: false,
+    preservePaths: false,
+    strict: true,
+    filter: (_entryPath, entry) =>
+      'type' in entry && ['File', 'Directory'].includes(String(entry.type)),
+  });
   await assertNoUnsafeExtractedPath(targetDir);
   return findExtractedSkillRoot(targetDir, skillId);
 }
@@ -699,16 +997,23 @@ export async function rollbackSkillVersion(params: { skillId: string; version: s
   const workDir = path.join(TEMP_DIR, 'rollback', `${params.skillId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
   const targetDir = path.join(SKILLS_DIR, params.skillId);
   const backupDir = path.join(workDir, 'backup');
+  const currentPackagePath = await getCurrentPackagePath(params.skillId);
   const [registryBackup, lockBackup, packageBackup] = await Promise.all([
     fs.readFile(REGISTRY_PATH, 'utf8'),
     fs.readFile(LOCK_PATH, 'utf8').catch(() => null),
-    fs.readFile(await getCurrentPackagePath(params.skillId)).catch(() => null),
+    fs.readFile(currentPackagePath).catch(() => null),
   ]);
+  let sourceMoved = false;
+  let preserveWorkDirForRecovery = false;
 
   try {
-    await copyDir(targetDir, backupDir).catch(() => undefined);
     const restoredRoot = await unpackSkillPackage(params.skillId, snapshotPath, path.join(workDir, 'extract'));
-    await fs.rm(targetDir, { recursive: true, force: true });
+    const targetStat = await fs.lstat(targetDir).catch(() => null);
+    if (!targetStat?.isDirectory() || targetStat.isSymbolicLink()) {
+      throw new Error(`${params.skillId} 的现有源码目录不安全，拒绝回退。`);
+    }
+    await fs.rename(targetDir, backupDir);
+    sourceMoved = true;
     await copyDir(restoredRoot, targetDir);
 
     const resolved = await resolveCoreSkill(params.skillId);
@@ -716,19 +1021,39 @@ export async function rollbackSkillVersion(params: { skillId: string; version: s
     await writeJson(REGISTRY_PATH, resolved.registry);
     await packageSkill(params.skillId);
     await ensureVersionSnapshot(params.skillId, params.version);
+    await runCommand('npm', ['run', 'check:skills'], ROOT);
     return getSkillsDashboardData();
   } catch (error) {
-    await Promise.all([
-      fs.rm(targetDir, { recursive: true, force: true }).then(() => copyDir(backupDir, targetDir)).catch(() => undefined),
+    const recoveryTasks: Promise<unknown>[] = [
       fs.writeFile(REGISTRY_PATH, registryBackup, 'utf8'),
       lockBackup === null ? fs.rm(LOCK_PATH, { force: true }) : fs.writeFile(LOCK_PATH, lockBackup, 'utf8'),
       packageBackup === null
-        ? getCurrentPackagePath(params.skillId).then((packagePath) => fs.rm(packagePath, { force: true }))
-        : getCurrentPackagePath(params.skillId).then((packagePath) => fs.mkdir(path.dirname(packagePath), { recursive: true }).then(() => fs.writeFile(packagePath, packageBackup))),
-    ]);
+        ? fs.rm(currentPackagePath, { force: true })
+        : fs.mkdir(path.dirname(currentPackagePath), { recursive: true })
+          .then(() => fs.writeFile(currentPackagePath, packageBackup)),
+    ];
+    if (sourceMoved) {
+      recoveryTasks.push(
+        fs.rm(targetDir, { recursive: true, force: true })
+          .then(() => fs.rename(backupDir, targetDir)),
+      );
+    }
+    const recovery = await Promise.allSettled(recoveryTasks);
+    const recoveryErrors = recovery
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (recoveryErrors.length > 0) {
+      preserveWorkDirForRecovery = sourceMoved;
+      throw new AggregateError(
+        [error, ...recoveryErrors],
+        `Skill 回退失败且自动恢复不完整；恢复材料位于 ${workDir}`,
+      );
+    }
     throw error;
   } finally {
-    await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    if (!preserveWorkDirForRecovery) {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -749,6 +1074,7 @@ export async function uploadSkillPackage(params: UploadSkillPackageParams): Prom
   const extractDir = path.join(workDir, 'extract');
   await fs.mkdir(extractDir, { recursive: true });
   await fs.writeFile(archivePath, Buffer.from(await params.file.arrayBuffer()));
+  let preserveWorkDirForRecovery = false;
 
   try {
     if (fileName.endsWith('.zip')) {
@@ -759,12 +1085,34 @@ export async function uploadSkillPackage(params: UploadSkillPackageParams): Prom
           'from pathlib import Path',
           'archive=Path(sys.argv[1])',
           'target=Path(sys.argv[2]).resolve()',
+          'max_entries=int(sys.argv[3])',
+          'max_file=int(sys.argv[4])',
+          'max_total=int(sys.argv[5])',
           'with zipfile.ZipFile(archive) as z:',
-          '    for item in z.infolist():',
+          '    items=z.infolist()',
+          '    if not items or len(items) > max_entries:',
+          '        raise SystemExit("zip entry count is invalid")',
+          '    names=set()',
+          '    total=0',
+          '    for item in items:',
+          '        normalized=item.filename.rstrip("/")',
+          '        parts=normalized.split("/")',
+          '        if not normalized or item.filename.startswith("/") or any(p in ("", ".", "..") for p in parts) or ":" in parts[0]:',
+          '            raise SystemExit("unsafe zip path segments")',
+          '        if item.filename in names:',
+          '            raise SystemExit("duplicate zip entry")',
+          '        names.add(item.filename)',
+          '        if "\\\\" in item.filename or item.flag_bits & 1:',
+          '            raise SystemExit("unsafe or encrypted zip entry")',
           '        destination=(target / item.filename).resolve()',
           '        mode=item.external_attr >> 16',
-          '        if stat.S_ISLNK(mode):',
-          '            raise SystemExit("zip symlink is not allowed")',
+          '        if mode and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):',
+          '            raise SystemExit("zip may contain only regular files and directories")',
+          '        if item.file_size > max_file:',
+          '            raise SystemExit("zip member exceeds size limit")',
+          '        total += item.file_size',
+          '        if total > max_total:',
+          '            raise SystemExit("zip expanded size exceeds limit")',
           '        try:',
           '            destination.relative_to(target)',
           '        except ValueError:',
@@ -773,10 +1121,21 @@ export async function uploadSkillPackage(params: UploadSkillPackageParams): Prom
         ].join('\n'),
         archivePath,
         extractDir,
+        String(MAX_ARCHIVE_ENTRIES),
+        String(MAX_EXTRACTED_FILE_BYTES),
+        String(MAX_EXTRACTED_TOTAL_BYTES),
       ], ROOT);
     } else {
       await validateTarArchive(archivePath, extractDir);
-      await runCommand('tar', ['--no-same-owner', '-xzf', archivePath, '-C', extractDir], ROOT);
+      await tar.x({
+        file: archivePath,
+        cwd: extractDir,
+        preserveOwner: false,
+        preservePaths: false,
+        strict: true,
+        filter: (_entryPath, entry) =>
+          'type' in entry && ['File', 'Directory'].includes(String(entry.type)),
+      });
     }
     await assertNoUnsafeExtractedPath(extractDir);
     const sourceRoot = await findExtractedSkillRoot(extractDir, params.skillId);
@@ -787,12 +1146,14 @@ export async function uploadSkillPackage(params: UploadSkillPackageParams): Prom
 
     const targetDir = path.join(SKILLS_DIR, params.skillId);
     const backupDir = path.join(workDir, 'backup');
-    await fs.rm(backupDir, { recursive: true, force: true });
-    await copyDir(targetDir, backupDir).catch(() => undefined);
-    await fs.rm(targetDir, { recursive: true, force: true });
-    await copyDir(sourceRoot, targetDir);
-
+    const targetStat = await fs.lstat(targetDir).catch(() => null);
+    if (!targetStat?.isDirectory() || targetStat.isSymbolicLink()) {
+      throw new Error(`${params.skillId} 的现有源码目录不安全，拒绝替换。`);
+    }
+    await fs.rename(targetDir, backupDir);
     try {
+      await copyDir(sourceRoot, targetDir);
+      await ensureSkillScriptsExecutable(targetDir);
       return await publishSkillVersion({
         skillId: params.skillId,
         version: release.version,
@@ -802,10 +1163,20 @@ export async function uploadSkillPackage(params: UploadSkillPackageParams): Prom
       });
     } catch (error) {
       await fs.rm(targetDir, { recursive: true, force: true });
-      await copyDir(backupDir, targetDir).catch(() => undefined);
+      try {
+        await fs.rename(backupDir, targetDir);
+      } catch (restoreError) {
+        preserveWorkDirForRecovery = true;
+        throw new AggregateError(
+          [error, restoreError],
+          `Skill 发布失败且自动恢复失败；原目录保留在 ${backupDir}`,
+        );
+      }
       throw error;
     }
   } finally {
-    await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    if (!preserveWorkDirForRecovery) {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 }

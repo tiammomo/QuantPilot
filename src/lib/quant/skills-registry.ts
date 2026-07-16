@@ -14,6 +14,7 @@ export interface QuantCoreSkill {
   inputs?: string[];
   outputs?: string[];
   scripts?: string[];
+  references?: string[];
   endpoints?: string[];
   legacyAliases?: string[];
   validation?: string[];
@@ -192,7 +193,8 @@ export function describeQuantSkillsForPrompt(registry: QuantSkillsRegistry): str
       ? `；兼容别名：${skill.legacyAliases.join(', ')}`
       : '';
     const scriptText = skill.scripts?.length ? `；脚本：${skill.scripts.join(', ')}` : '';
-    return `- ${skill.id}（${skill.name}，${skill.status}，v${skill.version}）：${skill.boundary}${aliasText}${scriptText}`;
+    const referenceText = skill.references?.length ? `；参考：${skill.references.join(', ')}` : '';
+    return `- ${skill.id}（${skill.name}，${skill.status}，v${skill.version}）：${skill.boundary}${aliasText}${scriptText}${referenceText}`;
   });
 
   return [

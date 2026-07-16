@@ -1,0 +1,4 @@
+interface:
+  display_name: "量化回测复盘"
+  short_description: "校验可复现回测的参数、净值、回撤、交易并输出限制说明"
+  default_prompt: "Use $quant-backtest to validate a reproducible backtest and summarize its evidence-backed limitations."

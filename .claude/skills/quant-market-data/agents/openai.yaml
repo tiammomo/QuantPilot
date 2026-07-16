@@ -1,0 +1,4 @@
+interface:
+  display_name: "行情数据"
+  short_description: "优先本地事实库获取并校验股票、指数和 ETF 行情"
+  default_prompt: "Use $quant-market-data to fetch and validate the required local-first market data for this task."

@@ -35,6 +35,12 @@ export interface MoAgentSkillRuntimeCapsule {
 export interface MoAgentSkillCapsuleRegistry {
   schemaVersion: 1;
   description?: string;
+  workspaceResponseContract: {
+    schemaVersion: 1;
+    owner: 'platform';
+    stageLabels: string[];
+    rules: string[];
+  };
   skills: Record<string, MoAgentSkillRuntimeCapsule>;
 }
 
@@ -48,6 +54,7 @@ export interface MoAgentSkillRegistryEntry {
   inputs?: string[];
   outputs?: string[];
   scripts?: string[];
+  references?: string[];
   endpoints?: string[];
   legacyAliases?: string[];
   validation?: string[];

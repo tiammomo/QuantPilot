@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ def as_record(value: Any) -> JsonRecord | None:
 
 
 def numeric(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)) and math.isfinite(value):
         return float(value)
     if isinstance(value, str) and value.strip():
@@ -148,25 +151,37 @@ def build_liquidity(data: JsonRecord) -> JsonRecord:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="计算 QuantPilot dashboard-data 流动性摘要。")
-    parser.add_argument("input", help="data_file/final/dashboard-data.json")
-    parser.add_argument("-o", "--output", help="输出 JSON 路径；不传则打印到 stdout。")
-    args = parser.parse_args()
+def read_json(source: str) -> JsonRecord:
+    text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError("输入 JSON 必须是对象。")
+    return value
 
-    data = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise SystemExit("输入 JSON 必须是对象。")
 
-    result = build_liquidity(data)
-    payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-    if args.output:
-        output = Path(args.output)
+def emit(value: JsonRecord, output_path: str | None) -> None:
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    if output_path:
+        output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(payload, encoding="utf-8")
     else:
-        print(payload, end="")
+        sys.stdout.write(payload)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="计算 QuantPilot dashboard-data 流动性摘要。")
+    parser.add_argument("input", nargs="?", default="-", help="JSON 文件；传 - 或省略时读取 stdin。")
+    parser.add_argument("-o", "--output", help="输出 JSON 路径；不传则打印到 stdout。")
+    args = parser.parse_args()
+
+    try:
+        emit(build_liquidity(read_json(args.input)), args.output)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        print(f"liquidity: {error}", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

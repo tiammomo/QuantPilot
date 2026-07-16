@@ -1,68 +1,45 @@
 ---
 name: quant-fundamentals
-description: Use this skill for financial statements, derived fundamental indicators, announcements, and event context. It is the long-term aggregate replacement for quant-fundamental-financials, quant-fundamental-indicators, and quant-announcement-events.
+description: Analyze A-share financial reports, derived profitability and growth indicators, announcement evidence, and valuation scenarios. Use for fundamental analysis, earnings quality, valuation, corporate-event context, or when consolidating financials, fundamentalIndicators, announcements, and valuation into QuantPilot final data.
 ---
 
-# QuantPilot 基本面与事件能力
+# QuantPilot 基本面与事件
 
-本 skill 负责上市公司基本面数据和事件上下文，长期承接以下兼容能力：
+把财务、衍生指标、公告和估值组织为可核验的基本面证据；继续兼容 `quant-fundamental-financials`、`quant-fundamental-indicators` 与 `quant-announcement-events`。
 
-- `quant-fundamental-financials`
-- `quant-fundamental-indicators`
-- `quant-announcement-events`
+## 执行流程
 
-## 能力边界
+1. 用 `quant-symbol-resolver` 确认标准代码；只处理 run plan 中的标的。
+2. 读取 `/fundamentals/financials/{symbol}`、`/indicators/fundamental/{symbol}` 与 `/events/announcements/{symbol}` 的真实返回。
+3. 对齐报告期、披露时间、单位、百分比口径和来源；不要把不同口径拼成同一趋势。
+4. 仅在用户询问估值、持有依据或情景空间时运行估值脚本；把假设与事实分开。
+5. 写入 `financials`、`fundamentalIndicators`、`announcements`、`valuation`，并同步来源与 data quality。
+6. 让页面呈现事实、期间、来源、缺口和情景假设；不要输出收益承诺。
 
-输入：
+## 按需加载参考
 
-- `run_plan.symbols`
-- 用户关注的报告期、财务指标或公告事件
-- 后端数据接口返回的财务、指标和公告数据
+- 当合并多个基本面数据集、比较跨期财务、解释公告或生成估值时，读取 [基本面统一合同与失败模式](references/fundamentals-contract.md)。
+- 单纯调用确定性估值脚本且输入已经过合同校验时，不必加载整份参考。
 
-输出：
+## 确定性脚本
 
-- `financials`
-- `fundamentalIndicators`
-- `announcements`
-- `valuation`
-- `evidence/sources.json`
-- `evidence/data_quality.json`
-
-## 标准流程
-
-1. 使用 `quant-symbol-resolver` 确认标的。
-2. 调用：
-   - `/api/v1/fundamentals/financials/{symbol}`
-   - `/api/v1/indicators/fundamental/{symbol}`
-   - `/api/v1/events/announcements/{symbol}`
-3. 如果用户询问估值、贵不贵、调仓、持有/减仓依据，运行估值情景脚本生成 `valuation`。
-4. 使用 `data-quality` 记录来源、报告期、缺失字段和限制。
-5. 将结果写入 `data_file/final/dashboard-data.json` 的标准字段。
-6. 交给 `dashboard-visualization` 生成基本面或综合看板。
-
-## Python 脚本原则
-
-财务口径和估值情景优先用确定性脚本，不让模型口算倍数或上行空间。脚本只输出结构化 JSON，不直接生成页面。
-
-可用脚本：
-
-- `scripts/valuation_scenarios.py`：读取 `data_file/final/dashboard-data.json`，基于最新价、EPS、PE、市值、净利润等可用字段生成防守/中性/进攻三档估值情景。
-
-推荐调用：
+从文件读取并保持现有调用兼容：
 
 ```bash
-python3 .claude/skills/quant-fundamentals/scripts/valuation_scenarios.py data_file/final/dashboard-data.json -o data_file/final/valuation.json
+python3 scripts/valuation_scenarios.py data_file/final/dashboard-data.json
 ```
 
-然后把结果合并回：
+从 stdin 读取并向 stdout 输出 JSON：
 
-- `dashboard-data.json.valuation`
+```bash
+python3 scripts/valuation_scenarios.py - < data_file/final/dashboard-data.json
+```
 
-如果 EPS、PE 或最新价缺失，脚本必须保留 warning；页面展示 warning，不要编造估值结果。
+可继续用 `-o/--output` 写文件。EPS、PE 或价格不足时保留 warning 和空 scenarios，不补造数字。
 
-## 禁止事项
+## Workspace 协作与质量门
 
-- 不要把缺失财务字段编造成真实值。
-- 不要把公告标题推断成确定性利好或利空。
-- 不要省略报告期、来源和缺失字段说明。
-- 不要把估值情景当成收益承诺或直接交易指令。
+- 继承平台阶段；只贡献标的、报告期、财务/事件事实、估值假设、来源和缺失字段。
+- 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
+- 拒绝把公告标题当正文、把单期累计数当单季数、把估值情景当预测结论。
+- 对缺失报告期、单位、来源、时间戳或标的不一致返回 warning/error，不静默降级。

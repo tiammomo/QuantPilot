@@ -1,58 +1,40 @@
 ---
 name: quant-comparison
-description: Use this skill for multi-symbol stock, ETF, index, portfolio, or relative-strength comparison tasks before visualization.
+description: Build and validate evidence-based comparisons across multiple stocks, ETFs, indices, or portfolio constituents. Use for relative strength, ranking, performance/risk matrices, multi-symbol dashboards, or any task where every requested symbol must share a comparable window and metric definition.
 ---
 
-# QuantPilot 多标的对比能力
+# QuantPilot 多标的对比
 
-本 skill 用于把多个标的的真实行情、历史 K 线和指标数据整理成可比较的分析结果。它必须建立在真实数据之上，不能只基于主标的生成结论。
+把多个标的的真实数据标准化到同一窗口和同一计算口径。不得只使用主标的数据代表全部标的。
 
-## 何时必须使用
+## 执行流程
 
-当用户问题包含以下意图时，必须使用本 skill：
+1. 从运行计划读取完整 `requestedSymbols`；逐个确认代码、资产类型和数据覆盖。
+2. 为所有标的选择共同样本窗口、频率、复权和币种/单位，保留每个标的的来源与截止时间。
+3. 读取 [references/comparison-contract.md](references/comparison-contract.md) 后生成 `assets[]` 与 `comparison.rows[]`。
+4. 在排名、结论或可视化前执行：
 
-- 对比、横向比较、相对强弱、谁更强、组合或多标的分析。
-- 同时出现多只股票、指数或 ETF。
-- 页面需要展示收益、波动、回撤、成交量、成交额、估值或财务质量的横向比较。
-
-## 数据输入
-
-优先读取平台已经预取的最终数据：
-
-```text
-data_file/final/dashboard-data.json
+```bash
+python3 scripts/validate_comparison.py --input data_file/final/dashboard-data.json
 ```
 
-多标的任务的最终数据应包含：
+5. 缺任一请求标的、存在重复行、窗口不一致或指标不可比时停止；补数或明确返回失败。
+6. 校验通过后再计算 leaders，并把事实、计算结果和分析判断分开表达。
 
-- `requestedSymbols`: 用户问题解析出的全部标的。
-- `assets[]`: 每个标的的真实数据对象，结构与单标的看板兼容，包含 `quote`、`kline`、`technicalIndicators`、`financials`、`computedMetrics` 等字段。
-- `comparison.rows[]`: 标准化后的对比行，包含 `symbol`、`name`、`period_return`、`max_drawdown`、`volatility20d`、`avg_volume_20d`、`amount`、`as_of` 和 `source`。
-- `comparison.leaders`: 收益、回撤、波动等维度的领先标的。
+## 按需资源
 
-如果 `assets[]` 不存在或未覆盖 `.quantpilot/run_plan.json` 中的全部 `symbols`，必须先补取数据或明确失败，不能用主标的数据代表全部标的。
+- [references/comparison-contract.md](references/comparison-contract.md)：定义共同窗口、指标方向、缺失值策略、排名与数据血缘；生成或审查比较结果时必须读取。
+- [scripts/validate_comparison.py](scripts/validate_comparison.py)：检查请求标的覆盖、行唯一性、共同窗口、必需指标与来源证据。
 
-## 分析要求
+## Workspace 回答协作
 
-1. 逐只标的核对 `symbol`、`name`、`quote_time/as_of`、`fetched_at`、`source`。
-2. 使用同一时间窗口比较区间收益、最大回撤、年化/区间波动、成交量或成交额。
-3. 如果财务数据存在，可补充盈利质量、ROE、毛利率、净利率等横向指标；如果缺失，要展示限制。
-4. 明确区分事实数据、计算结果和分析推断。
-5. 不构成投资建议，不输出确定性买卖结论。
+- 继承平台五阶段进度，不重复阶段标题、识别表或 Todo。
+- 只贡献标的覆盖、共同窗口、对比口径、领先项、缺失标的和数据限制。
+- 不输出隐藏推理、完整工具参数或占位式执行文案。
 
-## 可视化交付
+## 完成门槛
 
-调用 `dashboard-visualization` 生成页面时，多标的看板至少包含：
-
-- 顶部：全部标的、样本区间、数据更新时间。
-- 指标矩阵：最新价、当日涨跌幅、区间收益、最大回撤、波动、成交额。
-- 对比图表：收益对比、波动/回撤对比、成交额或成交量对比。
-- 相对强弱摘要：表现最好、回撤最小、波动最低等。
-- 数据来源与质量：每个标的的来源、时间和缺失字段。
-
-## 禁止事项
-
-- 不要只展示第一只标的。
-- 不要把 `assets[]` 里的多标的压缩成单个 `quote/kline` 后冒充对比。
-- 不要编造缺失标的数据。
-- 不要用静态样例数据或说明文字替代真实对比图表。
+- `requestedSymbols` 中每个标的恰有一个真实资产对象和一个对比行。
+- 所有行使用同一窗口和同名同义指标；来源、截止时间和缺失字段可追溯。
+- 校验器返回 `ok: true`；否则不得生成 leaders 或宣称完成对比。
+- 不输出确定性买卖结论，不把缺失值当零参与排名。

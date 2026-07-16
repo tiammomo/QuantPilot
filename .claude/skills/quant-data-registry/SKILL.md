@@ -7,6 +7,25 @@ description: Use this skill to discover QuantPilot local database coverage, mark
 
 先查询 QuantPilot 本地数据注册表和 TimescaleDB 覆盖，再选择具体数据能力。不要凭记忆猜接口，也不要在本地库已有数据时优先调用外部历史接口。
 
+## 资源与确定性路由
+
+需要判断本地覆盖、provider 降级或端点职责时，读取 [registry-routing-contract.md](references/registry-routing-contract.md)。它包含端点边界、证据字段和失败模式；普通单端点调用不必加载。
+
+把已经从注册表和覆盖接口确认的事实交给路由脚本，避免临时重写选择逻辑：
+
+```bash
+python .claude/skills/quant-data-registry/scripts/select_data_route.py \
+  --input '{"operation":"historical_bars","symbol":"600519","required_fields":["amount","turnover"],"local_coverage":{"available":true,"covers_range":true,"missing_fields":[]}}'
+```
+
+`--input` 支持 JSON 对象、JSON 文件路径或 `-`（stdin）。脚本只向 stdout 输出 JSON 决策，不联网、不写文件，也不会自行假定覆盖或 provider 可用；无效输入以非零状态退出。`endpoint` 为 `null` 时，先按 `next_skill` 查询实时注册表能力，不得猜测 URL。
+
+## Workspace 回答协作
+
+- 继承平台统一的五阶段进度；不自行重启阶段、重复进度标题、重复问题识别表或维护 Todo。
+- 只提供本 skill 已确认的可验证事实、真实缺口和下一步，不输出隐藏推理、完整工具参数或占位式 “Skill executing...”。
+- 本 skill 只贡献数据集、端点、本地覆盖、provider、时效、字段缺口和降级路线；阶段编号与展示由平台统一维护。
+
 ## API
 
 ```bash

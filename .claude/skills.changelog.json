@@ -9,6 +9,26 @@
     "run-planner": {
       "releases": [
         {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含任务合同 reference、确定性澄清脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 run-plan-contract.md，固化计划字段、澄清门禁和失败边界。",
+            "增强 intent_clarifier.py 的 JSON 文件/stdin 契约并保留既有参数兼容。",
+            "新增 agents/openai.yaml，并纳入完整技能包发布检查。"
+          ]
+        },
+        {
+          "version": "0.2.4",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "移除 skill 自行输出阶段日志和重复执行摘要的要求。",
+            "只向平台贡献业务场景、对象、时间、数据需求、输出形式和澄清缺口。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.2.3",
           "date": "2026-07-14",
           "summary": "统一平台只读运行计划与 Agent 执行边界。",
@@ -52,6 +72,26 @@
     "quant-data-registry": {
       "releases": [
         {
+          "version": "0.4.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含数据路由合同和确定性信源选择器的完整技能包。",
+          "changes": [
+            "新增 registry-routing-contract.md，记录本地优先、覆盖、字段缺口和降级边界。",
+            "新增 select_data_route.py，以稳定 JSON 选择最小可审计数据路线。",
+            "新增 Agent 元数据，并要求 reference/script 均由 SKILL.md 直接导航。"
+          ]
+        },
+        {
+          "version": "0.3.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为数据集、端点、本地覆盖、provider、时效、缺口和降级路线。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.3.0",
           "date": "2026-05-29",
           "summary": "强化本地 PostgreSQL/TimescaleDB 优先的数据选择规则。",
@@ -85,6 +125,26 @@
     "quant-symbol-resolver": {
       "releases": [
         {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含解析合同和候选排序器的完整技能包。",
+          "changes": [
+            "新增 symbol-resolution-contract.md，固化唯一候选、同优先级歧义和输出字段。",
+            "新增 rank_candidates.py，确定性排序并区分 resolved、ambiguous 与 unresolved。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为原始标识、标准代码、名称、市场、资产类型和候选歧义。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.1.1",
           "date": "2026-07-14",
           "summary": "增加证券名称的自动优先级解析规则。",
@@ -106,6 +166,26 @@
     "image-extraction": {
       "releases": [
         {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含图片证据合同和提取结果归一化器的完整技能包。",
+          "changes": [
+            "新增 portfolio-image-contract.md，区分图片事实、接口事实和人工确认缺口。",
+            "新增 normalize_extraction.py，确定性规范持仓、成本、现金、盈亏和置信边界。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "移除独立的 Skill executing 占位模板。",
+            "用户可见贡献收敛为附件数量、图片哈希、识别字段、置信边界和人工确认缺口。",
+            "阶段编号、识别表和进度状态统一由平台维护。"
+          ]
+        },
+        {
           "version": "0.1.0",
           "date": "2026-05-25",
           "summary": "新增上传图片和持仓截图提取能力。",
@@ -119,6 +199,26 @@
     },
     "quant-market-data": {
       "releases": [
+        {
+          "version": "0.5.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含行情合同和 K 线载荷验证器的完整技能包。",
+          "changes": [
+            "新增 market-data-contract.md，固化本地优先、复权、字段和时效契约。",
+            "新增 validate_market_bars.py，检查 symbol、OHLC、日期排序、样本和异常行。",
+            "新增 Agent 元数据；legacy 行情 Skill 同步获得独立完整包。"
+          ]
+        },
+        {
+          "version": "0.4.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为标的、时间范围、粒度、记录数、来源、时效和取数缺口。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
         {
           "version": "0.4.0",
           "date": "2026-05-29",
@@ -153,6 +253,26 @@
     "quant-fundamentals": {
       "releases": [
         {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含基本面合同、估值脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 fundamentals-contract.md，固化报告期、财务、公告、估值和缺失字段边界。",
+            "保留并文档化 valuation_scenarios.py 的确定性输入输出。",
+            "财务与公告 legacy Skill 同步补齐 reference、script 和 Agent 元数据。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为报告期、财务与事件事实、估值假设、来源和缺失字段。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.1.1",
           "date": "2026-07-15",
           "summary": "将已由 QuantPilot typed API 与 MoAgent runtime capsule 承载的基本面能力提升为稳定能力。",
@@ -174,6 +294,26 @@
     },
     "quant-indicators": {
       "releases": [
+        {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含指标方法论、确定性计算脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 technical-risk-methodology.md，记录窗口、复权、缺失值和风险指标口径。",
+            "统一文档化 correlation.py、liquidity.py 与 trend_template.py 的使用条件。",
+            "技术指标 legacy Skill 同步补齐独立合同与计算脚本。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为指标、窗口、样本量、复权与缺失值口径、结果和限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
         {
           "version": "0.1.1",
           "date": "2026-07-15",
@@ -197,6 +337,26 @@
     "quant-backtest": {
       "releases": [
         {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含回测合同和确定性结果验证器的完整技能包。",
+          "changes": [
+            "新增 backtest-contract.md，固化参数、样本、费用、净值、交易和限制。",
+            "新增 validate_backtest.py，检查可复现字段、曲线和统计一致性。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为策略参数、样本、费用、收益回撤、交易数和未建模限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.2.0",
           "date": "2026-05-29",
           "summary": "将回测技能调整为先检查本地 TimescaleDB bars 覆盖。",
@@ -219,6 +379,26 @@
     "data-quality": {
       "releases": [
         {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含证据合同和确定性质量审计器的完整技能包。",
+          "changes": [
+            "新增 evidence-contract.md，固化 sources 与 data_quality 的字段及追溯关系。",
+            "新增 assess_data_quality.py，检查来源、时效、样本、缺失字段与警告。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.2.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "数据质量摘要改为向平台提交，不再由 Skill 自行维护用户可见阶段。",
+            "用户可见贡献收敛为状态、来源、时效、样本量、缺失字段、警告和限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
           "version": "0.2.1",
           "date": "2026-07-14",
           "summary": "将数据质量事件记录统一交由平台维护。",
@@ -240,6 +420,26 @@
     },
     "platform-ui-product-design": {
       "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含平台 UI 合同、状态矩阵验证器和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 platform-ui-contract.md，固化状态、断点、可访问性和验收证据。",
+            "新增 validate_state_matrix.py，确定性检查 loading、empty、error、disabled、pending 与 long text。",
+            "保留 UI/UX 适配 reference，并强制从 SKILL.md 按需导航所有资源。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为目标页面、设计决策、响应式断点、交互状态和验证结果。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
         {
           "version": "0.2.0",
           "date": "2026-05-28",
@@ -264,6 +464,26 @@
     },
     "dashboard-visualization": {
       "releases": [
+        {
+          "version": "0.5.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含完整数据合同、模板 references、验证脚本和 Agent 元数据的技能包。",
+          "changes": [
+            "新增 dashboard-data-contract.md，固化模板、标的覆盖、组件和禁止数据。",
+            "新增 validate_dashboard_contract.py，检查 final 数据形态、模板、标的与 mock/秘密风险。",
+            "保留场景模板和可视化判读的按需注入，完整资源不自动增加模型上下文。"
+          ]
+        },
+        {
+          "version": "0.4.8",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度、问题识别表或 Todo。",
+            "用户可见贡献收敛为模板与变体、数据绑定、必备组件、修改产物、视觉缺口和待验收项。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
         {
           "version": "0.4.7",
           "date": "2026-07-15",

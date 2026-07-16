@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,8 @@ def as_record(value: Any) -> JsonRecord | None:
 
 
 def numeric(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)) and math.isfinite(value):
         return float(value)
     if isinstance(value, str) and value.strip():
@@ -63,6 +66,12 @@ def close_returns(bars: Iterable[JsonRecord]) -> dict[str, float]:
             continue
         date = str(bar.get("date") or bar.get("time") or index)
         ordered.append((date, close))
+
+    ordered.sort(key=lambda item: item[0])
+    dates = [date for date, _ in ordered]
+    duplicates = sorted({date for date in dates if dates.count(date) > 1})
+    if duplicates:
+        raise ValueError(f"存在重复 K 线时间键：{', '.join(duplicates[:5])}")
 
     returns: dict[str, float] = {}
     for (current_date, current_close), (_, previous_close) in zip(ordered[1:], ordered[:-1], strict=False):
@@ -134,25 +143,37 @@ def build_correlation(data: JsonRecord) -> JsonRecord:
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="计算 QuantPilot dashboard-data 多标的收益相关性。")
-    parser.add_argument("input", help="data_file/final/dashboard-data.json")
-    parser.add_argument("-o", "--output", help="输出 JSON 路径；不传则打印到 stdout。")
-    args = parser.parse_args()
+def read_json(source: str) -> JsonRecord:
+    text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+    value = json.loads(text)
+    if not isinstance(value, dict):
+        raise ValueError("输入 JSON 必须是对象。")
+    return value
 
-    data = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise SystemExit("输入 JSON 必须是对象。")
 
-    result = build_correlation(data)
-    payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
-    if args.output:
-        output = Path(args.output)
+def emit(value: JsonRecord, output_path: str | None) -> None:
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    if output_path:
+        output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(payload, encoding="utf-8")
     else:
-        print(payload, end="")
+        sys.stdout.write(payload)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="计算 QuantPilot dashboard-data 多标的收益相关性。")
+    parser.add_argument("input", nargs="?", default="-", help="JSON 文件；传 - 或省略时读取 stdin。")
+    parser.add_argument("-o", "--output", help="输出 JSON 路径；不传则打印到 stdout。")
+    args = parser.parse_args()
+
+    try:
+        emit(build_correlation(read_json(args.input)), args.output)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        print(f"correlation: {error}", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

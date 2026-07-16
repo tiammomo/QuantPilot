@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as tar from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 import { compileMoAgentSkills, installMoAgentSkillsForWorkspace } from './compiler';
 
@@ -10,6 +12,50 @@ async function temporaryDirectory(prefix: string): Promise<string> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   temporaryDirectories.push(directory);
   return directory;
+}
+
+async function createPackageOnlyFixture(skillId: string) {
+  const repositoryRoot = process.cwd();
+  const fixtureRoot = await temporaryDirectory('moagent-package-only-');
+  const fixtureState = path.join(fixtureRoot, '.claude');
+  const fixtureConfig = path.join(fixtureRoot, 'config');
+  const fixturePackageDir = path.join(fixtureState, 'skill-packages');
+  const [registry, lock, capsuleRegistry] = await Promise.all([
+    fs.readFile(path.join(repositoryRoot, '.claude', 'skills.registry.json'), 'utf8').then(JSON.parse),
+    fs.readFile(path.join(repositoryRoot, '.claude', 'skills.lock.json'), 'utf8').then(JSON.parse),
+    fs.readFile(path.join(repositoryRoot, 'config', 'moagent-skill-capsules.json'), 'utf8').then(JSON.parse),
+  ]);
+  const skill = registry.coreSkills.find((entry: { id: string }) => entry.id === skillId);
+  if (!skill) throw new Error(`missing fixture skill ${skillId}`);
+  await Promise.all([
+    fs.mkdir(fixturePackageDir, { recursive: true }),
+    fs.mkdir(fixtureConfig, { recursive: true }),
+  ]);
+  const packagePath = path.join(fixturePackageDir, `${skillId}.tgz`);
+  await Promise.all([
+    fs.copyFile(
+      path.join(repositoryRoot, '.claude', 'skill-packages', `${skillId}.tgz`),
+      packagePath,
+    ),
+    fs.writeFile(path.join(fixtureState, 'skills.registry.json'), JSON.stringify({
+      ...registry,
+      coreSkills: [skill],
+      legacyAliases: {},
+    })),
+    fs.writeFile(path.join(fixtureState, 'skills.lock.json'), JSON.stringify({
+      ...lock,
+      skills: { [skillId]: lock.skills[skillId] },
+    })),
+    fs.writeFile(path.join(fixtureConfig, 'moagent-skill-capsules.json'), JSON.stringify({
+      ...capsuleRegistry,
+      skills: { [skillId]: capsuleRegistry.skills[skillId] },
+    })),
+  ]);
+  return {
+    fixtureRoot,
+    fixtureState,
+    packagePath,
+  };
 }
 
 afterEach(async () => {
@@ -41,6 +87,8 @@ describe('compileMoAgentSkills', () => {
     expect(result.taskContext).toContain('quant_api_get');
     expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('.claude/skills/');
     expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('mcp__QuantPilotImage__');
+    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('workspaceResponseContract');
+    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('正在理解问题');
     expect(result.truncated).toBe(false);
     expect(result.skills.every((skill) => Boolean(skill.sourceSha256))).toBe(true);
     expect(result.skills.every((skill) => Boolean(skill.capsuleSha256))).toBe(true);
@@ -196,6 +244,15 @@ describe('compileMoAgentSkills', () => {
     expect(installedSkill).toContain('图片提取能力');
     expect(installedSkill).toContain('quant_extract_uploaded_image');
     expect(installedSkill).not.toContain('mcp__QuantPilotImage__');
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'image-extraction', 'references', 'portfolio-image-contract.md'),
+    )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'image-extraction', 'scripts', 'normalize_extraction.py'),
+    )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'image-extraction', 'agents', 'openai.yaml'),
+    )).resolves.toBeUndefined();
     await expect(
       fs.readFile(path.join(workspace, '.moagent', 'skills', 'user-owned-skill', 'SKILL.md'), 'utf8'),
     ).resolves.toContain('unmanaged');
@@ -228,6 +285,109 @@ describe('compileMoAgentSkills', () => {
     await expect(fs.access(
       path.join(workspace, '.moagent', 'skills', 'platform-ui-product-design', 'SKILL.md'),
     )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'platform-ui-product-design', 'references', 'platform-ui-contract.md'),
+    )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'platform-ui-product-design', 'scripts', 'validate_state_matrix.py'),
+    )).resolves.toBeUndefined();
+    await expect(fs.access(
+      path.join(workspace, '.moagent', 'skills', 'platform-ui-product-design', 'agents', 'openai.yaml'),
+    )).resolves.toBeUndefined();
+  });
+
+  it('installs a complete Skill mirror from a verified package when source is absent', async () => {
+    const { fixtureRoot } = await createPackageOnlyFixture('image-extraction');
+    const workspace = await temporaryDirectory('moagent-package-workspace-');
+
+    const receipt = await installMoAgentSkillsForWorkspace(workspace, {
+      repositoryRoot: fixtureRoot,
+      requiredSkillIds: ['image-extraction'],
+      maxSystemContextChars: 4_000,
+    });
+
+    expect(receipt.skills['image-extraction'].source).toBe('package');
+    for (const relativePath of [
+      'SKILL.md',
+      'references/portfolio-image-contract.md',
+      'scripts/normalize_extraction.py',
+      'agents/openai.yaml',
+    ]) {
+      await expect(fs.access(
+        path.join(workspace, '.moagent', 'skills', 'image-extraction', relativePath),
+      )).resolves.toBeUndefined();
+    }
+  });
+
+  it.each(['symlink', 'hardlink'] as const)(
+    'rejects a package-only Skill containing an internal %s before workspace installation',
+    async (linkType) => {
+      const { fixtureRoot, fixtureState, packagePath } = await createPackageOnlyFixture('image-extraction');
+      const extractRoot = await temporaryDirectory('moagent-malicious-package-');
+      await tar.x({ file: packagePath, cwd: extractRoot, preserveOwner: false });
+      const skillRoot = path.join(extractRoot, 'image-extraction');
+      const agentFile = path.join(skillRoot, 'agents', 'openai.yaml');
+      await fs.rm(agentFile);
+      if (linkType === 'symlink') {
+        await fs.symlink('../SKILL.md', agentFile);
+      } else {
+        await fs.link(path.join(skillRoot, 'SKILL.md'), agentFile);
+      }
+      await tar.c({
+        gzip: true,
+        file: packagePath,
+        cwd: extractRoot,
+        portable: true,
+        noMtime: true,
+      }, ['image-extraction']);
+
+      const lockPath = path.join(fixtureState, 'skills.lock.json');
+      const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+      const packageBuffer = await fs.readFile(packagePath);
+      lock.skills['image-extraction'].packageSha256 = createHash('sha256')
+        .update(packageBuffer)
+        .digest('hex');
+      await fs.writeFile(lockPath, JSON.stringify(lock));
+      const workspace = await temporaryDirectory('moagent-reject-package-workspace-');
+
+      await expect(installMoAgentSkillsForWorkspace(workspace, {
+        repositoryRoot: fixtureRoot,
+        requiredSkillIds: ['image-extraction'],
+        maxSystemContextChars: 4_000,
+      })).rejects.toThrow('安装包包含不安全类型');
+      await expect(fs.access(
+        path.join(workspace, '.moagent', 'skills', 'image-extraction'),
+      )).rejects.toThrow();
+    },
+  );
+
+  it('rejects a package-only Skill whose content tree drifts from sourceSha256', async () => {
+    const { fixtureRoot, fixtureState, packagePath } = await createPackageOnlyFixture('image-extraction');
+    const extractRoot = await temporaryDirectory('moagent-drifted-package-');
+    await tar.x({ file: packagePath, cwd: extractRoot, preserveOwner: false });
+    await fs.appendFile(
+      path.join(extractRoot, 'image-extraction', 'SKILL.md'),
+      '\nUNREVIEWED_PACKAGE_ONLY_INSTRUCTION\n',
+    );
+    await tar.c({
+      gzip: true,
+      file: packagePath,
+      cwd: extractRoot,
+      portable: true,
+      noMtime: true,
+    }, ['image-extraction']);
+    const lockPath = path.join(fixtureState, 'skills.lock.json');
+    const lock = JSON.parse(await fs.readFile(lockPath, 'utf8'));
+    lock.skills['image-extraction'].packageSha256 = createHash('sha256')
+      .update(await fs.readFile(packagePath))
+      .digest('hex');
+    await fs.writeFile(lockPath, JSON.stringify(lock));
+
+    await expect(compileMoAgentSkills({
+      repositoryRoot: fixtureRoot,
+      requiredSkillIds: ['image-extraction'],
+      maxSystemContextChars: 4_000,
+    })).rejects.toThrow('安装包内容与 source lock 不一致');
   });
 
   it('fails closed when a compatible source directory no longer matches its lock hash', async () => {

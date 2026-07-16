@@ -1,0 +1,4 @@
+interface:
+  display_name: "数据质量与证据"
+  short_description: "审计量化数据来源、时效、缺失字段、可追溯证据和质量结论"
+  default_prompt: "Use $data-quality to audit sources, freshness, missing fields, and evidence before visualization."

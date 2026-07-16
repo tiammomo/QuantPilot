@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
+import * as tar from 'tar';
 import {
   getQuantCapability,
   isQuantCapabilityId,
@@ -22,9 +22,11 @@ import type {
   MoAgentSkillsRegistry,
 } from './types';
 
-const execFileAsync = promisify(execFile);
 const DEFAULT_CONTEXT_BUDGET = 6_000;
 const MIN_CONTEXT_BUDGET = 256;
+const MAX_PACKAGE_ENTRIES = 500;
+const MAX_PACKAGE_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_PACKAGE_TOTAL_BYTES = 50 * 1024 * 1024;
 const COMPATIBILITY_STATE_DIRECTORY = '.claude';
 const MOAGENT_DIRECTORY = '.moagent';
 const DEFAULT_CAPSULE_REGISTRY_PATH = 'config/moagent-skill-capsules.json';
@@ -190,6 +192,20 @@ function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
   if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.skills)) {
     throw new Error('MoAgent Skills Capsule registry schema 无效。');
   }
+  const responseContract = value.workspaceResponseContract;
+  if (!isRecord(responseContract) || responseContract.schemaVersion !== 1 ||
+    responseContract.owner !== 'platform') {
+    throw new Error('MoAgent Skills Capsule workspaceResponseContract 无效。');
+  }
+  assertStringArray(
+    responseContract.stageLabels,
+    'workspaceResponseContract.stageLabels',
+    false,
+  );
+  if (responseContract.stageLabels.length !== 5) {
+    throw new Error('MoAgent Skills Capsule workspaceResponseContract 必须包含五个阶段。');
+  }
+  assertStringArray(responseContract.rules, 'workspaceResponseContract.rules', false);
   for (const [skillId, raw] of Object.entries(value.skills)) {
     if (!isRecord(raw)) {
       throw new Error(`MoAgent Skill ${skillId} 的 runtime capsule 无效。`);
@@ -286,15 +302,46 @@ async function hashFile(filePath: string): Promise<string> {
   return createHash('sha256').update(await fs.readFile(filePath)).digest('hex');
 }
 
+async function readTextEntryFromPackage(
+  packagePath: string,
+  entryPath: string,
+  label: string,
+): Promise<string> {
+  let found = false;
+  let tooLarge = false;
+  let totalBytes = 0;
+  const chunks: Buffer[] = [];
+  await tar.t({
+    file: packagePath,
+    onentry: (entry) => {
+      const normalized = entry.path.replace(/^(?:\.\/)+/, '').replace(/\/$/, '');
+      if (normalized !== entryPath || entry.type !== 'File') return;
+      found = true;
+      entry.on('data', (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.byteLength;
+        if (totalBytes > 4 * 1024 * 1024) {
+          tooLarge = true;
+          return;
+        }
+        chunks.push(buffer);
+      });
+    },
+  });
+  if (!found) throw new Error(`${label} 不存在或不是普通文件`);
+  if (tooLarge) throw new Error(`${label} 超过 4MB 读取上限`);
+  const content = Buffer.concat(chunks).toString('utf8');
+  if (!content.trim()) throw new Error(`${label} 为空`);
+  return content;
+}
+
 async function readSkillMarkdownFromPackage(packagePath: string, skillId: string): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(
-      'tar',
-      ['-xOzf', packagePath, `${skillId}/SKILL.md`],
-      { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 },
+    return await readTextEntryFromPackage(
+      packagePath,
+      `${skillId}/SKILL.md`,
+      'SKILL.md',
     );
-    if (!stdout.trim()) throw new Error('SKILL.md 为空');
-    return stdout;
   } catch (error) {
     throw new Error(
       `MoAgent Skill ${skillId} 无法从已验证安装包读取：${error instanceof Error ? error.message : String(error)}`,
@@ -349,15 +396,18 @@ async function readSkillResource(skill: LoadedSkill, relativePath: string): Prom
   if (!skill.packagePath) {
     throw new Error(`MoAgent Skill ${skill.registry.id} 缺少可验证 resource 来源。`);
   }
-  await assertSafePackageEntries(skill.packagePath, skill.registry.id);
+  await assertSafePackageEntries(
+    skill.packagePath,
+    skill.registry.id,
+    skill.lock.sourceSha256,
+    skill.lock.fileCount,
+  );
   try {
-    const { stdout } = await execFileAsync(
-      'tar',
-      ['-xOzf', skill.packagePath, `${skill.registry.id}/${normalized}`],
-      { encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 },
+    return await readTextEntryFromPackage(
+      skill.packagePath,
+      `${skill.registry.id}/${normalized}`,
+      normalized,
     );
-    if (!stdout.trim()) throw new Error('resource 为空');
-    return stdout;
   } catch (error) {
     throw new Error(
       `MoAgent Skill ${skill.registry.id} 无法读取 resource ${normalized}：${error instanceof Error ? error.message : String(error)}`,
@@ -546,6 +596,15 @@ async function loadSkill(params: {
   if (!packageExists) {
     throw new Error(`MoAgent Skill ${registry.id} 既没有可验证源目录，也没有可验证安装包。`);
   }
+  if (!lock.sourceSha256 || !Number.isSafeInteger(lock.fileCount)) {
+    throw new Error(`MoAgent Skill ${registry.id} package-only 模式缺少 sourceSha256/fileCount。`);
+  }
+  await assertSafePackageEntries(
+    packageCandidate,
+    registry.id,
+    lock.sourceSha256,
+    lock.fileCount,
+  );
   return {
     registry,
     lock,
@@ -559,18 +618,180 @@ async function loadSkill(params: {
   };
 }
 
-async function assertSafePackageEntries(packagePath: string, skillId: string): Promise<void> {
-  const { stdout } = await execFileAsync('tar', ['-tzf', packagePath], {
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-  });
+async function assertSafePackageEntries(
+  packagePath: string,
+  skillId: string,
+  expectedSourceSha256?: string,
+  expectedFileCount?: number,
+): Promise<void> {
   const prefix = `${skillId}/`;
-  const unsafe = stdout.split(/\r?\n/).filter(Boolean).find((entry) => {
-    const normalized = entry.replace(/^\.\//, '');
-    return path.posix.isAbsolute(normalized) || normalized.includes('../') ||
-      (normalized !== skillId && !normalized.startsWith(prefix));
+  const canonicalEntries: string[] = [];
+  const seen = new Set<string>();
+  const files = new Map<string, Buffer>();
+  let totalBytes = 0;
+  let validationError: Error | null = null;
+  await tar.t({
+    file: packagePath,
+    onentry: (entry) => {
+      if (validationError) return;
+      const normalized = entry.path.replace(/^(?:\.\/)+/, '');
+      const canonical = normalized.replace(/\/$/, '');
+      const segments = canonical.split('/');
+      if (
+        !canonical ||
+        normalized.includes('\\') ||
+        path.posix.isAbsolute(normalized) ||
+        segments.some((segment) => !segment || segment === '.' || segment === '..') ||
+        (canonical !== skillId && !canonical.startsWith(prefix))
+      ) {
+        validationError = new Error(
+          `MoAgent Skill ${skillId} 安装包包含越界条目：${normalized}`,
+        );
+        return;
+      }
+      if (seen.has(canonical)) {
+        validationError = new Error(`MoAgent Skill ${skillId} 安装包包含重复条目。`);
+        return;
+      }
+      seen.add(canonical);
+      canonicalEntries.push(canonical);
+      if (!['File', 'Directory'].includes(entry.type)) {
+        validationError = new Error(
+          `MoAgent Skill ${skillId} 安装包包含不安全类型：${entry.type}`,
+        );
+        return;
+      }
+      if (entry.type === 'File') {
+        if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > MAX_PACKAGE_FILE_BYTES) {
+          validationError = new Error(`MoAgent Skill ${skillId} 安装包包含尺寸无效的文件。`);
+          return;
+        }
+        totalBytes += entry.size;
+        if (totalBytes > MAX_PACKAGE_TOTAL_BYTES) {
+          validationError = new Error(`MoAgent Skill ${skillId} 安装包展开后超过 50MB。`);
+        }
+        const relativePath = canonical.slice(prefix.length);
+        if (!relativePath) {
+          validationError = new Error(`MoAgent Skill ${skillId} 安装包文件路径无效。`);
+          return;
+        }
+        if (relativePath.startsWith('scripts/') && ((entry.mode ?? 0) & 0o111) === 0) {
+          validationError = new Error(
+            `MoAgent Skill ${skillId} 安装包脚本不可执行：${relativePath}`,
+          );
+          return;
+        }
+        const chunks: Buffer[] = [];
+        entry.on('data', (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        entry.on('end', () => files.set(relativePath, Buffer.concat(chunks)));
+      }
+    },
   });
-  if (unsafe) throw new Error(`MoAgent Skill ${skillId} 安装包包含越界条目：${unsafe}`);
+  if (validationError !== null) throw validationError;
+  if (canonicalEntries.length === 0 || canonicalEntries.length > MAX_PACKAGE_ENTRIES) {
+    throw new Error(`MoAgent Skill ${skillId} 安装包条目数量无效。`);
+  }
+  const entrySet = new Set(canonicalEntries);
+  const requiredEntries = [
+    `${skillId}/SKILL.md`,
+    `${skillId}/agents/openai.yaml`,
+    `${skillId}/references`,
+    `${skillId}/scripts`,
+  ];
+  const missing = requiredEntries.find((entry) => !entrySet.has(entry));
+  if (missing) {
+    throw new Error(`MoAgent Skill ${skillId} 安装包缺少完整包条目：${missing}`);
+  }
+  if (!canonicalEntries.some((entry) =>
+    entry.startsWith(`${skillId}/references/`) && entry.endsWith('.md'))) {
+    throw new Error(`MoAgent Skill ${skillId} 安装包缺少 references/*.md。`);
+  }
+  if (!canonicalEntries.some((entry) =>
+    entry.startsWith(`${skillId}/scripts/`) && /\.(?:py|js|mjs|sh)$/.test(entry))) {
+    throw new Error(`MoAgent Skill ${skillId} 安装包缺少确定性脚本。`);
+  }
+  if (expectedSourceSha256 !== undefined || expectedFileCount !== undefined) {
+    const hash = createHash('sha256');
+    for (const relativePath of [...files.keys()].sort()) {
+      const content = files.get(relativePath);
+      if (!content) continue;
+      hash.update(relativePath);
+      hash.update('\0');
+      hash.update(content);
+      hash.update('\0');
+    }
+    const sourceSha256 = hash.digest('hex');
+    if (expectedSourceSha256 !== sourceSha256 || expectedFileCount !== files.size) {
+      throw new Error(`MoAgent Skill ${skillId} 安装包内容与 source lock 不一致。`);
+    }
+  }
+}
+
+async function assertCompleteInstalledSkillDirectory(
+  directory: string,
+  registry: MoAgentSkillRegistryEntry,
+): Promise<void> {
+  const directoryStat = await fs.lstat(directory).catch(() => null);
+  if (!directoryStat?.isDirectory() || directoryStat.isSymbolicLink()) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装结果不是普通目录。`);
+  }
+  const files = await listSourceFiles(directory);
+  const relativeFiles = files.map((filePath) =>
+    path.relative(directory, filePath).replaceAll(path.sep, '/'));
+  const fileSet = new Set(relativeFiles);
+  for (const required of ['SKILL.md', 'agents/openai.yaml']) {
+    if (!fileSet.has(required)) {
+      throw new Error(`MoAgent Skill ${registry.id} 安装后缺少 ${required}。`);
+    }
+  }
+  const agentSource = await fs.readFile(path.join(directory, 'agents', 'openai.yaml'), 'utf8');
+  let agentDocument: unknown;
+  try {
+    agentDocument = loadYaml(agentSource, { schema: JSON_SCHEMA });
+  } catch {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后的 agents/openai.yaml 无效。`);
+  }
+  if (!isRecord(agentDocument) || !isRecord(agentDocument.interface)) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后的 agents/openai.yaml 缺少 interface。`);
+  }
+  const agentInterface = agentDocument.interface;
+  for (const field of ['display_name', 'short_description', 'default_prompt']) {
+    if (typeof agentInterface[field] !== 'string' || !agentInterface[field].trim()) {
+      throw new Error(`MoAgent Skill ${registry.id} 安装后的 interface.${field} 无效。`);
+    }
+  }
+  const shortLength = Array.from(agentInterface.short_description as string).length;
+  if (shortLength < 25 || shortLength > 64 ||
+    !(agentInterface.default_prompt as string).includes(`$${registry.id}`)) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后的 Agent 元数据不符合完整包合同。`);
+  }
+
+  const references = relativeFiles.filter((entry) => entry.startsWith('references/'));
+  const scripts = relativeFiles.filter((entry) => entry.startsWith('scripts/'));
+  if (references.length === 0 || references.some((entry) => !entry.endsWith('.md'))) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后 references/ 不完整。`);
+  }
+  if (scripts.length === 0 || scripts.some((entry) => !/\.(?:py|js|mjs|sh)$/.test(entry))) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后 scripts/ 不完整。`);
+  }
+  if (process.platform !== 'win32') {
+    for (const script of scripts) {
+      const stat = await fs.lstat(path.join(directory, script));
+      if ((stat.mode & 0o111) === 0) {
+        throw new Error(`MoAgent Skill ${registry.id} 安装后脚本不可执行：${script}。`);
+      }
+    }
+  }
+  const registeredReferences = [...(registry.references ?? [])].sort();
+  const registeredScripts = [...(registry.scripts ?? [])].sort();
+  if (JSON.stringify([...references].sort()) !== JSON.stringify(registeredReferences)) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后的 references 与 registry 不一致。`);
+  }
+  if (JSON.stringify([...scripts].sort()) !== JSON.stringify(registeredScripts)) {
+    throw new Error(`MoAgent Skill ${registry.id} 安装后的 scripts 与 registry 不一致。`);
+  }
 }
 
 async function installSkills(params: {
@@ -617,17 +838,61 @@ async function installSkills(params: {
 
   for (const skill of params.skills) {
     const destination = path.join(skillsDirectory, skill.registry.id);
-    await fs.rm(destination, { recursive: true, force: true });
-    if (skill.sourceDirectory) {
-      await fs.cp(skill.sourceDirectory, destination, { recursive: true, errorOnExist: true });
-    } else if (skill.packagePath) {
-      await assertSafePackageEntries(skill.packagePath, skill.registry.id);
-      await execFileAsync('tar', ['-xzf', skill.packagePath, '-C', skillsDirectory]);
+    const stagingRoot = await fs.mkdtemp(path.join(runtimeDirectory, '.skill-install-'));
+    const stagedDestination = path.join(stagingRoot, skill.registry.id);
+    let keepStagingForRecovery = false;
+    try {
+      if (skill.sourceDirectory) {
+        await fs.cp(skill.sourceDirectory, stagedDestination, { recursive: true, errorOnExist: true });
+      } else if (skill.packagePath) {
+        await assertSafePackageEntries(
+          skill.packagePath,
+          skill.registry.id,
+          skill.lock.sourceSha256,
+          skill.lock.fileCount,
+        );
+        await tar.x({
+          file: skill.packagePath,
+          cwd: stagingRoot,
+          preserveOwner: false,
+          preservePaths: false,
+          strict: true,
+          filter: (_entryPath, entry) =>
+            'type' in entry && ['File', 'Directory'].includes(String(entry.type)),
+        });
+      }
+      await assertCompleteInstalledSkillDirectory(stagedDestination, skill.registry);
+      await fs.writeFile(path.join(stagedDestination, 'SKILL.md'), skill.markdown, 'utf8');
+      const previousStat = await fs.lstat(destination).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (previousStat?.isSymbolicLink()) {
+        throw new Error(`MoAgent Skill 目标目录不允许符号链接：${destination}`);
+      }
+      const backupDestination = path.join(stagingRoot, '.previous');
+      if (previousStat) await fs.rename(destination, backupDestination);
+      try {
+        await fs.rename(stagedDestination, destination);
+      } catch (error) {
+        if (previousStat) {
+          try {
+            await fs.rename(backupDestination, destination);
+          } catch (restoreError) {
+            keepStagingForRecovery = true;
+            throw new AggregateError(
+              [error, restoreError],
+              `MoAgent Skill ${skill.registry.id} 替换与恢复均失败；备份保留在 ${backupDestination}`,
+            );
+          }
+        }
+        throw error;
+      }
+    } finally {
+      if (!keepStagingForRecovery) {
+        await fs.rm(stagingRoot, { recursive: true, force: true });
+      }
     }
-    if (!(await pathExists(path.join(destination, 'SKILL.md')))) {
-      throw new Error(`MoAgent Skill ${skill.registry.id} 安装后缺少 SKILL.md。`);
-    }
-    await fs.writeFile(path.join(destination, 'SKILL.md'), skill.markdown, 'utf8');
   }
 
   const receipt: MoAgentSkillsInstallReceipt = {

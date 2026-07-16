@@ -1,42 +1,35 @@
 ---
 name: quant-fundamental-financials
-description: Use this skill to fetch A-share financial summary metrics such as revenue, parent net profit, EPS, ROE, gross margin, and growth rates.
+description: Fetch, normalize, and validate A-share financial summary reports including revenue, parent net profit, EPS, ROE, gross margin, and year-over-year growth. Use for multi-period financial trends, earnings comparisons, report-period validation, or preparing QuantPilot financials.reports.
 ---
 
-# QuantPilot 财务摘要能力
+# QuantPilot 财务摘要
 
-获取上市公司主要财务指标，用于基本面分析、估值解释和看板展示。
+## 执行流程
 
-## API
+1. 先解析标准证券代码。
+2. 获取最近多个报告期，默认 8 期：`/api/v1/fundamentals/financials/{symbol}?limit=8`。
+3. 保留 `report_date`、`notice_date`、`data_type`、来源和原始单位；先校验再排序。
+4. 使用脚本规范化常见字段并检测重复期间、缺失期间和无法识别的根结构。
+5. 比较收入、归母净利润、EPS、ROE、毛利率及同比方向；明确累计值与单季值。
+6. 写入 `financials.reports` 与 data quality；不要把摘要冒充完整三张表。
+
+## 按需加载参考
+
+- 当解释报告期、累计/单季、同比、重述、单位或披露时点时，读取 [财务报告口径合同](references/financial-reporting-contract.md)。
+- 只做字段透传且上游已经提供完整 contract receipt 时，不必加载参考全文。
+
+## 确定性脚本
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8'
-curl 'http://127.0.0.1:8000/api/v1/indicators/fundamental/600519?limit=8'
+python3 scripts/normalize_financials.py financials.json
+python3 scripts/normalize_financials.py - < financials.json
 ```
 
-返回重点字段：
+脚本向 stdout 输出规范化 JSON；输入错误或没有可识别报告时非零退出。`-o/--output` 可选。
 
-- `report_date`
-- `data_type`
-- `basic_eps`
-- `revenue`
-- `parent_net_profit`
-- `weighted_roe`
-- `gross_margin`
-- `revenue_yoy`
-- `net_profit_yoy`
-- `notice_date`
+## Workspace 协作与质量门
 
-## 工作流程
-
-1. 必要时先用 `quant-symbol-resolver`。
-2. 获取最近多个报告期，默认 8 期。
-3. 分析收入、利润、ROE、毛利率、同比增速的方向和稳定性。
-4. 优先调用 `indicators/fundamental` 获取后端标准化净利率、平均 ROE、平均毛利率等衍生指标。
-5. 结合实时价格和历史行情时，分别调用对应 skill。
-6. 可视化时优先展示季度趋势、同比变化和核心财务指标卡。
-
-## 禁止事项
-
-- 不要把财务摘要当完整三张表。
-- 不要用单期数据下长期结论。
+- 继承平台阶段；只贡献报告期、指标、同比口径、来源和缺失字段。
+- 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
+- 不用单期数据下长期结论，不默认把缺失值视为零，不对未知单位做倍率猜测。

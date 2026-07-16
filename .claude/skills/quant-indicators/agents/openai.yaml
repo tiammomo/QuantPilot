@@ -1,0 +1,4 @@
+interface:
+  display_name: "量化指标计算"
+  short_description: "确定性计算并校验收益、风险、相关性、流动性与趋势指标"
+  default_prompt: "Use $quant-indicators to compute and validate deterministic metrics from the available market series."

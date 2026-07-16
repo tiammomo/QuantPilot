@@ -1,0 +1,4 @@
+interface:
+  display_name: "财务摘要"
+  short_description: "校验财报期间、核心财务字段、增长口径、数据来源与缺失说明"
+  default_prompt: "Use $quant-fundamental-financials to validate period-aware financial statement summaries for this company."
