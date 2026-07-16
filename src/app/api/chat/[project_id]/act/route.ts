@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getProjectById,
+  ensureProjectLlmConfiguration,
   updateProject,
   updateProjectActivity,
 } from "@/lib/services/project";
@@ -91,6 +92,17 @@ import {
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
+}
+
+class QuantPreparationError extends Error {
+  constructor(
+    readonly code: 'SYMBOL_RESOLVER_UNAVAILABLE' | 'QUANT_ARTIFACT_PREPARATION_FAILED',
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'QuantPreparationError';
+  }
 }
 
 type CliRuntime = {
@@ -2018,6 +2030,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       coerceString((body as Record<string, unknown>).capabilitySource) ??
       coerceString(legacyBody["capability_source"]);
 
+    await ensureProjectLlmConfiguration({
+      projectId: project_id,
+      projectName: project.name,
+      projectPath,
+      preferredCli: project.preferredCli,
+      selectedModel,
+      settings: project.settings,
+    });
+
     const previousRunPlan = await readQuantRunPlan(projectPath);
     const clarificationContinuation = buildClarificationContinuation({
       previousPlan: previousRunPlan,
@@ -2177,6 +2198,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             conversationId: conversationId ?? null,
           });
         }
+        let queryRewriteToolCallId: string | undefined;
         let runPlannerToolCallId: string | undefined;
         let dataRegistryToolCallId: string | undefined;
         let marketDataToolCallId: string | undefined;
@@ -2194,6 +2216,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
           ? effectiveDisplayInstruction.trim()
           : effectiveInstruction;
+      queryRewriteToolCallId = await publishQuantPipelineToolStart({
+        projectId: project_id,
+        requestId,
+        conversationId,
+        cliSource: cliPreference,
+        toolName: "query-rewrite",
+        target: ".quantpilot/query_rewrite.json",
+        summary: "正在把用户问题整理为可执行的标的、周期和分析合同。",
+        input: {
+          question: planningInstruction,
+          requestedCapabilityId: quantCapabilityId,
+        },
+      });
       runPlannerToolCallId = await publishQuantPipelineToolStart({
         projectId: project_id,
         requestId,
@@ -2215,7 +2250,27 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         capabilitySource: quantCapabilitySource,
         hasImageAttachments: processedImages.length > 0,
         previousPlan: previousRunPlan,
+        enableLlmRewrite: true,
+        llmModel: selectedModel,
       });
+
+      await publishQuantPipelineToolMessage({
+        projectId: project_id,
+        requestId,
+        conversationId,
+        cliSource: cliPreference,
+        toolName: "query-rewrite",
+        toolCallId: queryRewriteToolCallId,
+        target: ".quantpilot/query_rewrite.json",
+        summary: runPlan.queryRewrite?.status === "refused"
+          ? "问题改写完成，安全策略已阻止确定性收益承诺。"
+          : runPlan.queryRewrite?.status === "ready"
+            ? `问题改写完成，已解析 ${runPlan.queryRewrite.resolvedSymbols.length} 个标的${runPlan.queryRewrite.execution.llm.applied ? "，并完成 LLM 语义增强" : ""}。`
+            : "问题改写完成，存在需要确认的标的或输入。",
+        input: { question: planningInstruction },
+        output: runPlan.queryRewrite ?? {},
+      });
+      queryRewriteToolCallId = undefined;
 
       await publishWorkspaceProgress({ stage: 1, runPlan });
       await publishQuantPipelineToolMessage({
@@ -2226,9 +2281,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         toolName: "run-planner",
         toolCallId: runPlannerToolCallId,
         target: ".quantpilot/run_plan.json",
-        summary: runPlan.status === "needs_clarification"
-          ? "已完成初步识别，发现关键输入仍需澄清。"
-          : `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
+        summary: runPlan.status === "refused"
+          ? "请求触发确定性安全策略，停止进入取数和生成链路。"
+          : runPlan.status === "needs_clarification"
+            ? "已完成初步识别，发现关键输入仍需澄清。"
+            : `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
         input: {
           question: runPlan.question,
           capabilityId: runPlan.capabilityId,
@@ -2242,6 +2299,61 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         },
       });
       runPlannerToolCallId = undefined;
+
+      if (runPlan.status === "refused" && runPlan.refusal) {
+        await updateQuantGenerationStep({
+          projectPath,
+          projectId: project_id,
+          requestId,
+          stepId: "planning",
+          status: "warning",
+          summary: "请求触发安全策略，未执行取数或生成。",
+          runStatus: "refused",
+          metadata: {
+            code: runPlan.refusal.code,
+          },
+        });
+        const assistantMessage = await createMessage({
+          projectId: project_id,
+          role: "assistant",
+          messageType: "chat",
+          content: runPlan.refusal.message,
+          conversationId: conversationId ?? undefined,
+          cliSource: cliPreference,
+          metadata: {
+            type: "intent_refusal",
+            refusal: runPlan.refusal,
+            runPlanPath: ".quantpilot/run_plan.json",
+            isMissionFinal: true,
+            progressStatus: "refused",
+          },
+          requestId,
+        });
+        await markUserRequestAsCompleted(project_id, requestId);
+        streamManager.publish(project_id, {
+          type: "message",
+          data: serializeMessage(assistantMessage, { requestId }),
+        });
+        streamManager.publish(project_id, {
+          type: "status",
+          data: {
+            status: "intent_refused",
+            message: runPlan.refusal.message,
+            requestId,
+            metadata: { code: runPlan.refusal.code },
+          },
+        });
+        return NextResponse.json({
+          success: true,
+          status: "intent_refused",
+          message: runPlan.refusal.message,
+          requestId,
+          userMessageId: userMessage.id,
+          assistantMessageId: assistantMessage.id,
+          conversationId: conversationId ?? null,
+          refusal: runPlan.refusal,
+        });
+      }
 
       if (
         runPlan.status === "needs_clarification" &&
@@ -2323,7 +2435,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         projectId: project_id,
         projectPath,
         requestId,
-        objective: planningInstruction,
+        objective:
+          runPlan.queryRewrite?.rewrittenQuery ?? planningInstruction,
         runPlan,
         maxRepairAttempts: generationState.maxRepairAttempts,
       });
@@ -2411,12 +2524,24 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         processedImages.length === 0 &&
         (missingPreparedArtifacts.length > 0 || (isInitialPrompt && prefetch.skipped))
       ) {
-        throw new Error(
+        const resolverUnavailable = runPlan.queryRewrite?.issues.find(
+          (issue) => issue.code === 'SYMBOL_RESOLVER_UNAVAILABLE',
+        );
+        if (resolverUnavailable) {
+          throw new QuantPreparationError(
+            'SYMBOL_RESOLVER_UNAVAILABLE',
+            `证券标的解析服务暂不可用，平台已停止后续取数：${resolverUnavailable.message}`,
+            true,
+          );
+        }
+        throw new QuantPreparationError(
+          'QUANT_ARTIFACT_PREPARATION_FAILED',
           `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 MoAgent。${
             missingPreparedArtifacts.length
               ? ` 缺少：${missingPreparedArtifacts.join("、")}。`
               : ""
           } ${prefetch.summary}`.trim(),
+          false,
         );
       }
       usePrefetchedSelectionDashboard = canUsePrefetchedSelectionDashboard({
@@ -2617,7 +2742,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           const preparationMessage = error instanceof Error
             ? error.message
             : String(error);
+          const typedPreparationError = error instanceof QuantPreparationError
+            ? error
+            : null;
           const pendingToolFailures = [
+            queryRewriteToolCallId
+              ? {
+                  toolName: "query-rewrite",
+                  toolCallId: queryRewriteToolCallId,
+                  target: ".quantpilot/query_rewrite.json",
+                }
+              : null,
             runPlannerToolCallId
               ? {
                   toolName: "run-planner",
@@ -2702,7 +2837,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 terminalFailure: true,
                 errorCode: missionProjectBusy
                   ? "MISSION_PROJECT_BUSY"
-                  : "QUANT_DATA_PREPARATION_FAILED",
+                  : typedPreparationError?.code ?? "QUANT_DATA_PREPARATION_FAILED",
+                retryable: typedPreparationError?.retryable ?? false,
                 agentExecutionSkipped: true,
               },
             },
@@ -2712,8 +2848,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               success: false,
               error: missionProjectBusy
                 ? "MISSION_PROJECT_BUSY"
-                : "QUANT_DATA_PREPARATION_FAILED",
+                : typedPreparationError?.code ?? "QUANT_DATA_PREPARATION_FAILED",
               message: preparationMessage,
+              retryable: typedPreparationError?.retryable ?? false,
               requestId,
             },
             { status: missionProjectBusy ? 409 : 503 },

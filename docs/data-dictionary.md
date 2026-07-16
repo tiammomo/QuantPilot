@@ -206,6 +206,17 @@ running -> failed
 
 ## 当前高价值因子
 
+### 财务与基本面 API 字段
+
+| 字段 | 位置 | 单位/口径 | 缺失处理 |
+| --- | --- | --- | --- |
+| `operating_cash_flow_per_share` | `financials.reports[]`、`fundamentalIndicators.points[]` | 每股经营活动现金流净额；东方财富原始字段 `MGJYXJJE` | 不得以 0 补缺；兼容读取 raw 时需保留来源 |
+| `operating_cash_flow_per_share_yoy` | `fundamentalIndicators.points[]` | 同一月日、上一会计年度报告期的同比，百分点值，如 `8.71` 表示 `8.71%` | 上期缺失或为 0 时返回 `null`，不猜测 |
+| `latest_operating_cash_flow_per_share` | `fundamentalIndicators.summary` | 最新报告期每股经营活动现金流净额 | 没有有效报告时为 `null` |
+| `latest_operating_cash_flow_per_share_yoy` | `fundamentalIndicators.summary` | 最新报告期每股经营活动现金流同比 | 没有可比上期时为 `null` |
+
+经营现金流增速与净利润增速比较必须使用同一报告期。结论属于确定性派生结果，应同时保存两个输入值、报告期、来源和缺失说明。
+
 | 因子 | 类型 | 数据依赖 | 状态 |
 | --- | --- | --- | --- |
 | `ma5/ma10/ma20/ma30/ma60` | 技术趋势 | `stock_bars.close` | 可计算 |

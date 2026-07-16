@@ -263,6 +263,23 @@ describe('MoAgent EvidenceVerifier', () => {
     });
   });
 
+  it('accepts an allowed evidence quality warning when the report is otherwise passed', async () => {
+    const spec = missionSpec();
+    const checks = passedChecks(spec).map((check) =>
+      check.id === 'evidence_files'
+        ? { ...check, status: 'warning' as const, summary: 'limitations are disclosed' }
+        : check);
+    const fixture = await createWorkspace({
+      spec,
+      report: validationReport(spec, { checks }),
+    });
+
+    const decision = await verify(fixture);
+
+    expect(spec.allowedValidationWarnings).toEqual(['evidence_files']);
+    expect(decision.verdict).toBe('accepted');
+  });
+
   it('persists a repair decision when required derived evidence is not generated', async () => {
     const spec = missionSpec();
     const checks = passedChecks(spec).map((check) =>

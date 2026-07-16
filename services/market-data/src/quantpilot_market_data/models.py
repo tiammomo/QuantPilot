@@ -1342,6 +1342,10 @@ class FinancialReportItem(BaseModel):
     gross_margin: Decimal | None = Field(default=None, description="销售毛利率")
     revenue_yoy: Decimal | None = Field(default=None, description="营业收入同比")
     net_profit_yoy: Decimal | None = Field(default=None, description="净利润同比")
+    operating_cash_flow_per_share: Decimal | None = Field(
+        default=None,
+        description="每股经营活动现金流净额",
+    )
     notice_date: datetime | None = None
     source: str = "eastmoney"
     raw: dict[str, Any] = Field(default_factory=dict)
@@ -1382,6 +1386,11 @@ class FundamentalIndicatorPoint(BaseModel):
     parent_net_profit: Decimal | None = None
     revenue_yoy: Decimal | None = None
     net_profit_yoy: Decimal | None = None
+    operating_cash_flow_per_share: Decimal | None = None
+    operating_cash_flow_per_share_yoy: Decimal | None = Field(
+        default=None,
+        description="每股经营活动现金流净额同比，单位：%",
+    )
     gross_margin: Decimal | None = None
     weighted_roe: Decimal | None = None
     net_margin: Decimal | None = Field(default=None, description="归母净利率，单位：%")
@@ -1393,6 +1402,8 @@ class FundamentalIndicatorSummary(BaseModel):
     latest_parent_net_profit: Decimal | None = None
     latest_revenue_yoy: Decimal | None = None
     latest_net_profit_yoy: Decimal | None = None
+    latest_operating_cash_flow_per_share: Decimal | None = None
+    latest_operating_cash_flow_per_share_yoy: Decimal | None = None
     latest_gross_margin: Decimal | None = None
     latest_weighted_roe: Decimal | None = None
     latest_net_margin: Decimal | None = None
@@ -1471,6 +1482,48 @@ class AnnouncementResponse(BaseModel):
             status="warning" if missing else None,
         )
         return self
+
+
+AnalysisContextSectionName = Literal[
+    "quote",
+    "history",
+    "technical",
+    "financials",
+    "fundamental",
+    "announcements",
+]
+AnalysisContextSectionStatus = Literal["ok", "warning", "error"]
+
+
+class AnalysisContextSectionError(BaseModel):
+    """A stable, machine-readable error attached to one context section."""
+
+    code: str
+    message: str
+    retryable: bool = False
+
+
+class AnalysisContextSectionResult(BaseModel):
+    """One independently usable section in the aggregate analysis context."""
+
+    status: AnalysisContextSectionStatus
+    duration_ms: int = Field(ge=0)
+    data: dict[str, Any] | None = None
+    data_quality: DataQuality
+    error: AnalysisContextSectionError | None = None
+
+
+class AnalysisContextResponse(BaseModel):
+    """Versioned, partial-success contract used by Skills before analysis."""
+
+    schema_version: Literal[1] = 1
+    symbol: str
+    status: Literal["ready", "partial", "unavailable"]
+    requested_sections: list[AnalysisContextSectionName]
+    sections: dict[AnalysisContextSectionName, AnalysisContextSectionResult]
+    duration_ms: int = Field(ge=0)
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    data_quality: DataQuality = Field(default_factory=DataQuality)
 
 
 StrategySide = Literal["long", "flat"]

@@ -11,6 +11,9 @@ from quantpilot_market_data.models import (
 from quantpilot_market_data.providers.base import FinancialReportProvider
 from quantpilot_market_data.services.caching import cache_response, read_cached_response
 
+FINANCIAL_REPORTS_CACHE_NAMESPACE = "fundamental-financials-v2"
+FUNDAMENTAL_INDICATORS_CACHE_NAMESPACE = "fundamental-indicators-v2"
+
 
 async def get_financial_reports(
     client: FinancialReportProvider,
@@ -22,7 +25,7 @@ async def get_financial_reports(
 ) -> FinancialReportsResponse:
     normalized_limit = max(1, min(limit, 40))
     cache_key = cache.build_key(
-        "fundamental-financials",
+        FINANCIAL_REPORTS_CACHE_NAMESPACE,
         {"symbol": symbol, "limit": normalized_limit},
     )
     cached = read_cached_response(cache, cache_key, FinancialReportsResponse)
@@ -48,7 +51,7 @@ async def get_fundamental_indicators(
 ) -> FundamentalIndicatorsResponse:
     normalized_limit = max(1, min(limit, 40))
     cache_key = cache.build_key(
-        "fundamental-indicators",
+        FUNDAMENTAL_INDICATORS_CACHE_NAMESPACE,
         {"symbol": symbol, "limit": normalized_limit},
     )
     cached = read_cached_response(cache, cache_key, FundamentalIndicatorsResponse)

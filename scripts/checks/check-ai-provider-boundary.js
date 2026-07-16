@@ -30,6 +30,35 @@ if (!/^DEEPSEEK_API_KEY=/m.test(envExample)) {
 }
 
 for (const key of [
+  'QUANTPILOT_LLM_AGENT_ENABLED',
+  'QUANTPILOT_LLM_QUERY_REWRITE_ENABLED',
+  'QUANTPILOT_QUERY_REWRITE_LLM_MODE',
+  'QUANTPILOT_QUERY_REWRITE_LLM_TIMEOUT_MS',
+  'QUANTPILOT_QUERY_REWRITE_LLM_MAX_RETRIES',
+]) {
+  if (!new RegExp(`^${key}=`, 'm').test(envExample)) {
+    fail(`.env.example 必须声明 LLM 配置：${key}`);
+  }
+}
+
+const llmConfig = JSON.parse(read('config/llm.json'));
+const llmProfile = llmConfig?.profiles?.[llmConfig?.defaultProfileId];
+if (
+  llmConfig?.schemaVersion !== 1 ||
+  llmConfig?.defaultProfileId !== DEEPSEEK_MODEL ||
+  llmProfile?.provider !== 'deepseek' ||
+  llmProfile?.model !== DEEPSEEK_MODEL ||
+  llmProfile?.baseUrl !== OFFICIAL_BASE_URL ||
+  llmProfile?.credentialEnv !== 'DEEPSEEK_API_KEY' ||
+  typeof llmProfile?.agent?.enabled !== 'boolean' ||
+  !['off', 'auto', 'always'].includes(llmProfile?.queryRewrite?.mode)
+) {
+  fail('config/llm.json 必须提供完整且锁定官方边界的 LLM profile');
+} else {
+  pass('中央 LLM profile、Agent 与 Query Rewrite 配置完整');
+}
+
+for (const key of [
   'ANTHROPIC_BASE_URL',
   'OPENAI_API_KEY',
   'CODEX_OPENAI_API_KEY',

@@ -531,6 +531,7 @@ def test_parse_financial_reports_payload() -> None:
                         "XSMLL": 89.7592,
                         "YSTZ": 6.336,
                         "SJLTZ": 1.47,
+                        "MGJYXJJE": 18.25,
                     }
                 ]
             },
@@ -540,6 +541,7 @@ def test_parse_financial_reports_payload() -> None:
     assert reports[0].symbol == "600519"
     assert reports[0].revenue == Decimal("54702912385.23")
     assert reports[0].parent_net_profit == Decimal("27242512886.45")
+    assert reports[0].operating_cash_flow_per_share == Decimal("18.25")
     assert reports[0].report_date == datetime(2026, 3, 31, tzinfo=UTC)
 
 
@@ -571,6 +573,18 @@ def test_build_fundamental_indicators_from_reports() -> None:
                         "PARENT_NETPROFIT": 80,
                         "WEIGHTAVG_ROE": 20,
                         "XSMLL": 80,
+                        "MGJYXJJE": 12,
+                    },
+                    {
+                        "SECURITY_CODE": "600519",
+                        "SECURITY_NAME_ABBR": "贵州茅台",
+                        "REPORTDATE": "2024-12-31 00:00:00",
+                        "DATATYPE": "2024年 年报",
+                        "TOTAL_OPERATE_INCOME": 180,
+                        "PARENT_NETPROFIT": 40,
+                        "WEIGHTAVG_ROE": 15,
+                        "XSMLL": 75,
+                        "MGJYXJJE": 10,
                     },
                 ]
             },
@@ -580,12 +594,13 @@ def test_build_fundamental_indicators_from_reports() -> None:
     indicators = build_fundamental_indicators("600519", reports)
 
     assert indicators.symbol == "600519"
-    assert len(indicators.points) == 2
+    assert len(indicators.points) == 3
     assert indicators.points[0].net_margin == Decimal("50.0000")
     assert indicators.summary.latest_report_date == datetime(2026, 3, 31, tzinfo=UTC)
     assert indicators.summary.latest_revenue == Decimal("100")
+    assert indicators.points[1].operating_cash_flow_per_share_yoy == Decimal("20.0000")
     assert indicators.summary.avg_roe == Decimal("15.0000")
-    assert indicators.summary.avg_gross_margin == Decimal("85.0000")
+    assert indicators.summary.avg_gross_margin == Decimal("81.6667")
     assert indicators.data_quality.status == "warning"
 
 

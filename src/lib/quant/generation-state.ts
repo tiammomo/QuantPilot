@@ -21,6 +21,7 @@ export type QuantGenerationRunStatus =
   | 'pending'
   | 'running'
   | 'needs_clarification'
+  | 'refused'
   | 'repairing'
   | 'completed'
   | 'failed'
@@ -191,7 +192,7 @@ function deriveRunStatus(params: {
   if (params.stepStatus === 'failed') return 'failed';
   if (params.stepId === 'repair' && params.stepStatus === 'running') return 'repairing';
   if (params.stepId === 'completed' && params.stepStatus === 'success') return 'completed';
-  if (params.previous === 'needs_clarification') return params.previous;
+  if (params.previous === 'needs_clarification' || params.previous === 'refused') return params.previous;
   return 'running';
 }
 
@@ -297,7 +298,7 @@ async function updateQuantGenerationStepUnlocked(params: {
     status: nextStatus,
     activeStep: params.stepId,
     updatedAt: timestamp,
-    completedAt: ['completed', 'failed', 'cancelled'].includes(nextStatus) ? timestamp : null,
+    completedAt: ['completed', 'failed', 'cancelled', 'refused'].includes(nextStatus) ? timestamp : null,
     steps: mergeStep(state, params.stepId, params.status, params.summary, params.metadata),
     error:
       params.errorMessage || params.status === 'failed'

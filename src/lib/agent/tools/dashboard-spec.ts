@@ -344,6 +344,35 @@ function hasAssetSourceEvidence(finalData: JsonRecord): boolean {
   ));
 }
 
+function hasFundamentalReports(finalData: JsonRecord): boolean {
+  const financials = dataRecord(finalData, 'financials');
+  const reports = recordArray(financials?.reports);
+  return reports.length >= 2 && reports.every((report) => (
+    contractString(report.report_date) !== null &&
+    finiteNumber(report.revenue) !== null &&
+    finiteNumber(report.parent_net_profit) !== null
+  ));
+}
+
+function hasFundamentalTrend(finalData: JsonRecord): boolean {
+  const indicators = dataRecord(finalData, 'fundamentalIndicators');
+  const points = recordArray(indicators?.points);
+  return points.length >= 2 && points.every((point) => (
+    contractString(point.report_date) !== null &&
+    finiteNumber(point.revenue) !== null &&
+    finiteNumber(point.parent_net_profit) !== null
+  ));
+}
+
+function hasCashFlowComparisonOrLimitation(finalData: JsonRecord): boolean {
+  const comparison = dataRecord(finalData, 'fundamentalMetricComparison');
+  return Boolean(
+    comparison &&
+    contractString(comparison.conclusion) &&
+    contractString(comparison.basis),
+  );
+}
+
 function hasReproducibleBacktest(finalData: JsonRecord): boolean {
   const backtest = dataRecord(finalData, 'backtest');
   return Boolean(
@@ -429,6 +458,14 @@ const BACKTEST_PERFORMANCE_COMPONENTS = [
   '限制说明',
 ] as const;
 
+const FUNDAMENTAL_QUALITY_COMPONENTS = [
+  '质量评分',
+  '营收利润趋势',
+  'ROE/利润率',
+  '现金流或缺失说明',
+  '报告期表',
+] as const;
+
 const prerequisite = (
   id: string,
   description: string,
@@ -478,7 +515,17 @@ const DASHBOARD_CAPABILITIES: readonly DashboardCapability[] = [
   unsupportedCapability('single-stock-diagnosis', 'single-stock-fundamental-snapshot', 'The base renderer does not implement the variant-specific financial quality scorecard.'),
   unsupportedCapability('technical-timing', 'technical-kline-trader', 'The base renderer does not implement explicit trigger and invalidation conditions.'),
   unsupportedCapability('technical-timing', 'technical-breakout-watch', 'The base renderer does not implement breakout price bands and invalidation workflow.'),
-  unsupportedCapability('fundamental-research', 'fundamental-quality-scorecard', 'The base renderer does not implement a financial quality scorecard.'),
+  supportedCapability(
+    'fundamental-research',
+    'fundamental-quality-scorecard',
+    'base',
+    FUNDAMENTAL_QUALITY_COMPONENTS,
+    [
+      prerequisite('fundamental_reports', 'financials contains at least two identified report periods', hasFundamentalReports),
+      prerequisite('fundamental_trend', 'fundamentalIndicators contains at least two revenue and profit points', hasFundamentalTrend),
+      prerequisite('cash_flow_comparison_or_limitation', 'the selected period contains a cash-flow comparison or an explicit limitation', hasCashFlowComparisonOrLimitation),
+    ],
+  ),
   unsupportedCapability('fundamental-research', 'fundamental-report-trend', 'The base renderer does not implement period-over-period decomposition.'),
   supportedCapability(
     'stock-selection',

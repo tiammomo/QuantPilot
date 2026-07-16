@@ -37,6 +37,7 @@ from quantpilot_market_data.repositories.upserts import (
 )
 from quantpilot_market_data.routers.analytics import router as analytics_router
 from quantpilot_market_data.routers.backtests import create_backtest_router
+from quantpilot_market_data.routers.context import create_context_router
 from quantpilot_market_data.routers.events import create_events_router
 from quantpilot_market_data.routers.foundation import router as foundation_router
 from quantpilot_market_data.routers.fundamentals import create_fundamentals_router
@@ -131,6 +132,17 @@ def create_app() -> FastAPI:
             symbol_cache_ttl_seconds=SYMBOL_CACHE_TTL_SECONDS,
             quote_cache_ttl_seconds=QUOTE_CACHE_TTL_SECONDS,
             kline_cache_ttl_seconds=KLINE_CACHE_TTL_SECONDS,
+        )
+    )
+    app.include_router(
+        create_context_router(
+            client=client,
+            cache=cache,
+            intraday_redis_cache=intraday_redis_cache,
+            quote_cache_ttl_seconds=QUOTE_CACHE_TTL_SECONDS,
+            kline_cache_ttl_seconds=KLINE_CACHE_TTL_SECONDS,
+            financial_cache_ttl_seconds=FINANCIAL_CACHE_TTL_SECONDS,
+            announcement_cache_ttl_seconds=ANNOUNCEMENT_CACHE_TTL_SECONDS,
         )
     )
     app.include_router(create_research_router(client))

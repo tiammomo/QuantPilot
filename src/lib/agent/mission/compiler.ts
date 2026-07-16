@@ -21,7 +21,12 @@ export const MOAGENT_REQUIRED_VALIDATION_CHECK_IDS = [
   'market_proxy',
 ] as const;
 
+export const MOAGENT_ALLOWED_VALIDATION_WARNINGS = [
+  'evidence_files',
+] as const;
+
 const SUBJECT_ARTIFACTS = [
+  '.quantpilot/query_rewrite.json',
   '.quantpilot/run_plan.json',
   'app/page.tsx',
   'app/globals.css',
@@ -157,8 +162,8 @@ function compileNodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
       effect: 'platform_write',
       dependencies: [],
       allowedTools: [],
-      requiredSkillSections: ['run-planner'],
-      inputArtifacts: [],
+      requiredSkillSections: ['query-rewrite', 'run-planner'],
+      inputArtifacts: ['.quantpilot/query_rewrite.json'],
       outputArtifacts: ['.quantpilot/run_plan.json'],
       budget: budget({ timeoutMs: 120_000 }),
       acceptancePredicates: ['run_plan_created'],
@@ -169,8 +174,8 @@ function compileNodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
       effect: 'platform_write',
       dependencies: ['planning'],
       allowedTools: [],
-      requiredSkillSections: ['quant-market-data', 'data-quality'],
-      inputArtifacts: ['.quantpilot/run_plan.json'],
+      requiredSkillSections: ['query-rewrite', 'quant-market-data', 'data-quality'],
+      inputArtifacts: ['.quantpilot/query_rewrite.json', '.quantpilot/run_plan.json'],
       outputArtifacts: [
         'data_file/final/dashboard-data.json',
         'evidence/sources.json',
@@ -197,6 +202,7 @@ function compileNodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
       ],
       requiredSkillSections: ['dashboard-visualization'],
       inputArtifacts: [
+        '.quantpilot/query_rewrite.json',
         '.quantpilot/run_plan.json',
         'data_file/final/dashboard-data.json',
         'evidence/sources.json',
@@ -292,7 +298,7 @@ export function compileMoAgentMissionSpec(input: {
     )].sort(),
     artifacts: compileArtifacts(input.expectedArtifacts ?? []),
     requiredValidationCheckIds: [...MOAGENT_REQUIRED_VALIDATION_CHECK_IDS],
-    allowedValidationWarnings: [],
+    allowedValidationWarnings: [...MOAGENT_ALLOWED_VALIDATION_WARNINGS],
     maxRepairAttempts: input.maxRepairAttempts,
     nodes: compileNodes(input.maxRepairAttempts),
     acceptancePredicates: [

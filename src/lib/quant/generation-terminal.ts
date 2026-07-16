@@ -10,7 +10,8 @@ export type QuantGenerationTerminalStatus =
   | 'ready'
   | 'failed'
   | 'cancelled'
-  | 'needs_clarification';
+  | 'needs_clarification'
+  | 'refused';
 
 export type QuantGenerationTerminalGenerationInput = {
   projectId?: string;
@@ -174,6 +175,8 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
   let status: QuantGenerationTerminalStatus = 'idle';
   if (params.generation?.status === 'cancelled') {
     status = 'cancelled';
+  } else if (params.generation?.status === 'refused') {
+    status = 'refused';
   } else if (params.generation?.status === 'needs_clarification') {
     status = 'needs_clarification';
   } else if (
@@ -208,7 +211,7 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
   return {
     requestId,
     status,
-    terminal: ['ready', 'failed', 'cancelled', 'needs_clarification'].includes(status),
+    terminal: ['ready', 'failed', 'cancelled', 'needs_clarification', 'refused'].includes(status),
     validationStatus: validationPassed
       ? 'passed'
       : validationFailed

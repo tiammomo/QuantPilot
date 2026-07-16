@@ -3,9 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QuantRunPlan } from './workspace';
+import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   extractQuantSymbolNameCandidates,
+  buildFundamentalMetricComparison,
   hasExplicitTradingPlanIntent,
+  inferHistoryLimit,
   prefetchQuantDataForRunPlan,
 } from './data-prefetch';
 
@@ -35,12 +38,49 @@ describe('quant trading-plan intent', () => {
 });
 
 describe('quant data-prefetch symbol candidates', () => {
+  it('builds a selected-period cash-flow versus net-profit comparison from stable or raw API fields', () => {
+    expect(buildFundamentalMetricComparison({
+      symbol: '600111',
+      reports: [
+        {
+          symbol: '600111',
+          report_date: '2025-12-31T00:00:00Z',
+          data_type: '2025年 年报',
+          net_profit_yoy: 124.17,
+          raw: { MGJYXJJE: 0.3084 },
+        },
+        {
+          symbol: '600111',
+          report_date: '2024-12-31T00:00:00Z',
+          data_type: '2024年 年报',
+          raw: { MGJYXJJE: 0.2837 },
+        },
+      ],
+    }, '2025年年报')).toMatchObject({
+      reporting_period: '2025年 年报',
+      operating_cash_flow_per_share_yoy: 8.71,
+      net_profit_yoy: 124.17,
+      cash_flow_outpaced_net_profit: false,
+      conclusion: '每股经营现金流增速未跑赢净利润增速。',
+    });
+  });
+
+  it('allocates a half-year sample for anchored half-year rewrites', () => {
+    expect(inferHistoryLimit({
+      timeRange: '去年下半年',
+      question: '比较北方稀土和宁德时代',
+    } as QuantRunPlan)).toBe(126);
+  });
+
   it.each([
     ['大位科技这个股票怎么样', ['大位科技']],
     ['大位科技这只股票如何', ['大位科技']],
     ['大位科技这家公司最近怎么样', ['大位科技']],
     ['中信证券最近怎么样', ['中信证券']],
     ['中国平安公司最近怎么样', ['中国平安公司']],
+    ['帮我分析一下北方稀土', ['北方稀土']],
+    ['能不能分析一下北方稀土', ['北方稀土']],
+    ['我想了解一下北方稀土', ['北方稀土']],
   ])('normalizes %s before calling the resolver', (question, expected) => {
     expect(extractQuantSymbolNameCandidates(question)).toEqual(expected);
   });
@@ -70,9 +110,10 @@ describe('quant data-prefetch symbol candidates', () => {
       runId: 'conversational-symbol-prefetch',
       status: 'planned',
       capabilityId: 'stock_diagnosis',
+      llm: getProjectLlmConfig(),
       requestedCapabilityId: 'stock_diagnosis',
       executionCapabilityId: 'stock_diagnosis',
-      question: '大位科技这个股票怎么样',
+      question: '帮我分析一下大位科技',
       symbols: [],
       timeRange: '最近 120 个交易日',
       dataRequirements: [],

@@ -10,13 +10,14 @@ import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
 import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
 import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import { getProjectLlmConfig } from '@/lib/config/llm';
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
   : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
 
-function mergeProjectSettings(existing: string | null | undefined, quantCapabilityId?: string | null): string {
+function parseProjectSettings(existing: string | null | undefined): Record<string, unknown> {
   let parsed: Record<string, unknown> = {};
 
   if (existing) {
@@ -30,8 +31,20 @@ function mergeProjectSettings(existing: string | null | undefined, quantCapabili
     }
   }
 
+  return parsed;
+}
+
+function mergeLlmSettings(existing: string | null | undefined): string {
   return JSON.stringify({
-    ...parsed,
+    ...parseProjectSettings(existing),
+    llm: getProjectLlmConfig(),
+  });
+}
+
+function mergeProjectSettings(existing: string | null | undefined, quantCapabilityId?: string | null): string {
+  return JSON.stringify({
+    ...parseProjectSettings(existing),
+    llm: getProjectLlmConfig(),
     quant: buildQuantProjectSettings(quantCapabilityId),
   });
 }
@@ -52,6 +65,7 @@ async function writeQuantPilotManifest(params: {
   const capability = getQuantCapability(params.quantCapabilityId);
   const capabilitySource = normalizeCapabilitySource(params.quantCapabilitySource);
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
+  const llm = getProjectLlmConfig();
   const quantPilotDir = path.join(params.projectPath, '.quantpilot');
   await fs.mkdir(quantPilotDir, { recursive: true });
   await Promise.all([
@@ -72,7 +86,9 @@ async function writeQuantPilotManifest(params: {
     runtime: {
       cli: params.preferredCli,
       model: params.selectedModel,
+      llmProfileId: llm.profileId,
     },
+    llm,
     quant: {
       ...buildQuantProjectSettings(capability.id),
       capabilitySource,
@@ -92,6 +108,7 @@ async function writeQuantPilotManifest(params: {
         runId: null,
         status: 'pending',
         capabilityId: capability.id,
+        llm,
         question: '',
         symbols: [],
         timeRange: null,
@@ -131,6 +148,60 @@ async function writeQuantPilotManifest(params: {
     '',
     { encoding: 'utf8', flag: 'a' }
   );
+}
+
+export async function ensureProjectLlmConfiguration(params: {
+  projectId: string;
+  projectName: string;
+  projectPath: string;
+  preferredCli?: string | null;
+  selectedModel?: string | null;
+  settings?: string | null;
+}): Promise<void> {
+  const llm = getProjectLlmConfig();
+  const quantPilotDir = path.join(params.projectPath, '.quantpilot');
+  const manifestPath = path.join(quantPilotDir, 'manifest.json');
+  await fs.mkdir(quantPilotDir, { recursive: true });
+  const existingManifest = await fs.readFile(manifestPath, 'utf8')
+    .then((content) => {
+      const parsed = JSON.parse(content) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    })
+    .catch(() => ({} as Record<string, unknown>));
+  const existingRuntime = existingManifest.runtime &&
+    typeof existingManifest.runtime === 'object' &&
+    !Array.isArray(existingManifest.runtime)
+    ? existingManifest.runtime as Record<string, unknown>
+    : {};
+  const nextManifest = {
+    schemaVersion: 1,
+    projectId: params.projectId,
+    projectName: params.projectName,
+    platform: 'QuantPilot',
+    ...existingManifest,
+    runtime: {
+      ...existingRuntime,
+      cli: params.preferredCli ?? 'moagent',
+      model: params.selectedModel ?? DEEPSEEK_MODEL_ID,
+      llmProfileId: llm.profileId,
+    },
+    llm,
+  };
+  const nextManifestContent = `${JSON.stringify(nextManifest, null, 2)}\n`;
+  const currentManifestContent = await fs.readFile(manifestPath, 'utf8').catch(() => null);
+  if (currentManifestContent !== nextManifestContent) {
+    await fs.writeFile(manifestPath, nextManifestContent, 'utf8');
+  }
+
+  const nextSettings = mergeLlmSettings(params.settings);
+  if (nextSettings !== (params.settings ?? '')) {
+    await prisma.project.update({
+      where: { id: params.projectId },
+      data: { settings: nextSettings },
+    });
+  }
 }
 
 /**
@@ -229,6 +300,9 @@ export async function updateProject(
     where: { id },
     data: {
       ...input,
+      ...(input.settings !== undefined
+        ? { settings: mergeLlmSettings(input.settings) }
+        : {}),
       preferredCli: 'moagent',
       fallbackEnabled: false,
       selectedModel: DEEPSEEK_MODEL_ID,

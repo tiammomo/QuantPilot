@@ -6,8 +6,53 @@
     "description": "每个核心 skill 的版本变更必须记录在这里；修改 SKILL.md、references、scripts 或输出契约时必须同步升级 registry 版本并新增 release。"
   },
   "skills": {
+  "query-rewrite": {
+    "releases": [
+      {
+        "version": "0.3.0",
+        "date": "2026-07-16",
+        "summary": "把问题改写提升为规划唯一语义事实源，补齐部分解析修复、澄清隔离、安全拒答与项目级 LLM 配置合同。",
+        "changes": [
+          "部分 Resolver 命中不再阻止 LLM 清理错误候选；清理后重新执行全部标的核验。",
+          "新增 refused 安全状态，确定性涨停或收益承诺在取数与 Agent 执行前终止。",
+          "Run Plan 消费 analysisFocus、broadUniverse 和 capabilityHint，避免财务指标比较被误路由为多标的比较。",
+          "项目 Manifest、Settings 和 Run Plan 均携带不含密钥的完整 LLM profile。"
+        ]
+      },
+      {
+          "version": "0.2.0",
+          "date": "2026-07-16",
+          "summary": "升级为规则优先、LLM 按需增强且可安全降级的混合问题改写架构。",
+          "changes": [
+            "简单问题保持确定性毫秒级解析；复杂语义、非标准时间、指代或规则低置信度才进入 DeepSeek Tool Schema。",
+            "LLM 只输出语义字段，标的必须来自用户原文字面片段并继续通过 symbols/resolve 核验，禁止模型发明代码。",
+            "Query Rewrite 合同升级为 schemaVersion 2，新增 deterministic、hybrid_llm、deterministic_fallback 策略和可审计 LLM 状态、耗时、模型及 Token 用量。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-07-16",
+          "summary": "新增问题重写技能，在取数前形成版本化、可执行且可审计的量化查询合同。",
+          "changes": [
+            "统一提取自然语言中的标的、时间范围、分析重点、能力提示和输出意图。",
+            "输出 resolved、ambiguous、unresolved 与可重试故障的类型化状态，避免解析失败被误报为无数据。",
+            "新增 query-rewrite-contract.md、validate_query_rewrite.py 和 Agent 元数据，并接入运行计划、预取与任务合同。"
+          ]
+        }
+      ]
+    },
     "run-planner": {
       "releases": [
+        {
+          "version": "0.3.1",
+          "date": "2026-07-16",
+          "summary": "在生成运行计划前消费统一的 Query Rewrite 合同。",
+          "changes": [
+            "优先复用 query_rewrite.json 中已确认的标的、周期、能力提示和澄清状态。",
+            "将 query_rewrite.json 固化为平台只读输入，避免规划层重复解析用户原始文本。",
+            "未解析、歧义和解析服务故障分别进入类型化澄清或重试路径。"
+          ]
+        },
         {
           "version": "0.3.0",
           "date": "2026-07-15",
@@ -125,6 +170,16 @@
     "quant-symbol-resolver": {
       "releases": [
         {
+          "version": "0.2.1",
+          "date": "2026-07-16",
+          "summary": "接入 Query Rewrite 的标的解析结果并明确解析职责边界。",
+          "changes": [
+            "优先复用 query_rewrite.json.resolvedSymbols，不再重复解析已经确认的标的。",
+            "保留单独调用解析 API 的兜底能力，并对不可用、无匹配和歧义返回不同状态。",
+            "统一标准代码、市场、资产类型、secid、来源和置信度的下游交接字段。"
+          ]
+        },
+        {
           "version": "0.2.0",
           "date": "2026-07-15",
           "summary": "升级为包含解析合同和候选排序器的完整技能包。",
@@ -200,6 +255,16 @@
     "quant-market-data": {
       "releases": [
         {
+          "version": "0.5.1",
+          "date": "2026-07-16",
+          "summary": "新增面向 Skills 的统一分析取数合同和部分失败隔离能力。",
+          "changes": [
+            "新增 /api/v1/analysis/context/{symbol}，一次返回实时、历史、技术、财务、基本面和公告区块。",
+            "历史行情与技术指标、财务摘要与衍生指标共享底层请求，避免重复访问 provider。",
+            "每个区块独立返回状态、耗时、数据质量和可重试错误，部分失败不再丢弃成功数据。"
+          ]
+        },
+        {
           "version": "0.5.0",
           "date": "2026-07-15",
           "summary": "升级为包含行情合同和 K 线载荷验证器的完整技能包。",
@@ -252,6 +317,16 @@
     },
     "quant-fundamentals": {
       "releases": [
+        {
+          "version": "0.2.1",
+          "date": "2026-07-16",
+          "summary": "接入每股经营现金流正式 API 字段和同报告期盈利质量比较合同。",
+          "changes": [
+            "财务与基本面响应正式暴露 operating_cash_flow_per_share，不再要求 Skill 读取 provider raw。",
+            "基本面指标新增同月同日报告期的 operating_cash_flow_per_share_yoy 和最新值摘要。",
+            "现金流与净利润增速比较必须对齐报告期、保留输入和缺失限制。"
+          ]
+        },
         {
           "version": "0.2.0",
           "date": "2026-07-15",

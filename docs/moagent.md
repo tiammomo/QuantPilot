@@ -171,9 +171,16 @@ MOAGENT_TEST_DATABASE_URL='postgresql://...' npm run test:moagent:postgres
 
 ## 配置
 
+`config/llm.json` 是仓库级 LLM profile 事实源，固定 provider、model、官方 Base URL、凭据环境变量名、Agent 开关和 Query Rewrite 默认策略。项目创建或下一次执行时，解析后的无密钥配置会同步到数据库 `Project.settings.llm`、`.quantpilot/manifest.json.llm` 和 `.quantpilot/run_plan.json.llm`。真实 Key 只允许保存在 `.env.local` 的 `DEEPSEEK_API_KEY`，不得写入项目文件。
+
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `DEEPSEEK_API_KEY` | 无 | 唯一必需模型凭据 |
+| `QUANTPILOT_LLM_AGENT_ENABLED` | `1` | 项目级 MoAgent 模型执行总开关；配置会写入项目 Manifest 与 Run Plan，不包含密钥 |
+| `QUANTPILOT_LLM_QUERY_REWRITE_ENABLED` | `1` | Query Rewrite 的项目级 LLM 增强开关 |
+| `QUANTPILOT_QUERY_REWRITE_LLM_MODE` | `auto` | 问题改写 LLM 策略；`auto` 仅复杂/低置信度执行调用，`off` 禁用，`always` 强制执行调用 |
+| `QUANTPILOT_QUERY_REWRITE_LLM_TIMEOUT_MS` | `4000` | Query Rewrite 单次语义增强硬超时，允许 500–15000ms |
+| `QUANTPILOT_QUERY_REWRITE_LLM_MAX_RETRIES` | `0` | Query Rewrite Provider 瞬时错误重试次数，上限 1；失败立即回退确定性结果 |
 | `MOAGENT_MAX_REQUEST_BYTES` | `2000000` | 单次 Provider 请求体的 UTF-8 字节硬上限；超限时不发起网络请求 |
 | `MOAGENT_PROVIDER_MAX_RETRIES` | `2` | 响应流开始前，网络错误与瞬时 HTTP 状态的最大重试次数 |
 | `MOAGENT_PROVIDER_RETRY_BASE_MS` | `500` | Provider 指数退避的基础等待时间 |

@@ -27,6 +27,13 @@
 4. 百分比统一存 percentage points，例如 `12.5` 表示 `12.5%`，不是 `0.125`；若上游口径未知则标 warning，不猜测。
 5. 重述报告保留最新版本并记录重述事实，不把两个版本当两个期间。
 
+### 经营现金流稳定字段
+
+- `financials.reports[].operating_cash_flow_per_share` 是每股经营活动现金流净额的正式字段；不得要求下游 Skill 解析 `raw.MGJYXJJE`。
+- `fundamentalIndicators.points[].operating_cash_flow_per_share_yoy` 按上一会计年度同月同日报告期计算，单位为 `%`；基期为 0 或缺失时必须为 `null`。
+- summary 使用 `latest_operating_cash_flow_per_share` 与 `latest_operating_cash_flow_per_share_yoy` 暴露最新值。
+- 与 `net_profit_yoy` 比较时必须选择同一个 `report_date`，并在 final data 中保存报告期、两个输入值、布尔比较结果和文字依据。
+
 ## 估值门槛
 
 - 只有 `price > 0`、`eps > 0`、`pe > 0` 时生成 PE/EPS implied price。

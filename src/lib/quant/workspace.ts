@@ -6,12 +6,22 @@ import {
 } from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
 import { inferKnownSymbols, inferQuantSymbolsFromText } from '@/lib/quant/symbol-aliases';
+import {
+  extractQuantQueryTargetCandidates,
+  rewriteQuantQuery,
+  type QuantQueryRewriteResult,
+} from '@/lib/quant/query-rewrite';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import {
+  getProjectLlmConfig,
+  type ProjectLlmConfig,
+} from '@/lib/config/llm';
 
 type QuantManifest = {
   schemaVersion?: number;
   projectId?: string;
   projectName?: string;
+  llm?: ProjectLlmConfig;
   quant?: {
     capabilityId?: string;
     agentType?: string;
@@ -26,16 +36,18 @@ type QuantManifest = {
   };
 };
 
-type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification';
+type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification' | 'refused';
 
 export interface QuantRunPlan {
   schemaVersion: 1;
   runId: string;
   status: RunPlanStatus;
   capabilityId: string;
+  llm: ProjectLlmConfig;
   requestedCapabilityId?: string;
   executionCapabilityId?: string;
   question: string;
+  queryRewrite?: QuantQueryRewriteResult;
   symbols: string[];
   timeRange: string | null;
   dataRequirements: string[];
@@ -60,6 +72,10 @@ export interface QuantRunPlan {
     finalDataContract?: string[];
   };
   clarification?: QuantIntentClarification;
+  refusal?: {
+    code: 'GUARANTEED_RETURN_REQUEST';
+    message: string;
+  };
   expectedArtifacts: string[];
   validationRules: string[];
   createdAt: string;
@@ -163,12 +179,59 @@ function inferDefaultTimeRange(capabilityId: string): string | null {
   return null;
 }
 
+function mergeQueryRewriteClarification(params: {
+  base: QuantIntentClarification;
+  queryRewrite: QuantQueryRewriteResult;
+  capabilityId: string;
+  hasImageAttachments?: boolean;
+}): QuantIntentClarification {
+  if (params.hasImageAttachments || params.queryRewrite.broadUniverse) return params.base;
+
+  const actionableIssues = params.queryRewrite.issues.filter(
+    (issue) => issue.code === 'TARGET_NOT_FOUND' || issue.code === 'TARGET_AMBIGUOUS',
+  );
+  if (actionableIssues.length === 0) return params.base;
+
+  const comparisonAffected =
+    params.capabilityId === 'asset_comparison' ||
+    params.capabilityId === 'portfolio_risk' ||
+    params.queryRewrite.analysisFocus.id === 'comparison' ||
+    params.queryRewrite.resolvedSymbols.length > 0;
+  const missing = Array.from(new Set([
+    ...params.base.missing,
+    comparisonAffected ? 'comparison_universe' as const : 'target' as const,
+  ]));
+  const rewriteQuestions = actionableIssues.map((issue) => {
+    if (issue.code === 'TARGET_AMBIGUOUS') {
+      const ambiguity = params.queryRewrite.ambiguousTargets.find(
+        (item) => item.query === issue.target,
+      );
+      const candidates = ambiguity?.candidates
+        .map((item) => `${item.name}（${item.symbol}${item.market ? `.${item.market}` : ''}）`)
+        .join('、');
+      return candidates
+        ? `“${issue.target}”对应多个证券：${candidates}。你想分析哪一个？`
+        : `“${issue.target}”对应多个证券，请补充市场或代码。`;
+    }
+    return `没有找到“${issue.target}”对应的证券，请确认名称或提供六位代码。`;
+  });
+
+  return {
+    required: true,
+    reason: actionableIssues.map((issue) => issue.message).join('；'),
+    missing,
+    questions: Array.from(new Set([...rewriteQuestions, ...params.base.questions])).slice(0, 3),
+    confidence: Math.min(params.base.confidence, params.queryRewrite.confidence),
+    defaults: params.base.defaults,
+  };
+}
+
 function wantsVisualization(instruction: string): boolean {
   return /看板|可视化|图表|页面|dashboard|html/i.test(instruction);
 }
 
 function isQuantAnalysisTask(instruction: string): boolean {
-  return /股票|个股|证券|行情|走势|K线|K 线|财务|基本面|公告|指数|对比|量化|分析|回测|策略|持仓|仓位|组合|调仓|盈亏|成本|账户|截图/i.test(instruction);
+  return /股票|个股|证券|行情|走势|K线|K 线|财务|基本面|年报|季报|报告期|营收|利润|现金流|ROE|估值|公告|指数|对比|量化|分析|回测|策略|持仓|仓位|组合|调仓|盈亏|成本|账户|截图/i.test(instruction);
 }
 
 function shouldUseAssetComparison(instruction: string) {
@@ -273,6 +336,8 @@ function inferCapabilityId(params: {
   manifestCapabilitySource?: string | null;
   instruction: string;
   hasImageAttachments?: boolean;
+  queryRewrite: QuantQueryRewriteResult;
+  resolvedSymbolCount: number;
 }) {
   if (params.requestedCapabilityId && params.requestedCapabilitySource === 'manual') {
     return params.requestedCapabilityId;
@@ -286,12 +351,30 @@ function inferCapabilityId(params: {
     return 'portfolio_risk';
   }
 
-  if (shouldUseAssetComparison(params.instruction)) {
+  if (params.queryRewrite.broadUniverse) {
+    return 'asset_comparison';
+  }
+
+  if (
+    params.queryRewrite.analysisFocus.id === 'comparison' &&
+    params.resolvedSymbolCount >= 2
+  ) {
     return 'asset_comparison';
   }
 
   if (params.requestedCapabilityId) {
     return params.requestedCapabilityId;
+  }
+
+  if (params.queryRewrite.capabilityHint) {
+    return params.queryRewrite.capabilityHint;
+  }
+
+  if (
+    params.resolvedSymbolCount >= 2 &&
+    shouldUseAssetComparison(params.instruction)
+  ) {
+    return 'asset_comparison';
   }
 
   return params.manifestCapabilityId;
@@ -422,12 +505,29 @@ export async function writeInitialRunPlan(params: {
   capabilitySource?: string | null;
   hasImageAttachments?: boolean;
   previousPlan?: QuantRunPlan | null;
+  queryRewrite?: QuantQueryRewriteResult;
+  enableLlmRewrite?: boolean;
+  llmModel?: string | null;
 }) {
   await ensureQuantWorkspace(params.projectPath);
   const manifest = await readManifest(params.projectPath);
   const manifestQuant = manifest?.quant;
   const planningInstruction = stripOperationalInstructions(params.instruction) || params.instruction.trim();
-  const explicitSymbols = inferSymbols(planningInstruction);
+  const staticallyInferredSymbols = inferSymbols(planningInstruction);
+  const extractedTargetCandidates = extractQuantQueryTargetCandidates(planningInstruction);
+  const requiresDynamicSymbolResolution =
+    extractedTargetCandidates.length > staticallyInferredSymbols.length;
+  const queryRewrite = params.queryRewrite ?? await rewriteQuantQuery(planningInstruction, {
+    requestedCapabilityId:
+      params.capabilitySource === 'manual' ? params.capabilityId : null,
+    resolveTargets: requiresDynamicSymbolResolution,
+    allowLlm: params.enableLlmRewrite === true,
+    requestedModel: params.llmModel,
+  });
+  const explicitSymbols = Array.from(new Set([
+    ...queryRewrite.resolvedSymbols.map((item) => item.symbol),
+    ...staticallyInferredSymbols,
+  ]));
   const inheritPreviousPlan = shouldInheritPreviousPlanContext({
     instruction: planningInstruction,
     explicitSymbols,
@@ -443,6 +543,8 @@ export async function writeInitialRunPlan(params: {
     manifestCapabilitySource: manifestQuant?.capabilitySource,
     instruction: planningInstruction,
     hasImageAttachments: params.hasImageAttachments,
+    queryRewrite,
+    resolvedSymbolCount: explicitSymbols.length,
   });
   const capability = getQuantCapability(inferredCapabilityId);
   const executionCapability = capability.id === 'asset_comparison'
@@ -450,18 +552,29 @@ export async function writeInitialRunPlan(params: {
     : getExecutionQuantCapability(capability.id);
   const quantSettings = buildQuantProjectSettings(capability.id);
   const now = new Date().toISOString();
+  const llm = getProjectLlmConfig();
   const symbols = explicitSymbols.length > 0 ? explicitSymbols : inheritedSymbols;
   const requestedTimeRange =
+    queryRewrite.timeRange?.label ??
     inferTimeRange(planningInstruction) ??
     (inheritPreviousPlan ? params.previousPlan?.timeRange ?? null : null);
-  const clarification = assessQuantIntentForClarification({
+  const baseClarification = assessQuantIntentForClarification({
     instruction: planningInstruction,
     capabilityId: capability.id,
     symbols,
     timeRange: requestedTimeRange,
     hasImageAttachments: params.hasImageAttachments,
+    semanticFocusId: queryRewrite.analysisFocus.id,
+    broadUniverse: queryRewrite.broadUniverse,
   });
-  const timeRange = clarification.required
+  const clarification = mergeQueryRewriteClarification({
+    base: baseClarification,
+    queryRewrite,
+    capabilityId: capability.id,
+    hasImageAttachments: params.hasImageAttachments,
+  });
+  const refused = queryRewrite.safety.decision === 'refuse';
+  const timeRange = clarification.required || refused
     ? requestedTimeRange
     : requestedTimeRange ?? inferDefaultTimeRange(capability.id);
   const shouldInheritManifest = !params.capabilityId || manifestQuant?.capabilityId === capability.id;
@@ -502,15 +615,23 @@ export async function writeInitialRunPlan(params: {
   const plan: QuantRunPlan = {
     schemaVersion: 1,
     runId: params.requestId,
-    status: clarification.required ? 'needs_clarification' : 'planned',
+    status: refused
+      ? 'refused'
+      : clarification.required
+        ? 'needs_clarification'
+        : 'planned',
     capabilityId: capability.id,
+    llm,
     requestedCapabilityId: capability.id,
     executionCapabilityId: executionCapability.id,
     question: planningInstruction,
+    queryRewrite,
     symbols,
     timeRange,
     dataRequirements,
-    analysisSteps: clarification.required
+    analysisSteps: refused
+      ? ['停止执行取数和生成任务，返回确定性安全说明。']
+      : clarification.required
       ? [
           ...plannedCapabilityNotice(capability.id, executionCapability.id),
           '补充用户缺失的关键输入。',
@@ -522,6 +643,7 @@ export async function writeInitialRunPlan(params: {
         ],
     visualization: {
       required:
+        !refused &&
         !clarification.required &&
         (wantsVisualization(planningInstruction) || isQuantAnalysisTask(planningInstruction)),
       templateId: visualizationTemplate.templateId,
@@ -541,8 +663,16 @@ export async function writeInitialRunPlan(params: {
       dataSignals: visualizationTemplate.dataSignals,
       finalDataContract: visualizationTemplate.finalDataContract,
     },
-    clarification: clarification.required ? clarification : undefined,
-    expectedArtifacts: clarification.required ? ['.quantpilot/run_plan.json', '.quantpilot/events.jsonl'] : expectedArtifacts,
+    clarification: !refused && clarification.required ? clarification : undefined,
+    refusal: refused && queryRewrite.safety.code && queryRewrite.safety.message
+      ? {
+          code: queryRewrite.safety.code,
+          message: queryRewrite.safety.message,
+        }
+      : undefined,
+    expectedArtifacts: clarification.required || refused
+      ? ['.quantpilot/run_plan.json', '.quantpilot/events.jsonl']
+      : expectedArtifacts,
     validationRules,
     createdAt: now,
     updatedAt: now,
@@ -553,16 +683,43 @@ export async function writeInitialRunPlan(params: {
     `${JSON.stringify(plan, null, 2)}\n`,
     'utf8'
   );
+  await fs.writeFile(
+    path.join(quantDir(params.projectPath), 'query_rewrite.json'),
+    `${JSON.stringify(queryRewrite, null, 2)}\n`,
+    'utf8',
+  );
 
   await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: clarification.required ? 'intent_clarification_required' : 'run_planned',
+    event_type: 'query_rewritten',
     stage: 'planning',
-    status: clarification.required ? 'warning' : 'success',
+    status: queryRewrite.status === 'ready' || queryRewrite.status === 'refused'
+      ? 'success'
+      : 'warning',
+    run_id: params.requestId,
+    artifact_path: '.quantpilot/query_rewrite.json',
+    summary: queryRewrite.status === 'refused'
+      ? `问题改写完成，安全策略拒绝执行：${queryRewrite.safety.message}`
+      : queryRewrite.status === 'ready'
+        ? `已将用户问题改写为结构化查询，并解析 ${queryRewrite.resolvedSymbols.length} 个标的。`
+        : `问题改写完成，仍有 ${queryRewrite.unresolvedTargets.length + queryRewrite.ambiguousTargets.length} 个标的需要确认。`,
+    created_at: now,
+  });
+
+  await appendQuantWorkspaceEvent(params.projectPath, {
+    event_type: refused
+      ? 'intent_refused'
+      : clarification.required
+        ? 'intent_clarification_required'
+        : 'run_planned',
+    stage: 'planning',
+    status: clarification.required || refused ? 'warning' : 'success',
     run_id: params.requestId,
     artifact_path: '.quantpilot/run_plan.json',
-    summary: clarification.required
-      ? `任务缺少关键输入，需要先向用户澄清：${clarification.questions.join('；')}`
-      : `已生成${capability.name}计划，下一步将按计划解析标的、获取真实数据并生成可视化产物。`,
+    summary: refused
+      ? queryRewrite.safety.message ?? '任务已被安全策略拒绝。'
+      : clarification.required
+        ? `任务缺少关键输入，需要先向用户澄清：${clarification.questions.join('；')}`
+        : `已生成${capability.name}计划，下一步将按计划解析标的、获取真实数据并生成可视化产物。`,
     created_at: now,
   });
 

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { QuantRunPlan } from '@/lib/quant/workspace';
+import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildWorkspaceProgressMessage,
   WORKSPACE_PROGRESS_STAGE_LABELS,
@@ -13,6 +14,7 @@ function plan(overrides: Partial<QuantRunPlan> = {}): QuantRunPlan {
     runId: 'run-workspace-response',
     status: 'planned',
     capabilityId: 'stock_diagnosis',
+    llm: getProjectLlmConfig(),
     question: '八亿时投这个股票最近怎么样',
     symbols: ['600589'],
     timeRange: '最近 1 年',

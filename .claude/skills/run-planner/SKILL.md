@@ -5,7 +5,7 @@ description: Interpret the platform-created QuantPilot run plan, validate intent
 
 # QuantPilot 运行规划能力
 
-本 skill 用于理解用户问题与平台生成的量化分析计划。QuantPilot 会在 Agent 启动前创建或更新 `.quantpilot/run_plan.json`、记录事件并处理澄清状态；Agent 只读取这些平台产物，再按计划取数或生成页面。
+本 skill 用于理解用户问题与平台生成的量化分析计划。QuantPilot 会先通过 `query-rewrite` 创建 `.quantpilot/query_rewrite.json`，再创建或更新 `.quantpilot/run_plan.json`、记录事件并处理澄清状态；Agent 只读取这些平台产物，再按计划取数或生成页面。
 
 > `.quantpilot/**` 是平台只读状态目录。不得使用 Write、Edit、MultiEdit、Bash 或脚本修改、删除、移动其中任何文件；如计划结构异常，由平台修复后重新执行。
 
@@ -69,9 +69,12 @@ python .claude/skills/run-planner/scripts/intent_clarifier.py \
 平台在当前生成项目中维护：
 
 ```text
+.quantpilot/query_rewrite.json
 .quantpilot/run_plan.json
 .quantpilot/events.jsonl
 ```
+
+先核对 `query_rewrite.json.resolvedSymbols`、`timeRange`、`analysisFocus` 和澄清状态，再核对 run plan；不得重新用另一套字符串规则提取标的。
 
 Agent 必须读取并遵循 `run_plan.json` 的这些字段：
 
@@ -111,7 +114,7 @@ Agent 必须读取并遵循 `run_plan.json` 的这些字段：
 
 ## 标准流程
 
-1. 读取 `.quantpilot/manifest.json`，确认当前 `capabilityId`、required skills、数据接口和验证规则。
+1. 读取 `.quantpilot/query_rewrite.json` 与 `.quantpilot/manifest.json`，确认结构化问题合同、`capabilityId`、required skills、数据接口和验证规则。
 2. 从用户问题识别：
    - 标的名称或代码
    - 时间范围

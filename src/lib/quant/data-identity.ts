@@ -18,6 +18,11 @@ function record(value: unknown): JsonRecord | null {
     : null;
 }
 
+function nonEmptyDataset(value: unknown): JsonRecord | null {
+  const dataset = record(value);
+  return dataset && Object.keys(dataset).length > 0 ? dataset : null;
+}
+
 function string(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
@@ -109,7 +114,7 @@ export function assessQuantDatasetIdentity(
   }
 
   for (const key of ROOT_DATASET_KEYS) {
-    const dataset = record(finalData[key]);
+    const dataset = nonEmptyDataset(finalData[key]);
     if (!dataset) continue;
     const datasetSymbol = symbol(dataset.symbol);
     if (!datasetSymbol) reasons.push(`${key}_symbol_missing`);
@@ -130,7 +135,7 @@ export function assessQuantDatasetIdentity(
       if (!asset) continue;
       const assetSymbol = symbol(asset.symbol);
       for (const key of ROOT_DATASET_KEYS) {
-        const dataset = record(asset[key]);
+        const dataset = nonEmptyDataset(asset[key]);
         if (!dataset) continue;
         const datasetSymbol = symbol(dataset.symbol);
         if (!datasetSymbol) reasons.push(`assets[${index}].${key}_symbol_missing`);

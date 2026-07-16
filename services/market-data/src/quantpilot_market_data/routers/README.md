@@ -14,4 +14,4 @@
 - SQL、事务、批量写入和分页查询细节。
 - 复杂指标计算、补数流程和降级策略。
 
-迁移策略：保留 `api.py` 的兼容入口，新增领域优先拆到独立 router，再由 `api.py` 或应用工厂挂载。当前已落地 `analytics.py`、`registry.py`、`foundation.py`、`provider_candidates.py`、`backtests.py`、`indicators.py`、`fundamentals.py`、`events.py`、`quotes.py`、`research.py` 和 `ingestion.py`。
+迁移策略：保留 `api.py` 的兼容入口，新增领域优先拆到独立 router，再由 `api.py` 或应用工厂挂载。当前已落地 `analytics.py`、`registry.py`、`foundation.py`、`provider_candidates.py`、`backtests.py`、`indicators.py`、`fundamentals.py`、`events.py`、`quotes.py`、`context.py`、`research.py` 和 `ingestion.py`。

@@ -142,6 +142,14 @@ function getFundamentalSummary(data: JsonRecord | null): JsonRecord | null {
   return asRecord(fundamental?.summary);
 }
 
+function getFundamentalMetricComparison(data: JsonRecord | null): JsonRecord | null {
+  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+  if (assets.length > 0) {
+    return getFundamentalMetricComparison(assets[0]);
+  }
+  return asRecord(data?.fundamentalMetricComparison);
+}
+
 function getBacktest(data: JsonRecord | null): JsonRecord | null {
   const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
   if (assets.length > 0) {
@@ -653,9 +661,11 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
 function FinancialPanel({
   reports,
   summary,
+  comparison,
 }: {
   reports: JsonRecord[];
   summary: JsonRecord | null;
+  comparison: JsonRecord | null;
 }) {
   const recentReports = reports.slice(0, 6);
   const chartReports = recentReports.slice().reverse();
@@ -680,6 +690,18 @@ function FinancialPanel({
         <div><span>平均 ROE</span><strong>{formatPercent(summary?.avg_roe)}</strong></div>
         <div><span>净利率</span><strong>{formatPercent(summary?.latest_net_margin)}</strong></div>
       </div>
+
+      {comparison && (
+        <div className="empty-state">
+          <strong>{String(comparison.conclusion ?? '现金流与利润增速待比较')}</strong>
+          <br />
+          {String(comparison.reporting_period ?? '-')}
+          {' · 每股经营现金流同比 ' + formatPercent(comparison.operating_cash_flow_per_share_yoy)}
+          {' · 净利润同比 ' + formatPercent(comparison.net_profit_yoy)}
+          <br />
+          {String(comparison.basis ?? '')}
+        </div>
+      )}
 
       {chartReports.length > 0 ? (
         <div className="financial-bars" aria-label="财务柱状趋势图">
@@ -706,7 +728,7 @@ function FinancialPanel({
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>报告期</th><th>营收</th><th>净利润</th><th>ROE</th><th>毛利率</th></tr>
+            <tr><th>报告期</th><th>营收</th><th>净利润</th><th>每股经营现金流</th><th>ROE</th><th>毛利率</th></tr>
           </thead>
           <tbody>
             {recentReports.map((report, index) => (
@@ -714,6 +736,7 @@ function FinancialPanel({
                 <td>{formatDate(report.report_date)}</td>
                 <td>{formatMoney(report.revenue)}</td>
                 <td>{formatMoney(report.parent_net_profit)}</td>
+                <td>{formatNumber(report.operating_cash_flow_per_share ?? asRecord(report.raw)?.MGJYXJJE)}</td>
                 <td>{formatPercent(report.weighted_roe)}</td>
                 <td>{formatPercent(report.gross_margin)}</td>
               </tr>
@@ -1043,6 +1066,7 @@ export default async function Home() {
   const summary = getIndicatorSummary(data);
   const computedMetrics = getComputedMetrics(data);
   const fundamentalSummary = getFundamentalSummary(data);
+  const fundamentalMetricComparison = getFundamentalMetricComparison(data);
   const reports = getReports(data);
   const announcements = getAnnouncements(data);
   const backtest = getBacktest(data);
@@ -1236,7 +1260,7 @@ export default async function Home() {
       </section>
 
       <section className="content-grid wide">
-        <FinancialPanel reports={reports} summary={fundamentalSummary} />
+        <FinancialPanel reports={reports} summary={fundamentalSummary} comparison={fundamentalMetricComparison} />
         <AnnouncementPanel announcements={announcements} />
       </section>
 

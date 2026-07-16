@@ -77,6 +77,7 @@ export const QUANT_CAPABILITY_GROUPS: QuantCapabilityGroup[] = [
 ];
 
 const BASE_EXPECTED_ARTIFACTS = [
+  '.quantpilot/query_rewrite.json',
   '.quantpilot/run_plan.json',
   QUANT_GENERATION_STATE_RELATIVE_PATH,
   QUANT_GENERATION_QUEUE_RELATIVE_PATH,
@@ -108,6 +109,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'stock_diagnosis',
     executionCapabilityId: 'stock_diagnosis',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'quant-symbol-resolver',
       'quant-market-data',
@@ -118,6 +120,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
@@ -153,6 +156,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'technical_analysis',
     executionCapabilityId: 'technical_analysis',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'image-extraction',
       'quant-symbol-resolver',
@@ -163,6 +167,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
@@ -195,6 +200,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'fundamental_analysis',
     executionCapabilityId: 'fundamental_analysis',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'image-extraction',
       'quant-symbol-resolver',
@@ -205,6 +211,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/fundamentals/financials/{symbol}',
       'GET /api/v1/indicators/fundamental/{symbol}',
@@ -238,6 +245,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'asset_comparison',
     executionCapabilityId: 'asset_comparison',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'quant-symbol-resolver',
       'quant-market-data',
@@ -249,6 +257,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     dataEndpoints: [
       'GET /api/v1/research/screeners/a-share/short-term-candidates',
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/fundamentals/financials/{symbol}',
@@ -282,6 +291,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'sector_rotation',
     executionCapabilityId: 'technical_analysis',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'quant-symbol-resolver',
       'quant-market-data',
@@ -291,6 +301,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
@@ -321,6 +332,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'strategy_research',
     executionCapabilityId: 'technical_analysis',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'quant-symbol-resolver',
       'quant-market-data',
@@ -332,6 +344,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     dataEndpoints: [
       'GET /api/v1/research/screeners/a-share/short-term-candidates',
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
       'GET /api/v1/backtests/ma-crossover/{symbol}',
@@ -362,6 +375,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'backtest_review',
     executionCapabilityId: 'backtest_review',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'quant-symbol-resolver',
       'quant-market-data',
@@ -372,6 +386,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',
@@ -403,6 +418,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     subAgentKey: 'portfolio_risk',
     executionCapabilityId: 'portfolio_risk',
     requiredSkills: [
+      'query-rewrite',
       'run-planner',
       'image-extraction',
       'quant-symbol-resolver',
@@ -413,6 +429,7 @@ export const QUANT_CAPABILITIES: QuantCapability[] = [
     ],
     dataEndpoints: [
       'GET /api/v1/symbols/resolve',
+      'GET /api/v1/analysis/context/{symbol}',
       'GET /api/v1/quotes/realtime/{symbol}',
       'GET /api/v1/quotes/history/{symbol}',
       'GET /api/v1/indicators/technical/{symbol}',

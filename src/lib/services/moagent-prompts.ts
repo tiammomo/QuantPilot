@@ -9,6 +9,7 @@ import { assessQuantDatasetIdentity } from '@/lib/quant/data-identity';
 import { getQuantCapability } from '@/lib/quant/capabilities';
 import { readQuantRunPlan, type QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import type { ProjectLlmConfig } from '@/lib/config/llm';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -27,6 +28,7 @@ async function readJsonRecord(filePath: string): Promise<JsonRecord | null> {
 }
 
 type QuantManifest = {
+  llm?: ProjectLlmConfig;
   quant?: {
     capabilityId?: string;
     agentType?: string;
@@ -84,6 +86,7 @@ function buildCapabilityContext(
 
   return `任务合同：
 - 能力：${capability.id} / ${capability.name}；执行能力：${runPlan?.executionCapabilityId ?? capability.executionCapabilityId}
+- LLM：${runPlan?.llm?.provider ?? manifest?.llm?.provider ?? 'deepseek'} / ${runPlan?.llm?.model ?? manifest?.llm?.model ?? 'deepseek-v4-flash'}；Query Rewrite：${runPlan?.llm?.queryRewrite.mode ?? manifest?.llm?.queryRewrite.mode ?? 'auto'}
 - 标的：${runPlan?.symbols?.join(', ') || '以只读运行计划为准'}
 - 页面模板：${visualization.templateId} / ${visualization.variantId}（${visualization.variantName}）
 - 布局与密度：${visualization.layout} / ${visualization.density}

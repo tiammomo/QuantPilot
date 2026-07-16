@@ -40,11 +40,18 @@ const BACKTEST_COMPONENTS = [
   '限制说明',
 ];
 
+const FUNDAMENTAL_COMPONENTS = [
+  '质量评分',
+  '营收利润趋势',
+  'ROE/利润率',
+  '现金流或缺失说明',
+  '报告期表',
+];
+
 const REJECTED_VARIANTS = [
   ['single-stock-diagnosis', 'single-stock-fundamental-snapshot'],
   ['technical-timing', 'technical-kline-trader'],
   ['technical-timing', 'technical-breakout-watch'],
-  ['fundamental-research', 'fundamental-quality-scorecard'],
   ['fundamental-research', 'fundamental-report-trend'],
   ['stock-selection', 'selection-correlation-risk-map'],
   ['stock-selection', 'selection-liquidity-trend-board'],
@@ -195,6 +202,29 @@ function backtestData(): JsonRecord {
       'backtest-review',
       'backtest-performance-review',
       BACKTEST_COMPONENTS,
+    ),
+  };
+}
+
+function fundamentalData(): JsonRecord {
+  const reports = [
+    { symbol: '600589', report_date: '2025-12-31', revenue: 200, parent_net_profit: 80 },
+    { symbol: '600589', report_date: '2024-12-31', revenue: 180, parent_net_profit: 40 },
+  ];
+  return {
+    runId: 'run-plan',
+    symbol: '600589',
+    financials: { symbol: '600589', reports },
+    fundamentalIndicators: { symbol: '600589', points: reports },
+    fundamentalMetricComparison: {
+      symbol: '600589',
+      conclusion: '每股经营现金流增速未跑赢净利润增速。',
+      basis: '每股经营活动现金流净额同比代理口径。',
+    },
+    visualization: visualization(
+      'fundamental-research',
+      'fundamental-quality-scorecard',
+      FUNDAMENTAL_COMPONENTS,
     ),
   };
 }
@@ -527,7 +557,7 @@ describe('dashboard renderer capability registry', () => {
     expect(isDashboardSpecCapabilitySupported(
       'fundamental-research',
       'fundamental-quality-scorecard',
-    )).toBe(false);
+    )).toBe(true);
     expect(isDashboardSpecCapabilitySupported('unknown', 'unknown')).toBe(false);
     expect(isDashboardSpecCapabilitySupported('stock-selection', null)).toBe(false);
   });
@@ -540,11 +570,13 @@ describe('dashboard renderer capability registry', () => {
     }));
     expect(matrix).toEqual([
       { templateId: 'single-stock-diagnosis', variantId: 'single-stock-command-center', supported: true },
-      ...REJECTED_VARIANTS.slice(0, 5).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(0, 3).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'fundamental-research', variantId: 'fundamental-quality-scorecard', supported: true },
+      ...REJECTED_VARIANTS.slice(3, 4).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'stock-selection', variantId: 'selection-ranking-matrix', supported: true },
-      ...REJECTED_VARIANTS.slice(5, 11).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(4, 10).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'backtest-review', variantId: 'backtest-performance-review', supported: true },
-      ...REJECTED_VARIANTS.slice(11).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(10).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
     ]);
     const catalogIdentities = KNOWN_TEMPLATE_IDS.flatMap((templateId) => (
       serializeQuantVisualizationTemplate(templateId).alternatives.map((variant) => ({
@@ -576,6 +608,13 @@ describe('dashboard renderer capability registry', () => {
       variantId: 'single-stock-command-center',
       components: SINGLE_STOCK_COMPONENTS,
       data: singleStockData(),
+      renderer: 'base',
+    },
+    {
+      templateId: 'fundamental-research',
+      variantId: 'fundamental-quality-scorecard',
+      components: FUNDAMENTAL_COMPONENTS,
+      data: fundamentalData(),
       renderer: 'base',
     },
     {

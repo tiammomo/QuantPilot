@@ -9,6 +9,7 @@ import type {
 type ContextReceiptProjector = NonNullable<MoAgentTool['projectContextReceipt']>;
 
 const DASHBOARD_CONTRACT_TARGETS = [
+  '.quantpilot/query_rewrite.json',
   '.quantpilot/run_plan.json',
   'data_file/final/dashboard-data.json',
   'evidence/sources.json',

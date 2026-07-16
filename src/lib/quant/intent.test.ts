@@ -100,4 +100,72 @@ describe('quant intent clarification', () => {
       })
     ).toMatchObject({ required: false, missing: [] });
   });
+
+  it('does not attach an unrelated new question to a pending clarification', () => {
+    const originalQuestion = '帮我对比几只股票，生成看板。';
+    const clarification = assessQuantIntentForClarification({
+      instruction: originalQuestion,
+      capabilityId: 'asset_comparison',
+    });
+
+    expect(buildClarificationContinuation({
+      previousPlan: {
+        runId: 'first-run',
+        status: 'needs_clarification',
+        capabilityId: 'asset_comparison',
+        question: originalQuestion,
+        clarification,
+      },
+      instruction: '看看平安',
+      capabilityId: 'stock_diagnosis',
+    })).toBeNull();
+  });
+
+  it('does not attach a new recommendation request to a pending stock ambiguity', () => {
+    const clarification = assessQuantIntentForClarification({
+      instruction: '看看平安',
+      capabilityId: 'stock_diagnosis',
+    });
+
+    expect(buildClarificationContinuation({
+      previousPlan: {
+        runId: 'ambiguous-stock-run',
+        status: 'needs_clarification',
+        capabilityId: 'stock_diagnosis',
+        question: '看看平安',
+        clarification,
+      },
+      instruction: '给我推荐一只明天保证涨停、稳赚不赔的股票',
+      capabilityId: 'stock_diagnosis',
+    })).toBeNull();
+  });
+
+  it('accepts a compact response that directly supplies missing comparison symbols', () => {
+    const originalQuestion = '帮我对比几只股票，生成看板。';
+    const clarification = assessQuantIntentForClarification({
+      instruction: originalQuestion,
+      capabilityId: 'asset_comparison',
+    });
+
+    expect(buildClarificationContinuation({
+      previousPlan: {
+        runId: 'first-run',
+        status: 'needs_clarification',
+        capabilityId: 'asset_comparison',
+        question: originalQuestion,
+        clarification,
+      },
+      instruction: '600111 和 300750',
+      capabilityId: 'asset_comparison',
+    })?.resolvedInstruction).toContain('600111 和 300750');
+  });
+
+  it('uses authoritative rewrite focus to avoid a redundant financial-goal clarification', () => {
+    expect(assessQuantIntentForClarification({
+      instruction: '北方稀土2025年年报里，经营现金流增速是否跑赢净利润？',
+      capabilityId: 'fundamental_analysis',
+      symbols: ['600111'],
+      semanticFocusId: 'fundamental',
+    })).toMatchObject({ required: false, missing: [] });
+  });
 });

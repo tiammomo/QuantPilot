@@ -9,6 +9,17 @@
 
 外部源不可覆盖已有本地历史事实而不留下来源与原因。进行可复现分析时，至少保存 `provider/source`、`fetched_at`、样本首尾时间和记录数。
 
+## Skills 聚合取数合同
+
+单标的需要多类数据时使用 `GET /api/v1/analysis/context/{symbol}`。`include` 是逗号分隔的最小区块集合，可选 `quote`、`history`、`technical`、`financials`、`fundamental`、`announcements`。
+
+- `schema_version=1` 是当前合同版本。
+- 顶层 `status=ready` 表示所有请求区块可直接使用；`partial` 表示至少一个区块成功但存在缺失或质量警告；`unavailable` 表示所有请求区块失败。
+- `sections.<name>.status`、`duration_ms`、`data_quality` 和 `error` 必须随原始数据一起保存。
+- `error.retryable=true` 表示上游或依赖暂时不可用，可以重试；参数错误不可重试。
+- `technical` 复用 `history`，`fundamental` 复用 `financials`。依赖失败时派生区块返回 `DEPENDENCY_UNAVAILABLE`，不得自行生成替代数据。
+- `partial` 不是整次失败。Skills 可以继续使用成功区块，但结论不得覆盖失败区块所需的分析范围。
+
 ## 标准 bars 对象
 
 验证器接受以下最小结构：

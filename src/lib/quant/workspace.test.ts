@@ -1,7 +1,8 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { rewriteQuantQuery } from './query-rewrite';
 import { writeInitialRunPlan } from './workspace';
 
 const temporaryProjects: string[] = [];
@@ -13,6 +14,7 @@ async function createProject() {
 }
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(
     temporaryProjects.splice(0).map((projectPath) =>
       fs.rm(projectPath, { recursive: true, force: true })
@@ -33,30 +35,46 @@ describe('writeInitialRunPlan', () => {
 
     expect(plan.status).toBe('planned');
     expect(plan.clarification).toBeUndefined();
-    expect(plan.symbols).toEqual([]);
+    expect(plan.symbols).toEqual(['600030']);
     expect(plan.timeRange).toBe('最近 120 个交易日');
     expect(plan.visualization.required).toBe(true);
     expect(plan.visualization.templateId).toBe('single-stock-diagnosis');
-    expect(plan.visualization.matchReasons).not.toEqual(
-      expect.arrayContaining([expect.stringMatching(/^识别到 \d+ 个标的$/)])
+    expect(plan.visualization.matchReasons).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^识别到 1 个标的$/)])
     );
   });
 
-  it('does not report unresolved conversational name candidates as resolved symbols', async () => {
+  it('persists dynamically resolved conversational names as plan symbols', async () => {
     const projectPath = await createProject();
+    const queryRewrite = await rewriteQuantQuery('大位科技这个股票怎么样', {
+      resolver: async () => ({
+        results: [{
+          symbol: '600589',
+          name: '大位科技',
+          asset_type: 'stock',
+          market: 'SH',
+          secid: '1.600589',
+          source: 'test-market-api',
+        }],
+      }),
+    });
     const plan = await writeInitialRunPlan({
       projectPath,
       requestId: 'conversational-security-diagnosis-regression',
       capabilityId: 'stock_diagnosis',
       capabilitySource: 'auto',
       instruction: '大位科技这个股票怎么样',
+      queryRewrite,
     });
 
     expect(plan.status).toBe('planned');
-    expect(plan.symbols).toEqual([]);
-    expect(plan.visualization.matchReasons).not.toEqual(
-      expect.arrayContaining([expect.stringMatching(/^识别到 \d+ 个标的$/)])
+    expect(plan.symbols).toEqual(['600589']);
+    expect(plan.visualization.matchReasons).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^识别到 1 个标的$/)])
     );
+    await expect(
+      fs.readFile(path.join(projectPath, '.quantpilot', 'query_rewrite.json'), 'utf8'),
+    ).resolves.toContain('600589');
   });
 
   it('keeps a single symbol with duplicate aliases on the technical-analysis template', async () => {
@@ -118,6 +136,97 @@ describe('writeInitialRunPlan', () => {
     expect(plan.status).toBe('needs_clarification');
     expect(plan.symbols).toEqual([]);
     expect(plan.clarification?.missing).toContain('comparison_universe');
+  });
+
+  it('uses dynamic resolution for names not covered by the partial static alias set', async () => {
+    const projectPath = await createProject();
+    const symbolByQuery: Record<string, string> = {
+      北方稀土: '600111',
+      宁德时代: '300750',
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+      const query = url.searchParams.get('query') ?? '';
+      return Response.json({
+        results: [{
+          symbol: symbolByQuery[query],
+          name: query,
+          asset_type: 'stock',
+          market: query === '北方稀土' ? 'SH' : 'SZ',
+        }],
+      });
+    }));
+
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'mixed-static-dynamic-symbols',
+      capabilityId: 'asset_comparison',
+      capabilitySource: 'auto',
+      instruction: '比较北方稀土和宁德时代的收益与风险',
+    });
+
+    expect(plan.status).toBe('planned');
+    expect(plan.symbols).toEqual(['600111', '300750']);
+    expect(plan.symbols).toEqual(
+      plan.queryRewrite?.resolvedSymbols.map((item) => item.symbol),
+    );
+    expect(plan.queryRewrite?.resolvedSymbols).toHaveLength(2);
+  });
+
+  it('keeps a single-stock financial metric comparison on fundamental analysis', async () => {
+    const projectPath = await createProject();
+    const queryRewrite = await rewriteQuantQuery(
+      '北方稀土2025年年报里，经营现金流增速是否跑赢净利润？',
+      {
+        resolver: async () => ({
+          results: [{
+            symbol: '600111',
+            name: '北方稀土',
+            asset_type: 'stock',
+            market: 'SH',
+          }],
+        }),
+      },
+    );
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'fundamental-metric-comparison',
+      capabilityId: 'fundamental_analysis',
+      capabilitySource: 'auto',
+      instruction: queryRewrite.originalQuery,
+      queryRewrite,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      capabilityId: 'fundamental_analysis',
+      symbols: ['600111'],
+      llm: {
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        queryRewrite: { mode: 'auto' },
+      },
+    });
+    expect(plan.clarification).toBeUndefined();
+  });
+
+  it('creates a non-executable refused plan for guaranteed-return requests', async () => {
+    const projectPath = await createProject();
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'guaranteed-return-refusal',
+      capabilityId: 'stock_diagnosis',
+      capabilitySource: 'auto',
+      instruction: '明天买哪只股票一定能涨停？',
+      enableLlmRewrite: true,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'refused',
+      symbols: [],
+      refusal: { code: 'GUARANTEED_RETURN_REQUEST' },
+      visualization: { required: false },
+    });
   });
 
   it('lets an explicit rebalance action outrank generic portfolio-risk nouns', async () => {

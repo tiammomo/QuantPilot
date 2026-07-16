@@ -20,6 +20,17 @@ describe('quant dataset identity', () => {
     )).toMatchObject({ ready: true, reasons: [], symbols: ['600589'] });
   });
 
+  it('ignores empty optional dataset placeholders', () => {
+    expect(assessQuantDatasetIdentity(
+      { runId: 'run-1', symbols: ['600589'] },
+      {
+        ...singleFinal(),
+        technicalIndicators: {},
+        announcements: {},
+      },
+    )).toMatchObject({ ready: true, reasons: [] });
+  });
+
   it('rejects a root label that hides quote or K-line data from another symbol', () => {
     const finalData = singleFinal();
     finalData.quote.symbol = '600519';

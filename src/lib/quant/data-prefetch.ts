@@ -2,11 +2,10 @@ import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
-import { stripConversationalSecurityReferenceSuffix } from '@/lib/quant/intent';
 import {
   inferQuantSymbolsFromText,
-  keepLongestDistinctTextCandidates,
 } from '@/lib/quant/symbol-aliases';
+import { extractQuantQueryTargetCandidates } from '@/lib/quant/query-rewrite';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
@@ -45,27 +44,6 @@ export function hasExplicitTradingPlanIntent(instruction: string): boolean {
 }
 
 const SYMBOL_CODE_PATTERN = /^(?:6|0|3|5)\d{5}$/;
-const GENERIC_QUESTION_WORDS = [
-  '分析',
-  '查询',
-  '查看',
-  '看看',
-  '看一下',
-  '帮我',
-  '帮忙',
-  '推荐',
-  '买入',
-  '卖出',
-  '股票',
-  '个股',
-  '行情',
-  '走势',
-  '最近',
-  '可视化',
-  '看板',
-  '生成',
-];
-
 function uniqueSymbols(symbols: string[]): string[] {
   return Array.from(new Set(symbols.filter((symbol) => SYMBOL_CODE_PATTERN.test(symbol))));
 }
@@ -111,38 +89,8 @@ function inferPlannedSymbols(plan: QuantRunPlan): string[] {
   ]).slice(0, 8);
 }
 
-function cleanCandidate(value: string): string | null {
-  let candidate = value
-    .replace(/\s+/g, '')
-    .replace(/^(请|麻烦|帮我|帮忙|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|对比)+/, '')
-    .replace(/(股票|个股)?(最近|近期|近|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '');
-
-  candidate = candidate.replace(/^(?:A股|港股|美股)/, '').trim();
-  candidate = stripConversationalSecurityReferenceSuffix(candidate);
-
-  if (candidate.length < 2 || candidate.length > 10) {
-    return null;
-  }
-
-  if (GENERIC_QUESTION_WORDS.includes(candidate)) {
-    return null;
-  }
-
-  return candidate;
-}
-
 export function extractQuantSymbolNameCandidates(question: string): string[] {
-  const normalized = question.replace(/\b(?:6|0|3|5)\d{5}\b/g, ' ');
-  const rawParts = [
-    ...normalized.split(/[，。！？?；;、,\n\r]+/),
-    ...(normalized.match(/[\u4e00-\u9fffA-Za-z]{2,12}(?=(?:最近|近期|近|股票|个股|股份|行情|走势|K\s*线|成交量|技术指标|财务|基本面|公告|怎么样|如何|怎么))/g) ?? []),
-  ];
-
-  return keepLongestDistinctTextCandidates(
-    rawParts
-      .map(cleanCandidate)
-      .filter((candidate): candidate is string => Boolean(candidate))
-  ).slice(0, 6);
+  return extractQuantQueryTargetCandidates(question).slice(0, 6);
 }
 
 async function resolveSymbolsFromQuestion(question: string, warnings: string[]): Promise<string[]> {
@@ -338,6 +286,10 @@ export function inferHistoryLimit(plan: QuantRunPlan): number {
       rawDays = 252;
     } else if (/近?半年|最近半年|过去半年|6个月|六个月/.test(source)) {
       rawDays = 126;
+    } else if (/(?:去年|今年)?(?:上半年|下半年)/.test(source)) {
+      rawDays = 126;
+    } else if (/年初至今/.test(source)) {
+      rawDays = 252;
     } else if (/近?三个月|最近三个月|过去三个月|3个月|一季度|一个季度/.test(source)) {
       rawDays = 63;
     }
@@ -520,6 +472,7 @@ function ensureTechnicalSummary(asset: JsonRecord): JsonRecord {
 
   asset.technicalIndicators = {
     ...technicalIndicators,
+    symbol,
     summary,
     computedMetrics: metrics,
     data_quality: technicalIndicators.data_quality ?? {
@@ -595,6 +548,67 @@ function buildFinancialQuality(asset: JsonRecord): JsonRecord {
 
   asset.financialQuality = quality;
   return quality;
+}
+
+export function buildFundamentalMetricComparison(
+  financials: JsonRecord,
+  requestedTimeRange?: string | null,
+): JsonRecord | null {
+  const reports = Array.isArray(financials.reports)
+    ? financials.reports.map(asRecord).filter((report): report is JsonRecord => Boolean(report))
+    : [];
+  if (reports.length === 0) return null;
+  const requestedYear = requestedTimeRange?.match(/20\d{2}/)?.[0] ?? null;
+  const requestedAnnual = /年报/.test(requestedTimeRange ?? '');
+  const report = reports.find((candidate) => {
+    const dataType = String(candidate.data_type ?? '');
+    return (!requestedYear || dataType.includes(requestedYear)) &&
+      (!requestedAnnual || dataType.includes('年报'));
+  }) ?? reports[0];
+  const reportDate = String(report.report_date ?? '');
+  const reportYear = Number.parseInt(reportDate.slice(0, 4), 10);
+  const previous = Number.isSafeInteger(reportYear)
+    ? reports.find((candidate) => {
+        const candidateDate = String(candidate.report_date ?? '');
+        return candidateDate.slice(0, 4) === String(reportYear - 1) &&
+          candidateDate.slice(4, 10) === reportDate.slice(4, 10);
+      }) ?? null
+    : null;
+  const currentRaw = asRecord(report.raw);
+  const previousRaw = asRecord(previous?.raw);
+  const cashFlowPerShare = numeric(
+    report.operating_cash_flow_per_share ?? currentRaw?.MGJYXJJE,
+  );
+  const previousCashFlowPerShare = numeric(
+    previous?.operating_cash_flow_per_share ?? previousRaw?.MGJYXJJE,
+  );
+  const cashFlowYoy = numeric(report.operating_cash_flow_per_share_yoy) ?? (
+    cashFlowPerShare !== null &&
+    previousCashFlowPerShare !== null &&
+    previousCashFlowPerShare !== 0
+      ? ((cashFlowPerShare - previousCashFlowPerShare) / Math.abs(previousCashFlowPerShare)) * 100
+      : null
+  );
+  const netProfitYoy = numeric(report.net_profit_yoy);
+  const outpaced = cashFlowYoy !== null && netProfitYoy !== null
+    ? cashFlowYoy > netProfitYoy
+    : null;
+
+  return {
+    symbol: report.symbol ?? financials.symbol ?? null,
+    reporting_period: report.data_type ?? report.report_date ?? requestedTimeRange ?? null,
+    operating_cash_flow_per_share: round(cashFlowPerShare),
+    previous_operating_cash_flow_per_share: round(previousCashFlowPerShare),
+    operating_cash_flow_per_share_yoy: round(cashFlowYoy),
+    net_profit_yoy: round(netProfitYoy),
+    cash_flow_outpaced_net_profit: outpaced,
+    conclusion: outpaced === null
+      ? '现有财务摘要不足以完成经营现金流增速与净利润增速比较。'
+      : outpaced
+        ? '每股经营现金流增速高于净利润增速。'
+        : '每股经营现金流增速未跑赢净利润增速。',
+    basis: '经营现金流使用每股经营活动现金流净额同比作为可核验代理口径。',
+  };
 }
 
 function extractBarsFromAsset(asset: JsonRecord | null): JsonRecord[] {
@@ -1168,6 +1182,7 @@ function finalDataFromResponses(params: {
   financials?: JsonRecord | null;
   fundamentalIndicators?: JsonRecord | null;
   announcements?: JsonRecord | null;
+  requestedTimeRange?: string | null;
 }): JsonRecord {
   const quote = params.quote;
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
@@ -1219,6 +1234,10 @@ function finalDataFromResponses(params: {
     backtest: params.backtest ?? null,
     financials,
     fundamentalIndicators: params.fundamentalIndicators ?? null,
+    fundamentalMetricComparison: buildFundamentalMetricComparison(
+      financials,
+      params.requestedTimeRange,
+    ),
     announcements,
     computedMetrics: calculateMetrics(kline),
     liquidity: buildLiquiditySummary([]),
@@ -1232,7 +1251,7 @@ function buildComparisonSummary(assets: JsonRecord[]): JsonRecord {
     const quote = asRecord(asset.quote);
     const symbol = String(asset.symbol ?? quote?.symbol ?? '');
     const bars = extractBarsFromAsset(asset);
-    const technicalSummary = asRecord(asRecord(asset.technicalIndicators)?.summary) ?? ensureTechnicalSummary(asset);
+    const technicalSummary = asRecord(asRecord(asset.technicalIndicators)?.summary) ?? {};
     const financialQuality = asRecord(asset.financialQuality) ?? financialQualityRows.find((row) => row?.symbol === symbol);
     const avgAmount20d = numeric(metrics?.avgAmount20d);
     const amount = numeric(quote?.amount);
@@ -1419,7 +1438,7 @@ function buildTradingPlan(assets: JsonRecord[], selectionRanking: JsonRecord): J
   const rows = assets
     .map((asset): JsonRecord | null => {
       const quote = asRecord(asset.quote);
-      const technical = asRecord(asRecord(asset.technicalIndicators)?.summary) ?? ensureTechnicalSummary(asset);
+      const technical = asRecord(asRecord(asset.technicalIndicators)?.summary) ?? {};
       const metrics = asRecord(asset.computedMetrics);
       const bars = extractBarsFromAsset(asset);
       const latestBar = bars.at(-1);
@@ -1830,6 +1849,7 @@ async function fetchSymbolDataset(params: {
     financials,
     fundamentalIndicators,
     announcements,
+    requestedTimeRange: params.plan.timeRange,
   });
 }
 
@@ -1837,7 +1857,11 @@ export async function prefetchQuantDataForRunPlan(params: {
   projectPath: string;
   plan: QuantRunPlan;
 }): Promise<PrefetchResult> {
-  if (params.plan.status === 'needs_clarification' || params.plan.clarification?.required) {
+  if (
+    params.plan.status === 'needs_clarification' ||
+    params.plan.status === 'refused' ||
+    params.plan.clarification?.required
+  ) {
     return { skipped: true, summary: '任务仍需用户补充关键信息，跳过平台预取数据。' };
   }
 
@@ -1956,7 +1980,12 @@ export async function prefetchQuantDataForRunPlan(params: {
       if (quoteMap.has(symbol)) {
         asset.quote = quoteMap.get(symbol);
       }
-      ensureTechnicalSummary(asset);
+      if (
+        asRecord(asset.technicalIndicators) ||
+        extractBarsFromAsset(asset).length > 0
+      ) {
+        ensureTechnicalSummary(asset);
+      }
       buildFinancialQuality(asset);
       assets.push(asset);
     } catch (error) {

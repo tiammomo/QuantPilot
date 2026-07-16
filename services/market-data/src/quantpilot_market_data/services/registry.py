@@ -23,6 +23,22 @@ def build_data_registry(ttls: ProviderRegistryTtls) -> DataRegistryResponse:
 def build_data_providers(ttls: ProviderRegistryTtls) -> list[DataProviderInfo]:
     return [
         DataProviderInfo(
+            id="quantpilot-analysis-context",
+            name="QuantPilot 分析取数合同",
+            category="analysis-context",
+            status="available",
+            description=(
+                "面向 Skills 的版本化聚合取数端点；共享历史行情和财务依赖，"
+                "并对实时、K 线、技术、财务、基本面和公告执行部分失败隔离。"
+            ),
+            endpoints=["/api/v1/analysis/context/{symbol}"],
+            cache_ttl_seconds=None,
+            limitations=[
+                "聚合响应保留各数据区块自己的缓存、新鲜度、数据质量、耗时和类型化错误。",
+                "status=partial 时可使用成功区块，但必须向用户披露缺失区块。",
+            ],
+        ),
+        DataProviderInfo(
             id="eastmoney-realtime",
             name="东方财富实时行情",
             category="market-data",

@@ -1,8 +1,12 @@
 import {
   extractExplicitSymbolCodes,
   inferKnownSymbols,
-  keepLongestDistinctTextCandidates,
 } from '@/lib/quant/symbol-aliases';
+import {
+  extractQuantQueryTargetCandidates,
+} from '@/lib/quant/query-rewrite';
+
+export { stripConversationalSecurityReferenceSuffix } from '@/lib/quant/query-rewrite';
 
 export type ClarificationMissingField =
   | 'target'
@@ -25,6 +29,8 @@ interface AssessQuantIntentParams {
   symbols?: string[];
   timeRange?: string | null;
   hasImageAttachments?: boolean;
+  semanticFocusId?: string | null;
+  broadUniverse?: boolean;
 }
 
 interface PreviousClarificationPlan {
@@ -44,58 +50,6 @@ export interface QuantClarificationContinuation {
   displayInstruction: string;
   missing: ClarificationMissingField[];
 }
-
-const SYMBOL_CODE_PATTERN = /\b(?:6|0|3|5)\d{5}\b/g;
-
-const GENERIC_TARGET_WORDS = [
-  '一个',
-  '一下',
-  '这个',
-  '那个',
-  '某个',
-  '股票',
-  '个股',
-  '标的',
-  '证券',
-  '公司',
-  '资产',
-  '行业',
-  '板块',
-  '市场',
-  '项目',
-  '它',
-  '他们',
-  '有',
-  '没有',
-  '推荐',
-  '买入',
-  '卖出',
-  '补充',
-  '哪个',
-  '哪只',
-  '谁更',
-  '更好',
-  '更强',
-  '更弱',
-  '对比',
-  '比较',
-  '分析',
-  '查询',
-  '查看',
-  '看看',
-  '看一下',
-  '帮我',
-  '帮忙',
-  '可视化',
-  '看板',
-  '页面',
-  '生成',
-];
-
-const GENERIC_TARGET_PHRASE_PATTERN =
-  /^(?:(?:一个|这个|那个|某个|某|哪只|哪个)?(?:股票|个股|标的|证券|公司|资产|行业|板块|市场)|(?:这家|那家|某家|某某)(?:公司|证券|股份))$/;
-const GENERIC_TARGET_QUANTITY_PATTERN =
-  /^(?:几|多|若干|一些|数|多个|两|三|四|五|六|七|八|九|十)(?:只|支|个)?(?:股票|个股|标的|证券|公司|资产)?$/;
 
 const FINANCIAL_KEYWORD_PATTERN =
   /股票|个股|A股|港股|美股|证券|标的|行情|走势|K\s*线|技术指标|财务|基本面|公告|指数|ETF|基金|量化|回测|策略|风控|风险|仓位|涨跌|价格|大盘|板块|行业|买入|卖出|持有|推荐|估值/i;
@@ -127,70 +81,8 @@ function isBroadStockSelectionRequest(instruction: string): boolean {
   return BROAD_STOCK_SELECTION_PATTERN.test(compact);
 }
 
-const CONVERSATIONAL_SECURITY_REFERENCE_SUFFIX =
-  /(?:(?:这|那)(?:个|只|支|家)?|该(?:只|支|家)?)(?:股票|个股|证券|公司|企业|股)?$/;
-
-/**
- * Remove conversational references which follow a real security name.
- *
- * Examples: `大位科技这个`, `大位科技这只股票`, and
- * `大位科技这家公司` must all resolve as `大位科技`. We deliberately do
- * not remove a bare `证券` or `公司`, because they may be part of a legal name such as
- * `中信证券` or `中国平安公司`.
- */
-export function stripConversationalSecurityReferenceSuffix(value: string): string {
-  let candidate = value.trim();
-  let previous = '';
-  while (candidate !== previous) {
-    previous = candidate;
-    candidate = candidate
-      .replace(CONVERSATIONAL_SECURITY_REFERENCE_SUFFIX, '')
-      .replace(/(?:股票|个股)$/, '')
-      .trim();
-  }
-  return candidate;
-}
-
-function cleanTargetCandidate(value: string): string | null {
-  let candidate = value
-    .replace(/\s+/g, '')
-    .replace(/^(请|麻烦|帮我|帮忙|补充|信息|分析|查询|查看|看看|看一下|研究|诊断|评估|生成|做一个|做下|比较|对比|一下)+/, '')
-    .replace(/(股票|个股)?(最近|近期|近|今天|这段时间|的|行情|走势|K线|K线图|成交量|技术指标|技术|指标|财务|基本面|公告|怎么样|如何|怎么|可视化|看板|页面).*$/, '')
-    .replace(/^(?:A股|港股|美股)/, '')
-    .trim();
-
-  candidate = stripConversationalSecurityReferenceSuffix(candidate);
-
-  if (candidate.endsWith('板块')) {
-    candidate = candidate.slice(0, -2);
-  }
-
-  if (candidate.length < 2 || candidate.length > 12) {
-    return null;
-  }
-
-  if (
-    GENERIC_TARGET_WORDS.includes(candidate) ||
-    GENERIC_TARGET_PHRASE_PATTERN.test(candidate) ||
-    GENERIC_TARGET_QUANTITY_PATTERN.test(candidate)
-  ) {
-    return null;
-  }
-
-  return candidate;
-}
-
 export function extractQuantTargetCandidates(instruction: string): string[] {
-  const normalized = normalizeInstruction(instruction).replace(SYMBOL_CODE_PATTERN, ' ');
-  const parts = normalized.split(/[，。！？?；;、,：:\n\r]|(?:和)|(?:与)|(?:及)|(?:以及)|(?:VS)|(?:vs)|(?:对比)|(?:比较)/);
-  const lookaheadMatches =
-    normalized.match(/[\u4e00-\u9fffA-Za-z]{2,14}(?=(?:最近|近期|近|今天|股票|个股|股份|行情|走势|K\s*线|成交量|技术指标|财务|基本面|公告|怎么样|如何|怎么))/g) ?? [];
-
-  return keepLongestDistinctTextCandidates(
-    [...parts, ...lookaheadMatches]
-      .map(cleanTargetCandidate)
-      .filter((candidate): candidate is string => Boolean(candidate))
-  ).slice(0, 8);
+  return extractQuantQueryTargetCandidates(instruction);
 }
 
 function hasFinancialIntent(instruction: string, capabilityId?: string | null): boolean {
@@ -286,7 +178,8 @@ export function assessQuantIntentForClarification(
   const knownTargetSymbols = inferKnownSymbols(instruction);
   const targetCandidates = extractQuantTargetCandidates(instruction);
   const hasBroadMarketTarget = BROAD_MARKET_TARGET_PATTERN.test(instruction);
-  const broadStockSelectionRequest = isBroadStockSelectionRequest(instruction);
+  const broadStockSelectionRequest =
+    params.broadUniverse === true || isBroadStockSelectionRequest(instruction);
   const explicitTargetCount = new Set([...symbols, ...codes, ...knownTargetSymbols]).size;
   const targetCount = Math.max(explicitTargetCount, targetCandidates.length);
   const canInferTargetFromImage =
@@ -295,7 +188,9 @@ export function assessQuantIntentForClarification(
   const hasTarget = targetCount > 0 || hasBroadMarketTarget || broadStockSelectionRequest || canInferTargetFromImage;
   const isComparison = COMPARISON_PATTERN.test(instruction) || params.capabilityId === 'asset_comparison';
   const isRecommendation = RECOMMENDATION_PATTERN.test(instruction);
-  const hasGoal = GOAL_KEYWORD_PATTERN.test(instruction);
+  const hasGoal =
+    GOAL_KEYWORD_PATTERN.test(instruction) ||
+    Boolean(params.semanticFocusId && params.semanticFocusId !== 'comprehensive');
   const hasInvestmentConstraints = INVESTMENT_CONSTRAINT_PATTERN.test(instruction);
   const missing: ClarificationMissingField[] = [];
 
@@ -382,6 +277,41 @@ export function buildClarificationContinuation(params: {
     params.capabilityId ?? previousPlan.executionCapabilityId ?? previousPlan.capabilityId ?? null;
   const displayResponse = normalizeInstruction(params.displayInstruction || params.instruction);
   const missing = previousPlan.clarification.missing;
+  const responseCodes = extractExplicitSymbolCodes(userResponse);
+  const responseKnownSymbols = inferKnownSymbols(userResponse);
+  const responseTargets = extractQuantTargetCandidates(userResponse);
+  const responseTargetCount = new Set([
+    ...responseCodes,
+    ...responseKnownSymbols,
+    ...responseTargets,
+  ]).size;
+  const explicitContinuation =
+    /^(?:补充|确认|选择|选|是|代码|标的|股票|公司|重点|主要|时间|周期|风险偏好|预算|就按|上一个|上一轮|刚才|前面)/.test(userResponse) ||
+    /(?:代码是|指的是|标的是|选择的是|补充为|重点看)/.test(userResponse);
+  const independentRequest =
+    /^(?:请|帮我|帮忙|看看|看一下|分析|研究|筛选|选股|推荐|对比|比较|复盘|告诉我|明天买|给我(?:推荐|筛选|选股|分析|看看|看一下|对比|比较|买|卖))/.test(userResponse);
+  const addressesMissingField = (field: ClarificationMissingField): boolean => {
+    if (field === 'comparison_universe') {
+      return responseTargetCount >= 2 ||
+        (responseTargetCount >= 1 && explicitContinuation && !independentRequest);
+    }
+    if (field === 'target') {
+      return responseTargetCount >= 1 && (!independentRequest || explicitContinuation);
+    }
+    if (field === 'analysis_goal') {
+      return GOAL_KEYWORD_PATTERN.test(userResponse) &&
+        (!independentRequest || explicitContinuation);
+    }
+    if (field === 'investment_constraints') {
+      return INVESTMENT_CONSTRAINT_PATTERN.test(userResponse) &&
+        (!independentRequest || explicitContinuation);
+    }
+    return false;
+  };
+
+  if (!missing.some(addressesMissingField)) {
+    return null;
+  }
   const supplementLabel = buildContinuationSupplementLabel(missing);
   const resolvedInstruction = [
     originalQuestion,
@@ -395,7 +325,7 @@ export function buildClarificationContinuation(params: {
   const allPreviousFieldsStillMissing =
     missing.length > 0 && missing.every((field) => stillMissing.has(field));
 
-  if (combinedAssessment.required && allPreviousFieldsStillMissing && userResponse.length < 2) {
+  if (combinedAssessment.required && allPreviousFieldsStillMissing) {
     return null;
   }
 

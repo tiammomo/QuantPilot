@@ -38,6 +38,14 @@ const REGISTRY_PATH = path.join(process.cwd(), '.claude', 'skills.registry.json'
 
 const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
   {
+    id: 'query-rewrite',
+    name: '问题改写',
+    version: '0.1.0',
+    status: 'stable',
+    scope: 'workflow',
+    boundary: '把自然语言问题规范化为标的、周期、分析重点和澄清状态。',
+  },
+  {
     id: 'run-planner',
     name: '运行规划',
     version: '0.1.0',
@@ -90,7 +98,7 @@ const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
 const FALLBACK_REGISTRY: QuantSkillsRegistry = {
   schemaVersion: 1,
   policy: {
-    targetCoreSkillCount: 10,
+    targetCoreSkillCount: 11,
     allowLegacyAliases: true,
     installLegacyByDefault: false,
     packageFormat: 'tgz',

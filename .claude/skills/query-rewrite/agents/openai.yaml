@@ -1,0 +1,4 @@
+interface:
+  display_name: "Query Rewrite"
+  short_description: "规则优先、LLM 按需增强的量化问题结构化查询合同"
+  default_prompt: "使用 $query-rewrite 按混合架构规范化量化问题并核验标的、周期、意图和降级状态。"

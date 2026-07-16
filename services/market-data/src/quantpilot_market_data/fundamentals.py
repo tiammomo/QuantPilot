@@ -30,6 +30,32 @@ def _net_margin(report: FinancialReportItem) -> Decimal | None:
     return (report.parent_net_profit / report.revenue) * Decimal("100")
 
 
+def _cash_flow_per_share_yoy(
+    report: FinancialReportItem,
+    reports: list[FinancialReportItem],
+) -> Decimal | None:
+    if report.report_date is None or report.operating_cash_flow_per_share is None:
+        return None
+    previous = next(
+        (
+            candidate
+            for candidate in reports
+            if candidate.report_date is not None
+            and candidate.report_date.year == report.report_date.year - 1
+            and candidate.report_date.month == report.report_date.month
+            and candidate.report_date.day == report.report_date.day
+            and candidate.operating_cash_flow_per_share is not None
+        ),
+        None,
+    )
+    if previous is None or previous.operating_cash_flow_per_share in {None, Decimal("0")}:
+        return None
+    return (
+        (report.operating_cash_flow_per_share - previous.operating_cash_flow_per_share)
+        / abs(previous.operating_cash_flow_per_share)
+    ) * Decimal("100")
+
+
 def build_fundamental_indicators(
     symbol: str,
     reports: list[FinancialReportItem],
@@ -42,6 +68,11 @@ def build_fundamental_indicators(
             parent_net_profit=report.parent_net_profit,
             revenue_yoy=report.revenue_yoy,
             net_profit_yoy=report.net_profit_yoy,
+            operating_cash_flow_per_share=report.operating_cash_flow_per_share,
+            operating_cash_flow_per_share_yoy=_round(
+                _cash_flow_per_share_yoy(report, reports),
+                4,
+            ),
             gross_margin=report.gross_margin,
             weighted_roe=report.weighted_roe,
             net_margin=_round(_net_margin(report), 4),
@@ -65,6 +96,12 @@ def build_fundamental_indicators(
         latest_parent_net_profit=latest.parent_net_profit if latest else None,
         latest_revenue_yoy=latest.revenue_yoy if latest else None,
         latest_net_profit_yoy=latest.net_profit_yoy if latest else None,
+        latest_operating_cash_flow_per_share=(
+            latest.operating_cash_flow_per_share if latest else None
+        ),
+        latest_operating_cash_flow_per_share_yoy=(
+            latest.operating_cash_flow_per_share_yoy if latest else None
+        ),
         latest_gross_margin=latest.gross_margin if latest else None,
         latest_weighted_roe=latest.weighted_roe if latest else None,
         latest_net_margin=latest.net_margin if latest else None,

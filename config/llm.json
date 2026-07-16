@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "defaultProfileId": "deepseek-v4-flash",
+  "profiles": {
+    "deepseek-v4-flash": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "baseUrl": "https://api.deepseek.com",
+      "credentialEnv": "DEEPSEEK_API_KEY",
+      "agent": {
+        "enabled": true
+      },
+      "queryRewrite": {
+        "enabled": true,
+        "mode": "auto",
+        "timeoutMs": 4000,
+        "maxRetries": 0
+      }
+    }
+  }
+}

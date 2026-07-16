@@ -119,4 +119,8 @@ describe('MoAgent Mission compiler', () => {
     expect(verifier.dependencies).toEqual(['validation', 'preview_readiness']);
     expect(verifier.acceptancePredicates).toContain('preview_http_ready');
   });
+
+  it('allows disclosed evidence quality warnings while keeping other checks strict', () => {
+    expect(compile().allowedValidationWarnings).toEqual(['evidence_files']);
+  });
 });

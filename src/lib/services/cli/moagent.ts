@@ -83,6 +83,7 @@ import {
 import { validateMoAgentProjectPath } from './moagent-workspace';
 import type { MoAgentCandidateSubmission } from '@/lib/agent/mission';
 import { candidateFromMoAgentRun } from '@/lib/services/moagent-candidate';
+import { getProjectLlmConfig } from '@/lib/config/llm';
 
 export type MoAgentImageAttachment = {
   name: string;
@@ -697,6 +698,10 @@ async function executeMoAgentPhase(
       hasAttachments: Boolean(images?.length),
       dashboardSpecReady: preparedAssessment.dashboardSpecReady,
     });
+    const llmConfig = getProjectLlmConfig();
+    if (phaseGraph.providerMode === 'model' && !llmConfig.agent.enabled) {
+      throw new Error('项目 LLM Agent 已由 QUANTPILOT_LLM_AGENT_ENABLED 禁用。');
+    }
     if (phaseGraph.providerMode === 'model' && !apiKey) {
       throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
     }

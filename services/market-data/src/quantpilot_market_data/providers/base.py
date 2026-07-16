@@ -135,3 +135,13 @@ class DividendEventProvider(MarketDataProvider, Protocol):
         *,
         limit: int = 20,
     ) -> list[DividendEvent]: ...
+
+
+class AnalysisContextProvider(
+    RealtimeQuoteProvider,
+    HistoricalKlineProvider,
+    FinancialReportProvider,
+    AnnouncementProvider,
+    Protocol,
+):
+    """Provider capabilities required by the aggregate analysis-context use case."""

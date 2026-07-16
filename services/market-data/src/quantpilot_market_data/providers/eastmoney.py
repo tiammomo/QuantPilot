@@ -944,6 +944,7 @@ def parse_financial_reports_payload(
             gross_margin=_to_decimal(item.get("XSMLL")),
             revenue_yoy=_to_decimal(item.get("YSTZ")),
             net_profit_yoy=_to_decimal(item.get("SJLTZ")),
+            operating_cash_flow_per_share=_to_decimal(item.get("MGJYXJJE")),
             notice_date=_parse_datetime(item.get("NOTICE_DATE")),
             raw=item,
         )

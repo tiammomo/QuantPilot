@@ -5,7 +5,8 @@ describe('skills dashboard package health', () => {
   it('reports every core Skill as a complete, immutable release package', async () => {
     const dashboard = await getSkillsDashboardData();
 
-    expect(dashboard.skills).toHaveLength(11);
+    expect(dashboard.skills).toHaveLength(12);
+    expect(dashboard.skills.map((skill) => skill.id)).toContain('query-rewrite');
     expect(dashboard.totals.error).toBe(0);
     expect(dashboard.totals.warning).toBe(0);
     for (const skill of dashboard.skills) {

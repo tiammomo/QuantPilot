@@ -29,7 +29,7 @@ describe('MoAgent PhaseGraph', () => {
     }).lane).toBe('model_data_preparation');
   });
 
-  it('bounds custom and repair work to three provider turns', () => {
+  it('keeps custom and repair lanes within three model turns', () => {
     const custom = createMoAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: true,

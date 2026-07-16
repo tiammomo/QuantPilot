@@ -56,7 +56,7 @@ const optionalTimeRange = z.union([
 const runPlanSchema = z.object({
   schemaVersion: z.literal(1),
   runId: nonEmptyString,
-  status: z.enum(['pending', 'planned', 'needs_clarification']),
+  status: z.enum(['pending', 'planned', 'needs_clarification', 'refused']),
   capabilityId: nonEmptyString,
   question: nonEmptyString,
   symbols: z.array(z.string()),
@@ -78,7 +78,7 @@ const generationStateSchema = z.object({
   schemaVersion: z.literal(1),
   projectId: nonEmptyString,
   requestId: nonEmptyString,
-  status: z.enum(['pending', 'running', 'needs_clarification', 'repairing', 'completed', 'failed', 'cancelled']),
+  status: z.enum(['pending', 'running', 'needs_clarification', 'refused', 'repairing', 'completed', 'failed', 'cancelled']),
   activeStep: nonEmptyString,
   createdAt: nonEmptyString,
   updatedAt: nonEmptyString,

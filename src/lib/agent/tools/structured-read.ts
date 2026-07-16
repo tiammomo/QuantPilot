@@ -65,6 +65,7 @@ const JSON_ARTIFACT_PATHS = {
   final_dashboard: 'data_file/final/dashboard-data.json',
   sources_evidence: 'evidence/sources.json',
   data_quality_evidence: 'evidence/data_quality.json',
+  query_rewrite: '.quantpilot/query_rewrite.json',
   run_plan: '.quantpilot/run_plan.json',
   validation_report: '.quantpilot/validation.json',
 } as const;

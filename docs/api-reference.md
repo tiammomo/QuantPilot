@@ -55,6 +55,7 @@
 | 路由 | 方法 | 调用方 | 责任 |
 | --- | --- | --- | --- |
 | `/api/quant/strategies` | `GET/POST` | 策略平台 | 策略平台聚合数据、扫描、补数和因子目录 |
+| `/api/quant/query/rewrite` | `POST` | 聊天页、运行规划器 | schema v3 问题改写；preview 仅规则解析，execution 对复杂或低置信度输入按需使用 LLM，并在取数前执行安全决策 |
 | `/api/quant/capabilities` | `GET` | 业务知识中心 | 业务能力和执行依赖摘要 |
 | `/api/quant/capability-center` | `GET` | 业务知识中心 | 业务能力、场景知识、交付契约和支撑资源 |
 | `/api/research/reports` | `GET/POST` | 投研情报中心 | 观察池、证据型日报、主题洞察、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
@@ -63,6 +64,14 @@
 | `/api/ops/platform` | `GET` | 运行治理中心 | 基础环境、日志、健康和降级状态 |
 | `/api/infrastructure/health` | `GET` | 设置/运维 | PostgreSQL、market-data、Redis、Loki 等组件健康 |
 | `/api/infrastructure/service-catalog` | `GET` | 设置/运维 | 服务目录、Python/Node runtime、endpoint、依赖边和配置校验结果 |
+
+`POST /api/quant/query/rewrite` 接收 `query`、可选 `requestedCapabilityId`、`model` 和
+`purpose=preview|execution`，未传时默认安全的 `preview`。简单问题始终走确定性解析；只有 execution 的复杂语义、指代、
+非标准时间范围或 Resolver miss 才进入 DeepSeek Tool Schema。模型只允许返回用户原文中的
+候选标的文本，标准代码仍由 `/api/v1/symbols/resolve` 确认。LLM 超时、未配置、网络失败或
+Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失败丢弃可用的规则结果。
+部分标的解析失败同样会进入语义清理并重新执行 Resolver。确定性涨停、必赚或保证收益请求返回
+`status=refused` 与 `safety.code=GUARANTEED_RETURN_REQUEST`，不会进入取数或 Agent 执行。
 
 ### Skills、设置和集成
 
@@ -123,6 +132,7 @@
 
 | 路由 | 方法 | 责任 |
 | --- | --- | --- |
+| `/api/v1/analysis/context/{symbol}` | `GET` | Skills 单标的聚合取数合同；共享依赖并隔离实时、历史、技术、财务、基本面和公告的部分失败 |
 | `/api/v1/symbols/resolve` | `GET` | 代码/名称解析 |
 | `/api/v1/quotes/realtime/{symbol}` | `GET` | 单标的实时行情 |
 | `/api/v1/quotes/realtime` | `POST` | 批量实时行情 |
@@ -143,6 +153,12 @@
 - Baostock/AKShare 只补缺失字段，不覆盖已有非空增强字段。
 - 估值因子默认不参与日常增量补数，需要单独显式启用。
 
+`/api/v1/analysis/context/{symbol}` 的 `include` 接受逗号分隔的数据区块：
+`quote,history,technical,financials,fundamental,announcements`。响应固定包含
+`schema_version=1`、顶层 `ready/partial/unavailable` 状态，以及每个区块独立的
+`status`、`duration_ms`、`data_quality` 和类型化 `error`。其中 technical 复用 history，
+fundamental 复用 financials；单个上游故障不会丢弃其他成功区块。
+
 ### 指标、回测和事件
 
 | 路由 | 方法 | 责任 |
@@ -154,6 +170,18 @@
 | `/api/v1/indicators/fundamental/{symbol}` | `GET` | 财务衍生指标 |
 | `/api/v1/events/announcements/{symbol}` | `GET` | 公告事件 |
 | `/api/v1/events/dividends/{symbol}` | `GET` | 分红除权事件 |
+
+财务现金流字段使用稳定合同，不要求 Skills 读取 provider 私有 `raw`：
+
+| 响应位置 | 字段 | 口径 |
+| --- | --- | --- |
+| `financials.reports[]` | `operating_cash_flow_per_share` | 每股经营活动现金流净额；东方财富源映射自 `MGJYXJJE` |
+| `fundamental.points[]` | `operating_cash_flow_per_share` | 与同报告期财务记录一致的每股经营活动现金流净额 |
+| `fundamental.points[]` | `operating_cash_flow_per_share_yoy` | 与上年同月同日报告期比较的同比增速，单位 `%`；上期为 0 或缺失时返回 `null` |
+| `fundamental.summary` | `latest_operating_cash_flow_per_share` / `latest_operating_cash_flow_per_share_yoy` | 最新报告期的上述两个稳定字段 |
+
+跨期比较必须按 `report_date` 和 `data_type` 对齐，不得把季度累计值与年度值混算。兼容代码可以临时读取 `raw.MGJYXJJE`，但新 Skill 和页面应优先使用正式字段。
+财务响应字段升级使用版本化缓存 namespace；新合同不会把旧缓存中缺失的字段静默解析为 `null`。
 
 ## 常见排查路径
 

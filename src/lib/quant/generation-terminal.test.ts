@@ -37,6 +37,27 @@ const acceptedMission = (requestId: string, generationId = 'generation-1') => ({
 });
 
 describe('generation terminal snapshot', () => {
+  it('projects a policy refusal as terminal without requiring validation or preview', () => {
+    const snapshot = deriveQuantGenerationTerminalSnapshot({
+      generation: {
+        projectId: 'project-1',
+        requestId: 'refused-request',
+        status: 'refused',
+        cliPreference: 'moagent',
+        error: null,
+      },
+      validation: null,
+      preview: preview('stopped', null),
+    });
+
+    expect(snapshot).toMatchObject({
+      status: 'refused',
+      terminal: true,
+      missionAcceptanceRequired: false,
+      previewUrl: null,
+    });
+  });
+
   it('is ready only after current-run validation and a running preview URL', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: moAgentGeneration('request-1'),

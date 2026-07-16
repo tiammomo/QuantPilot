@@ -11,7 +11,7 @@ description: Analyze A-share financial reports, derived profitability and growth
 
 1. 用 `quant-symbol-resolver` 确认标准代码；只处理 run plan 中的标的。
 2. 读取 `/fundamentals/financials/{symbol}`、`/indicators/fundamental/{symbol}` 与 `/events/announcements/{symbol}` 的真实返回。
-3. 对齐报告期、披露时间、单位、百分比口径和来源；不要把不同口径拼成同一趋势。
+3. 对齐报告期、披露时间、单位、百分比口径和来源；现金流优先读取正式的 `operating_cash_flow_per_share` 与 `operating_cash_flow_per_share_yoy`，不要依赖 provider 私有 raw，也不要把不同口径拼成同一趋势。
 4. 仅在用户询问估值、持有依据或情景空间时运行估值脚本；把假设与事实分开。
 5. 写入 `financials`、`fundamentalIndicators`、`announcements`、`valuation`，并同步来源与 data quality。
 6. 让页面呈现事实、期间、来源、缺口和情景假设；不要输出收益承诺。
@@ -43,3 +43,4 @@ python3 scripts/valuation_scenarios.py - < data_file/final/dashboard-data.json
 - 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
 - 拒绝把公告标题当正文、把单期累计数当单季数、把估值情景当预测结论。
 - 对缺失报告期、单位、来源、时间戳或标的不一致返回 warning/error，不静默降级。
+- 对经营现金流与净利润增速的比较，必须使用同一报告期并同时展示两个输入值；缺少可比上期时返回限制说明，不自行推算。
