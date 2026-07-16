@@ -31,6 +31,9 @@ const checks = [
   ['Service catalog', 'npm', ['run', 'check:service-catalog'], ROOT],
   ['Quant guardrails', 'npm', ['run', 'check:quant-guardrails'], ROOT],
   ['Benchmark coverage', 'npm', ['run', 'check:benchmark-coverage'], ROOT],
+  ['Evaluation dataset and snapshot contracts', 'npm', ['run', 'check:eval-datasets'], ROOT],
+  ['Evaluator mutation kill-rate', 'npm', ['run', 'check:eval-mutations'], ROOT],
+  ['Judge calibration pipeline', 'npm', ['run', 'check:eval-judge-calibration'], ROOT],
   ['Frontend lint', 'npm', ['run', 'lint'], ROOT],
   ['Frontend unit tests', 'npm', ['run', 'test:unit'], ROOT],
   ['Frontend types', 'npm', ['run', 'type-check'], ROOT],
@@ -48,7 +51,21 @@ if (includeRuntime) {
 if (generateContractEvidence) {
   checks.push(
     ['Generate current-build contract evidence', 'npm', ['run', 'benchmark:quant:contract'], ROOT],
-    ['Attest current-build contract evidence', 'npm', ['run', 'eval:ci'], ROOT],
+    [
+      'Attest current-build contract evidence',
+      'npm',
+      [
+        'run', 'eval:ci', '--',
+        '--min-pass-rate', '100',
+        '--min-average-score', '90',
+        '--min-first-pass-rate', '100',
+        '--max-repair-rate', '0',
+        '--min-stability-rate', '100',
+        '--min-stability-confidence-lower', '75',
+        '--max-score-standard-deviation', '0',
+      ],
+      ROOT,
+    ],
   );
 }
 if (includeE2eEvidence) {
@@ -62,10 +79,24 @@ if (includeE2eEvidence) {
     [
       'Generate current-build live Mission E2E evidence',
       'npm',
-      ['run', 'benchmark:quant:e2e', '--', '--concurrency', '1'],
+      ['run', 'benchmark:quant:e2e', '--', '--concurrency', '1', '--repeat', '2'],
       ROOT,
     ],
-    ['Current-build live Mission E2E evidence', 'npm', ['run', 'eval:ci:e2e'], ROOT],
+    [
+      'Current-build live Mission E2E evidence',
+      'npm',
+      [
+        'run', 'eval:ci:e2e', '--',
+        '--min-pass-rate', '100',
+        '--min-average-score', '90',
+        '--min-first-pass-rate', '75',
+        '--max-repair-rate', '25',
+        '--min-stability-rate', '100',
+        '--min-stability-confidence-lower', '60',
+        '--max-score-standard-deviation', '10',
+      ],
+      ROOT,
+    ],
   );
 }
 

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "asset-comparison-bluechips",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["600519", "000001", "300750"],
+  "oracleIds": ["comparison-assets", "comparison-no-guarantee"]
+}

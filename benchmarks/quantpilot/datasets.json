@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "snapshotManifest": "snapshot-manifest.json",
+  "datasets": [
+    {
+      "id": "quant-contract-public",
+      "version": "2026.07.16",
+      "visibility": "public",
+      "split": "regression",
+      "path": "cases.json",
+      "required": true
+    },
+    {
+      "id": "quant-release-hidden",
+      "version": "1",
+      "visibility": "hidden",
+      "split": "holdout",
+      "pathEnv": "QUANTPILOT_HIDDEN_EVAL_CASES_PATH",
+      "required": false
+    },
+    {
+      "id": "quant-production-replay",
+      "version": "1",
+      "visibility": "production_replay",
+      "split": "shadow",
+      "pathEnv": "QUANTPILOT_PRODUCTION_REPLAY_CASES_PATH",
+      "required": false
+    }
+  ]
+}

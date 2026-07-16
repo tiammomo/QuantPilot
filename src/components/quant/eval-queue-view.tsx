@@ -221,6 +221,7 @@ export function EvalQueueView({
         item.status,
         getEvalEvaluatorOption(item.evaluatorId).name,
         `并发 ${item.concurrency}`,
+        `重复 ${item.repeat}`,
         associatedEvalSet(item, evalSets),
         ...item.selectedCases,
       ].join(' ').toLowerCase();
@@ -384,7 +385,7 @@ export function EvalQueueView({
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-xs font-medium text-foreground">{evaluator.name}</div>
-                      <div className="mt-0.5 max-w-[150px] truncate text-[11px] text-muted-foreground">{item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · 并发 {item.concurrency}</div>
+                      <div className="mt-0.5 max-w-[180px] truncate text-[11px] text-muted-foreground">{item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · 并发 {item.concurrency} · 重复 {item.repeat}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex max-w-[280px] items-center gap-1.5 text-primary">
@@ -442,7 +443,7 @@ export function EvalQueueView({
                   <div className="min-w-0">
                     <p className="font-mono text-xs font-semibold text-primary">#{item.id.replace(/^eval-run-/, '').slice(0, 8)}</p>
                     <h3 className="mt-1 truncate text-sm font-semibold text-foreground">{associatedEvalSet(item, evalSets)}</h3>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">{itemType(item)} · {item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · {evaluator.name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{itemType(item)} · {item.mode === 'e2e' ? 'DeepSeek E2E' : '确定性契约'} · {evaluator.name} · 重复 {item.repeat}</p>
                   </div>
                   {statusBadge(item.status)}
                 </div>
@@ -453,7 +454,7 @@ export function EvalQueueView({
                 <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg bg-muted/35 p-2.5 text-center">
                   <div><p className={cn('text-xs font-bold tabular-nums', passRateClass(run?.passRate ?? null))}>{run ? `${run.passRate.toFixed(1)}%` : '—'}</p><p className="mt-0.5 text-[10px] text-muted-foreground">通过率</p></div>
                   <div><p className="text-xs font-bold text-foreground">{formatDuration(run?.durationMs && run.durationMs > 0 ? run.durationMs : elapsedMs(item))}</p><p className="mt-0.5 text-[10px] text-muted-foreground">耗时</p></div>
-                  <div><p className="text-xs font-bold tabular-nums text-foreground">{item.concurrency}</p><p className="mt-0.5 text-[10px] text-muted-foreground">并发</p></div>
+                  <div><p className="text-xs font-bold tabular-nums text-foreground">{item.concurrency} × {item.repeat}</p><p className="mt-0.5 text-[10px] text-muted-foreground">并发 × 重复</p></div>
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t border-border/30 pt-3">
                   <span className="font-mono text-[10px] text-muted-foreground">{formatDate(item.startedAt ?? item.createdAt)}</span>

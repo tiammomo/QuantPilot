@@ -100,6 +100,7 @@ export default function EvalsDashboardClient({ data }: Props) {
   const limit = "all";
   const [selectedEvaluatorId, setSelectedEvaluatorId] = useState<EvalEvaluatorId>("rule-strict");
   const [evaluatorConcurrency, setEvaluatorConcurrency] = useState(getEvalEvaluatorOption("rule-strict").defaultConcurrency);
+  const [evaluatorRepeat, setEvaluatorRepeat] = useState(1);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -192,7 +193,7 @@ export default function EvalsDashboardClient({ data }: Props) {
     const validCaseIds = new Set(selectedEvalSetCases.map((testCase) => testCase.id));
     setSelectedCaseIds((current) => current.filter((caseId) => validCaseIds.has(caseId)));
   }, [selectedEvalSetCases]);
-  useEffect(() => { setFlowSimulation(null); }, [selectedEvaluatorId, evaluatorConcurrency, selectedEvalSetId]);
+  useEffect(() => { setFlowSimulation(null); }, [selectedEvaluatorId, evaluatorConcurrency, evaluatorRepeat, selectedEvalSetId]);
 
   const startBenchmark = async (caseOverride?: string, setOverride?: EvalSet | null, forceAllCases = false) => {
     setIsStarting(true); setToast(null);
@@ -209,6 +210,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           model: selectedEvaluator.model,
           reasoningEffort: selectedEvaluator.reasoningEffort,
           concurrency: evaluatorConcurrency,
+          repeat: evaluatorRepeat,
           mode: selectedEvaluator.executionMode,
           selectedCases: sc,
           limit: caseOverride || sc.length > 0 || limit === "all" ? null : Number(limit),
@@ -237,6 +239,7 @@ export default function EvalsDashboardClient({ data }: Props) {
           model: selectedEvaluator.model,
           reasoningEffort: selectedEvaluator.reasoningEffort,
           concurrency: evaluatorConcurrency,
+          repeat: evaluatorRepeat,
           mode: selectedEvaluator.executionMode,
           selectedCases: sc,
           limit: sc.length || limit === "all" ? null : Number(limit),
@@ -501,10 +504,12 @@ export default function EvalsDashboardClient({ data }: Props) {
               <EvalEvaluatorView
                 selectedEvaluatorId={selectedEvaluatorId}
                 concurrency={evaluatorConcurrency}
+                repeat={evaluatorRepeat}
                 evalSets={evalSets} selectedEvalSetId={selectedEvalSetId}
                 flowSimulation={flowSimulation} isSimulatingFlow={isSimulatingFlow} isStarting={isStarting}
                 onEvaluatorSelect={selectEvaluator}
                 onConcurrencyChange={setEvaluatorConcurrency}
+                onRepeatChange={setEvaluatorRepeat}
                 onEvalSetSelect={selectEvalSet}
                 onSimulateFlow={simulateFlow} onStart={startSelectedEvalSet}
               />

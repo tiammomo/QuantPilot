@@ -21,10 +21,10 @@ import {
   type EvalSet,
 } from '@/components/quant/eval-console-primitives';
 import type { QuantEvalFlowSimulation } from '@/lib/eval';
-import type { QuantEvalExecutionMode } from '@/lib/eval';
+import type { EvalEvaluatorId, QuantEvalExecutionMode } from '@/lib/eval';
 import { cn } from '@/lib/utils';
 
-export type EvalEvaluatorId = 'rule-strict' | 'agent-review' | 'visual-contract';
+export type { EvalEvaluatorId } from '@/lib/eval';
 
 export type EvalEvaluatorOption = {
   id: EvalEvaluatorId;
@@ -48,45 +48,45 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     id: 'rule-strict',
     name: '强规则评测器',
     subtitle: '确定性校验',
-    description: '围绕产物结构、数据证据、字段契约和事件链路做硬性规则判断。',
+    description: '围绕产物结构、数据证据、事实 oracle、安全边界和事件链路做硬性规则判断。',
     modeLabel: '规则优先',
     strategyLabel: '快速、稳定、适合批量回归',
     cli: 'moagent',
     model: 'deepseek-v4-flash',
-    defaultConcurrency: 4,
-    maxConcurrency: 8,
+    defaultConcurrency: 1,
+    maxConcurrency: 2,
     executionMode: 'contract',
-    checks: ['产物契约', '数据证据', '事件审计', '视觉基础检查'],
+    checks: ['产物契约', '数据与事实 oracle', '事件审计', '安全禁止性断言'],
     highlights: ['低成本', '高一致性', '失败原因明确'],
   },
   {
     id: 'agent-review',
     name: 'Agent 评测器',
     subtitle: '智能体审阅',
-    description: '用 Agent 视角检查任务理解、业务完整性、修复建议和最终交付质量。',
+    description: '在确定性硬门后调用版本化语义审阅，检查任务理解、业务完整性、事实依据、风险和行动建议。',
     modeLabel: 'Agent 复核',
     strategyLabel: '适合复杂 Query 和主观质量判断',
     cli: 'moagent',
     model: 'deepseek-v4-flash',
-    defaultConcurrency: 2,
-    maxConcurrency: 4,
+    defaultConcurrency: 1,
+    maxConcurrency: 2,
     executionMode: 'e2e',
-    checks: ['意图覆盖', '业务解释', '风险提示', '修复建议'],
+    checks: ['意图覆盖', '业务完整性', '事实依据', '风险与行动建议'],
     highlights: ['质量审阅', '解释充分', '适合抽检'],
   },
   {
     id: 'visual-contract',
     name: '视觉契约评测器',
     subtitle: '页面与证据联动',
-    description: '关注截图、图表、关键文本、数据降级提示和前端展示契约。',
+    description: '关注桌面/移动截图、图表、关键文本、水平溢出、资源加载和可访问名称。',
     modeLabel: '视觉合同',
     strategyLabel: '适合看板类项目和截图用例',
     cli: 'moagent',
     model: 'deepseek-v4-flash',
-    defaultConcurrency: 2,
-    maxConcurrency: 4,
+    defaultConcurrency: 1,
+    maxConcurrency: 2,
     executionMode: 'contract',
-    checks: ['截图可用性', '图表存在性', '文本完整性', '降级提示'],
+    checks: ['双视口截图', '图表存在性', '布局溢出', '可访问性'],
     highlights: ['页面导向', '证据联动', '展示稳定性'],
   },
 ];
@@ -111,6 +111,7 @@ function clampConcurrency(value: number, max: number) {
 type EvalEvaluatorViewProps = {
   selectedEvaluatorId: string;
   concurrency: number;
+  repeat: number;
   evalSets: EvalSet[];
   selectedEvalSetId: string;
   flowSimulation: QuantEvalFlowSimulation | null;
@@ -118,6 +119,7 @@ type EvalEvaluatorViewProps = {
   isStarting: boolean;
   onEvaluatorSelect: (evaluatorId: EvalEvaluatorId) => void;
   onConcurrencyChange: (concurrency: number) => void;
+  onRepeatChange: (repeat: number) => void;
   onEvalSetSelect: (evalSetId: string) => void;
   onSimulateFlow: () => void;
   onStart: () => void;
@@ -126,6 +128,7 @@ type EvalEvaluatorViewProps = {
 export function EvalEvaluatorView({
   selectedEvaluatorId,
   concurrency,
+  repeat,
   evalSets,
   selectedEvalSetId,
   flowSimulation,
@@ -133,12 +136,14 @@ export function EvalEvaluatorView({
   isStarting,
   onEvaluatorSelect,
   onConcurrencyChange,
+  onRepeatChange,
   onEvalSetSelect,
   onSimulateFlow,
   onStart,
 }: EvalEvaluatorViewProps) {
   const selectedEvaluator = getEvalEvaluatorOption(selectedEvaluatorId);
   const activeConcurrency = clampConcurrency(concurrency, selectedEvaluator.maxConcurrency);
+  const activeRepeat = Math.min(5, Math.max(1, Math.floor(repeat || 1)));
   const selectedEvalSet = evalSets.find((evalSet) => evalSet.id === selectedEvalSetId) ?? evalSets[0];
 
   const updateConcurrency = (value: number) => {
@@ -157,7 +162,7 @@ export function EvalEvaluatorView({
             </div>
             <h2 className="mt-3 truncate text-xl font-bold tracking-tight text-foreground sm:text-2xl">{selectedEvalSet?.name ?? '全部用例'}</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              {selectedEvalSet?.caseIds.length ?? 0} 条用例 · {selectedEvaluator.name} · 并发 {activeConcurrency}
+              {selectedEvalSet?.caseIds.length ?? 0} 条用例 · {selectedEvaluator.name} · 并发 {activeConcurrency} · 重复 {activeRepeat}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge variant="outline" className="border-primary/20 bg-background/60 text-primary">{selectedEvaluator.modeLabel}</Badge>
@@ -260,6 +265,22 @@ export function EvalEvaluatorView({
               <p className="mt-2 text-[11px] leading-5 text-muted-foreground">该策略最高支持 {selectedEvaluator.maxConcurrency} 个任务并发。更高并发会增加运行时资源占用。</p>
             </ConfigField>
 
+            <ConfigField label="重复运行">
+              <div className="flex h-10 w-fit rounded-lg border border-border/50 bg-background p-1">
+                {[1, 2, 3, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onRepeatChange(value)}
+                    className={cn('h-8 min-w-12 rounded-md px-2 text-xs font-semibold transition-colors', activeRepeat === value ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}
+                  >
+                    {value} 次
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">每次使用隔离的项目、请求和 Mission 身份；稳定率按全部物理运行计算。</p>
+            </ConfigField>
+
             <div className="rounded-xl border border-border/50 bg-muted/25 p-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground"><Layers3 className="h-4 w-4 text-primary" />执行摘要</div>
               <dl className="mt-3 space-y-2 text-xs">
@@ -267,6 +288,7 @@ export function EvalEvaluatorView({
                 <div className="flex justify-between gap-4"><dt className="text-muted-foreground">执行模式</dt><dd className="font-semibold text-foreground">{selectedEvaluator.executionMode === 'e2e' ? '真实 Agent' : '确定性模板'}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted-foreground">运行模型</dt><dd className="truncate font-mono text-foreground">{selectedEvaluator.executionMode === 'e2e' ? selectedEvaluator.model : '不调用模型'}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted-foreground">检查项</dt><dd className="font-semibold text-foreground">{selectedEvaluator.checks.length} 项</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted-foreground">物理运行</dt><dd className="font-semibold text-foreground">{(selectedEvalSet?.caseIds.length ?? 0) * activeRepeat} 次</dd></div>
               </dl>
             </div>
           </div>

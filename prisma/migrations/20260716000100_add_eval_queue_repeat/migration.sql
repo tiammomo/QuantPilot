@@ -1,0 +1,2 @@
+ALTER TABLE "eval_queue_items"
+ADD COLUMN "repeat" INTEGER NOT NULL DEFAULT 1;

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "stock-diagnosis-citic-no-false-clarification",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["600030"],
+  "oracleIds": ["diagnosis-symbol", "diagnosis-sources", "diagnosis-no-guarantee"]
+}

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { applyEvalEvaluator, getEvalEvaluatorDefinition } from './evaluators';
 import { attestEvalReport, type EvalReportAttestationOptions } from './report-attestation';
+import { buildEvalQualitySummary } from './scoring';
+import { buildEvalTraceDiagnostics } from './trace-diagnostics';
 
 const GIT = 'a'.repeat(40);
 const options: EvalReportAttestationOptions = {
@@ -8,6 +11,11 @@ const options: EvalReportAttestationOptions = {
   expectedCaseIds: ['a', 'b'],
   expectedCasesSha256: 'cases-hash',
   expectedPromptsSha256: 'prompts-hash',
+  expectedDatasetRegistrySha256: 'dataset-registry-hash',
+  expectedSnapshotManifestSha256: 'snapshot-manifest-hash',
+  expectedDataSnapshots: [],
+  expectedDatasetVisibility: 'public',
+  expectedResultQuestions: {},
   frameworkVersion: 'moagent:1.8.0',
   buildRevision: 'build-current',
   gitRevision: GIT,
@@ -20,9 +28,10 @@ const options: EvalReportAttestationOptions = {
 };
 
 function baseReport(mode: 'contract' | 'e2e') {
-  const results = ['a', 'b'].map((id) => ({ id, passed: true, agentExecuted: false }));
+  const results = ['a', 'b'].map((id) => finalizeResult({ id, passed: true, failures: [], agentExecuted: false }, mode));
+  const evaluator = getEvalEvaluatorDefinition('rule-strict');
   return {
-    schemaVersion: 4,
+    schemaVersion: 6,
     createdAt: '2026-07-15T00:02:00.000Z',
     passed: true,
     total: 2,
@@ -38,12 +47,20 @@ function baseReport(mode: 'contract' | 'e2e') {
         executedCaseCount: 0,
         unattestedCaseIds: [],
       },
+      evaluator: {
+        id: evaluator.id,
+        version: evaluator.version,
+        rubricVersion: evaluator.rubricVersion,
+        concurrency: 1,
+      },
+      selection: { repeat: 1 },
       startedAt: '2026-07-15T00:00:00.000Z',
       finishedAt: '2026-07-15T00:01:30.000Z',
       suite: {
         mode,
         executionClass: mode === 'e2e' ? 'live_mission_e2e' : 'deterministic_contract',
       },
+      dataset: { schemaVersion: 1, visibility: 'public', promptsRedacted: false },
       retention: {
         databaseEvidenceRetained: mode === 'e2e',
         workspaceRetained: mode === 'e2e',
@@ -54,10 +71,59 @@ function baseReport(mode: 'contract' | 'e2e') {
         buildRevision: 'build-current',
         casesSha256: 'cases-hash',
         promptsSha256: 'prompts-hash',
+        datasetRegistrySha256: 'dataset-registry-hash',
+        snapshotManifestSha256: 'snapshot-manifest-hash',
       },
+      dataSnapshots: { schemaVersion: 1, selected: [] },
     },
+    qualitySummary: buildEvalQualitySummary(results, 1),
     results,
   };
+}
+
+function finalizeResult<T extends Record<string, unknown>>(result: T, mode: 'contract' | 'e2e') {
+  const withTrace = { ...result, traceDiagnostics: buildEvalTraceDiagnostics(result, mode) };
+  const evaluation = applyEvalEvaluator({ evaluatorId: 'rule-strict', mode, result: withTrace });
+  const enriched = {
+    ...withTrace,
+    passed: evaluation.passed,
+    firstPassPassed: evaluation.passed,
+    finalPassed: evaluation.passed,
+    score: evaluation.score,
+    evaluation,
+  };
+  return {
+    ...enriched,
+    stability: {
+      passed: evaluation.passed,
+      repeatCount: 1,
+      passedAttempts: evaluation.passed ? 1 : 0,
+      passRate: evaluation.passed ? 100 : 0,
+      flaky: false,
+      attempts: [{
+        attempt: 1,
+        passed: evaluation.passed,
+        firstPassPassed: evaluation.passed,
+        score: evaluation.score,
+        durationMs: 0,
+        repairAttempts: 0,
+        projectId: null,
+        projectPath: null,
+        requestId: typeof result.requestId === 'string' ? result.requestId : null,
+        failures: [],
+        agentAttested: mode === 'e2e',
+        evidence: mode === 'e2e' ? enriched : undefined,
+      }],
+    },
+  };
+}
+
+function replaceResults<T extends ReturnType<typeof baseReport>>(report: T, results: unknown[]) {
+  report.results = results as T['results'];
+  report.total = results.length;
+  report.passedCount = results.filter((result) => (result as { passed?: boolean }).passed).length;
+  report.failedCount = results.length - report.passedCount;
+  report.qualitySummary = buildEvalQualitySummary(results, 1);
 }
 
 function execution(id: string) {
@@ -84,7 +150,7 @@ function execution(id: string) {
     workspaceWriteSucceeded: 1,
     submitResultSucceeded: 1,
   };
-  return {
+  return finalizeResult({
     id,
     requestId,
     passed: true,
@@ -148,12 +214,48 @@ function execution(id: string) {
       usage,
       tools,
     },
-  };
+  }, 'e2e');
 }
 
 describe('eval report attestation', () => {
   it('accepts a complete current-build deterministic contract report', () => {
     expect(attestEvalReport(baseReport('contract'), options)).toMatchObject({
+      passed: true,
+      problems: [],
+    });
+  });
+
+  it('attests an internally consistent report that fails only the repeat stability gate', () => {
+    const report = baseReport('contract');
+    report.metadata.selection.repeat = 2;
+    for (const result of report.results) {
+      const first = result.stability.attempts[0];
+      result.stability = {
+        passed: true,
+        repeatCount: 2,
+        passedAttempts: 2,
+        passRate: 100,
+        flaky: false,
+        attempts: [first, { ...first, attempt: 2 }],
+      };
+    }
+    const firstResult = report.results[0];
+    firstResult.stability.attempts[1] = {
+      ...firstResult.stability.attempts[1],
+      passed: false,
+      firstPassPassed: false,
+    };
+    firstResult.stability = {
+      ...firstResult.stability,
+      passed: false,
+      passedAttempts: 1,
+      passRate: 50,
+      flaky: true,
+    };
+    report.qualitySummary = buildEvalQualitySummary(report.results, 2);
+    report.passed = false;
+
+    expect(attestEvalReport(report, options)).toMatchObject({
       passed: true,
       problems: [],
     });
@@ -173,12 +275,32 @@ describe('eval report attestation', () => {
     ]));
   });
 
+  it('binds a report to the selected data snapshots', () => {
+    const report = baseReport('contract');
+    const expectedDataSnapshots = [{
+      caseId: 'a',
+      id: 'a-snapshot-v1',
+      asOf: '2026-07-15T00:00:00.000Z',
+      payloadSha256: 'c'.repeat(64),
+    }];
+    (report.metadata.dataSnapshots.selected as unknown[]) = structuredClone(expectedDataSnapshots);
+    expect(attestEvalReport(report, { ...options, expectedDataSnapshots })).toMatchObject({
+      passed: true,
+      problems: [],
+    });
+
+    (report.metadata.dataSnapshots.selected[0] as unknown as { payloadSha256: string }).payloadSha256 = 'd'.repeat(64);
+    expect(attestEvalReport(report, { ...options, expectedDataSnapshots }).problems).toContain(
+      '报告 dataSnapshots 与本次 case 对应的可重放快照不一致',
+    );
+  });
+
   it('accepts only Mission-backed E2E metrics and applies efficiency thresholds', () => {
     const report = baseReport('e2e');
     report.metadata.runtime.agentExecuted = true;
     report.metadata.runtime.executedCaseCount = 2;
     const secondExecution = execution('b');
-    report.results = [execution('a'), secondExecution];
+    replaceResults(report, [execution('a'), secondExecution]);
     const e2eOptions = { ...options, mode: 'e2e' as const };
 
     expect(attestEvalReport(report, e2eOptions)).toMatchObject({
@@ -215,7 +337,7 @@ describe('eval report attestation', () => {
       result.agentExecution.buildRevision = buildRevision;
       result.agentExecution.runs[0].buildRevision = buildRevision;
     }
-    report.results = executions;
+    replaceResults(report, executions);
 
     expect(attestEvalReport(report, {
       ...options,
@@ -230,7 +352,7 @@ describe('eval report attestation', () => {
     const missingSchema = baseReport('contract');
     delete (missingSchema as { schemaVersion?: number }).schemaVersion;
     expect(attestEvalReport(missingSchema, options).problems).toContain(
-      '报告 schemaVersion 必须为 4，实际为 missing',
+      '报告 schemaVersion 必须为 6，实际为 missing',
     );
 
     const future = baseReport('contract');
@@ -248,12 +370,40 @@ describe('eval report attestation', () => {
     second.requestId = first.requestId;
     second.agentExecution = first.agentExecution;
     second.missionAcceptance = first.missionAcceptance;
-    reused.results = [first, second];
+    replaceResults(reused, [first, second]);
     expect(attestEvalReport(reused, { ...options, mode: 'e2e' }).problems).toEqual(
       expect.arrayContaining([
         expect.stringContaining('跨 case 复用了 requestId'),
         expect.stringContaining('跨 case 复用了 runId'),
         expect.stringContaining('跨 case 复用了 missionId'),
+      ]),
+    );
+  });
+
+  it('rejects identity reuse across repeated physical E2E runs', () => {
+    const report = baseReport('e2e');
+    report.metadata.runtime.agentExecuted = true;
+    report.metadata.runtime.executedCaseCount = 2;
+    report.metadata.selection.repeat = 2;
+    replaceResults(report, [execution('a'), execution('b')]);
+    for (const result of report.results) {
+      const first = result.stability.attempts[0];
+      result.stability = {
+        passed: true,
+        repeatCount: 2,
+        passedAttempts: 2,
+        passRate: 100,
+        flaky: false,
+        attempts: [first, { ...structuredClone(first), attempt: 2 }],
+      };
+    }
+    report.qualitySummary = buildEvalQualitySummary(report.results, 2);
+
+    expect(attestEvalReport(report, { ...options, mode: 'e2e' }).problems).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('物理重复运行复用了 requestId'),
+        expect.stringContaining('物理重复运行复用了 runId'),
+        expect.stringContaining('物理重复运行复用了 missionId'),
       ]),
     );
   });

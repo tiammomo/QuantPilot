@@ -95,6 +95,7 @@ jobs:
           path: |
             tmp/quantpilot-benchmark-reports/
             tmp/quantpilot-benchmark-screenshots/
+            tmp/quantpilot-eval-mutations/
             tmp/visual-checks/
             tmp/release-market.log
 

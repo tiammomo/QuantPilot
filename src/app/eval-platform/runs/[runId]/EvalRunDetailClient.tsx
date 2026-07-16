@@ -134,13 +134,23 @@ export default function EvalRunDetailClient({ run }: Props) {
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="bg-background/60">{run.total} 条用例</Badge>
               <Badge variant="outline" className="bg-background/60">并发 {run.metadata.evaluator.concurrency}</Badge>
+              <Badge variant="outline" className="bg-background/60">重复 {run.metadata.selection.repeat} 次</Badge>
+              <Badge variant="outline" className="bg-background/60">
+                {run.metadata.evaluator.id ?? 'legacy'}@{run.metadata.evaluator.version ?? 'legacy'}
+              </Badge>
               <Badge variant="outline" className="bg-background/60">{run.metadata.suite?.mode === 'e2e' ? '真实 Agent' : '确定性模板'}</Badge>
+              <Badge variant="outline" className="bg-background/60">
+                数据集 {run.metadata.dataset?.visibility ?? 'public'}{run.metadata.dataset?.promptsRedacted ? ' · prompt 已脱敏' : ''}
+              </Badge>
+              <Badge variant="outline" className="bg-background/60">
+                Snapshot {run.metadata.dataSnapshots?.selected.length ?? 0}
+              </Badge>
               <Badge className={run.passed ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-500' : 'border-red-500/25 bg-red-500/10 text-red-500'}>{run.passed ? '质量门禁通过' : '质量门禁失败'}</Badge>
             </div>
           </div>
         </section>
 
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Card className="border-border/60 bg-card/90">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -158,6 +168,20 @@ export default function EvalRunDetailClient({ run }: Props) {
           <Card className="border-border/60 bg-card/90">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4" />
+                首轮通过率
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <p className={`text-2xl font-bold ${scoreClass(run.qualitySummary.firstPassRate)}`}>
+                {run.qualitySummary.firstPassRate}%
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{run.qualitySummary.firstPassCount}/{run.total} 无修复通过</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <BarChart3 className="h-4 w-4" />
                 平均分
               </CardTitle>
@@ -170,13 +194,43 @@ export default function EvalRunDetailClient({ run }: Props) {
           <Card className="border-border/60 bg-card/90">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Clock3 className="h-4 w-4" />
-                总耗时
+                <TriangleAlert className="h-4 w-4" />
+                修复率
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <p className="text-2xl font-bold text-foreground">{formatDuration(run.durationMs)}</p>
-              <p className="mt-1 text-xs text-muted-foreground">用例累计</p>
+              <p className={`text-2xl font-bold ${run.qualitySummary.repairRate === 0 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                {run.qualitySummary.repairRate}%
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{run.qualitySummary.repairedCaseCount} 条发生修复</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Layers3 className="h-4 w-4" />
+                重复稳定率
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <p className={`text-2xl font-bold ${scoreClass(run.qualitySummary.stability.passRate)}`}>
+                {run.qualitySummary.stability.passRate}%
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                95% CI {run.qualitySummary.stability.confidence95.lower}–{run.qualitySummary.stability.confidence95.upper}% · 最大分数 σ {run.qualitySummary.stability.scoreStdDev.max.value}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/60 bg-card/90">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Clock3 className="h-4 w-4" />
+                P95 耗时
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <p className="text-2xl font-bold text-foreground">{formatDuration(run.qualitySummary.durationMs.p95)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">累计 {formatDuration(run.durationMs)}</p>
             </CardContent>
           </Card>
           <Card className="border-border/60 bg-card/90">
@@ -258,6 +312,25 @@ export default function EvalRunDetailClient({ run }: Props) {
               </div>
 
               <div>
+                <p className="mb-3 text-sm font-semibold text-slate-700">分层覆盖</p>
+                <div className="space-y-3">
+                  {Object.entries(run.coverage.byLevel).map(([level, capabilities]) => (
+                    <div key={level} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="font-mono text-xs font-semibold text-slate-700">{level}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {Object.entries(capabilities).map(([capability, item]) => (
+                          <Badge key={`${level}-${capability}`} variant="outline" className="bg-white font-mono text-[10px]">
+                            {capability} {item.passed}/{item.total}
+                          </Badge>
+                        ))}
+                        {!Object.keys(capabilities).length && <span className="text-xs text-slate-500">本次运行未覆盖</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <p className="mb-3 text-sm font-semibold text-slate-700">报告文件</p>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-sm text-slate-700">
                   {run.filePath}
@@ -317,6 +390,9 @@ export default function EvalRunDetailClient({ run }: Props) {
                         <Badge variant="outline" className="bg-white">
                           {result.capabilityLabel}
                         </Badge>
+                        <Badge className={result.firstPassPassed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}>
+                          {result.firstPassPassed ? '首轮通过' : `修复 ${result.repairAttempts} 次`}
+                        </Badge>
                       </div>
                       <p className="mt-2 text-sm text-slate-500">{result.question}</p>
                     </div>
@@ -353,6 +429,95 @@ export default function EvalRunDetailClient({ run }: Props) {
                     <Metric label="持仓数量" value={result.artifacts.holdingCount} />
                     <Metric label="对比行数" value={result.artifacts.comparisonRows} />
                   </div>
+
+                  {result.evaluation && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-950">质量维度</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {result.evaluation.evaluatorId}@{result.evaluation.evaluatorVersion} · {result.evaluation.rubricVersion}
+                          </p>
+                        </div>
+                        <Badge className={result.evaluation.passed ? statusClass('passed') : statusClass('failed')}>
+                          {result.evaluation.passed ? '评测通过' : '评测失败'}
+                        </Badge>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {result.evaluation.dimensions.map((dimension) => (
+                          <div key={dimension.id} className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-slate-600">{dimension.label} · {dimension.weight}%</span>
+                              <span className={`font-mono text-sm font-bold ${scoreClass(dimension.score)}`}>{dimension.score}</span>
+                            </div>
+                            <p className="mt-2 text-[11px] leading-4 text-slate-500">{dimension.summary}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {result.evaluation.checks.map((check) => (
+                          <div key={check.id} className="flex items-start justify-between gap-3 rounded-md border border-slate-100 px-3 py-2 text-xs">
+                            <div><span className="font-semibold text-slate-800">{check.name}</span><p className="mt-0.5 text-slate-500">{check.summary}</p></div>
+                            <Badge className={statusClass(check.status)}>{statusLabel(check.status)}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                      {result.evaluation.semanticReview && (
+                        <div className="mt-3 rounded-md border border-violet-200 bg-violet-50 p-3">
+                          <p className="text-xs font-semibold text-violet-800">语义审阅 · {result.evaluation.semanticReview.score}</p>
+                          <p className="mt-1 text-xs leading-5 text-violet-700">{result.evaluation.semanticReview.summary}</p>
+                          <p className="mt-2 text-[10px] text-violet-600">
+                            {result.evaluation.semanticReview.reviewer.model} · {result.evaluation.semanticReview.reviewer.promptVersion} · 与生成模型{result.evaluation.semanticReview.reviewer.independentFromGenerator ? '独立' : '同源'}
+                          </p>
+                          {result.evaluation.semanticReview.usage && (
+                            <p className="mt-1 text-[10px] tabular-nums text-violet-600">
+                              reviewer tokens：{result.evaluation.semanticReview.usage.inputTokens} 输入 / {result.evaluation.semanticReview.usage.outputTokens} 输出 / {result.evaluation.semanticReview.usage.totalTokens} 总计
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {result.stability && result.stability.repeatCount > 1 && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <p className="font-semibold text-slate-950">重复运行稳定性</p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {result.stability.attempts.map((attempt) => (
+                          <div key={attempt.attempt} className="rounded-md border border-slate-100 bg-slate-50 p-3 text-xs">
+                            <div className="flex justify-between"><span>第 {attempt.attempt} 次</span><strong className={attempt.passed ? 'text-emerald-600' : 'text-red-600'}>{attempt.passed ? '通过' : '失败'}</strong></div>
+                            <p className="mt-1 text-slate-500">得分 {attempt.score} · 修复 {attempt.repairAttempts} · {formatDuration(attempt.durationMs)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {result.traceDiagnostics && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-950">过程级故障归因</p>
+                        <Badge className={result.traceDiagnostics.primaryFailureStage ? statusClass('failed') : statusClass('passed')}>
+                          {result.traceDiagnostics.primaryFailureStage
+                            ? `首要失败：${result.traceDiagnostics.primaryFailureStage}`
+                            : '可观察链路正常'}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        {result.traceDiagnostics.stages.map((stage) => (
+                          <div key={stage.id} className="rounded-md border border-slate-100 bg-slate-50 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-slate-800">{stage.label}</span>
+                              <Badge className={statusClass(stage.status)}>{statusLabel(stage.status)}</Badge>
+                            </div>
+                            <p className="mt-2 line-clamp-2 text-[11px] text-slate-500">
+                              {stage.signals.join(' · ') || '无额外信号'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -427,6 +592,11 @@ export default function EvalRunDetailClient({ run }: Props) {
                       <Badge className={result.visualCheck.passed ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}>
                         <ImageIcon className="mr-1 h-3.5 w-3.5" />
                         截图 {result.visualCheck.passed ? '通过' : '失败'}
+                      </Badge>
+                    )}
+                    {result.visualCheck && (
+                      <Badge variant="outline" className="bg-white">
+                        {result.visualCheck.screenshots.length} 个视口 · 可访问性问题 {result.visualCheck.accessibilityIssueCount}
                       </Badge>
                     )}
                     {result.artifacts.hasImageExtraction && (

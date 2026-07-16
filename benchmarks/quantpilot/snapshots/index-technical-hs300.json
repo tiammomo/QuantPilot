@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "index-technical-hs300",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["000300"],
+  "oracleIds": ["technical-symbol", "technical-bars", "no-guaranteed-return"]
+}

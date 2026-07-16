@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "pipeline_contract",
+  "description": "仅验证 Judge 校准计算与门禁管线；生产发布应通过外部人工盲评集覆盖。",
+  "samples": [
+    {
+      "caseId": "contract-pass",
+      "human": { "verdict": "passed", "score": 95 },
+      "judge": { "verdict": "passed", "score": 92, "independentFromGenerator": true }
+    },
+    {
+      "caseId": "contract-warning",
+      "human": { "verdict": "warning", "score": 72 },
+      "judge": { "verdict": "warning", "score": 75, "independentFromGenerator": true }
+    },
+    {
+      "caseId": "contract-failed",
+      "human": { "verdict": "failed", "score": 30 },
+      "judge": { "verdict": "failed", "score": 35, "independentFromGenerator": true }
+    }
+  ]
+}

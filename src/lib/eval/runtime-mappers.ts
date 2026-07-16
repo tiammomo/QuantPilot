@@ -7,6 +7,12 @@ import {
   MAX_EVAL_CONCURRENCY,
 } from './constants';
 import { ROOT } from './paths';
+import {
+  EVAL_SCORE_DIMENSION_IDS,
+  buildEvalQualitySummary,
+  resultScore,
+  type EvalScoreDimensionId,
+} from './scoring';
 import type {
   EvalCheckStatus,
   QuantEvalArtifactSummary,
@@ -81,8 +87,10 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
   const selection = isRecord(metadata.selection) ? metadata.selection : {};
   const evaluator = isRecord(metadata.evaluator) ? metadata.evaluator : {};
   const suite = isRecord(metadata.suite) ? metadata.suite : {};
+  const dataset = isRecord(metadata.dataset) ? metadata.dataset : {};
   const provenance = isRecord(metadata.provenance) ? metadata.provenance : {};
   const retention = isRecord(metadata.retention) ? metadata.retention : {};
+  const dataSnapshots = isRecord(metadata.dataSnapshots) ? metadata.dataSnapshots : {};
   const concurrency = normalizeEvalConcurrency(selection.concurrency ?? evaluator.concurrency);
 
   return {
@@ -95,6 +103,8 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
     command: stringArray(metadata.command),
     evaluator: {
       id: stringValue(evaluator.id) || null,
+      version: stringValue(evaluator.version) || null,
+      rubricVersion: stringValue(evaluator.rubricVersion) || null,
       concurrency,
     },
     runtime: {
@@ -113,6 +123,14 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       label: stringValue(suite.label) || (stringValue(suite.mode) === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约'),
       executionClass: stringValue(suite.executionClass) || undefined,
     },
+    dataset: {
+      schemaVersion: numberValue(dataset.schemaVersion),
+      visibility: dataset.visibility === 'hidden' || dataset.visibility === 'production_replay'
+        ? dataset.visibility
+        : 'public',
+      promptsRedacted: booleanValue(dataset.promptsRedacted),
+      sourceIdentitySha256: stringValue(dataset.sourceIdentitySha256) || null,
+    },
     retention: {
       databaseEvidenceRetained: booleanValue(retention.databaseEvidenceRetained),
       workspaceRetained: booleanValue(retention.workspaceRetained),
@@ -124,6 +142,19 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       frameworkVersion: stringValue(provenance.frameworkVersion) || null,
       casesSha256: stringValue(provenance.casesSha256) || null,
       promptsSha256: stringValue(provenance.promptsSha256) || null,
+      datasetRegistrySha256: stringValue(provenance.datasetRegistrySha256) || null,
+      snapshotManifestSha256: stringValue(provenance.snapshotManifestSha256) || null,
+    },
+    dataSnapshots: {
+      schemaVersion: numberValue(dataSnapshots.schemaVersion),
+      manifestId: stringValue(dataSnapshots.manifestId) || null,
+      manifestVersion: stringValue(dataSnapshots.manifestVersion) || null,
+      selected: readRecordArray(dataSnapshots.selected).map((item) => ({
+        caseId: stringValue(item.caseId),
+        id: stringValue(item.id),
+        asOf: stringValue(item.asOf),
+        payloadSha256: stringValue(item.payloadSha256),
+      })).filter((item) => item.caseId && item.id),
     },
     e2eQuality: normalizeE2eQuality(metadata.e2eQuality),
     selection: {
@@ -132,6 +163,7 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
       keepProjects: booleanValue(selection.keepProjects),
       caseCount: numberValue(selection.caseCount, results.length),
       concurrency,
+      repeat: Math.max(1, numberValue(selection.repeat, 1)),
     },
     skillLockSnapshot: normalizeSkillLockSnapshot(metadata.skillLockSnapshot),
   };
@@ -164,16 +196,36 @@ export function normalizeCoverage(value: unknown): QuantEvalRun['coverage'] {
   const caseTags = isRecord(coverage.caseTags)
     ? Object.fromEntries(Object.entries(coverage.caseTags).map(([key, value]) => [key, stringArray(value)]))
     : {};
+  const rawByLevel = isRecord(coverage.byLevel) ? coverage.byLevel : {};
+  const byLevel = Object.fromEntries(
+    (['routing', 'contract', 'live_e2e', 'production'] as const).map((level) => [
+      level,
+      normalizeBucket(rawByLevel[level]),
+    ]),
+  ) as QuantEvalRun['coverage']['byLevel'];
+  const caseLevels = isRecord(coverage.caseLevels)
+    ? Object.fromEntries(Object.entries(coverage.caseLevels).map(([key, value]) => [
+        key,
+        stringArray(value).filter((item) =>
+          item === 'routing' || item === 'contract' || item === 'live_e2e' || item === 'production'),
+      ])) as QuantEvalRun['coverage']['caseLevels']
+    : {};
+  const requiredLevels = isRecord(requiredCoverage.levels)
+    ? Object.fromEntries(Object.entries(requiredCoverage.levels).map(([key, value]) => [key, stringArray(value)]))
+    : {};
 
   return {
     byCapability: normalizeBucket(coverage.byCapability),
     byType: normalizeBucket(coverage.byType),
     byTag: normalizeBucket(coverage.byTag),
+    byLevel,
+    caseLevels,
     caseTags,
     failedTags,
     requiredCoverage: {
       capabilities: stringArray(requiredCoverage.capabilities),
       tags: stringArray(requiredCoverage.tags),
+      levels: requiredLevels,
     },
   };
 }
@@ -250,6 +302,7 @@ export function mapDbEvalRun(record: {
     averageScore: record.averageScore,
     durationMs: record.durationMs,
     metadata,
+    qualitySummary: buildEvalQualitySummary(results, metadata.selection.repeat),
     e2eQuality: metadata.e2eQuality ?? null,
     coverage,
     results,
@@ -264,6 +317,7 @@ export function mapDbQueueItem(record: {
   reasoningEffort: string;
   evaluatorId?: string | null;
   concurrency?: number | null;
+  repeat?: number | null;
   mode?: string | null;
   selectedCases: unknown;
   limit: number | null;
@@ -289,6 +343,7 @@ export function mapDbQueueItem(record: {
     reasoningEffort: record.reasoningEffort,
     evaluatorId: stringValue(record.evaluatorId, DEFAULT_EVALUATOR_ID).trim() || DEFAULT_EVALUATOR_ID,
     concurrency: normalizeEvalConcurrency(record.concurrency),
+    repeat: Math.min(5, Math.max(1, Math.floor(numberValue(record.repeat, 1)))),
     mode: record.mode === 'e2e' ? 'e2e' : 'contract',
     selectedCases: stringArray(record.selectedCases),
     limit: record.limit,
@@ -378,12 +433,7 @@ export function countWarnings(result: JsonRecord): number {
 }
 
 export function computeResultScore(result: JsonRecord): number {
-  const passed = booleanValue(result.passed);
-  const failures = stringArray(result.failures);
-  if (passed) {
-    return Math.max(88, 100 - Math.min(countWarnings(result) * 3, 12));
-  }
-  return Math.max(0, 60 - failures.length * 12);
+  return resultScore(result);
 }
 
 export function normalizeArtifacts(result: JsonRecord): QuantEvalArtifactSummary {
@@ -414,7 +464,101 @@ export function normalizeVisualCheck(result: JsonRecord): QuantEvalResult['visua
   return {
     passed: booleanValue(visualCheck.passed),
     screenshotPath: stringValue(visualCheck.screenshotPath) || null,
+    screenshots: readRecordArray(visualCheck.screenshots).map((item) => ({
+      viewport: stringValue(item.viewport, 'unknown'),
+      path: stringValue(item.path),
+      width: numberValue(item.width),
+      height: numberValue(item.height),
+    })).filter((item) => item.path),
+    accessibilityIssueCount: numberValue(visualCheck.accessibilityIssueCount),
     failures: stringArray(visualCheck.failures),
+  };
+}
+
+function normalizeEvaluation(value: unknown): QuantEvalResult['evaluation'] {
+  if (!isRecord(value)) return null;
+  const dimensions = readRecordArray(value.dimensions)
+    .filter((item) => EVAL_SCORE_DIMENSION_IDS.includes(stringValue(item.id) as EvalScoreDimensionId))
+    .map((item) => ({
+      id: stringValue(item.id) as EvalScoreDimensionId,
+      label: stringValue(item.label, stringValue(item.id)),
+      score: numberValue(item.score),
+      weight: numberValue(item.weight),
+      status: normalizeStatus(item.status),
+      summary: stringValue(item.summary),
+    }));
+  const semantic = isRecord(value.semanticReview) ? value.semanticReview : null;
+  const reviewer = semantic && isRecord(semantic.reviewer) ? semantic.reviewer : {};
+  const usage = semantic && isRecord(semantic.usage) ? semantic.usage : null;
+  return {
+    evaluatorId: stringValue(value.evaluatorId),
+    evaluatorVersion: stringValue(value.evaluatorVersion),
+    rubricVersion: stringValue(value.rubricVersion),
+    hardGatePassed: booleanValue(value.hardGatePassed),
+    passed: booleanValue(value.passed),
+    score: numberValue(value.score),
+    checks: readRecordArray(value.checks).map((check) => {
+      const status = normalizeStatus(check.status);
+      return {
+        id: stringValue(check.id, 'unknown'),
+        name: stringValue(check.name, stringValue(check.id, '评测项')),
+        status: status === 'unknown' ? 'failed' as const : status,
+        summary: stringValue(check.summary),
+      };
+    }),
+    dimensions,
+    semanticReview: semantic
+      ? {
+          schemaVersion: 1,
+          reviewer: {
+            provider: stringValue(reviewer.provider),
+            model: stringValue(reviewer.model),
+            promptVersion: stringValue(reviewer.promptVersion),
+            independentFromGenerator: booleanValue(reviewer.independentFromGenerator),
+          },
+          verdict: semantic.verdict === 'passed' || semantic.verdict === 'warning' ? semantic.verdict : 'failed',
+          score: numberValue(semantic.score),
+          summary: stringValue(semantic.summary),
+          dimensions: readRecordArray(semantic.dimensions).map((item) => ({
+            id: stringValue(item.id) as 'intentCoverage' | 'businessCompleteness' | 'grounding' | 'riskCommunication' | 'actionability',
+            score: numberValue(item.score),
+            rationale: stringValue(item.rationale),
+            evidence: stringArray(item.evidence),
+          })),
+          usage: usage
+            ? {
+                inputTokens: numberValue(usage.inputTokens),
+                outputTokens: numberValue(usage.outputTokens),
+                totalTokens: numberValue(usage.totalTokens),
+              }
+            : null,
+        }
+      : null,
+  };
+}
+
+function normalizeStability(value: unknown): QuantEvalResult['stability'] {
+  if (!isRecord(value)) return null;
+  const attempts = readRecordArray(value.attempts).map((attempt) => ({
+    attempt: Math.max(1, numberValue(attempt.attempt, 1)),
+    passed: booleanValue(attempt.passed),
+    firstPassPassed: booleanValue(attempt.firstPassPassed),
+    score: numberValue(attempt.score),
+    durationMs: numberValue(attempt.durationMs),
+    repairAttempts: numberValue(attempt.repairAttempts),
+    projectId: stringValue(attempt.projectId) || null,
+    projectPath: stringValue(attempt.projectPath) || null,
+    requestId: stringValue(attempt.requestId) || null,
+    failures: stringArray(attempt.failures),
+    agentAttested: typeof attempt.agentAttested === 'boolean' ? attempt.agentAttested : null,
+  }));
+  return {
+    passed: booleanValue(value.passed, attempts.every((item) => item.passed)),
+    repeatCount: Math.max(1, numberValue(value.repeatCount, attempts.length || 1)),
+    passedAttempts: numberValue(value.passedAttempts, attempts.filter((item) => item.passed).length),
+    passRate: numberValue(value.passRate),
+    flaky: booleanValue(value.flaky),
+    attempts,
   };
 }
 
@@ -427,6 +571,31 @@ export function normalizeEventAudit(result: JsonRecord): QuantEvalResult['eventA
     errorCount: numberValue(eventAudit.errorCount),
     eventTypes: stringArray(eventAudit.eventTypes),
     stages: stringArray(eventAudit.stages),
+  };
+}
+
+function normalizeTraceDiagnostics(value: unknown): QuantEvalResult['traceDiagnostics'] {
+  if (!isRecord(value)) return null;
+  const allowedIds = new Set(['intent', 'planning', 'data', 'artifact', 'visual', 'runtime', 'acceptance']);
+  const stages = readRecordArray(value.stages)
+    .filter((stage) => allowedIds.has(stringValue(stage.id)))
+    .map((stage) => {
+      const status = normalizeStatus(stage.status);
+      return {
+        id: stringValue(stage.id) as NonNullable<QuantEvalResult['traceDiagnostics']>['stages'][number]['id'],
+        label: stringValue(stage.label, stringValue(stage.id)),
+        status,
+        signals: stringArray(stage.signals),
+      };
+    });
+  const primaryFailureStage = stringValue(value.primaryFailureStage);
+  return {
+    schemaVersion: 1,
+    primaryFailureStage: allowedIds.has(primaryFailureStage)
+      ? primaryFailureStage as NonNullable<QuantEvalResult['traceDiagnostics']>['primaryFailureStage']
+      : null,
+    stages,
+    observedEventStages: stringArray(value.observedEventStages),
   };
 }
 
@@ -512,6 +681,8 @@ export function normalizeResult(
     requestId: stringValue(raw.requestId) || null,
     durationMs: numberValue(raw.durationMs),
     passed: booleanValue(raw.passed),
+    firstPassPassed: booleanValue(raw.firstPassPassed, booleanValue(raw.passed) && numberValue(raw.repairAttempts) === 0),
+    finalPassed: booleanValue(raw.finalPassed, booleanValue(raw.passed)),
     score: computeResultScore(raw),
     failures: stringArray(raw.failures),
     symbols: stringArray(raw.symbols),
@@ -556,7 +727,10 @@ export function normalizeResult(
     tags: caseTags[id] ?? testCase?.tags ?? stringArray(raw.tags),
     validationStatus: normalizeStatus(validation.status),
     validationChecks: checks,
+    evaluation: normalizeEvaluation(raw.evaluation),
+    stability: normalizeStability(raw.stability),
     eventAudit: normalizeEventAudit(raw),
+    traceDiagnostics: normalizeTraceDiagnostics(raw.traceDiagnostics),
     artifacts: normalizeArtifacts(raw),
     visualCheck: normalizeVisualCheck(raw),
   };
@@ -644,6 +818,7 @@ export function normalizeRun(filePath: string, statMtimeMs: number, report: Json
     averageScore: averageScore(results),
     durationMs: durationSum(results),
     metadata,
+    qualitySummary: buildEvalQualitySummary(results, metadata.selection.repeat),
     e2eQuality: normalizeE2eQuality(report.e2eQuality) ?? metadata.e2eQuality ?? null,
     coverage,
     results,

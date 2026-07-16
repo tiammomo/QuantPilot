@@ -58,7 +58,7 @@ Claw Code 的 [README（固定提交）](https://github.com/ultraworkers/claw-co
 1. **Trusted ContextCapsule**：框架为每个内建工具注册浅层 canonical receipt projector，只接受固定 target/hash/bytes；additional tool 的 projector 被剥离。没有 projector 的执行只生成框架自有 outcome tombstone，不信任 raw payload 或其 target 声明；最近精确 tombstone 有固定上限，更旧操作进入 hash-chain rollup，因此副作用历史可被覆盖又不会形成上下文 DoS。历史工具簇只有在完整覆盖后才原子替换，写入会立即使旧 read receipt 失效。
 2. **Semantic Edit**：TS/TSX 顶层声明由 AST 定位，CSS rule 由 PostCSS 定位，所有编辑都带 before SHA-256 并复用 durable writer。声明种类、export/default/async/generator、var/let/const 身份和完整文件语法在写前校验；运行时 parser 已进入 production dependencies。
 3. **DashboardSpec 与最小工具面**：普通 prepared 生成先完成 renderer/data identity/precondition 预检，Provider 只见 compiler + submit 两个工具；明确视觉/布局定制走 4-tool query + semantic surface。compiler 对排名顺序、回测策略/交易明细、趋势/量能/风险和数据 run identity 失败关闭，已知必败任务不会先产生 tool failed。
-4. **可证明 E2E**：AgentRun 持久化 `moagent:1.7.0` 与 dirty-content-aware build revision；schema v4 发布门只接受真实 `/act -> Mission -> EvidenceVerifier -> accepted receipt` 报告，逐 run 校验 source lineage、终态、工具与 Token/cache 算术。accepted source 必须来自 `moagent_submit_result` 并证明 workspace write 与 `submit_result` 成功，平台兜底候选单独计为产品恢复，不能冒充 MoAgent 能力成绩。
+4. **可证明 E2E**：AgentRun 持久化框架版本与 dirty-content-aware build revision；schema v6 发布门只接受真实 `/act -> Mission -> EvidenceVerifier -> accepted receipt` 报告，逐 run 校验 source lineage、终态、工具、Token/cache 算术、评测器版本、首轮/最终判定、重复稳定性、snapshot 身份和过程级归因。accepted source 必须来自 `moagent_submit_result` 并证明 workspace write 与 `submit_result` 成功，平台兜底候选单独计为产品恢复，不能冒充 MoAgent 能力成绩。
 
 ### MoAgent 1.8：确定性执行图、固定协议面与进展判定已落地
 

@@ -12,6 +12,11 @@ const {
     caseIds: string[];
     productControlCaseIds: string[];
     runtimeTestFiles: string[];
+    scenarios: Record<string, {
+      evidenceClass: string;
+      caseIds: string[];
+      runtimeTests: string[];
+    }>;
     raw: Record<string, unknown>;
   };
   attestProductControlEvidence(
@@ -151,6 +156,17 @@ describe('MoAgent release E2E suite', () => {
       productControlCaseIds: ['stock-diagnosis-citic-no-false-clarification'],
     });
     expect(suite.runtimeTestFiles.length).toBeGreaterThanOrEqual(4);
+    expect(suite.scenarios).toHaveProperty('security-boundary');
+    expect(suite.scenarios['security-boundary']).toMatchObject({
+      evidenceClass: 'runtime_test',
+      caseIds: [],
+      runtimeTests: expect.arrayContaining([
+        'src/lib/agent/context/trusted-context-capsule.test.ts',
+        'src/lib/agent/tools/filesystem.test.ts',
+        'src/lib/agent/tools/structured-read.test.ts',
+        'src/lib/agent/runtime/event-projector.test.ts',
+      ]),
+    });
   });
 
   it('rejects an incomplete release scenario matrix', () => {

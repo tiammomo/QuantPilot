@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "backtest-300etf-ma-crossover",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["510300"],
+  "oracleIds": ["backtest-equity-curve", "backtest-no-guarantee"]
+}

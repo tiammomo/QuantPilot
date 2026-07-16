@@ -5,6 +5,7 @@ require('tsconfig-paths/register');
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
+const { spawnSync } = require('child_process');
 const dotenv = require('dotenv');
 const { PrismaClient } = require('@prisma/client');
 const { NextRequest } = require('next/server');
@@ -63,6 +64,16 @@ const {
   attestProductControlEvidence,
   loadQuantE2eSuite,
 } = require('../checks/quant-e2e-suite');
+const {
+  applyEvalEvaluator,
+  getEvalEvaluatorDefinition,
+} = jiti('../../src/lib/eval/evaluators.ts');
+const { reviewAgentWorkspace } = jiti('../../src/lib/eval/agent-reviewer.ts');
+const { evaluateOracleAssertions } = jiti('../../src/lib/eval/oracles.ts');
+const { buildEvalQualitySummary } = jiti('../../src/lib/eval/scoring.ts');
+const { buildEvalTraceDiagnostics } = jiti('../../src/lib/eval/trace-diagnostics.ts');
+const { evalSnapshotPayloadSha256 } = jiti('../../src/lib/eval/snapshot-contract.ts');
+const { normalizedPromptHash } = jiti('../../src/lib/eval/dataset-contract.ts');
 
 // Keep CLI evaluation consistent with the web launcher while preserving
 // explicitly provided CI environment variables. Local overrides load first.
@@ -72,6 +83,8 @@ dotenv.config({ path: path.resolve('.env') });
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
 const E2E_SUITE_PATH = path.resolve('benchmarks/quantpilot/e2e-suite.json');
+const DATASET_REGISTRY_PATH = path.resolve('benchmarks/quantpilot/datasets.json');
+const SNAPSHOT_MANIFEST_PATH = path.resolve('benchmarks/quantpilot/snapshot-manifest.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
 
@@ -82,7 +95,10 @@ function parseArgs(argv) {
   let trigger = process.env.QUANTPILOT_EVAL_TRIGGER || 'cli';
   let evaluatorId = process.env.QUANTPILOT_EVAL_EVALUATOR || 'rule-strict';
   let concurrency = Number.parseInt(process.env.QUANTPILOT_EVAL_CONCURRENCY || '1', 10);
+  let repeat = Number.parseInt(process.env.QUANTPILOT_EVAL_REPEAT || '1', 10);
   let mode = process.env.QUANTPILOT_EVAL_MODE || 'contract';
+  let datasetVisibility = process.env.QUANTPILOT_EVAL_DATASET_VISIBILITY || 'public';
+  let casesFile = process.env.QUANTPILOT_EVAL_CASES_PATH || null;
   let cli = 'moagent';
   let model = 'deepseek-v4-flash';
 
@@ -124,6 +140,24 @@ function parseArgs(argv) {
     }
     if (arg.startsWith('--mode=')) {
       mode = arg.slice('--mode='.length);
+      continue;
+    }
+    if (arg === '--dataset-visibility' && argv[index + 1]) {
+      datasetVisibility = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--dataset-visibility=')) {
+      datasetVisibility = arg.slice('--dataset-visibility='.length);
+      continue;
+    }
+    if (arg === '--cases-file' && argv[index + 1]) {
+      casesFile = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--cases-file=')) {
+      casesFile = arg.slice('--cases-file='.length);
       continue;
     }
     if (arg === '--cli' && argv[index + 1]) {
@@ -182,10 +216,44 @@ function parseArgs(argv) {
       concurrency = Number.parseInt(arg.slice('--concurrency='.length), 10);
       continue;
     }
+    if (arg === '--repeat' && argv[index + 1]) {
+      repeat = Number.parseInt(argv[index + 1], 10);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--repeat=')) {
+      repeat = Number.parseInt(arg.slice('--repeat='.length), 10);
+      continue;
+    }
   }
 
   if (!['contract', 'e2e'].includes(mode)) {
     throw new Error(`不支持的 benchmark mode：${mode}。请使用 contract 或 e2e。`);
+  }
+  if (!['public', 'hidden', 'production_replay'].includes(datasetVisibility)) {
+    throw new Error(`不支持的 dataset visibility：${datasetVisibility}`);
+  }
+  if (datasetVisibility !== 'public') {
+    casesFile = casesFile || (datasetVisibility === 'hidden'
+      ? process.env.QUANTPILOT_HIDDEN_EVAL_CASES_PATH
+      : process.env.QUANTPILOT_PRODUCTION_REPLAY_CASES_PATH) || null;
+    if (!casesFile) {
+      throw new Error(`${datasetVisibility} 评测必须通过环境变量或 --cases-file 注入外部数据集`);
+    }
+    if (mode !== 'e2e') throw new Error(`${datasetVisibility} 评测必须使用真实 e2e 模式`);
+  } else if (casesFile) {
+    throw new Error('public 评测固定使用仓库 cases.json，不能通过 --cases-file 替换');
+  }
+  if (datasetVisibility !== 'public' && casesFile) {
+    const resolvedCasesFile = path.resolve(casesFile);
+    const relativeCasesFile = path.relative(process.cwd(), resolvedCasesFile);
+    if (relativeCasesFile && !relativeCasesFile.startsWith('..') && !path.isAbsolute(relativeCasesFile)) {
+      const tracked = spawnSync('git', ['ls-files', '--error-unmatch', '--', relativeCasesFile], {
+        cwd: process.cwd(),
+        stdio: 'ignore',
+      });
+      if (tracked.status === 0) throw new Error(`${datasetVisibility} 数据集被 Git 跟踪，拒绝执行以防测试集泄漏`);
+    }
   }
   if (cli !== 'moagent') {
     throw new Error(`benchmark 只接受 --cli=moagent，收到：${cli || '(empty)'}`);
@@ -194,6 +262,13 @@ function parseArgs(argv) {
     throw new Error(
       `MoAgent 1.7 真实 E2E 固定使用 deepseek-v4-flash，收到：${model || '(empty)'}`,
     );
+  }
+  if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 5) {
+    throw new Error(`--repeat 必须是 1 到 5 的整数，收到：${repeat}`);
+  }
+  const evaluator = getEvalEvaluatorDefinition(evaluatorId || 'rule-strict');
+  if (!evaluator.supportedModes.includes(mode)) {
+    throw new Error(`${evaluator.id} 不支持 ${mode} 模式。`);
   }
 
   return {
@@ -205,8 +280,11 @@ function parseArgs(argv) {
     reasoningEffort: '',
     trigger,
     evaluatorId: evaluatorId || 'rule-strict',
+    repeat,
     concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.min(16, Math.floor(concurrency)) : 1,
     mode,
+    datasetVisibility,
+    casesFile: casesFile ? path.resolve(casesFile) : CASES_PATH,
   };
 }
 
@@ -253,6 +331,23 @@ async function readSkillLockSnapshot() {
 
 function sha256(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function reportCommand(argv, datasetVisibility) {
+  if (datasetVisibility === 'public') return argv;
+  const redacted = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === '--cases-file') {
+      redacted.push(arg, '[external-dataset]');
+      index += 1;
+    } else if (arg.startsWith('--cases-file=')) {
+      redacted.push('--cases-file=[external-dataset]');
+    } else {
+      redacted.push(arg);
+    }
+  }
+  return redacted;
 }
 
 async function readEvents(projectPath) {
@@ -319,6 +414,11 @@ function caseCoverageTags(testCase) {
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (testCase.type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  const coverageLevel = testCase.coverageLevel ||
+    (testCase.type === 'renderer_capability_contract' ? 'routing' : 'contract');
+  tags.add(`coverage:${coverageLevel}`);
+  if (testCase.productionSupported) tags.add('coverage:production');
+  for (const safetyTag of testCase.safetyTags || []) tags.add(`safety:${safetyTag}`);
   for (const expectation of testCase.selectionExpectations || []) {
     if (expectation.capabilityId) tags.add(expectation.capabilityId);
     if (expectation.expectedTemplateId) tags.add(`template:${expectation.expectedTemplateId}`);
@@ -337,6 +437,19 @@ function buildCoverageSummary(cases, results) {
   const byTag = {};
   const failedTags = {};
   const caseTags = {};
+  const caseLevels = {};
+  const byLevel = {
+    routing: {},
+    contract: {},
+    live_e2e: {},
+    production: {},
+  };
+
+  const addLevel = (level, capability, passed) => {
+    byLevel[level][capability] = byLevel[level][capability] || { total: 0, passed: 0, failed: 0 };
+    byLevel[level][capability].total += 1;
+    byLevel[level][capability][passed ? 'passed' : 'failed'] += 1;
+  };
 
   for (const testCase of cases) {
     const tags = caseCoverageTags(testCase);
@@ -345,6 +458,24 @@ function buildCoverageSummary(cases, results) {
     const capability = testCase.capabilityId || 'unknown';
     const type = testCase.type || (testCase.expectClarification ? 'clarification_required' : 'generated_project');
     caseTags[testCase.id] = tags;
+    const levels = new Set();
+    const configuredLevel = testCase.coverageLevel ||
+      (type === 'renderer_capability_contract' ? 'routing' : 'contract');
+    levels.add(configuredLevel);
+    if (type === 'renderer_capability_contract' || (testCase.selectionExpectations || []).length > 0) {
+      levels.add('routing');
+    }
+    if (result?.executionMode === 'e2e') levels.add('live_e2e');
+    if (testCase.productionSupported) levels.add('production');
+    caseLevels[testCase.id] = Array.from(levels);
+    for (const level of levels) addLevel(level, capability, passed);
+    if (levels.has('routing')) {
+      for (const expectation of testCase.selectionExpectations || []) {
+        if (expectation.capabilityId && expectation.capabilityId !== capability) {
+          addLevel('routing', expectation.capabilityId, passed);
+        }
+      }
+    }
 
     byCapability[capability] = byCapability[capability] || { total: 0, passed: 0, failed: 0 };
     byCapability[capability].total += 1;
@@ -369,6 +500,8 @@ function buildCoverageSummary(cases, results) {
     byCapability,
     byType,
     byTag,
+    byLevel,
+    caseLevels,
     caseTags,
     failedTags,
     requiredCoverage: {
@@ -389,6 +522,23 @@ function buildCoverageSummary(cases, results) {
         'data:source_degradation',
         'visual:playwright',
       ],
+      levels: {
+        routing: ['sector_rotation', 'strategy_research'],
+        contract: [
+          'fundamental_analysis',
+          'technical_analysis',
+          'backtest_review',
+          'asset_comparison',
+          'portfolio_risk',
+          'stock_diagnosis',
+        ],
+        live_e2e: [
+          'fundamental_analysis',
+          'technical_analysis',
+          'portfolio_risk',
+          'stock_diagnosis',
+        ],
+      },
     },
   };
 }
@@ -529,6 +679,13 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
       invalidArtifacts,
       finalData: null,
       quality: null,
+      oracle: {
+        passed: false,
+        warning: false,
+        checks: [],
+        failures: ['关键产物缺失，无法执行事实 oracle。'],
+        warnings: [],
+      },
     };
   }
 
@@ -726,11 +883,18 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
     }
   }
 
+  const oracle = evaluateOracleAssertions({
+    assertions: testCase.oracleAssertions || [],
+    targets: { finalData, sources, quality, page },
+  });
+  failures.push(...oracle.failures);
+
   return {
     status: failures.length === 0 ? 'passed' : 'failed',
     failures,
     missingArtifacts,
     invalidArtifacts,
+    oracle,
     finalData: {
       symbol: finalData.symbol,
       name: finalData.name,
@@ -1182,7 +1346,7 @@ async function runSourceDegradationCase(testCase) {
   });
   const plan = await writeInitialRunPlan({
     projectPath,
-    instruction: `贵州茅台 600519 最近行情走势如何？请做综合诊断。本用例同时验证数据源降级证据：${testCase.question}`,
+    instruction: '贵州茅台 600519 最近行情走势如何？',
     requestId,
     capabilityId: testCase.capabilityId,
   });
@@ -1427,51 +1591,119 @@ async function runVisualCheck({ projectId, testCase }) {
   }
 
   const { chromium } = require('playwright');
-  const preview = await previewManager.start(projectId);
-  const screenshotDir = path.resolve('tmp/visual-checks');
+  const screenshotDir = path.resolve('tmp/quantpilot-benchmark-screenshots');
   await fs.mkdir(screenshotDir, { recursive: true });
-  const screenshotPath = path.join(
-    screenshotDir,
-    `benchmark-${testCase.id}-${new Date().toISOString().replace(/[:.]/g, '-')}.png`
-  );
   const failures = [];
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
-  const failedResources = [];
-  page.on('response', (response) => {
-    const type = response.request().resourceType();
-    if (response.status() >= 400 && ['document', 'script', 'stylesheet', 'font', 'image'].includes(type)) {
-      failedResources.push(`${response.status()} ${type} ${response.url()}`);
-    }
-  });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const screenshots = [];
+  let accessibilityIssueCount = 0;
+  let preview = null;
+  let browser = null;
+  const viewports = [
+    { id: 'desktop', width: 1440, height: 1000 },
+    { id: 'mobile', width: 390, height: 844 },
+  ];
 
   try {
-    const response = await page.goto(preview.url, { waitUntil: 'networkidle', timeout: 45000 });
-    assertCondition(response?.ok(), `预览地址 ${preview.url} 未返回 2xx。`, failures);
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    const info = await page.evaluate(() => ({
-      text: document.body.innerText,
-      svgCount: document.querySelectorAll('svg').length,
-      rectCount: document.querySelectorAll('rect').length,
-      canvasCount: document.querySelectorAll('canvas').length,
-    }));
-    for (const keyword of testCase.expectedVisualKeywords || ['QuantPilot']) {
-      assertCondition(info.text.includes(keyword), `截图页面缺少关键词：${keyword}`, failures);
+    preview = await previewManager.start(projectId);
+    browser = await chromium.launch({ headless: true });
+    for (const viewport of viewports) {
+      const page = await browser.newPage({
+        viewport: { width: viewport.width, height: viewport.height },
+        deviceScaleFactor: 1,
+      });
+      const failedResources = [];
+      const runtimeErrors = [];
+      page.on('response', (response) => {
+        const type = response.request().resourceType();
+        if (response.status() >= 400 && ['document', 'script', 'stylesheet', 'font', 'image'].includes(type)) {
+          failedResources.push(`${response.status()} ${type} ${response.url()}`);
+        }
+      });
+      page.on('pageerror', (error) => runtimeErrors.push(error.message));
+      try {
+        const response = await page.goto(preview.url, { waitUntil: 'networkidle', timeout: 45000 });
+        assertCondition(response?.ok(), `${viewport.id} 预览地址 ${preview.url} 未返回 2xx。`, failures);
+        const screenshotPath = path.join(
+          screenshotDir,
+          `benchmark-${testCase.id}-${viewport.id}-${timestamp}.png`,
+        );
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        screenshots.push({
+          viewport: viewport.id,
+          path: path.relative(process.cwd(), screenshotPath),
+          width: viewport.width,
+          height: viewport.height,
+        });
+        const info = await page.evaluate(() => {
+          const accessibleName = (element) => {
+            const labelledBy = element.getAttribute('aria-labelledby');
+            const labelledText = labelledBy
+              ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent?.trim() || '').join(' ').trim()
+              : '';
+            return element.getAttribute('aria-label') ||
+              labelledText ||
+              element.getAttribute('title') ||
+              element.textContent?.trim() ||
+              element.querySelector('img[alt]')?.getAttribute('alt') ||
+              element.querySelector('svg title')?.textContent?.trim() || '';
+          };
+          const controlsWithoutName = Array.from(document.querySelectorAll('button,a[href],[role="button"]'))
+            .filter((element) => !accessibleName(element)).length;
+          const inputsWithoutName = Array.from(document.querySelectorAll('input,select,textarea'))
+            .filter((element) => {
+              const id = element.getAttribute('id');
+              return !element.getAttribute('aria-label') &&
+                !element.getAttribute('aria-labelledby') &&
+                !(id && document.querySelector(`label[for="${CSS.escape(id)}"]`));
+            }).length;
+          const imagesWithoutAlt = Array.from(document.querySelectorAll('img'))
+            .filter((element) => !element.hasAttribute('alt')).length;
+          return {
+            text: document.body.innerText,
+            svgCount: document.querySelectorAll('svg').length,
+            rectCount: document.querySelectorAll('rect').length,
+            canvasCount: document.querySelectorAll('canvas').length,
+            headingCount: document.querySelectorAll('h1').length,
+            horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+            accessibilityIssueCount: controlsWithoutName + inputsWithoutName + imagesWithoutAlt,
+          };
+        });
+        for (const keyword of testCase.expectedVisualKeywords || ['QuantPilot']) {
+          assertCondition(info.text.includes(keyword), `${viewport.id} 页面缺少关键词：${keyword}`, failures);
+        }
+        assertCondition(info.svgCount + info.canvasCount > 0 || info.rectCount >= 12, `${viewport.id} 页面缺少可识别图表元素。`, failures);
+        assertCondition(!info.horizontalOverflow, `${viewport.id} 页面存在水平溢出。`, failures);
+        assertCondition(info.headingCount <= 1, `${viewport.id} 页面存在 ${info.headingCount} 个 h1，应最多保留一个主标题。`, failures);
+        assertCondition(info.accessibilityIssueCount === 0, `${viewport.id} 页面存在 ${info.accessibilityIssueCount} 个无可访问名称的控件或图片。`, failures);
+        accessibilityIssueCount += info.accessibilityIssueCount;
+        failures.push(...failedResources.map((item) => `${viewport.id} 资源加载失败：${item}`));
+        failures.push(...runtimeErrors.map((item) => `${viewport.id} 页面运行时错误：${item}`));
+      } finally {
+        await page.close();
+      }
     }
-    assertCondition(info.svgCount + info.canvasCount > 0 || info.rectCount >= 12, '截图页面缺少可识别图表元素。', failures);
-    failures.push(...failedResources.map((item) => `资源加载失败：${item}`));
 
     return {
       passed: failures.length === 0,
       failures,
-      screenshotPath: path.relative(process.cwd(), screenshotPath),
-      previewUrl: preview.url,
-      svgCount: info.svgCount,
-      rectCount: info.rectCount,
-      canvasCount: info.canvasCount,
+      screenshotPath: screenshots[0]?.path || null,
+      screenshots,
+      accessibilityIssueCount,
+      previewUrl: preview?.url || null,
+    };
+  } catch (error) {
+    failures.push(`视觉检查无法执行：${formatError(error)}`);
+    return {
+      passed: false,
+      failures,
+      screenshotPath: screenshots[0]?.path || null,
+      screenshots,
+      accessibilityIssueCount,
+      previewUrl: preview?.url || null,
     };
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
@@ -2100,9 +2332,65 @@ async function runCase(testCase, options) {
 }
 
 async function cleanupBenchmarkProject(result) {
-  await previewManager.stop(result.projectId);
-  await prisma.project.deleteMany({ where: { id: result.projectId } });
-  await fs.rm(result.projectPath, { recursive: true, force: true });
+  const targets = Array.isArray(result?.stability?.attempts)
+    ? result.stability.attempts
+      .map((attempt) => ({ projectId: attempt.projectId, projectPath: attempt.projectPath }))
+      .filter((attempt) => attempt.projectId && attempt.projectPath)
+    : [{ projectId: result.projectId, projectPath: result.projectPath }];
+  for (const target of targets) {
+    await previewManager.stop(target.projectId);
+    await prisma.project.deleteMany({ where: { id: target.projectId } });
+    await fs.rm(target.projectPath, { recursive: true, force: true });
+  }
+}
+
+async function applySelectedEvaluator(testCase, result, options) {
+  const evaluator = getEvalEvaluatorDefinition(options.evaluatorId);
+  const evaluationMode = options.mode === 'product-control' ? 'e2e' : options.mode;
+  result.traceDiagnostics = buildEvalTraceDiagnostics(result, evaluationMode);
+  let semanticReview = null;
+  let reviewError = null;
+  if (evaluator.requiresSemanticReview && result.passed === true && result.projectPath) {
+    try {
+      semanticReview = await reviewAgentWorkspace({
+        projectPath: result.projectPath,
+        question: testCase.question,
+        testCase,
+        deterministicResult: {
+          passed: result.passed,
+          failures: result.failures,
+          validation: result.validation,
+          artifacts: result.artifacts,
+          eventAudit: result.eventAudit,
+          visualCheck: result.visualCheck,
+          traceDiagnostics: result.traceDiagnostics,
+        },
+      });
+    } catch (error) {
+      reviewError = `语义审阅失败：${formatError(error)}`;
+    }
+  }
+  const firstPassPassed = result.passed === true && Number(result.repairAttempts || 0) === 0;
+  const evaluation = applyEvalEvaluator({
+    evaluatorId: evaluator.id,
+    mode: evaluationMode,
+    result,
+    semanticReview,
+  });
+  const evaluatorFailures = evaluation.checks
+    .filter((check) => check.status === 'failed')
+    .map((check) => `${check.id}: ${check.summary}`);
+  result.firstPassPassed = firstPassPassed && evaluation.passed;
+  result.finalPassed = evaluation.passed;
+  result.evaluation = evaluation;
+  result.score = evaluation.score;
+  result.passed = evaluation.passed;
+  result.failures = Array.from(new Set([
+    ...(result.failures || []),
+    ...(reviewError ? [reviewError] : []),
+    ...evaluatorFailures,
+  ]));
+  return result;
 }
 
 async function runBenchmarkCase(testCase, options) {
@@ -2160,11 +2448,53 @@ async function runBenchmarkCase(testCase, options) {
       '该 E2E case 未实际执行 MoAgent，不能作为真实生成通过证据。',
     ]));
   }
+  result = await applySelectedEvaluator(testCase, result, options);
   console.log(`[QuantBenchmark] ${testCase.id} ${result.passed ? 'PASS' : 'FAIL'}`);
   if (!result.passed) {
     result.failures.forEach((failure) => console.log(`  - ${failure}`));
   }
   return result;
+}
+
+async function runBenchmarkCaseWithRepeats(testCase, options) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= options.repeat; attempt += 1) {
+    const physicalCase = attempt === 1
+      ? testCase
+      : { ...testCase, id: `${testCase.id}--attempt-${attempt}` };
+    const result = await runBenchmarkCase(physicalCase, options);
+    attempts.push({ attempt, result });
+  }
+  const primary = attempts[0].result;
+  const passedAttempts = attempts.filter((item) => item.result.passed).length;
+  primary.id = testCase.id;
+  primary.name = testCase.name;
+  primary.question = testCase.question;
+  primary.durationMs = attempts.reduce((total, item) => total + Number(item.result.durationMs || 0), 0);
+  primary.stability = {
+    passed: passedAttempts === attempts.length,
+    repeatCount: attempts.length,
+    passedAttempts,
+    passRate: Math.round((passedAttempts / attempts.length) * 100),
+    flaky: passedAttempts > 0 && passedAttempts < attempts.length,
+    attempts: attempts.map(({ attempt, result }) => ({
+      attempt,
+      passed: result.passed,
+      firstPassPassed: result.firstPassPassed,
+      score: result.score,
+      durationMs: result.durationMs,
+      repairAttempts: Number(result.repairAttempts || 0),
+      projectId: result.projectId || null,
+      projectPath: result.projectPath || null,
+      requestId: result.requestId || null,
+      failures: result.failures || [],
+      agentAttested: options.mode === 'e2e'
+        ? isE2eAgentExecutionAttested(result)
+        : null,
+      evidence: options.mode === 'e2e' ? { ...result } : undefined,
+    })),
+  };
+  return primary;
 }
 
 async function runCasesWithConcurrency(cases, concurrency, options) {
@@ -2176,7 +2506,7 @@ async function runCasesWithConcurrency(cases, concurrency, options) {
     while (nextIndex < cases.length) {
       const currentIndex = nextIndex;
       nextIndex += 1;
-      results[currentIndex] = await runBenchmarkCase(cases[currentIndex], options);
+      results[currentIndex] = await runBenchmarkCaseWithRepeats(cases[currentIndex], options);
     }
   }));
 
@@ -2186,13 +2516,16 @@ async function runCasesWithConcurrency(cases, concurrency, options) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const benchmarkStartedAt = new Date().toISOString();
-  const allCases = await readJson(CASES_PATH);
+  const allCases = await readJson(args.casesFile);
+  if (!Array.isArray(allCases)) throw new Error('评测数据集必须是 case 数组');
+  const datasetRegistry = await readJson(DATASET_REGISTRY_PATH);
+  const snapshotManifest = await readJson(SNAPSHOT_MANIFEST_PATH);
   const allCaseIds = new Set(allCases.map((testCase) => testCase.id));
   const unknownSelectedIds = Array.from(args.selected).filter((id) => !allCaseIds.has(id));
   if (unknownSelectedIds.length > 0) {
     throw new Error(`包含未知 benchmark case：${unknownSelectedIds.join(', ')}`);
   }
-  const e2eSuite = args.mode === 'e2e'
+  const e2eSuite = args.mode === 'e2e' && args.datasetVisibility === 'public'
     ? loadQuantE2eSuite({
         root: process.cwd(),
         suitePath: E2E_SUITE_PATH,
@@ -2219,7 +2552,8 @@ async function main() {
   }
 
   await fs.mkdir(REPORTS_DIR, { recursive: true });
-  console.log(`[QuantBenchmark] mode=${args.mode} evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
+  const evaluatorDefinition = getEvalEvaluatorDefinition(args.evaluatorId);
+  console.log(`[QuantBenchmark] mode=${args.mode} evaluator=${args.evaluatorId}@${evaluatorDefinition.version} concurrency=${args.concurrency} repeat=${args.repeat} cases=${cases.length}`);
   const productControlsStartedAt = formalSuiteRun ? new Date().toISOString() : null;
   const productControlCases = formalSuiteRun
     ? e2eSuite.productControlCaseIds.map((id) => e2eSuite.caseById.get(id))
@@ -2228,13 +2562,37 @@ async function main() {
     ? await runCasesWithConcurrency(
         productControlCases,
         1,
-        { ...args, mode: 'product-control' },
+        { ...args, mode: 'product-control', repeat: 1 },
       )
     : [];
   const productControlsFinishedAt = formalSuiteRun ? new Date().toISOString() : null;
   const results = await runCasesWithConcurrency(cases, args.concurrency, args);
 
   const coverage = buildCoverageSummary(cases, results);
+  const qualitySummary = buildEvalQualitySummary(results, args.repeat);
+  const selectedCaseIds = new Set(cases.map((testCase) => testCase.id));
+  const selectedDataSnapshots = (snapshotManifest.snapshots || [])
+    .filter((snapshot) => selectedCaseIds.has(snapshot.caseId))
+    .map((snapshot) => ({
+      caseId: snapshot.caseId,
+      id: snapshot.id,
+      asOf: snapshot.asOf,
+      payloadSha256: snapshot.payloadSha256,
+    }));
+  const reportResults = args.datasetVisibility === 'public'
+    ? results
+    : results.map((result) => {
+        const redacted = structuredClone(result);
+        const testCase = cases.find((item) => item.id === result.id);
+        const questionEvidence = `[redacted:${normalizedPromptHash(testCase?.question || result.question || '')}]`;
+        redacted.question = questionEvidence;
+        for (const attempt of redacted.stability?.attempts || []) {
+          if (attempt.evidence && typeof attempt.evidence === 'object') {
+            attempt.evidence.question = questionEvidence;
+          }
+        }
+        return redacted;
+      });
   const agentExecutionSummary = summarizeE2eAgentExecution(results);
   const e2eQuality = args.mode === 'e2e'
     ? evaluateMoAgentE2eQuality(results, DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS)
@@ -2276,9 +2634,11 @@ async function main() {
       trigger: args.trigger,
       startedAt: benchmarkStartedAt,
       finishedAt: benchmarkFinishedAt,
-      command: process.argv.slice(2),
+      command: reportCommand(process.argv.slice(2), args.datasetVisibility),
       evaluator: {
         id: args.evaluatorId,
+        version: evaluatorDefinition.version,
+        rubricVersion: evaluatorDefinition.rubricVersion,
         concurrency: args.concurrency,
       },
       runtime: {
@@ -2307,6 +2667,14 @@ async function main() {
             }
           : {}),
       },
+      dataset: {
+        schemaVersion: 1,
+        visibility: args.datasetVisibility,
+        promptsRedacted: args.datasetVisibility !== 'public',
+        sourceIdentitySha256: sha256(
+          args.datasetVisibility === 'public' ? 'benchmarks/quantpilot/cases.json' : args.datasetVisibility,
+        ),
+      },
       provenance: {
         gitCommit: MOAGENT_BUILD_IDENTITY.gitRevision,
         gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
@@ -2314,6 +2682,14 @@ async function main() {
         frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
         casesSha256: sha256(JSON.stringify(cases)),
         promptsSha256: sha256(cases.map((testCase) => testCase.question || '').join('\n')),
+        datasetRegistrySha256: evalSnapshotPayloadSha256(datasetRegistry),
+        snapshotManifestSha256: evalSnapshotPayloadSha256(snapshotManifest),
+      },
+      dataSnapshots: {
+        schemaVersion: 1,
+        manifestId: snapshotManifest.id,
+        manifestVersion: snapshotManifest.version,
+        selected: selectedDataSnapshots,
       },
       e2eQuality,
       selection: {
@@ -2322,6 +2698,7 @@ async function main() {
         keepProjects: args.keepProjects,
         caseCount: cases.length,
         concurrency: args.concurrency,
+        repeat: args.repeat,
       },
       retention: {
         databaseEvidenceRetained: args.mode === 'e2e',
@@ -2330,13 +2707,16 @@ async function main() {
       ...(releaseControls ? { releaseControls } : {}),
       skillLockSnapshot: await readSkillLockSnapshot(),
     },
-    passed: results.every((result) => result.passed) && (e2eQuality?.passed ?? true),
-    total: results.length,
-    passedCount: results.filter((result) => result.passed).length,
-    failedCount: results.filter((result) => !result.passed).length,
+    passed: results.every((result) => result.passed) &&
+      qualitySummary.stability.passRate === 100 &&
+      (e2eQuality?.passed ?? true),
+    total: reportResults.length,
+    passedCount: reportResults.filter((result) => result.passed).length,
+    failedCount: reportResults.filter((result) => !result.passed).length,
     coverage,
+    qualitySummary,
     e2eQuality,
-    results,
+    results: reportResults,
   };
 
   const inProcessAttestation = attestEvalReport(report, {
@@ -2344,6 +2724,16 @@ async function main() {
     expectedCaseIds: cases.map((testCase) => testCase.id),
     expectedCasesSha256: report.metadata.provenance.casesSha256,
     expectedPromptsSha256: report.metadata.provenance.promptsSha256,
+    expectedDatasetRegistrySha256: report.metadata.provenance.datasetRegistrySha256,
+    expectedSnapshotManifestSha256: report.metadata.provenance.snapshotManifestSha256,
+    expectedDataSnapshots: selectedDataSnapshots,
+    expectedDatasetVisibility: args.datasetVisibility,
+    expectedResultQuestions: Object.fromEntries(cases.map((testCase) => [
+      testCase.id,
+      args.datasetVisibility === 'public'
+        ? testCase.question
+        : `[redacted:${normalizedPromptHash(testCase.question || '')}]`,
+    ])),
     frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
     buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
     gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
@@ -2376,6 +2766,11 @@ async function main() {
   console.log(`[QuantBenchmark] ${args.mode} ${report.passed ? 'ALL PASSED' : 'FAILED'} (${report.passedCount}/${report.total})`);
   console.log(`[QuantBenchmark] capabilities: ${Object.keys(coverage.byCapability).join(', ')}`);
   console.log(`[QuantBenchmark] coverage tags: ${Object.keys(coverage.byTag).length}`);
+  console.log(
+    `[QuantBenchmark] quality first/final=${qualitySummary.firstPassRate}%/` +
+    `${qualitySummary.finalPassRate}% repair=${qualitySummary.repairRate}% ` +
+    `stability=${qualitySummary.stability.passRate}% score=${qualitySummary.averageScore}`,
+  );
   if (e2eQuality) {
     const quality = summarizeMoAgentE2eQuality(results);
     console.log(

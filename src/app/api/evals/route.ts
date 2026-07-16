@@ -40,6 +40,7 @@ export async function POST(request: Request) {
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
         evaluatorId: typeof body.evaluatorId === 'string' ? body.evaluatorId : undefined,
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
+        repeat: typeof body.repeat === 'number' ? body.repeat : undefined,
         mode: body.mode === 'e2e' ? 'e2e' : 'contract',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,
@@ -63,6 +64,12 @@ export async function POST(request: Request) {
         expectedDatasets: Array.isArray(body.expectedDatasets) ? body.expectedDatasets.map(String) : undefined,
         expectedRawFiles: Array.isArray(body.expectedRawFiles) ? body.expectedRawFiles.map(String) : undefined,
         expectedFinalFields: Array.isArray(body.expectedFinalFields) ? body.expectedFinalFields.map(String) : undefined,
+        coverageLevel: body.coverageLevel === 'routing' || body.coverageLevel === 'contract'
+          ? body.coverageLevel
+          : undefined,
+        productionSupported: typeof body.productionSupported === 'boolean' ? body.productionSupported : undefined,
+        oracleAssertions: Array.isArray(body.oracleAssertions) ? body.oracleAssertions : undefined,
+        safetyTags: Array.isArray(body.safetyTags) ? body.safetyTags.map(String) : undefined,
         expectClarification: typeof body.expectClarification === 'boolean' ? body.expectClarification : undefined,
         visualCheck: typeof body.visualCheck === 'boolean' ? body.visualCheck : undefined,
       });
@@ -87,6 +94,7 @@ export async function POST(request: Request) {
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : undefined,
         evaluatorId: typeof body.evaluatorId === 'string' ? body.evaluatorId : undefined,
         concurrency: typeof body.concurrency === 'number' ? body.concurrency : undefined,
+        repeat: typeof body.repeat === 'number' ? body.repeat : undefined,
         mode: body.mode === 'e2e' ? 'e2e' : 'contract',
         selectedCases: Array.isArray(body.selectedCases) ? body.selectedCases.map(String) : [],
         limit: typeof body.limit === 'number' ? body.limit : null,

@@ -3,7 +3,9 @@ import path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
 import { prisma } from '@/lib/db/client';
 import { buildModelComparison, buildSkillVersionImpact } from './analysis';
+import { evaluateEvalJudgeCalibration, type EvalJudgeCalibrationSample } from './judge-calibration';
 import { getQuantEvalCases, getQuantEvalSets } from './cases';
+import { getEvalEvaluatorDefinition } from './evaluators';
 import {
   DEFAULT_EVAL_CONCURRENCY,
   DEFAULT_EVALUATOR_ID,
@@ -89,7 +91,11 @@ function supportsReasoningEffort(cli: string | null | undefined): boolean {
 
 function normalizeEvaluatorId(value: unknown): string {
   const normalized = stringValue(value, DEFAULT_EVALUATOR_ID).trim();
-  return normalized || DEFAULT_EVALUATOR_ID;
+  try {
+    return getEvalEvaluatorDefinition(normalized || DEFAULT_EVALUATOR_ID).id;
+  } catch {
+    return DEFAULT_EVALUATOR_ID;
+  }
 }
 
 function normalizeEvalConcurrency(value: unknown): number {
@@ -97,6 +103,12 @@ function normalizeEvalConcurrency(value: unknown): number {
     return DEFAULT_EVAL_CONCURRENCY;
   }
   return Math.min(MAX_EVAL_CONCURRENCY, Math.max(1, Math.floor(value)));
+}
+
+function normalizeEvalRepeat(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(5, Math.max(1, Math.floor(parsed)));
 }
 
 async function writeEvalRunToDatabase(run: QuantEvalRun): Promise<void> {
@@ -171,6 +183,7 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       reasoningEffort: '',
       evaluatorId: normalizeEvaluatorId(item.evaluatorId),
       concurrency: normalizeEvalConcurrency(item.concurrency),
+      repeat: normalizeEvalRepeat(item.repeat),
       mode: normalizeExecutionMode(item.mode),
       selectedCases: stringArray(item.selectedCases),
       limit: typeof item.limit === 'number' ? item.limit : null,
@@ -192,6 +205,7 @@ async function readQueue(): Promise<QuantEvalQueueItem[]> {
       ...item,
       evaluatorId: fileItem?.evaluatorId ?? item.evaluatorId,
       concurrency: fileItem?.concurrency ?? item.concurrency,
+      repeat: fileItem?.repeat ?? item.repeat,
       mode: fileItem?.mode ?? item.mode,
     });
   }
@@ -213,6 +227,7 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
         reasoningEffort: item.reasoningEffort,
         evaluatorId: item.evaluatorId,
         concurrency: item.concurrency,
+        repeat: item.repeat,
         mode: item.mode,
         selectedCases: jsonArray(item.selectedCases),
         limit: item.limit,
@@ -235,6 +250,7 @@ async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
         reasoningEffort: item.reasoningEffort,
         evaluatorId: item.evaluatorId,
         concurrency: item.concurrency,
+        repeat: item.repeat,
         mode: item.mode,
         selectedCases: jsonArray(item.selectedCases),
         limit: item.limit,
@@ -261,6 +277,12 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0
       ? Math.floor(options.limit)
       : null;
+  const mode = normalizeExecutionMode(options.mode);
+  const requestedEvaluatorId = stringValue(options.evaluatorId, DEFAULT_EVALUATOR_ID).trim() || DEFAULT_EVALUATOR_ID;
+  const evaluator = getEvalEvaluatorDefinition(requestedEvaluatorId);
+  if (!evaluator.supportedModes.includes(mode)) {
+    throw new Error(`${evaluator.id} 不支持 ${mode} 模式。`);
+  }
 
   return {
     id: 'eval-run-simulation',
@@ -271,9 +293,10 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     cli: EVAL_CLI,
     model: EVAL_MODEL,
     reasoningEffort: '',
-    evaluatorId: normalizeEvaluatorId(options.evaluatorId),
+    evaluatorId: evaluator.id,
     concurrency: normalizeEvalConcurrency(options.concurrency),
-    mode: normalizeExecutionMode(options.mode),
+    repeat: normalizeEvalRepeat(options.repeat),
+    mode,
     selectedCases,
     limit,
     keepProjects: Boolean(options.keepProjects),
@@ -519,6 +542,7 @@ function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
     '--trigger=eval-backend',
     `--evaluator=${item.evaluatorId}`,
     `--concurrency=${item.concurrency}`,
+    `--repeat=${item.repeat}`,
     `--mode=${item.mode}`,
     `--cli=${item.cli}`,
     `--model=${item.model}`,
@@ -559,6 +583,7 @@ function runBenchmarkQueueItem(item: QuantEvalQueueItem) {
         QUANTPILOT_EVAL_TRIGGER: 'eval-backend',
         QUANTPILOT_EVAL_EVALUATOR: item.evaluatorId,
         QUANTPILOT_EVAL_CONCURRENCY: String(item.concurrency),
+        QUANTPILOT_EVAL_REPEAT: String(item.repeat),
         QUANTPILOT_EVAL_MODE: item.mode,
         QUANTPILOT_EVAL_CLI: item.cli,
         QUANTPILOT_EVAL_MODEL: item.model,
@@ -749,8 +774,8 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
     id: 'evaluator',
     name: '评测器配置',
     status: virtualItem.evaluatorId ? 'passed' : 'failed',
-    summary: `${virtualItem.evaluatorId} · 并发上限 ${virtualItem.concurrency}`,
-    detail: null,
+    summary: `${virtualItem.evaluatorId}@${getEvalEvaluatorDefinition(virtualItem.evaluatorId).version} · 并发 ${virtualItem.concurrency} · 重复 ${virtualItem.repeat}`,
+    detail: getEvalEvaluatorDefinition(virtualItem.evaluatorId).rubricVersion,
   });
 
   const runtime = EVAL_RUNTIME_OPTIONS.find((option) => option.cli === virtualItem.cli);
@@ -834,6 +859,7 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
       keepProjects: virtualItem.keepProjects,
       caseCount: scopedCases.length,
       concurrency: virtualItem.concurrency,
+      repeat: virtualItem.repeat,
     },
     selectedCaseIds: scopedCases.map((testCase) => testCase.id),
     command,
@@ -949,6 +975,37 @@ export async function getQuantEvalDashboardData(): Promise<QuantEvalDashboardDat
   ]);
   const latestRun = runs[0] ?? null;
   const capabilities = new Set(cases.map((testCase) => testCase.capabilityId));
+  const mutationDir = path.join(ROOT, 'tmp', 'quantpilot-eval-mutations');
+  const mutationReport = await fs.readdir(mutationDir, { withFileTypes: true })
+    .then(async (entries) => {
+      const files = await Promise.all(entries
+        .filter((entry) => entry.isFile() && /^mutation-report-\d+\.json$/u.test(entry.name))
+        .map(async (entry) => {
+          const filePath = path.join(mutationDir, entry.name);
+          return { filePath, stat: await fs.stat(filePath) };
+        }));
+      const latest = files.sort((left, right) => right.stat.mtimeMs - left.stat.mtimeMs)[0];
+      return latest ? readJson(latest.filePath).then((value) => ({ value, filePath: latest.filePath })) : null;
+    })
+    .catch(() => null);
+  const datasetRegistry = await readJson(path.join(ROOT, 'benchmarks', 'quantpilot', 'datasets.json')).catch(() => null);
+  const snapshotManifest = await readJson(path.join(ROOT, 'benchmarks', 'quantpilot', 'snapshot-manifest.json')).catch(() => null);
+  const calibrationPath = path.resolve(
+    process.env.QUANTPILOT_EVAL_JUDGE_CALIBRATION_PATH ||
+      'benchmarks/quantpilot/judge-calibration.contract.json',
+  );
+  const calibrationDataset = await readJson(calibrationPath).catch(() => null);
+  const calibration = isRecord(calibrationDataset) && Array.isArray(calibrationDataset.samples)
+    ? evaluateEvalJudgeCalibration({
+        samples: calibrationDataset.samples as EvalJudgeCalibrationSample[],
+        requireIndependent: calibrationDataset.datasetKind === 'human_blind_calibration',
+      })
+    : null;
+  const mutation = mutationReport && isRecord(mutationReport.value) ? mutationReport.value : null;
+  const registryRecord = isRecord(datasetRegistry) ? datasetRegistry : {};
+  const snapshotRecord = isRecord(snapshotManifest) ? snapshotManifest : {};
+  const datasetDefinitions = readRecordArray(registryRecord.datasets);
+  const productionCaseCount = cases.filter((testCase) => testCase.productionSupported).length;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -964,6 +1021,41 @@ export async function getQuantEvalDashboardData(): Promise<QuantEvalDashboardDat
     latestRun,
     modelComparison: buildModelComparison(runs),
     skillVersionImpact: buildSkillVersionImpact(runs),
+    assurance: {
+      mutation: mutation
+        ? {
+            createdAt: stringValue(mutation.createdAt),
+            baselinePassed: booleanValue(mutation.baselinePassed),
+            total: numberValue(mutation.total),
+            killed: numberValue(mutation.killed),
+            survived: numberValue(mutation.survived),
+            killRate: numberValue(mutation.killRate),
+            reportPath: mutationReport ? path.relative(ROOT, mutationReport.filePath) : '',
+          }
+        : null,
+      datasets: {
+        publicCaseCount: cases.length,
+        productionCaseCount,
+        productionSnapshotCount: readRecordArray(snapshotRecord.snapshots)
+          .filter((snapshot) => cases.some((testCase) => testCase.productionSupported && testCase.id === snapshot.caseId))
+          .length,
+        hiddenConfigured: datasetDefinitions.some((item) =>
+          item.visibility === 'hidden' && Boolean(process.env[stringValue(item.pathEnv)])),
+        productionReplayConfigured: datasetDefinitions.some((item) =>
+          item.visibility === 'production_replay' && Boolean(process.env[stringValue(item.pathEnv)])),
+      },
+      judge: calibration && isRecord(calibrationDataset)
+        ? {
+            datasetKind: stringValue(calibrationDataset.datasetKind, 'unknown'),
+            productionCalibration: calibrationDataset.datasetKind === 'human_blind_calibration',
+            caseCount: calibration.summary.caseCount,
+            agreementRate: calibration.summary.verdictAgreementRate,
+            cohenKappa: calibration.summary.cohenKappa,
+            scoreMeanAbsoluteError: calibration.summary.scoreMeanAbsoluteError,
+            passed: calibration.passed,
+          }
+        : null,
+    },
     summary: {
       caseCount: cases.length,
       reportCount: runs.length,

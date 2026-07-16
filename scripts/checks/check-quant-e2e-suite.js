@@ -29,7 +29,7 @@ function main() {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status || 1);
-  console.log('[e2e-suite] repair/cancellation/crash runtime controls passed');
+  console.log('[e2e-suite] repair/recovery/security runtime controls passed');
 }
 
 try {

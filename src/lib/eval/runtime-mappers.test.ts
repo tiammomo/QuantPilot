@@ -41,6 +41,7 @@ describe('evaluation runtime mappers', () => {
       status: 'queued',
       evaluatorId: 'rule-strict',
       concurrency: 1,
+      repeat: 1,
       mode: 'contract',
       selectedCases: ['case-a'],
       createdAt: '2026-07-13T00:00:00.000Z',
@@ -56,6 +57,7 @@ describe('evaluation runtime mappers', () => {
       reasoningEffort: '',
       evaluatorId: 'rule-balanced',
       concurrency: 6,
+      repeat: 3,
       mode: 'e2e',
       selectedCases: ['stock-diagnosis-citic-no-false-clarification'],
       limit: 1,
@@ -75,6 +77,7 @@ describe('evaluation runtime mappers', () => {
       id: 'queue-e2e',
       evaluatorId: 'rule-balanced',
       concurrency: 6,
+      repeat: 3,
       mode: 'e2e',
       keepProjects: true,
     });

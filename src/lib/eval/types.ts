@@ -1,5 +1,11 @@
+import type { EvalSemanticReview, EvalStrategyCheck } from './evaluators';
+import type { EvalOracleAssertion } from './oracles';
+import type { EvalQualitySummary, EvalScoreDimension } from './scoring';
+import type { EvalTraceDiagnostics } from './trace-diagnostics';
+
 export type EvalCheckStatus = 'passed' | 'failed' | 'warning' | 'unknown';
 export type QuantEvalExecutionMode = 'contract' | 'e2e';
+export type QuantEvalCoverageLevel = 'routing' | 'contract' | 'live_e2e' | 'production';
 
 export interface QuantEvalCase {
   id: string;
@@ -17,6 +23,10 @@ export interface QuantEvalCase {
   expectedRawFiles: string[];
   expectedFinalFields: string[];
   tags: string[];
+  coverageLevel: QuantEvalCoverageLevel;
+  productionSupported: boolean;
+  oracleAssertions: EvalOracleAssertion[];
+  safetyTags: string[];
   hasImageAttachment: boolean;
   expectClarification: boolean;
   visualCheck: boolean;
@@ -62,6 +72,8 @@ export interface QuantEvalResult {
   requestId: string | null;
   durationMs: number;
   passed: boolean;
+  firstPassPassed: boolean;
+  finalPassed: boolean;
   score: number;
   failures: string[];
   symbols: string[];
@@ -160,6 +172,37 @@ export interface QuantEvalResult {
   tags: string[];
   validationStatus: EvalCheckStatus;
   validationChecks: QuantEvalCheck[];
+  evaluation: {
+    evaluatorId: string;
+    evaluatorVersion: string;
+    rubricVersion: string;
+    hardGatePassed: boolean;
+    passed: boolean;
+    score: number;
+    checks: EvalStrategyCheck[];
+    dimensions: EvalScoreDimension[];
+    semanticReview: EvalSemanticReview | null;
+  } | null;
+  stability: {
+    passed: boolean;
+    repeatCount: number;
+    passedAttempts: number;
+    passRate: number;
+    flaky: boolean;
+    attempts: Array<{
+      attempt: number;
+      passed: boolean;
+      firstPassPassed: boolean;
+      score: number;
+      durationMs: number;
+      repairAttempts: number;
+      projectId: string | null;
+      projectPath: string | null;
+      requestId: string | null;
+      failures: string[];
+      agentAttested: boolean | null;
+    }>;
+  } | null;
   eventAudit: {
     total: number;
     warningCount: number;
@@ -167,10 +210,18 @@ export interface QuantEvalResult {
     eventTypes: string[];
     stages: string[];
   } | null;
+  traceDiagnostics: EvalTraceDiagnostics | null;
   artifacts: QuantEvalArtifactSummary;
   visualCheck: {
     passed: boolean;
     screenshotPath: string | null;
+    screenshots: Array<{
+      viewport: string;
+      path: string;
+      width: number;
+      height: number;
+    }>;
+    accessibilityIssueCount: number;
     failures: string[];
   } | null;
 }
@@ -218,6 +269,8 @@ export interface QuantEvalRun {
     command: string[];
     evaluator: {
       id: string | null;
+      version?: string | null;
+      rubricVersion?: string | null;
       concurrency: number;
     };
     runtime: {
@@ -236,6 +289,12 @@ export interface QuantEvalRun {
       label: string;
       executionClass?: 'deterministic_contract' | 'live_mission_e2e' | string;
     };
+    dataset?: {
+      schemaVersion: number;
+      visibility: 'public' | 'hidden' | 'production_replay';
+      promptsRedacted: boolean;
+      sourceIdentitySha256: string | null;
+    };
     retention?: {
       databaseEvidenceRetained: boolean;
       workspaceRetained: boolean;
@@ -247,6 +306,19 @@ export interface QuantEvalRun {
       frameworkVersion?: string | null;
       casesSha256: string | null;
       promptsSha256: string | null;
+      datasetRegistrySha256?: string | null;
+      snapshotManifestSha256?: string | null;
+    };
+    dataSnapshots?: {
+      schemaVersion: number;
+      manifestId: string | null;
+      manifestVersion: string | null;
+      selected: Array<{
+        caseId: string;
+        id: string;
+        asOf: string;
+        payloadSha256: string;
+      }>;
     };
     /** Duplicated into metadata JSON so DB-backed report reads retain it. */
     e2eQuality?: QuantEvalE2eQuality | null;
@@ -256,6 +328,7 @@ export interface QuantEvalRun {
       keepProjects: boolean;
       caseCount: number;
       concurrency: number;
+      repeat: number;
     };
     skillLockSnapshot: {
       schemaVersion: string | number | null;
@@ -273,16 +346,20 @@ export interface QuantEvalRun {
       >;
     };
   };
+  qualitySummary: EvalQualitySummary;
   e2eQuality: QuantEvalE2eQuality | null;
   coverage: {
     byCapability: Record<string, { total: number; passed: number; failed: number }>;
     byType: Record<string, { total: number; passed: number; failed: number }>;
     byTag: Record<string, { total: number; passed: number; failed: number }>;
+    byLevel: Record<QuantEvalCoverageLevel, Record<string, { total: number; passed: number; failed: number }>>;
+    caseLevels: Record<string, QuantEvalCoverageLevel[]>;
     caseTags: Record<string, string[]>;
     failedTags: Record<string, string[]>;
     requiredCoverage: {
       capabilities: string[];
       tags: string[];
+      levels: Partial<Record<QuantEvalCoverageLevel, string[]>>;
     };
   };
   results: QuantEvalResult[];
@@ -302,6 +379,33 @@ export interface QuantEvalDashboardData {
   latestRun: QuantEvalRun | null;
   modelComparison: QuantEvalModelComparison[];
   skillVersionImpact: QuantEvalSkillVersionImpact[];
+  assurance: {
+    mutation: {
+      createdAt: string;
+      baselinePassed: boolean;
+      total: number;
+      killed: number;
+      survived: number;
+      killRate: number;
+      reportPath: string;
+    } | null;
+    datasets: {
+      publicCaseCount: number;
+      productionCaseCount: number;
+      productionSnapshotCount: number;
+      hiddenConfigured: boolean;
+      productionReplayConfigured: boolean;
+    };
+    judge: {
+      datasetKind: string;
+      productionCalibration: boolean;
+      caseCount: number;
+      agreementRate: number;
+      cohenKappa: number;
+      scoreMeanAbsoluteError: number;
+      passed: boolean;
+    } | null;
+  };
   summary: {
     caseCount: number;
     reportCount: number;
@@ -327,6 +431,10 @@ export interface CreateQuantEvalCaseInput {
   expectedDatasets?: string[];
   expectedRawFiles?: string[];
   expectedFinalFields?: string[];
+  coverageLevel?: QuantEvalCoverageLevel;
+  productionSupported?: boolean;
+  oracleAssertions?: EvalOracleAssertion[];
+  safetyTags?: string[];
   expectClarification?: boolean;
   visualCheck?: boolean;
 }
@@ -362,6 +470,7 @@ export interface QuantEvalQueueItem {
   reasoningEffort: string;
   evaluatorId: string;
   concurrency: number;
+  repeat: number;
   mode: QuantEvalExecutionMode;
   selectedCases: string[];
   limit: number | null;
@@ -408,6 +517,7 @@ export interface StartQuantEvalOptions {
   reasoningEffort?: string;
   evaluatorId?: string;
   concurrency?: number;
+  repeat?: number;
   mode?: QuantEvalExecutionMode;
   selectedCases?: string[];
   limit?: number | null;
@@ -441,6 +551,7 @@ export interface QuantEvalFlowSimulation {
     keepProjects: boolean;
     caseCount: number;
     concurrency: number;
+    repeat: number;
   };
   selectedCaseIds: string[];
   command: string[];

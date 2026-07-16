@@ -9,6 +9,7 @@ const REQUIRED_SCENARIOS = Object.freeze([
   'fundamental',
   'portfolio',
   'cancellation-or-crash',
+  'security-boundary',
 ]);
 
 const LIVE_MODEL_SCENARIOS = new Set([

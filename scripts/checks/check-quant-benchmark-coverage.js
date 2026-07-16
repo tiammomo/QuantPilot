@@ -5,6 +5,12 @@ const path = require('path');
 const { loadQuantE2eSuite } = require('./quant-e2e-suite');
 
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
+const CASE_COVERAGE_LEVELS = new Set(['routing', 'contract']);
+const ORACLE_TARGETS = new Set(['finalData', 'sources', 'quality', 'page']);
+const ORACLE_OPERATORS = new Set([
+  'exists', 'not_exists', 'equals', 'not_equals', 'gte', 'lte', 'between',
+  'contains', 'not_contains', 'matches', 'not_matches', 'length_gte', 'length_lte',
+]);
 
 function fail(message, details = []) {
   console.error(`[benchmark-coverage] failed: ${message}`);
@@ -33,6 +39,11 @@ function caseTags(testCase) {
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (testCase.type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  const coverageLevel = testCase.coverageLevel ||
+    (testCase.type === 'renderer_capability_contract' ? 'routing' : 'contract');
+  tags.add(`coverage:${coverageLevel}`);
+  if (testCase.productionSupported) tags.add('coverage:production');
+  for (const safetyTag of testCase.safetyTags || []) tags.add(`safety:${safetyTag}`);
   for (const expectation of testCase.selectionExpectations || []) {
     if (expectation.capabilityId) tags.add(expectation.capabilityId);
     if (expectation.expectedTemplateId) tags.add(`template:${expectation.expectedTemplateId}`);
@@ -50,6 +61,8 @@ function main() {
   const ids = new Set();
   const duplicateIds = [];
   const capabilities = new Set();
+  const routingCapabilities = new Set();
+  const productionCapabilities = new Set();
   const tags = new Set();
   const schemaProblems = [];
 
@@ -62,8 +75,63 @@ function main() {
     }
     ids.add(testCase.id);
     capabilities.add(testCase.capabilityId);
+    if (testCase.productionSupported === true) productionCapabilities.add(testCase.capabilityId);
+    if (testCase.productionSupported !== undefined && typeof testCase.productionSupported !== 'boolean') {
+      schemaProblems.push(`${testCase.id} 的 productionSupported 必须是 boolean。`);
+    }
+    if (testCase.coverageLevel !== undefined && !CASE_COVERAGE_LEVELS.has(testCase.coverageLevel)) {
+      schemaProblems.push(`${testCase.id} 的 coverageLevel 无效：${testCase.coverageLevel}`);
+    }
+    if (testCase.type === 'renderer_capability_contract' && testCase.productionSupported === true) {
+      schemaProblems.push(`${testCase.id} 是 routing-only renderer contract，不能声明 productionSupported。`);
+    }
+    if (testCase.type === 'renderer_capability_contract') {
+      routingCapabilities.add(testCase.capabilityId);
+    }
     for (const expectation of testCase.selectionExpectations || []) {
-      if (expectation.capabilityId) capabilities.add(expectation.capabilityId);
+      if (expectation.capabilityId) routingCapabilities.add(expectation.capabilityId);
+    }
+    const oracleIds = new Set();
+    for (const assertion of testCase.oracleAssertions || []) {
+      if (!assertion.id || !assertion.target || !assertion.operator) {
+        schemaProblems.push(`${testCase.id} 的 oracleAssertions 必须包含 id/target/operator。`);
+      }
+      if (!ORACLE_TARGETS.has(assertion.target)) {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 oracle target 无效：${assertion.target}`);
+      }
+      if (!ORACLE_OPERATORS.has(assertion.operator)) {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 oracle operator 无效：${assertion.operator}`);
+      }
+      if (assertion.severity !== undefined && !['error', 'warning'].includes(assertion.severity)) {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 severity 必须是 error 或 warning。`);
+      }
+      if (assertion.path !== undefined && typeof assertion.path !== 'string') {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 path 必须是字符串。`);
+      }
+      if (assertion.operator === 'between' &&
+        (!Number.isFinite(assertion.min) || !Number.isFinite(assertion.max) || assertion.min > assertion.max)) {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 between 必须声明有效 min/max。`);
+      }
+      if (!['exists', 'not_exists', 'between'].includes(assertion.operator) &&
+        assertion.value === undefined) {
+        schemaProblems.push(`${testCase.id}/${assertion.id} 的 ${assertion.operator} 必须声明 value。`);
+      }
+      if (oracleIds.has(assertion.id)) {
+        schemaProblems.push(`${testCase.id} 包含重复 oracle id：${assertion.id}`);
+      }
+      oracleIds.add(assertion.id);
+    }
+    if (testCase.safetyTags !== undefined &&
+      (!Array.isArray(testCase.safetyTags) || testCase.safetyTags.some((tag) => typeof tag !== 'string' || !tag.trim()))) {
+      schemaProblems.push(`${testCase.id} 的 safetyTags 必须是非空字符串数组。`);
+    }
+    if (testCase.productionSupported === true &&
+      (!Array.isArray(testCase.oracleAssertions) || testCase.oracleAssertions.length === 0)) {
+      schemaProblems.push(`${testCase.id} 声明 productionSupported 时必须提供 oracleAssertions。`);
+    }
+    if (testCase.productionSupported === true &&
+      (!Array.isArray(testCase.safetyTags) || testCase.safetyTags.length === 0)) {
+      schemaProblems.push(`${testCase.id} 声明 productionSupported 时必须提供 safetyTags。`);
     }
     for (const tag of caseTags(testCase)) {
       tags.add(tag);
@@ -77,9 +145,9 @@ function main() {
     'asset_comparison',
     'portfolio_risk',
     'stock_diagnosis',
-    'sector_rotation',
-    'strategy_research',
   ];
+  const requiredRoutingCapabilities = ['sector_rotation', 'strategy_research'];
+  const requiredProductionCapabilities = [...requiredCapabilities];
   const requiredTags = [
     'asset:stock',
     'asset:index',
@@ -108,11 +176,15 @@ function main() {
   ];
 
   const missingCapabilities = requiredCapabilities.filter((item) => !capabilities.has(item));
+  const missingRoutingCapabilities = requiredRoutingCapabilities.filter((item) => !routingCapabilities.has(item));
+  const missingProductionCapabilities = requiredProductionCapabilities.filter((item) => !productionCapabilities.has(item));
   const missingTags = requiredTags.filter((item) => !tags.has(item));
   const problems = [
     ...schemaProblems,
     ...duplicateIds.map((id) => `重复用例 id：${id}`),
     ...missingCapabilities.map((item) => `缺少能力覆盖：${item}`),
+    ...missingRoutingCapabilities.map((item) => `缺少路由覆盖：${item}`),
+    ...missingProductionCapabilities.map((item) => `缺少明确产品支持声明：${item}`),
     ...missingTags.map((item) => `缺少覆盖标签：${item}`),
   ];
 
@@ -127,9 +199,23 @@ function main() {
       cases,
       requireReleaseCoverage: true,
     });
+    const liveCapabilities = new Set(
+      e2eSuite.caseIds.map((id) => e2eSuite.caseById.get(id)?.capabilityId).filter(Boolean),
+    );
+    const requiredLiveCapabilities = [
+      'fundamental_analysis',
+      'technical_analysis',
+      'portfolio_risk',
+      'stock_diagnosis',
+    ];
+    const missingLiveCapabilities = requiredLiveCapabilities.filter((item) => !liveCapabilities.has(item));
+    if (missingLiveCapabilities.length > 0) {
+      fail('真实 E2E 能力覆盖不足。', missingLiveCapabilities.map((item) => `缺少 live E2E：${item}`));
+      return;
+    }
     console.log(
       `[benchmark-coverage] e2e=${e2eSuite.id} live-model=${e2eSuite.caseIds.length} ` +
-      `product-controls=${e2eSuite.productControlCaseIds.length} ` +
+      `live-capabilities=${liveCapabilities.size} product-controls=${e2eSuite.productControlCaseIds.length} ` +
       `runtime-tests=${e2eSuite.runtimeTestFiles.length}`,
     );
   } catch (error) {
@@ -138,7 +224,11 @@ function main() {
   }
 
   console.log('[benchmark-coverage] ok');
-  console.log(`[benchmark-coverage] cases=${cases.length} capabilities=${capabilities.size} tags=${tags.size}`);
+  console.log(
+    `[benchmark-coverage] cases=${cases.length} contract-capabilities=${capabilities.size} ` +
+      `routing-only-capabilities=${routingCapabilities.size} production-capabilities=${productionCapabilities.size} ` +
+      `tags=${tags.size}`,
+  );
 }
 
 main();

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "stock-fundamental-maotai",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["600519"],
+  "oracleIds": ["fundamental-symbol", "fundamental-source", "no-guaranteed-return"]
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "datasetKind": "oracle_fixture",
+  "caseId": "portfolio-risk-adjustment",
+  "asOf": "2026-07-15T07:00:00.000Z",
+  "expectedSymbols": ["600126", "601816", "002555", "600916", "002624"],
+  "oracleIds": ["portfolio-holdings", "portfolio-no-guarantee"]
+}

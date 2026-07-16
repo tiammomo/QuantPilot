@@ -151,6 +151,10 @@ function CreateCaseSheet({
   const [expectedDatasets, setExpectedDatasets] = useState('');
   const [expectedRawFiles, setExpectedRawFiles] = useState('');
   const [expectedFinalFields, setExpectedFinalFields] = useState('');
+  const [coverageLevel, setCoverageLevel] = useState('contract');
+  const [productionSupported, setProductionSupported] = useState(false);
+  const [safetyTags, setSafetyTags] = useState('');
+  const [oracleAssertions, setOracleAssertions] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -173,6 +177,10 @@ function CreateCaseSheet({
     setExpectedDatasets('');
     setExpectedRawFiles('');
     setExpectedFinalFields('');
+    setCoverageLevel('contract');
+    setProductionSupported(false);
+    setSafetyTags('');
+    setOracleAssertions('');
     setError(null);
   };
 
@@ -193,6 +201,12 @@ function CreateCaseSheet({
             setIsSaving(true);
             setError(null);
             try {
+              let parsedOracleAssertions: unknown[] = [];
+              if (oracleAssertions.trim()) {
+                const parsed = JSON.parse(oracleAssertions);
+                if (!Array.isArray(parsed)) throw new Error('事实 / 安全 oracle 必须是 JSON 数组。');
+                parsedOracleAssertions = parsed;
+              }
               await onCreateCase({
                 id: id.trim() || undefined,
                 name: name.trim(),
@@ -206,6 +220,10 @@ function CreateCaseSheet({
                 expectedDatasets: splitList(expectedDatasets),
                 expectedRawFiles: splitList(expectedRawFiles),
                 expectedFinalFields: splitList(expectedFinalFields),
+                coverageLevel,
+                productionSupported,
+                safetyTags: splitList(safetyTags),
+                oracleAssertions: parsedOracleAssertions,
               });
               reset();
               onOpenChange(false);
@@ -288,6 +306,48 @@ function CreateCaseSheet({
             <div className="space-y-1.5">
               <Label htmlFor="case-final-fields">预期最终字段</Label>
               <Textarea id="case-final-fields" value={expectedFinalFields} onChange={(event) => setExpectedFinalFields(event.target.value)} placeholder="assets, comparison, selectionRanking" />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>覆盖层级</Label>
+                <EvalSelect
+                  value={coverageLevel}
+                  onValueChange={setCoverageLevel}
+                  options={[
+                    { value: 'routing', label: 'routing · 路由识别' },
+                    { value: 'contract', label: 'contract · 确定性契约' },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="case-safety-tags">安全标签</Label>
+                <Input id="case-safety-tags" value={safetyTags} onChange={(event) => setSafetyTags(event.target.value)} placeholder="no_guaranteed_return, source_grounding" />
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={productionSupported}
+                onChange={(event) => setProductionSupported(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border bg-background"
+              />
+              <span>
+                <span className="block font-medium text-foreground">产品支持范围</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">启用后应同时提供事实 oracle 和安全标签。</span>
+              </span>
+            </label>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="case-oracles">事实 / 安全 oracle（JSON 数组）</Label>
+              <Textarea
+                id="case-oracles"
+                value={oracleAssertions}
+                onChange={(event) => setOracleAssertions(event.target.value)}
+                placeholder={'[{"id":"symbol","target":"finalData","path":"symbol","operator":"equals","value":"600519"}]'}
+                className="min-h-28 font-mono text-xs"
+              />
             </div>
           </div>
 
@@ -588,14 +648,22 @@ export function EvalCasesView({
                         <Badge variant="outline" className="whitespace-nowrap border-blue-500/20 bg-blue-500/5 text-[10px] text-primary">
                           {testCase.typeLabel}
                         </Badge>
-                        {testCase.tags.slice(0, 1).map((tag) => (
-                          <Badge key={tag} variant="outline" className="max-w-[132px] whitespace-nowrap border-border/50 text-[10px] text-muted-foreground">
-                            <span className="truncate">{tag}</span>
+                        <Badge variant="outline" className="whitespace-nowrap border-border/50 text-[10px] text-muted-foreground">
+                          {testCase.coverageLevel}
+                        </Badge>
+                        {testCase.oracleAssertions.length > 0 && (
+                          <Badge variant="outline" className="whitespace-nowrap border-emerald-500/20 bg-emerald-500/5 text-[10px] text-emerald-500">
+                            {testCase.oracleAssertions.length} oracle
                           </Badge>
-                        ))}
-                        {testCase.tags.length > 1 && (
+                        )}
+                        {testCase.productionSupported && (
+                          <Badge variant="outline" className="whitespace-nowrap border-violet-500/20 bg-violet-500/5 text-[10px] text-violet-500">
+                            production
+                          </Badge>
+                        )}
+                        {testCase.tags.length > 0 && (
                           <Badge variant="secondary" className="h-5 rounded px-1.5 text-[10px]">
-                            +{testCase.tags.length - 1}
+                            +{testCase.tags.length}
                           </Badge>
                         )}
                       </div>
@@ -668,6 +736,8 @@ export function EvalCasesView({
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
                       <Badge variant="outline" className="border-primary/20 bg-primary/5 text-[10px] text-primary">{testCase.capabilityLabel}</Badge>
                       <Badge variant="outline" className="text-[10px] text-muted-foreground">{testCase.typeLabel}</Badge>
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">{testCase.coverageLevel}</Badge>
+                      {testCase.oracleAssertions.length > 0 && <Badge variant="outline" className="text-[10px] text-emerald-500">{testCase.oracleAssertions.length} oracle</Badge>}
                       {testCase.expectedSymbols.length > 0 && <Badge variant="secondary" className="font-mono text-[10px]">{testCase.expectedSymbols.slice(0, 2).join(', ')}</Badge>}
                     </div>
                     <div className="mt-3 flex items-center justify-between border-t border-border/30 pt-3">

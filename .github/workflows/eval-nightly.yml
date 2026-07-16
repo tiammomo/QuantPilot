@@ -59,6 +59,12 @@ jobs:
           uv sync --project services/market-data --locked --all-groups
           npm run prisma:generate
 
+      - name: Verify evaluation assurance contracts
+        run: |
+          npm run check:eval-datasets
+          npm run check:eval-mutations
+          npm run check:eval-judge-calibration
+
       - name: Start data infrastructure
         run: |
           docker compose up -d --wait timescaledb redis
@@ -78,10 +84,10 @@ jobs:
         run: node scripts/checks/check-quant-e2e-suite.js --run-runtime-controls
 
       - name: Run real DeepSeek regression suite
-        run: npm run benchmark:quant:e2e -- --concurrency 1
+        run: npm run benchmark:quant:e2e -- --concurrency 1 --repeat 2
 
       - name: Enforce E2E gate
-        run: npm run eval:ci:e2e -- --min-pass-rate 100 --min-average-score 90
+        run: npm run eval:ci:e2e -- --min-pass-rate 100 --min-average-score 90 --min-first-pass-rate 75 --max-repair-rate 25 --min-stability-rate 100 --min-stability-confidence-lower 60 --max-score-standard-deviation 10
 
       - name: Upload evaluation evidence
         if: always()
@@ -93,6 +99,7 @@ jobs:
           path: |
             tmp/quantpilot-benchmark-reports/
             tmp/quantpilot-benchmark-screenshots/
+            tmp/quantpilot-eval-mutations/
             tmp/eval-market.log
 
       - name: Stop infrastructure

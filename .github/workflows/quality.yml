@@ -57,6 +57,15 @@ jobs:
       - name: Benchmark coverage
         run: npm run check:benchmark-coverage
 
+      - name: Evaluation dataset and snapshot contracts
+        run: npm run check:eval-datasets
+
+      - name: Evaluator mutation kill-rate
+        run: npm run check:eval-mutations
+
+      - name: Judge calibration pipeline
+        run: npm run check:eval-judge-calibration
+
       - name: Eval schedule contract
         run: npm run check:eval-schedule
 
@@ -148,7 +157,7 @@ jobs:
         run: npm run test:moagent:postgres
 
       - name: Enforce contract gate
-        run: npm run eval:ci -- --min-pass-rate 100 --min-average-score 90
+        run: npm run eval:ci -- --min-pass-rate 100 --min-average-score 90 --min-first-pass-rate 100 --max-repair-rate 0 --min-stability-rate 100 --min-stability-confidence-lower 75 --max-score-standard-deviation 0
 
       - name: Upload contract evidence
         if: always()
@@ -160,6 +169,7 @@ jobs:
           path: |
             tmp/quantpilot-benchmark-reports/
             tmp/quantpilot-benchmark-screenshots/
+            tmp/quantpilot-eval-mutations/
             tmp/contract-market.log
 
       - name: Stop infrastructure

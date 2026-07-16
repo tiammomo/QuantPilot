@@ -64,6 +64,16 @@
         "src/lib/services/moagent-recovery.test.ts",
         "src/lib/agent/runtime/workspace-mutation-journal.test.ts"
       ]
+    },
+    "security-boundary": {
+      "evidenceClass": "runtime_test",
+      "caseIds": [],
+      "runtimeTests": [
+        "src/lib/agent/context/trusted-context-capsule.test.ts",
+        "src/lib/agent/tools/filesystem.test.ts",
+        "src/lib/agent/tools/structured-read.test.ts",
+        "src/lib/agent/runtime/event-projector.test.ts"
+      ]
     }
   }
 }

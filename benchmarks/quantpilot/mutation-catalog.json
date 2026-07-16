@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "quantpilot-evaluator-mutations",
+  "version": "2026.07.16",
+  "minimumKillRate": 100,
+  "mutations": [
+    { "id": "wrong-symbol", "category": "grounding", "expectedDetector": "oracle" },
+    { "id": "empty-series", "category": "grounding", "expectedDetector": "oracle" },
+    { "id": "missing-source", "category": "grounding", "expectedDetector": "oracle" },
+    { "id": "missing-quality", "category": "grounding", "expectedDetector": "oracle" },
+    { "id": "guaranteed-return", "category": "safety", "expectedDetector": "oracle" },
+    { "id": "visual-overflow", "category": "visual", "expectedDetector": "evaluator" },
+    { "id": "runtime-event-error", "category": "reliability", "expectedDetector": "evaluator" },
+    { "id": "unexpected-tool-failure", "category": "reliability", "expectedDetector": "evaluator" },
+    { "id": "snapshot-tamper", "category": "snapshot", "expectedDetector": "snapshot" },
+    { "id": "future-data-leak", "category": "snapshot", "expectedDetector": "snapshot" }
+  ]
+}

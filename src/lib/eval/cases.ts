@@ -1,6 +1,13 @@
 import { EVAL_CAPABILITY_LABELS, EVAL_TYPE_LABELS } from './constants';
+import type { EvalOracleAssertion } from './oracles';
 import { CASES_PATH, EVAL_SETS_PATH } from './paths';
-import type { CreateQuantEvalCaseInput, CreateQuantEvalSetInput, QuantEvalCase, QuantEvalSetDefinition } from './types';
+import type {
+  CreateQuantEvalCaseInput,
+  CreateQuantEvalSetInput,
+  QuantEvalCase,
+  QuantEvalCoverageLevel,
+  QuantEvalSetDefinition,
+} from './types';
 import {
   booleanValue,
   readJson,
@@ -17,6 +24,15 @@ function inferCaseType(testCase: JsonRecord): string {
   if (explicitType) return explicitType;
   if (booleanValue(testCase.expectClarification)) return 'clarification_required';
   return 'generated_project';
+}
+
+function inferCoverageLevel(testCase: JsonRecord): QuantEvalCoverageLevel {
+  const explicit = stringValue(testCase.coverageLevel);
+  if (explicit === 'routing' || explicit === 'contract' || explicit === 'live_e2e' || explicit === 'production') {
+    return explicit;
+  }
+  if (inferCaseType(testCase) === 'renderer_capability_contract') return 'routing';
+  return 'contract';
 }
 
 function buildCaseTags(testCase: JsonRecord): string[] {
@@ -42,6 +58,10 @@ function buildCaseTags(testCase: JsonRecord): string[] {
   if (type === 'source_degradation_contract') tags.add('data:source_degradation');
   if (type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (type === 'renderer_capability_contract') tags.add('dashboard:renderer_capability');
+  const coverageLevel = inferCoverageLevel(testCase);
+  tags.add(`coverage:${coverageLevel}`);
+  if (booleanValue(testCase.productionSupported)) tags.add('coverage:production');
+  for (const safetyTag of stringArray(testCase.safetyTags)) tags.add(`safety:${safetyTag}`);
   for (const expectation of readRecordArray(testCase.selectionExpectations)) {
     const nestedCapabilityId = stringValue(expectation.capabilityId);
     const nestedTemplateId = stringValue(expectation.expectedTemplateId);
@@ -81,6 +101,10 @@ export function normalizeCase(testCase: JsonRecord): QuantEvalCase {
     expectedRawFiles: stringArray(testCase.expectedRawFiles),
     expectedFinalFields: stringArray(testCase.expectedFinalFields),
     tags: buildCaseTags(testCase),
+    coverageLevel: inferCoverageLevel(testCase),
+    productionSupported: booleanValue(testCase.productionSupported),
+    oracleAssertions: readRecordArray(testCase.oracleAssertions) as unknown as EvalOracleAssertion[],
+    safetyTags: stringArray(testCase.safetyTags),
     hasImageAttachment: Boolean(testCase.imageAttachment),
     expectClarification: booleanValue(testCase.expectClarification),
     visualCheck: booleanValue(testCase.visualCheck),
@@ -105,6 +129,66 @@ function normalizeStringList(value: unknown): string[] {
     return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
   }
   return [];
+}
+
+const ORACLE_TARGETS = new Set(['finalData', 'sources', 'quality', 'page']);
+const ORACLE_OPERATORS = new Set([
+  'exists', 'not_exists', 'equals', 'not_equals', 'gte', 'lte', 'between',
+  'contains', 'not_contains', 'matches', 'not_matches', 'length_gte', 'length_lte',
+]);
+
+function validateOracleAssertions(value: unknown): EvalOracleAssertion[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error('oracleAssertions 必须是数组。');
+  const ids = new Set<string>();
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`第 ${index + 1} 条 oracle 必须是对象。`);
+    }
+    const assertion = item as unknown as EvalOracleAssertion;
+    if (!assertion.id || typeof assertion.id !== 'string' || !/^[\w:-]+$/u.test(assertion.id)) {
+      throw new Error(`第 ${index + 1} 条 oracle 缺少有效 id。`);
+    }
+    if (ids.has(assertion.id)) throw new Error(`oracle id 重复：${assertion.id}`);
+    ids.add(assertion.id);
+    if (!ORACLE_TARGETS.has(assertion.target)) {
+      throw new Error(`${assertion.id} 的 target 无效。`);
+    }
+    if (!ORACLE_OPERATORS.has(assertion.operator)) {
+      throw new Error(`${assertion.id} 的 operator 无效。`);
+    }
+    if (assertion.path !== undefined && typeof assertion.path !== 'string') {
+      throw new Error(`${assertion.id} 的 path 必须是字符串。`);
+    }
+    if (assertion.severity !== undefined && assertion.severity !== 'error' && assertion.severity !== 'warning') {
+      throw new Error(`${assertion.id} 的 severity 必须是 error 或 warning。`);
+    }
+    if (assertion.operator === 'between' &&
+      (typeof assertion.min !== 'number' || !Number.isFinite(assertion.min) ||
+        typeof assertion.max !== 'number' || !Number.isFinite(assertion.max) ||
+        assertion.min > assertion.max)) {
+      throw new Error(`${assertion.id} 的 between 必须声明有效 min/max。`);
+    }
+    if (!['exists', 'not_exists', 'between'].includes(assertion.operator) && assertion.value === undefined) {
+      throw new Error(`${assertion.id} 的 ${assertion.operator} 必须声明 value。`);
+    }
+    if (assertion.tolerance !== undefined &&
+      (typeof assertion.tolerance !== 'number' || !Number.isFinite(assertion.tolerance) || assertion.tolerance < 0)) {
+      throw new Error(`${assertion.id} 的 tolerance 必须是非负数。`);
+    }
+    if ((assertion.operator === 'matches' || assertion.operator === 'not_matches') &&
+      (typeof assertion.value !== 'string' || assertion.value.length > 500)) {
+      throw new Error(`${assertion.id} 的正则必须是长度不超过 500 的字符串。`);
+    }
+    if ((assertion.operator === 'matches' || assertion.operator === 'not_matches') && typeof assertion.value === 'string') {
+      try {
+        new RegExp(assertion.value, 'iu');
+      } catch {
+        throw new Error(`${assertion.id} 的正则表达式无效。`);
+      }
+    }
+    return assertion;
+  });
 }
 
 function normalizeCustomEvalSet(value: JsonRecord): QuantEvalSetDefinition {
@@ -175,9 +259,23 @@ export async function createQuantEvalCase(input: CreateQuantEvalCaseInput): Prom
   const expectedDatasets = normalizeStringList(input.expectedDatasets);
   const expectedRawFiles = normalizeStringList(input.expectedRawFiles);
   const expectedFinalFields = normalizeStringList(input.expectedFinalFields);
+  const oracleAssertions = validateOracleAssertions(input.oracleAssertions);
+  const safetyTags = normalizeStringList(input.safetyTags);
+  if (input.productionSupported && oracleAssertions.length === 0) {
+    throw new Error('产品支持用例必须至少提供一条事实或安全 oracle。');
+  }
+  if (input.productionSupported && safetyTags.length === 0) {
+    throw new Error('产品支持用例必须至少提供一个安全标签。');
+  }
   if (expectedDatasets.length) record.expectedDatasets = expectedDatasets;
   if (expectedRawFiles.length) record.expectedRawFiles = expectedRawFiles;
   if (expectedFinalFields.length) record.expectedFinalFields = expectedFinalFields;
+  if (input.coverageLevel) record.coverageLevel = input.coverageLevel;
+  if (input.productionSupported) record.productionSupported = true;
+  if (oracleAssertions.length > 0) {
+    record.oracleAssertions = oracleAssertions as unknown as JsonRecord[];
+  }
+  if (safetyTags.length) record.safetyTags = safetyTags;
   if (input.expectClarification) record.expectClarification = true;
   if (input.visualCheck) record.visualCheck = true;
 

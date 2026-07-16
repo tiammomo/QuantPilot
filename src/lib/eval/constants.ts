@@ -36,4 +36,6 @@ export const EVAL_TYPE_LABELS: Record<string, string> = {
   runtime_registry: '运行时注册',
   repair_plan: '修复计划',
   source_degradation_contract: '信源降级',
+  renderer_capability_contract: '渲染能力路由',
+  security_policy_contract: '安全策略',
 };

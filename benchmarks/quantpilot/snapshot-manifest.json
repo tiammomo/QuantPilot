@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "id": "quantpilot-production-oracle-snapshots",
+  "version": "2026.07.16",
+  "snapshots": [
+    {
+      "schemaVersion": 1,
+      "id": "stock-fundamental-maotai-v1",
+      "caseId": "stock-fundamental-maotai",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/stock-fundamental-maotai.json",
+      "payloadSha256": "2cb297b96210e859ccbbdadced045f05b2ece8dd998c78deb176639122929f0b",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "none",
+      "observation": { "minAt": "2026-07-15T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 3 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "index-technical-hs300-v1",
+      "caseId": "index-technical-hs300",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/index-technical-hs300.json",
+      "payloadSha256": "e259d14735d960f4f3ac139c99ac6a57356a1c790487f94497b2d4021ed054b3",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "qfq",
+      "observation": { "minAt": "2026-01-16T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 120 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "backtest-300etf-ma-crossover-v1",
+      "caseId": "backtest-300etf-ma-crossover",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/backtest-300etf-ma-crossover.json",
+      "payloadSha256": "5e75511f4b9cc21a1d597b397989953bd37d4d2a21bfdc99c23b35cf7eef9200",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "qfq",
+      "observation": { "minAt": "2025-07-15T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 244 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "asset-comparison-bluechips-v1",
+      "caseId": "asset-comparison-bluechips",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/asset-comparison-bluechips.json",
+      "payloadSha256": "c8a7187efe8fa1556c6030a47603f0eaee26ab5584c14b81d2d2376857fc343e",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "mixed",
+      "observation": { "minAt": "2026-01-16T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 360 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "portfolio-risk-adjustment-v1",
+      "caseId": "portfolio-risk-adjustment",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/portfolio-risk-adjustment.json",
+      "payloadSha256": "e24db31d14468df45fb5130e40e0b2f0a641dc4aa8775321f6ff52a3c35f4b00",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "mixed",
+      "observation": { "minAt": "2026-01-16T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 600 }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "stock-diagnosis-citic-no-false-clarification-v1",
+      "caseId": "stock-diagnosis-citic-no-false-clarification",
+      "datasetKind": "oracle_fixture",
+      "fixturePath": "snapshots/stock-diagnosis-citic-no-false-clarification.json",
+      "payloadSha256": "165c821e3adbcb38207caecbc108af71a38d26bd1a6bd23446766f2ae81f62ec",
+      "asOf": "2026-07-15T07:00:00.000Z",
+      "capturedAt": "2026-07-15T08:00:00.000Z",
+      "source": { "provider": "quantpilot-eval-golden", "version": "1" },
+      "tradingCalendarVersion": "cn-trading-calendar-2026.07",
+      "adjustment": "qfq",
+      "observation": { "minAt": "2026-01-16T07:00:00.000Z", "maxAt": "2026-07-15T07:00:00.000Z", "count": 120 }
+    }
+  ]
+}

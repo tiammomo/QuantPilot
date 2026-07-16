@@ -65,6 +65,7 @@ type RunTrendPoint = {
   fullTime: string;
   runIndex: number;
   passRate: number;
+  firstPassRate: number;
   score: number;
 };
 
@@ -136,6 +137,7 @@ function RunsOverTimeChart({ runs }: { runs: QuantEvalRun[] }) {
       fullTime: isValidDate ? date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '-',
       runIndex: runIndexOffset + i + 1,
       passRate: run.passRate,
+      firstPassRate: run.qualitySummary.firstPassRate,
       score: run.averageScore,
     };
   });
@@ -150,7 +152,8 @@ function RunsOverTimeChart({ runs }: { runs: QuantEvalRun[] }) {
           contentStyle={chartTooltipStyle}
           content={<RunTrendTooltip />}
         />
-        <Line type="monotone" dataKey="passRate" stroke="hsl(160,60%,45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(160,60%,45%)' }} name="通过率" />
+        <Line type="monotone" dataKey="firstPassRate" stroke="hsl(38,90%,55%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(38,90%,55%)' }} name="首轮通过率" />
+        <Line type="monotone" dataKey="passRate" stroke="hsl(160,60%,45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(160,60%,45%)' }} name="最终通过率" />
         <Line type="monotone" dataKey="score" stroke="hsl(217,91%,60%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(217,91%,60%)' }} name="平均分" />
       </LineChart>
     </ResponsiveContainer>
@@ -178,7 +181,7 @@ function RunTrendTooltip({
             <span className="text-muted-foreground">{item.name}</span>
             <span className="font-semibold tabular-nums text-foreground">
               {item.value}
-              {item.dataKey === 'passRate' ? '%' : ''}
+              {item.dataKey === 'passRate' || item.dataKey === 'firstPassRate' ? '%' : ''}
             </span>
           </div>
         ))}
@@ -246,12 +249,13 @@ function RecentEvalSetsPanel({
     >
       {recentRows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[940px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20 text-left text-xs font-semibold text-muted-foreground">
                 <th className="px-4 py-3">评测集</th>
                 <th className="px-4 py-3">用例数</th>
                 <th className="px-4 py-3">通过率</th>
+                <th className="px-4 py-3">首轮 / 修复</th>
                 <th className="px-4 py-3">平均分</th>
                 <th className="px-4 py-3">运行器 / 模型</th>
                 <th className="px-4 py-3">耗时</th>
@@ -276,6 +280,11 @@ function RecentEvalSetsPanel({
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">{selectedCount}</td>
                     <td className={passRateClass(run.passRate) + ' px-4 py-3 font-semibold tabular-nums'}>
                       {run.passRate}%
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">
+                      <span className={passRateClass(run.qualitySummary.firstPassRate)}>{run.qualitySummary.firstPassRate}%</span>
+                      <span className="mx-1.5 text-muted-foreground">/</span>
+                      <span className={run.qualitySummary.repairRate > 0 ? 'text-amber-500' : 'text-muted-foreground'}>{run.qualitySummary.repairRate}%</span>
                     </td>
                     <td className={scoreClass(run.averageScore) + ' px-4 py-3 font-semibold tabular-nums'}>
                       {run.averageScore}
@@ -418,6 +427,51 @@ function BaselineSetup({
   );
 }
 
+function EvalAssurancePanel({ dashboard }: { dashboard: QuantEvalDashboardData }) {
+  const mutation = dashboard.assurance.mutation;
+  const datasets = dashboard.assurance.datasets;
+  const judge = dashboard.assurance.judge;
+  return (
+    <Panel
+      title="评测可信度"
+      icon={<ShieldCheck className="h-4 w-4 text-emerald-500" />}
+      action={<Badge variant="outline" className="text-[10px]">EVAL OF EVALS</Badge>}
+    >
+      <div className="grid gap-3 p-4 md:grid-cols-3">
+        <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+          <p className="text-xs font-semibold text-muted-foreground">Mutation kill rate</p>
+          <p className={`mt-2 text-2xl font-bold ${mutation?.killRate === 100 ? 'text-emerald-500' : 'text-amber-500'}`}>
+            {mutation ? `${mutation.killRate}%` : '待运行'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {mutation ? `${mutation.killed}/${mutation.total} 缺陷被捕获 · 存活 ${mutation.survived}` : '运行 check:eval-mutations 建立证明'}
+          </p>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+          <p className="text-xs font-semibold text-muted-foreground">数据与隐藏集合同</p>
+          <p className={`mt-2 text-2xl font-bold ${datasets.productionSnapshotCount === datasets.productionCaseCount ? 'text-emerald-500' : 'text-amber-500'}`}>
+            {datasets.productionSnapshotCount}/{datasets.productionCaseCount}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            生产 snapshot · 隐藏集{datasets.hiddenConfigured ? '已注入' : '未注入'} · Shadow {datasets.productionReplayConfigured ? '已接入' : '未接入'}
+          </p>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background/60 p-4">
+          <p className="text-xs font-semibold text-muted-foreground">Judge 校准</p>
+          <p className={`mt-2 text-2xl font-bold ${judge?.productionCalibration && judge.passed ? 'text-emerald-500' : 'text-amber-500'}`}>
+            {judge ? `κ ${judge.cohenKappa}` : '待配置'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {judge
+              ? `${judge.productionCalibration ? '人工盲评集' : '管线合同'} · 一致率 ${judge.agreementRate}% · MAE ${judge.scoreMeanAbsoluteError}`
+              : '尚无 Judge 校准数据'}
+          </p>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 export function EvalOverviewView({
   dashboard,
   delta,
@@ -429,6 +483,7 @@ export function EvalOverviewView({
   const hasRuns = dashboard.runs.length > 0;
   const score = latestRun?.averageScore ?? 0;
   const scoreProgress = Math.max(0, Math.min(100, score));
+  const latestQuality = latestRun?.qualitySummary;
 
   return (
     <div className="space-y-5">
@@ -442,7 +497,9 @@ export function EvalOverviewView({
               {hasRuns ? '质量基线已建立' : '等待首次基线评测'}
             </Badge>
             <h1 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              {hasRuns ? `最近一次评测通过率 ${latestRun?.passRate ?? 0}%` : '从一条可信的质量基线开始'}
+              {hasRuns
+                ? `最近一次首轮通过率 ${latestQuality?.firstPassRate ?? 0}%，最终通过率 ${latestRun?.passRate ?? 0}%`
+                : '从一条可信的质量基线开始'}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
               {hasRuns
@@ -477,7 +534,7 @@ export function EvalOverviewView({
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-5">
         <StatTile
           icon={<Activity className="h-4 w-4" />}
           label="活跃任务"
@@ -486,8 +543,15 @@ export function EvalOverviewView({
           tone={activeQueueCount > 0 ? 'amber' : 'slate'}
         />
         <StatTile
+          icon={<Target className="h-4 w-4" />}
+          label="首轮通过率"
+          value={<span className={passRateClass(latestQuality?.firstPassRate ?? 0)}>{latestQuality?.firstPassRate ?? 0}%</span>}
+          helper={hasRuns ? `修复率 ${latestQuality?.repairRate ?? 0}%` : '等待首次评测'}
+          tone="amber"
+        />
+        <StatTile
           icon={<ShieldCheck className="h-4 w-4" />}
-          label="通过率"
+          label="最终通过率"
           value={<span className={passRateClass(dashboard.summary.latestPassRate)}>{dashboard.summary.latestPassRate}%</span>}
           helper={
             <span className="flex items-center gap-2">
@@ -498,20 +562,24 @@ export function EvalOverviewView({
           tone="emerald"
         />
         <StatTile
+          icon={<Activity className="h-4 w-4" />}
+          label="重复稳定率"
+          value={<span className={passRateClass(latestQuality?.stability.passRate ?? 0)}>{latestQuality?.stability.passRate ?? 0}%</span>}
+          helper={hasRuns
+            ? `${latestQuality?.stability.attemptCount ?? 0} 次物理运行 · ${latestQuality?.stability.flakyCaseIds.length ?? 0} 条波动`
+            : '支持 1–5 次隔离运行'}
+          tone="emerald"
+        />
+        <StatTile
           icon={<TrendingUp className="h-4 w-4" />}
           label="平均分"
           value={<span className={scoreClass(dashboard.summary.latestAverageScore)}>{dashboard.summary.latestAverageScore}</span>}
           helper={hasRuns ? (delta ? <DeltaText value={delta.score} /> : '最近一次运行') : '等待首次评测'}
           tone="blue"
         />
-        <StatTile
-          icon={<ClipboardList className="h-4 w-4" />}
-          label="用例资产"
-          value={dashboard.summary.caseCount}
-          helper="覆盖用例数"
-          tone="slate"
-        />
       </section>
+
+      <EvalAssurancePanel dashboard={dashboard} />
 
       {hasRuns ? (
         <>
