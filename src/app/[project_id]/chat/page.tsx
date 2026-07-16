@@ -11,6 +11,7 @@ import { ExternalLink, Files, MessageSquareText, MonitorPlay } from 'lucide-reac
 import ChatLog from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput, { type UploadedImage } from '@/components/chat/ChatInput';
+import { DashboardGenerationWaiting } from '@/components/chat/DashboardGenerationWaiting';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
@@ -2918,12 +2919,81 @@ const persistProjectPreferences = useCallback(
         }
       `}</style>
 
-      <div className="chat-workspace relative flex h-dvh flex-col overflow-hidden" role="main">
+      <div className="chat-workspace workspace-studio relative flex h-dvh flex-col overflow-hidden" role="main">
         {isChatPaneResizing && (
           <div className="fixed inset-0 z-[100] cursor-col-resize" aria-hidden="true" />
         )}
+
+        <header className="workspace-topbar hidden h-14 shrink-0 items-center justify-between px-3 lg:flex">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              aria-label="返回项目首页"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+            >
+              <FaArrowLeft size={13} />
+            </button>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ee6b4d] to-[#d84d35] text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(224,83,57,0.8)]">
+              Q
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="max-w-[28rem] truncate text-sm font-bold text-foreground">
+                  {projectName || '正在载入项目...'}
+                </h1>
+                <span className="hidden rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground xl:inline-flex">
+                  QUANT STUDIO
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {projectDescription || '对话、数据、代码与可视化协同工作台'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="mr-1 inline-flex h-8 items-center gap-2 rounded-full border border-border/70 bg-background/75 px-3 text-[11px] font-semibold text-muted-foreground shadow-sm">
+              <span className="relative flex h-2 w-2" aria-hidden="true">
+                {generationBusy ? (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-50 motion-reduce:animate-none" />
+                ) : null}
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${generationBusy ? 'bg-amber-500' : previewUrl ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+              </span>
+              {generationBusy ? '正在生成' : previewUrl ? '看板已就绪' : '等待任务'}
+            </div>
+            <ThemeToggle compact />
+            <button
+              type="button"
+              onClick={() => setShowGlobalSettings(true)}
+              aria-label="打开项目设置"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+            >
+              <FaCog size={14} />
+            </button>
+            <a
+              href={previewUrl ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="在新窗口打开看板"
+              aria-disabled={!previewUrl}
+              onClick={(event) => {
+                if (!previewUrl) event.preventDefault();
+              }}
+              className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold transition-colors ${
+                previewUrl
+                  ? 'bg-foreground text-background shadow-sm hover:opacity-85'
+                  : 'cursor-not-allowed bg-muted text-muted-foreground/45'
+              }`}
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              打开看板
+            </a>
+          </div>
+        </header>
+
         <nav
-          className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/95 px-2 backdrop-blur lg:hidden"
+          className="workspace-mobile-nav flex h-12 shrink-0 items-center gap-1 border-b border-border/70 bg-background/95 px-2 backdrop-blur lg:hidden"
           aria-label="移动端工作区视图"
         >
           {([
@@ -2948,7 +3018,7 @@ const persistProjectPreferences = useCallback(
                 }}
                 className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-colors ${
                   active
-                    ? 'bg-primary/10 text-primary ring-1 ring-primary/20'
+                    ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/20'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
@@ -2977,18 +3047,18 @@ const persistProjectPreferences = useCallback(
           </a>
         </nav>
 
-        <div className="flex min-h-0 w-full flex-1">
+        <div className="workspace-body flex min-h-0 w-full flex-1">
           {/* Left: Chat window */}
           <div
             ref={chatPaneRef}
             style={{ '--chat-pane-width': `${chatPaneWidth}px` } as CSSProperties}
-            className={`chat-pane relative z-10 h-full shrink-0 flex-col border-r border-border/70 bg-background/94 backdrop-blur-xl ${
+            className={`chat-pane workspace-panel relative z-10 h-full shrink-0 flex-col bg-background/95 backdrop-blur-xl ${
               mobileWorkspaceView === 'chat' ? 'flex' : 'hidden lg:flex'
             }`}
           >
             {/* Chat header */}
-            <div className="platform-header flex h-16 shrink-0 items-center justify-between gap-3 px-3 sm:px-4">
-              <div className="flex min-w-0 items-center gap-3">
+            <div className="platform-header flex h-16 shrink-0 items-center justify-between gap-3 px-3 lg:h-12 sm:px-4">
+              <div className="flex min-w-0 items-center gap-3 lg:hidden">
                 <button
                   onClick={() => router.push('/')}
                   aria-label="返回项目首页"
@@ -3009,7 +3079,16 @@ const persistProjectPreferences = useCallback(
                   )}
                 </div>
               </div>
-              <ThemeToggle compact />
+              <div className="hidden min-w-0 items-center gap-2 lg:flex">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <MessageSquareText className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-xs font-bold text-foreground">研究对话</p>
+                  <p className="text-[10px] text-muted-foreground">需求、过程与证据</p>
+                </div>
+              </div>
+              <ThemeToggle className="lg:hidden" compact />
             </div>
 
             {/* Chat log area */}
@@ -3044,7 +3123,7 @@ const persistProjectPreferences = useCallback(
             </div>
 
             {/* Simple input area */}
-            <div className="shrink-0 border-t border-border/60 bg-background/80 p-3 backdrop-blur sm:p-4">
+            <div className="shrink-0 border-t border-border/60 bg-background/72 p-2.5 backdrop-blur sm:p-3">
               <ChatInput
                 onSendMessage={(message, images) => {
                   if (generationBusy) {
@@ -3117,26 +3196,26 @@ const persistProjectPreferences = useCallback(
                   resetChatPaneWidth();
                 }
               }}
-              className={`absolute -right-1.5 top-0 z-30 hidden h-full w-3 touch-none cursor-col-resize items-center justify-center outline-none lg:flex after:h-16 after:w-1 after:rounded-full after:bg-border/80 after:shadow-sm after:transition-[height,background-color,opacity] hover:after:h-24 hover:after:bg-primary/70 focus-visible:after:h-24 focus-visible:after:bg-primary/70 ${
+              className={`absolute -right-2.5 top-0 z-30 hidden h-full w-5 touch-none cursor-col-resize items-center justify-center outline-none lg:flex after:h-14 after:w-1 after:rounded-full after:bg-border/80 after:shadow-sm after:transition-[height,background-color,opacity] hover:after:h-24 hover:after:bg-primary/70 focus-visible:after:h-24 focus-visible:after:bg-primary/70 ${
                 isChatPaneResizing ? 'after:h-24 after:bg-primary' : ''
               }`}
             />
           </div>
 
           {/* Right: Preview/Code area */}
-          <div className={`preview-pane h-full flex-col bg-slate-950 ${mobileWorkspaceView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+          <div className={`preview-pane workspace-panel h-full flex-col ${mobileWorkspaceView === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
             {/* Content area */}
             <div className="flex-1 min-h-0 flex flex-col">
               {/* Controls Bar */}
-              <div className="platform-header flex h-16 shrink-0 items-center justify-between px-4">
+              <div className="platform-header flex h-16 shrink-0 items-center justify-between px-3 sm:px-4 lg:h-12">
                 <div className="flex items-center gap-3">
                   {/* Toggle switch */}
-                  <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                  <div className="hidden items-center rounded-xl border border-border/70 bg-muted/55 p-1 lg:flex">
                     <button
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        showPreview
-                          ? 'bg-white text-slate-900 '
-                          : 'text-slate-600 hover:text-slate-900 '
+                    className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors ${
+                      showPreview
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                       onClick={() => {
                         setShowPreview(true);
@@ -3144,13 +3223,14 @@ const persistProjectPreferences = useCallback(
                       }}
                       aria-label="显示看板预览"
                     >
-                      <span className="w-4 h-4 flex items-center justify-center"><FaDesktop size={16} /></span>
+                      <span className="flex h-4 w-4 items-center justify-center"><FaDesktop size={14} /></span>
+                      <span className="hidden xl:inline">看板</span>
                     </button>
                     <button
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors ${
                         !showPreview
-                          ? 'bg-white text-slate-900 '
-                          : 'text-slate-600 hover:text-slate-900 '
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                       onClick={() => {
                         setShowPreview(false);
@@ -3161,19 +3241,20 @@ const persistProjectPreferences = useCallback(
                       }}
                       aria-label="显示项目文件"
                     >
-                      <span className="w-4 h-4 flex items-center justify-center"><FaCode size={16} /></span>
+                      <span className="flex h-4 w-4 items-center justify-center"><FaCode size={14} /></span>
+                      <span className="hidden xl:inline">文件</span>
                     </button>
                   </div>
 
                   {/* Center Controls */}
                   {showPreview && shouldShowPreviewFrame && (
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
                       {/* Route Navigation */}
-                      <div className="h-9 flex items-center bg-slate-100 rounded-lg px-3 border border-slate-200 ">
-                        <span className="text-slate-400 mr-2">
+                      <div className="hidden h-8 min-w-0 items-center rounded-xl border border-border/70 bg-background/70 px-2.5 shadow-sm min-[1180px]:flex">
+                        <span className="mr-2 text-muted-foreground">
                           <FaHome size={12} />
                         </span>
-                        <span className="text-sm text-slate-500 mr-1">/</span>
+                        <span className="mr-1 text-sm text-muted-foreground">/</span>
                         <input
                           type="text"
                           value={currentRoute.startsWith('/') ? currentRoute.slice(1) : currentRoute}
@@ -3187,13 +3268,13 @@ const persistProjectPreferences = useCallback(
                               navigateToRoute(currentRoute);
                             }
                           }}
-                          className="bg-transparent text-sm text-slate-700 outline-none w-40"
-                          placeholder="route"
+                          className="w-28 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground xl:w-36"
+                          placeholder="页面路径"
                         />
                         <button
                           onClick={() => navigateToRoute(currentRoute)}
                           aria-label="打开预览路由"
-                          className="ml-2 text-slate-500 hover:text-slate-700 "
+                          className="ml-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
                           <FaArrowRight size={12} />
                         </button>
@@ -3202,7 +3283,7 @@ const persistProjectPreferences = useCallback(
                       {/* Action Buttons Group */}
                       <div className="flex items-center gap-1.5">
                         <button
-                          className="h-9 w-9 flex items-center justify-center bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/70 bg-background/70 text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                           aria-label="刷新看板预览"
                           onClick={() => {
                             const iframe = document.querySelector('iframe');
@@ -3210,30 +3291,30 @@ const persistProjectPreferences = useCallback(
                               iframe.src = iframe.src;
                             }
                           }}
-                          title="Refresh preview"
+                          title="刷新预览"
                         >
                           <FaRedo size={14} />
                         </button>
 
                         {/* Device Mode Toggle */}
-                        <div className="h-9 flex items-center gap-1 bg-slate-100 rounded-lg px-1 border border-slate-200 ">
+                        <div className="flex h-8 items-center gap-0.5 rounded-xl border border-border/70 bg-muted/55 p-0.5">
                           <button
-                            aria-label="Desktop preview"
-                            className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${
+                            aria-label="桌面端预览"
+                            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
                               deviceMode === 'desktop'
-                                ? 'text-blue-600 bg-blue-50 '
-                                : 'text-slate-400 hover:text-slate-600 '
+                                ? 'bg-background text-primary shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
                             }`}
                             onClick={() => setDeviceMode('desktop')}
                           >
                             <FaDesktop size={14} />
                           </button>
                           <button
-                            aria-label="Mobile preview"
-                            className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${
+                            aria-label="移动端预览"
+                            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
                               deviceMode === 'mobile'
-                                ? 'text-blue-600 bg-blue-50 '
-                                : 'text-slate-400 hover:text-slate-600 '
+                                ? 'bg-background text-primary shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
                             }`}
                             onClick={() => setDeviceMode('mobile')}
                           >
@@ -3249,8 +3330,9 @@ const persistProjectPreferences = useCallback(
                   {/* Settings Button */}
                   <button
                     onClick={() => setShowGlobalSettings(true)}
-                    className="h-9 w-9 flex items-center justify-center bg-slate-100 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors"
-                    title="Settings"
+                    aria-label="打开项目设置"
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/70 bg-background/70 text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary lg:hidden"
+                    title="项目设置"
                   >
                     <FaCog size={16} />
                   </button>
@@ -3258,11 +3340,11 @@ const persistProjectPreferences = useCallback(
                   {/* Stop Button */}
                   {showPreview && shouldShowPreviewFrame && (
                     <button
-                      className="h-9 px-3 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                      className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl border border-red-200 bg-red-50 px-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
                       onClick={stop}
                     >
                       <FaStop size={12} />
-                      Stop
+                      停止
                     </button>
                   )}
 
@@ -3270,11 +3352,11 @@ const persistProjectPreferences = useCallback(
                   {showPreview && shouldShowPreviewFrame && (
                     <div className="relative">
                     <button
-                      className="h-9 flex items-center gap-2 px-3 bg-black text-white rounded-lg text-sm font-medium transition-colors hover:bg-slate-900 border border-black/10 shadow-sm"
+                      className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition-opacity hover:opacity-85"
                       onClick={() => setShowPublishPanel(true)}
                     >
                       <FaRocket size={14} />
-                      Publish
+                      发布
                       {deploymentStatus === 'deploying' && (
                         <span className="ml-2 inline-block w-2 h-2 rounded-full bg-amber-400"></span>
                       )}
@@ -3445,7 +3527,7 @@ const persistProjectPreferences = useCallback(
               </div>
 
               {/* Content Area */}
-              <div className="flex-1 relative bg-black overflow-hidden">
+              <div className="workspace-preview-canvas relative flex-1 overflow-hidden p-2 sm:p-3">
                 <AnimatePresence initial={false}>
                   {showPreview ? (
                   <MotionDiv
@@ -3453,15 +3535,16 @@ const persistProjectPreferences = useCallback(
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
+                    className="overflow-hidden rounded-[1.125rem] border border-border/70 bg-background shadow-xl shadow-slate-900/5"
                     style={{ height: '100%' }}
                   >
                 {shouldShowPreviewFrame ? (
-                  <div className="relative w-full h-full bg-slate-100 flex items-center justify-center">
+                  <div className="relative flex h-full w-full items-center justify-center bg-muted/55 p-0 sm:p-2">
                     <div
-                      className={`bg-white ${
+                      className={`relative bg-white ${
                         deviceMode === 'mobile'
-                          ? 'w-[375px] h-[667px] rounded-[25px] border-8 border-slate-800 shadow-2xl'
-                          : 'w-full h-full'
+                          ? 'h-[min(667px,calc(100%_-_1rem))] aspect-[375/667] max-w-[calc(100%_-_1rem)] rounded-[28px] border-[7px] border-slate-900 shadow-2xl'
+                          : 'h-full w-full rounded-xl border border-border/70 shadow-sm'
                       } overflow-hidden`}
                     >
                       <iframe
@@ -3489,10 +3572,10 @@ const persistProjectPreferences = useCallback(
                       <div className="text-center max-w-md mx-auto p-6">
                         <div className="text-4xl mb-4">🔄</div>
                         <h3 className="text-lg font-semibold text-slate-800 mb-2">
-                          Connection Issue
+                          预览连接异常
                         </h3>
                         <p className="text-slate-600 mb-4">
-                          The preview couldn&apos;t load properly. Try clicking the refresh button to reload the page.
+                          看板暂时未能加载，请刷新预览后重试。
                         </p>
                         <button
                           className="flex items-center gap-2 mx-auto px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
@@ -3509,14 +3592,14 @@ const persistProjectPreferences = useCallback(
                             <path d="M1 4v6h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                          Refresh Now
+                          立即刷新
                         </button>
                       </div>
                     </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center bg-slate-50 relative">
+                  <div className="relative flex h-full w-full items-center justify-center bg-background">
                     {/* Gradient background similar to main page */}
                     <div className="absolute inset-0">
                       <div className="absolute inset-0 bg-white " />
@@ -3545,127 +3628,25 @@ const persistProjectPreferences = useCallback(
                     {/* Content with z-index to be above gradient */}
                     <div className="relative z-10 w-full h-full flex items-center justify-center">
                     {isStartingPreview ? (
-                      <MotionDiv
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center"
-                      >
-                        {/* QuantPilot 图标与加载状态 */}
-                        <div className="w-40 h-40 mx-auto mb-6 relative">
-                          <div
-                            className="w-full h-full"
-                            style={{
-                              backgroundColor: activeBrandColor,
-                              mask: 'url(/Symbol_white.png) no-repeat center/contain',
-                              WebkitMask: 'url(/Symbol_white.png) no-repeat center/contain',
-                              opacity: 0.9
-                            }}
-                          />
-
-                          {/* Loading spinner in center */}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div
-                              className="w-14 h-14 border-4 rounded-full animate-spin"
-                              style={{
-                                borderTopColor: 'transparent',
-                                borderRightColor: activeBrandColor,
-                                borderBottomColor: activeBrandColor,
-                                borderLeftColor: activeBrandColor,
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Content */}
-                        <h3 className="text-xl font-semibold text-slate-900 mb-3">
-                          正在准备可视化看板
-                        </h3>
-
-                        <div className="flex items-center justify-center gap-1 text-slate-600 ">
-                          <span>{previewInitializationMessage}</span>
-                          <MotionDiv
-                            className="flex gap-1 ml-2"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                          >
-                            <MotionDiv
-                              animate={{ opacity: [0, 1, 0] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
-                              className="w-1 h-1 bg-slate-600 rounded-full"
-                            />
-                            <MotionDiv
-                              animate={{ opacity: [0, 1, 0] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.3 }}
-                              className="w-1 h-1 bg-slate-600 rounded-full"
-                            />
-                            <MotionDiv
-                              animate={{ opacity: [0, 1, 0] }}
-                              transition={{ duration: 1.5, repeat: Infinity, delay: 0.6 }}
-                              className="w-1 h-1 bg-slate-600 rounded-full"
-                            />
-                          </MotionDiv>
-                        </div>
-                      </MotionDiv>
+                      <DashboardGenerationWaiting
+                        mode="preview"
+                        message={previewInitializationMessage}
+                        accentColor={activeBrandColor}
+                      />
                     ) : (
-                    <div className="text-center">
+                    <div className={generationBusy ? 'h-full w-full text-center' : 'text-center'}>
                       <MotionDiv
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.6, ease: "easeOut" }}
+                        className={generationBusy ? 'flex h-full w-full items-center justify-center' : undefined}
                       >
-                        {/* QuantPilot 图标 */}
-                        {hasActiveRequests ? (
-                          <>
-                            <div className="w-40 h-40 mx-auto mb-6 relative">
-                              <MotionDiv
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                                style={{ transformOrigin: "center center" }}
-                                className="w-full h-full"
-                              >
-                          <div
-                            className="w-full h-full"
-                            style={{
-                              backgroundColor: activeBrandColor,
-                              mask: 'url(/Symbol_white.png) no-repeat center/contain',
-                              WebkitMask: 'url(/Symbol_white.png) no-repeat center/contain',
-                              opacity: 0.9
-                            }}
+                        {generationBusy ? (
+                          <DashboardGenerationWaiting
+                            mode="generating"
+                            message={previewInitializationMessage}
+                            accentColor={activeBrandColor}
                           />
-                              </MotionDiv>
-                            </div>
-
-                            <h3 className="text-2xl font-bold mb-3 relative overflow-hidden inline-block">
-                              <span
-                                className="relative"
-                                style={{
-                                  background: `linear-gradient(90deg,
-                                    #6b7280 0%,
-                                    #6b7280 30%,
-                                    #ffffff 50%,
-                                    #6b7280 70%,
-                                    #6b7280 100%)`,
-                                  backgroundSize: '200% 100%',
-                                  WebkitBackgroundClip: 'text',
-                                  backgroundClip: 'text',
-                                  WebkitTextFillColor: 'transparent',
-                                  animation: 'shimmerText 5s linear infinite'
-                                }}
-                              >
-                                正在生成看板...
-                              </span>
-                              <style>{`
-                                @keyframes shimmerText {
-                                  0% {
-                                    background-position: 200% center;
-                                  }
-                                  100% {
-                                    background-position: -200% center;
-                                  }
-                                }
-                              `}</style>
-                            </h3>
-                          </>
                         ) : (
                           <>
                             <div
@@ -3782,7 +3763,7 @@ const persistProjectPreferences = useCallback(
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="h-full flex bg-white "
+                className="flex h-full overflow-hidden rounded-[1.125rem] border border-border/70 bg-white shadow-xl shadow-slate-900/5"
               >
                 {/* Left Sidebar - File Explorer (VS Code style) */}
                 <div className="w-64 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col">

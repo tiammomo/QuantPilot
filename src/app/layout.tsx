@@ -3,6 +3,12 @@ import type { Metadata } from 'next'
 import GlobalSettingsProvider from '@/contexts/GlobalSettingsContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { AuthUserMenu } from '@/components/auth/AuthUserMenu'
+import { getProjectAuthConfig } from '@/lib/config/auth'
+
+// Auth mode is a deployment-time setting. Keep the root tree request-bound so
+// one production image can safely switch between disabled and local auth.
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: {
@@ -13,6 +19,7 @@ export const metadata: Metadata = {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const authConfig = getProjectAuthConfig();
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
@@ -27,9 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-background text-foreground">
         <ThemeProvider>
-          <AuthProvider>
+          <AuthProvider enabled={authConfig.enabled}>
             <GlobalSettingsProvider>
               {children}
+              <AuthUserMenu />
             </GlobalSettingsProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ArrowUp, Image as ImageIcon, Paperclip } from "lucide-react";
+import { ArrowUp, Bot, Cpu, Image as ImageIcon, Paperclip, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -79,6 +79,7 @@ function CreateTaskForm({
 }: CreateTaskFormProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
@@ -143,10 +144,10 @@ function CreateTaskForm({
         if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
       }}
       className={cn(
-        "relative w-full rounded-2xl border bg-card text-card-foreground shadow-lg transition-all",
+        "relative w-full overflow-hidden rounded-[1.5rem] border bg-background/95 text-card-foreground shadow-xl shadow-slate-900/5 transition-all focus-within:border-primary/35 focus-within:shadow-2xl focus-within:shadow-primary/5",
         isDragOver
-          ? "border-primary shadow-primary/10"
-          : "border-border/60 shadow-black/5"
+          ? "border-primary"
+          : "border-border/75"
       )}
     >
       {/* Uploaded image previews */}
@@ -182,7 +183,7 @@ function CreateTaskForm({
         aria-label="量化分析需求"
         placeholder={selectedRole.inputPlaceholder ?? selectedRole.inputHint ?? "描述你的金融分析需求..."}
         disabled={isCreating}
-        className="min-h-[100px] resize-none border-0 bg-transparent px-5 pt-4 pb-2 text-base leading-6 shadow-none focus-visible:ring-0 md:min-h-[120px]"
+        className="min-h-[108px] resize-none border-0 bg-transparent px-5 pb-3 pt-4 text-base leading-7 shadow-none focus-visible:ring-0 md:min-h-[150px] md:px-6 md:pt-6"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -193,7 +194,7 @@ function CreateTaskForm({
 
       {/* Drag overlay */}
       {isDragOver && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/10">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[1.5rem] border-2 border-dashed border-primary bg-background/95">
           <div className="text-center text-primary">
             <ImageIcon className="mx-auto mb-2 h-6 w-6" />
             <p className="text-sm font-semibold">将图片拖到这里</p>
@@ -201,6 +202,40 @@ function CreateTaskForm({
           </div>
         </div>
       )}
+
+      {showAdvanced ? (
+        <div className="grid border-t border-border/50 bg-muted/15 px-4 py-2 sm:grid-cols-2 sm:divide-x sm:divide-border">
+          <div className="flex min-w-0 items-center gap-2 py-1 sm:pr-3">
+            <Bot className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">Agent</span>
+            <Select value={selectedAssistant} onValueChange={onAssistantChange}>
+              <SelectTrigger aria-label="选择分析助手" className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
+                <SelectValue placeholder="助手" />
+              </SelectTrigger>
+              <SelectContent>
+                {assistantOptions.map((opt) => (
+                  <SelectItem key={opt.id} value={opt.id} disabled={!isAssistantSelectable(opt.id)}>{opt.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {modelOptions.length > 0 ? (
+            <div className="flex min-w-0 items-center gap-2 border-t border-border/50 py-1 sm:border-t-0 sm:pl-3">
+              <Cpu className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">模型</span>
+              <Select value={selectedModel} onValueChange={onModelChange}>
+                <SelectTrigger aria-label="选择分析模型" className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
+                  <SelectValue placeholder="模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelOptions.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2.5">
@@ -228,52 +263,29 @@ function CreateTaskForm({
         </Button>
 
         {/* Capability badge */}
-        <div className="flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1">
+        <div className="flex items-center gap-1.5 border-l border-border/60 px-2 py-1">
           <span className="text-xs font-medium text-muted-foreground">
             {selectedRole.shortName ?? selectedRole.name}
           </span>
         </div>
 
-        {/* Assistant selector */}
-        <Select value={selectedAssistant} onValueChange={onAssistantChange}>
-          <SelectTrigger aria-label="选择分析助手" className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
-            <SelectValue placeholder="助手" />
-          </SelectTrigger>
-          <SelectContent>
-            {assistantOptions.map((opt) => (
-              <SelectItem
-                key={opt.id}
-                value={opt.id}
-                disabled={!isAssistantSelectable(opt.id)}
-              >
-                {opt.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Model selector */}
-        {modelOptions.length > 0 && (
-          <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger aria-label="选择分析模型" className="h-8 w-auto gap-1.5 border-0 bg-muted/60 px-2 text-xs font-medium text-muted-foreground hover:bg-muted">
-              <SelectValue placeholder="模型" />
-            </SelectTrigger>
-            <SelectContent>
-              {modelOptions.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowAdvanced((current) => !current)}
+          aria-expanded={showAdvanced}
+          className={cn("h-8 gap-1.5 rounded-none px-2 text-xs", showAdvanced ? "border-b border-primary text-primary" : "text-muted-foreground")}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          高级
+        </Button>
 
         {/* Submit button */}
         <Button
           type="submit"
           disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreating}
-          size="icon"
-          className="ml-auto h-8 w-8 rounded-lg"
+          className="ml-auto h-9 gap-1.5 rounded-lg px-3 text-xs font-semibold"
           aria-label="提交任务"
         >
           {isCreating ? (
@@ -298,7 +310,7 @@ function CreateTaskForm({
               />
             </svg>
           ) : (
-            <ArrowUp className="h-4 w-4" />
+            <><ArrowUp className="h-4 w-4" />开始研究</>
           )}
         </Button>
       </div>

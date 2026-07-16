@@ -1,15 +1,16 @@
 "use client";
-import { useEffect, useState, useRef, useCallback, useTransition } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
-  BarChart3,
-  BriefcaseBusiness,
   CheckCircle2,
-  Clock3,
-  Gauge,
+  CircleAlert,
+  CircleCheckBig,
+  CircleDashed,
+  FolderKanban,
+  Home,
+  LayoutGrid,
   Settings,
-  ShieldCheck,
   TrendingUp,
   XCircle,
   Sparkles,
@@ -21,9 +22,8 @@ import {
   Layers,
   Target,
   Zap,
-  Loader2,
-  Newspaper,
-  Boxes,
+  UserRound,
+  Users,
 } from "lucide-react";
 import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
@@ -39,12 +39,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { TaskDrawer } from "@/components/task/TaskDrawer";
 import { CreateTaskForm } from "@/components/task/CreateTaskForm";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Project as ProjectSummary } from "@/types/project";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
@@ -61,7 +61,6 @@ import {
   DEFAULT_QUANT_CAPABILITY_ID,
   getQuantCapability,
   QUANT_CAPABILITIES,
-  QUANT_CAPABILITY_GROUPS,
   type QuantCapabilityId,
 } from "@/lib/quant/capabilities";
 import { cn } from "@/lib/utils";
@@ -82,36 +81,20 @@ const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
   portfolio_risk: <Zap className="h-5 w-5" />,
 };
 
-const CAPABILITY_COLORS: Record<string, string> = {
-  stock_diagnosis: "from-blue-500/10 to-blue-600/5 border-blue-200/60 hover:border-blue-300",
-  technical_analysis: "from-emerald-500/10 to-emerald-600/5 border-emerald-200/60 hover:border-emerald-300",
-  fundamental_analysis: "from-violet-500/10 to-violet-600/5 border-violet-200/60 hover:border-violet-300",
-  asset_comparison: "from-amber-500/10 to-amber-600/5 border-amber-200/60 hover:border-amber-300",
-  sector_rotation: "from-rose-500/10 to-rose-600/5 border-rose-200/60 hover:border-rose-300",
-  strategy_research: "from-cyan-500/10 to-cyan-600/5 border-cyan-200/60 hover:border-cyan-300",
-  backtest_review: "from-orange-500/10 to-orange-600/5 border-orange-200/60 hover:border-orange-300",
-  portfolio_risk: "from-indigo-500/10 to-indigo-600/5 border-indigo-200/60 hover:border-indigo-300",
-};
+const ACTIVE_PROJECT_STATUSES = new Set(["running", "building", "initializing"]);
 
-const CAPABILITY_ICON_COLORS: Record<string, string> = {
-  stock_diagnosis: "text-blue-600 bg-blue-100",
-  technical_analysis: "text-emerald-600 bg-emerald-100",
-  fundamental_analysis: "text-violet-600 bg-violet-100",
-  asset_comparison: "text-amber-600 bg-amber-100",
-  sector_rotation: "text-rose-600 bg-rose-100",
-  strategy_research: "text-cyan-600 bg-cyan-100",
-  backtest_review: "text-orange-600 bg-orange-100",
-  portfolio_risk: "text-indigo-600 bg-indigo-100",
-};
-
-const PLATFORM_NAV_ITEMS = [
-  { href: "/strategy-platform", label: "策略", icon: BarChart3, desktopOnly: false },
-  { href: "/research-reports", label: "投研", icon: Newspaper, desktopOnly: false },
-  { href: "/ops-platform", label: "治理", icon: ShieldCheck, desktopOnly: false },
-  { href: "/business-knowledge", label: "业务", icon: BriefcaseBusiness, desktopOnly: false },
-  { href: "/eval-platform", label: "评测", icon: Gauge, desktopOnly: false },
-  { href: "/skills", label: "Skills", icon: Boxes, desktopOnly: true },
-];
+function getProjectStatus(project: ProjectSummary) {
+  if (project.previewUrl || project.status === "preview_running" || project.status === "active") {
+    return { label: "看板就绪", tone: "green", icon: CircleCheckBig } as const;
+  }
+  if (ACTIVE_PROJECT_STATUSES.has(project.status ?? "")) {
+    return { label: "进行中", tone: "amber", icon: CircleDashed } as const;
+  }
+  if (project.status === "failed" || project.status === "error") {
+    return { label: "需要处理", tone: "red", icon: CircleAlert } as const;
+  }
+  return { label: "可继续", tone: "slate", icon: CircleDashed } as const;
+}
 
 export default function HomePage() {
   // --- State ---
@@ -190,25 +173,31 @@ export default function HomePage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [navigatingPath, setNavigatingPath] = useState<string | null>(null);
-  const [isRoutePending, startRouteTransition] = useTransition();
+  const [showAllCapabilities, setShowAllCapabilities] = useState(false);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [greeting, setGreeting] = useState("你好");
 
   const router = useRouter();
-  const pathname = usePathname();
-  const prefetchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const { settings: globalSettings } = useGlobalSettings();
+  const { user } = useAuth();
 
   const availableModels =
     ACTIVE_CLI_MODEL_OPTIONS[selectedAssistant] || [];
-  const selectedModelLabel =
-    availableModels.find((m) => m.id === selectedModel)?.name ??
-    getModelDisplayName(selectedAssistant, selectedModel);
   const selectedRoleModule =
     QUANT_CAPABILITIES.find((c) => c.id === selectedCapability) ??
     QUANT_CAPABILITIES[0];
-  const runningProjects = projects.filter(
-    (p) => p.previewUrl || p.status === "running"
-  ).length;
+  const activeProjects = projects.filter((project) =>
+    !project.previewUrl && ACTIVE_PROJECT_STATUSES.has(project.status ?? "")
+  );
+  const runningProjects = activeProjects.length;
+  const readyProjects = projects.filter((project) => Boolean(project.previewUrl)).length;
+  const recentProjects = projects.slice(0, 3);
+  const readyCapabilities = QUANT_CAPABILITIES.filter((capability) => capability.status === "ready");
+  const displayedCapabilities = showAllCapabilities
+    ? readyCapabilities
+    : readyCapabilities.slice(0, 4);
+  const accountName = user?.name || user?.email || "研究员";
+  const accountInitial = accountName.slice(0, 1).toUpperCase();
 
   // --- Session persistence ---
   useEffect(() => {
@@ -235,6 +224,11 @@ export default function HomePage() {
     }
     return () => {};
   }, [sanitizeAssistant, normalizeModelForAssistant]);
+
+  useEffect(() => {
+    const currentHour = new Date().getHours();
+    setGreeting(currentHour < 11 ? "早上好" : currentHour < 14 ? "中午好" : currentHour < 18 ? "下午好" : "晚上好");
+  }, []);
 
   useEffect(() => {
     if (!usingGlobalDefaults || !isInitialLoad) return;
@@ -294,6 +288,7 @@ export default function HomePage() {
 
   // --- Data loading ---
   const load = useCallback(async () => {
+    setProjectsLoading(true);
     try {
       const r = await fetchAPI(`${API_BASE}/api/projects`);
       if (!r.ok) {
@@ -323,45 +318,14 @@ export default function HomePage() {
       setProjects(sorted);
     } catch {
       setProjects([]);
+    } finally {
+      setProjectsLoading(false);
     }
   }, [normalizeProjectPayload]);
 
   useEffect(() => {
     load();
-    const timers = prefetchTimers.current;
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-      timers.clear();
-    };
   }, [load]);
-
-  useEffect(() => {
-    for (const item of PLATFORM_NAV_ITEMS) {
-      router.prefetch(item.href);
-    }
-  }, [router]);
-
-  useEffect(() => {
-    setNavigatingPath(null);
-  }, [pathname]);
-
-  const prefetchPlatformRoute = useCallback((href: string) => {
-    const timers = prefetchTimers.current;
-    if (timers.has(href)) return;
-    const timer = setTimeout(() => {
-      router.prefetch(href);
-      timers.delete(href);
-    }, 80);
-    timers.set(href, timer);
-  }, [router]);
-
-  const navigateToPlatform = useCallback((href: string) => {
-    if (navigatingPath === href) return;
-    setNavigatingPath(href);
-    startRouteTransition(() => {
-      router.push(href);
-    });
-  }, [navigatingPath, router]);
 
   // --- Format helpers ---
   const formatTime = (dateString: string | null) => {
@@ -590,278 +554,261 @@ export default function HomePage() {
   const handleCapabilityCardClick = (capabilityId: QuantCapabilityId) => {
     setSelectedCapability(capabilityId);
     const cap = QUANT_CAPABILITIES.find((c) => c.id === capabilityId);
-    if (cap) {
+    if (cap && !prompt.trim()) {
       setPrompt(cap.inputHint);
     }
-    // Scroll to input
     document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
-
-  // --- Group capabilities ---
-  const groupedCapabilities = QUANT_CAPABILITY_GROUPS.map((group) => ({
-    ...group,
-    capabilities: QUANT_CAPABILITIES.filter((c) => c.groupId === group.id),
-  }));
-  const navigatingItem = PLATFORM_NAV_ITEMS.find((item) => item.href === navigatingPath) ?? null;
 
   // --- Render ---
   return (
     <div className="home-shell relative flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
-      {/* Top navigation */}
-      <header className="platform-header sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between px-3 md:px-6">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground shadow-sm">
-            Q
-          </div>
-          <h1 className="text-base font-bold tracking-tight md:text-lg">
-            QuantPilot
-          </h1>
-          <div className="hidden items-center gap-1.5 md:flex">
-            <span className="text-xs text-muted-foreground">·</span>
-            <span className="text-xs text-muted-foreground">
-              {selectedModelLabel}
-            </span>
-          </div>
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
-          <Button
-            type="button"
-            onClick={() => setTaskDrawerOpen(true)}
-            aria-label={`打开最近任务${projects.length ? `，共 ${projects.length} 项` : ""}`}
-            title="最近任务"
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 px-2 text-xs sm:px-3"
-          >
-            <Clock3 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">最近任务</span>
-            {projects.length > 0 && (
-              <Badge variant="secondary" className="ml-0.5 h-5 px-1.5 text-[10px]">
-                {projects.length}
-              </Badge>
-            )}
-          </Button>
+      <header className="platform-header sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between px-3 md:px-6">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ee6b4d] to-[#d84d35] text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(224,83,57,0.8)]">Q</div>
+          <h1 className="text-base font-bold tracking-tight sm:text-lg">QuantPilot</h1>
+
+          <nav className="ml-4 hidden items-center gap-1 md:flex" aria-label="首页导航">
+            <Button type="button" variant="ghost" size="sm" className="h-10 gap-2 rounded-none border-b-2 border-primary px-3 text-xs font-semibold text-foreground">
+              <Home className="h-3.5 w-3.5" />首页
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
+              <FolderKanban className="h-3.5 w-3.5" />项目
+              {projects.length > 0 ? <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{projects.length}</span> : null}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => document.getElementById("capability-templates")?.scrollIntoView({ behavior: "smooth" })} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
+              <LayoutGrid className="h-3.5 w-3.5" />能力中心
+            </Button>
+            <PlatformSwitcher />
+          </nav>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <div className="hidden items-center gap-1.5 xl:flex">
-            {PLATFORM_NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isLoading = navigatingPath === item.href || (isRoutePending && navigatingPath === item.href);
-            return (
-              <Button
-                key={item.href}
-                type="button"
-                onClick={() => navigateToPlatform(item.href)}
-                onPointerEnter={() => prefetchPlatformRoute(item.href)}
-                onFocus={() => prefetchPlatformRoute(item.href)}
-                variant="ghost"
-                size="sm"
-                aria-label={`进入${item.label}`}
-                aria-busy={isLoading}
-                className="gap-1.5 px-2 text-xs sm:px-3"
-              >
-                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
-                <span className="hidden sm:inline">{item.label}</span>
-              </Button>
-            );
-            })}
-          </div>
-          <div className="xl:hidden">
-            <PlatformSwitcher />
-          </div>
-
-          <div className="mx-1 hidden h-4 w-px bg-border sm:block" />
-
-          <ThemeToggle compact className="sm:hidden" />
-          <ThemeToggle className="hidden sm:inline-flex" />
-
-          <Button
-            type="button"
-            onClick={() => setShowGlobalSettings(true)}
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            aria-label="设置"
-          >
+          <div className="md:hidden"><PlatformSwitcher /></div>
+          <ThemeToggle compact />
+          <Button type="button" onClick={() => setShowGlobalSettings(true)} variant="ghost" size="icon" className="hidden h-9 w-9 rounded-none sm:inline-flex" aria-label="全局设置">
             <Settings className="h-4 w-4" />
+          </Button>
+          {user?.role === "admin" ? (
+            <Button type="button" onClick={() => router.push("/admin/users")} variant="ghost" size="icon" className="hidden h-9 w-9 rounded-none lg:inline-flex" aria-label="用户管理">
+              <Users className="h-4 w-4" />
+            </Button>
+          ) : null}
+          <Button type="button" onClick={() => router.push("/account/usage")} variant="ghost" className="hidden h-9 gap-2 rounded-none px-2.5 sm:inline-flex" aria-label="打开我的账号">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-[10px] font-bold text-primary-foreground">{accountInitial || <UserRound className="h-3.5 w-3.5" />}</span>
+            <span className="max-w-24 truncate text-xs font-semibold">{accountName}</span>
           </Button>
         </div>
       </header>
 
-      <AnimatePresence>
-        {navigatingItem && (
-          <motion.div
-            key={navigatingItem.href}
-            initial={{ opacity: 0, y: -8 }}
+      <main className="platform-content flex-1 px-4 pb-28 pt-7 md:px-6 md:pb-16 md:pt-10">
+        <div className="mx-auto w-full max-w-[110rem]">
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            className="fixed left-0 right-0 top-14 z-40 border-b border-primary/10 bg-background/90 px-4 py-2 shadow-sm backdrop-blur"
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
           >
-            <div className="mx-auto flex max-w-6xl items-center gap-2 text-xs font-medium text-muted-foreground">
-              <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-primary/10">
-                <motion.span
-                  className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                  initial={{ width: "18%" }}
-                  animate={{ width: "82%" }}
-                  transition={{ duration: 1.1, ease: "easeOut" }}
-                />
-              </span>
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              正在进入{navigatingItem.label}平台
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main content */}
-      <main className="platform-content flex flex-1 flex-col items-center px-4 pb-16 pt-12 md:pb-24 md:pt-20">
-        {/* Hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-          className="mb-10 text-center md:mb-14"
-        >
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-primary" />
-            AI 驱动的量化金融分析平台
-          </div>
-          <h2 className="text-3xl font-bold tracking-tight md:text-5xl lg:text-6xl">
-            <span className="bg-gradient-to-r from-primary via-primary/80 to-primary/60 bg-clip-text text-transparent">
-              量化分析
-            </span>
-            ，一句话搞定
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-sm text-muted-foreground md:text-base">
-            描述你的金融分析需求，系统自动识别任务类型，获取真实数据，生成可验证的量化看板
-          </p>
-          <div className="mt-6 flex justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigateToPlatform("/skills")}
-              onPointerEnter={() => prefetchPlatformRoute("/skills")}
-              onFocus={() => prefetchPlatformRoute("/skills")}
-              aria-busy={navigatingPath === "/skills" || (isRoutePending && navigatingPath === "/skills")}
-              className="group h-10 gap-2 rounded-full border-primary/25 bg-card/75 px-4 font-bold text-foreground shadow-[0_14px_36px_-24px_hsl(var(--primary))] backdrop-blur transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5"
-            >
-              {navigatingPath === "/skills" || (isRoutePending && navigatingPath === "/skills") ? (
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              ) : (
-                <Boxes className="h-4 w-4 text-primary" />
-              )}
-              探索 Skills Market
-              <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-            </Button>
-          </div>
-        </motion.div>
-
-        {/* Input form */}
-        <motion.div
-          id="task-input"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-          className="w-full max-w-3xl"
-        >
-          <CreateTaskForm
-            prompt={prompt}
-            onPromptChange={setPrompt}
-            isCreating={isCreatingProject}
-            onSubmit={handleSubmit}
-            uploadedImages={uploadedImages}
-            onImagesChange={setUploadedImages}
-            selectedAssistant={selectedAssistant}
-            onAssistantChange={handleAssistantChange}
-            assistantOptions={ASSISTANT_OPTIONS}
-            isAssistantSelectable={isAssistantSelectable}
-            selectedModel={selectedModel}
-            onModelChange={handleModelChange}
-            modelOptions={availableModels}
-            selectedRole={selectedRoleModule}
-          />
-        </motion.div>
-
-        {/* Capability cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.25, ease: "easeOut" }}
-          className="mt-14 w-full max-w-5xl md:mt-20"
-        >
-          {groupedCapabilities.map((group) => (
-            <div key={group.id} className="mb-8 last:mb-0">
-              <div className="mb-3 flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">
-                  {group.name}
-                </h3>
-                <span className="text-xs text-muted-foreground">
-                  {group.description}
-                </span>
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/[0.06] px-3 py-1 text-xs font-semibold text-primary">
+                <Sparkles className="h-3.5 w-3.5" />AI 量化研究工作台
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {group.capabilities.map((cap) => {
-                  const isActive = selectedCapability === cap.id;
-                  const isPlanned = cap.status === "planned";
+              <h2 className="mt-3 text-2xl font-bold tracking-[-0.03em] sm:text-3xl">{greeting}，{accountName}</h2>
+              <p className="mt-1.5 text-sm text-muted-foreground">从一个清晰的问题开始，数据、分析与可视化会在同一工作区完成。</p>
+            </div>
+            <div className="grid grid-cols-3 divide-x divide-border border-y border-border/65 sm:flex sm:border-y-0">
+              {[
+                { label: "全部项目", value: projects.length, tone: "text-foreground" },
+                { label: "正在运行", value: runningProjects, tone: "text-amber-600" },
+                { label: "看板就绪", value: readyProjects, tone: "text-emerald-600" },
+              ].map((item) => (
+                <div key={item.label} className="min-w-24 px-3 py-2 sm:px-5 sm:py-1">
+                  <p className={cn("text-lg font-bold", item.tone)}>{item.value}</p>
+                  <p className="text-[11px] text-muted-foreground">{item.label}</p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+
+          <section className="mt-4 sm:mt-8">
+            <motion.article
+              id="task-input"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
+              className="relative mx-auto max-w-7xl py-4 sm:py-10"
+            >
+              <div className="pointer-events-none absolute left-1/2 top-8 -z-10 h-60 w-[44rem] max-w-[90vw] -translate-x-1/2 rounded-full bg-primary/[0.08] blur-3xl" />
+              <div className="relative mb-5 text-center">
+                <p className="text-xs font-semibold text-primary">新建量化研究</p>
+                <h3 className="mt-1.5 text-2xl font-bold tracking-[-0.03em] sm:text-3xl">今天想研究什么？</h3>
+                <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">描述标的、时间范围或分析目标，系统会自动补全取数、证据与验证步骤。</p>
+              </div>
+
+              <div className="relative mb-3 flex justify-start gap-4 overflow-x-auto pb-1 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {readyCapabilities.slice(0, 4).map((capability) => (
+                  <button
+                    key={capability.id}
+                    type="button"
+                    onClick={() => handleCapabilityCardClick(capability.id)}
+                    className={cn(
+                      "shrink-0 border-b-2 px-1 py-2 text-xs font-semibold transition-colors",
+                      selectedCapability === capability.id
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                    )}
+                  >
+                    {capability.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
+                <CreateTaskForm
+                  prompt={prompt}
+                  onPromptChange={setPrompt}
+                  isCreating={isCreatingProject}
+                  onSubmit={handleSubmit}
+                  uploadedImages={uploadedImages}
+                  onImagesChange={setUploadedImages}
+                  selectedAssistant={selectedAssistant}
+                  onAssistantChange={handleAssistantChange}
+                  assistantOptions={ASSISTANT_OPTIONS}
+                  isAssistantSelectable={isAssistantSelectable}
+                  selectedModel={selectedModel}
+                  onModelChange={handleModelChange}
+                  modelOptions={availableModels}
+                  selectedRole={selectedRoleModule}
+                />
+              </div>
+            </motion.article>
+
+          </section>
+
+          <motion.section
+            id="recent-projects"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.18, ease: "easeOut" }}
+            className="mt-10"
+          >
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold tracking-tight">最近研究</p>
+                <p className="mt-1 text-xs text-muted-foreground">无需翻找历史记录，直接回到最近的分析上下文。</p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="gap-1 text-xs">
+                查看全部 {projects.length > 0 ? `(${projects.length})` : ""}<ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            {projectsLoading ? (
+              <div className="mt-4 divide-y divide-border border-y border-border/70">
+                {[0, 1, 2].map((item) => <div key={item} className="h-20 animate-pulse bg-muted/35" />)}
+              </div>
+            ) : recentProjects.length > 0 ? (
+              <div className="mt-4 divide-y divide-border border-y border-border/70">
+                {recentProjects.map((project, index) => {
+                  const status = getProjectStatus(project);
+                  const StatusIcon = status.icon;
                   return (
                     <button
-                      key={cap.id}
+                      key={project.id}
                       type="button"
-                      onClick={() => !isPlanned && handleCapabilityCardClick(cap.id)}
-                      disabled={isPlanned}
-                      className={cn(
-                        "group relative flex flex-col items-start gap-2.5 rounded-xl border bg-gradient-to-br p-4 text-left shadow-[0_12px_28px_-24px_hsl(var(--foreground)/0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_-22px_hsl(var(--foreground)/0.32)]",
-                        CAPABILITY_COLORS[cap.id],
-                        isActive && "ring-2 ring-primary/30",
-                        isPlanned && "opacity-60 cursor-not-allowed"
-                      )}
+                      onClick={() => openProject(project)}
+                      className="group grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-3 py-4 text-left transition-colors hover:bg-muted/25 md:grid-cols-[3rem_minmax(0,1fr)_8rem_8rem_7rem_3rem_1.5rem] md:gap-5"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-lg",
-                            CAPABILITY_ICON_COLORS[cap.id]
-                          )}
-                        >
-                          {CAPABILITY_ICONS[cap.id]}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-semibold">
-                              {cap.name}
-                            </span>
-                            {isPlanned && (
-                              <Badge
-                                variant="secondary"
-                                className="h-4 px-1 text-[10px]"
-                              >
-                                规划中
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
+                      <span className="font-mono text-xs text-muted-foreground/65">{String(index + 1).padStart(2, "0")}</span>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{project.name || project.initialPrompt || "未命名研究"}</h3>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{project.initialPrompt || project.description || "进入工作区继续这项研究。"}</p>
                       </div>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        {cap.description}
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {cap.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
+                      <span className="hidden text-xs font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
+                      <span className={cn(
+                        "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-xs",
+                        status.tone === "amber" && "text-amber-600",
+                        status.tone === "red" && "text-red-600",
+                        status.tone === "green" && "text-emerald-600",
+                        status.tone === "slate" && "text-muted-foreground",
+                      )}>
+                        <StatusIcon className="h-3 w-3" />{status.label}
+                      </span>
+                      <span className="hidden text-xs text-muted-foreground md:block">{formatTime(project.lastMessageAt || project.createdAt)}</span>
+                      <span className="hidden text-xs font-semibold text-foreground md:block">继续</span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
                     </button>
                   );
                 })}
               </div>
+            ) : (
+              <div className="mt-4 border-y border-dashed border-border py-8 text-center text-sm text-muted-foreground">创建第一个任务后，最近研究会出现在这里。</div>
+            )}
+          </motion.section>
+
+          <motion.section
+            id="capability-templates"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.24, ease: "easeOut" }}
+            className="mt-10 scroll-mt-24"
+          >
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-lg font-bold tracking-tight">常用研究模板</p>
+                <p className="mt-1 text-xs text-muted-foreground">只展示已经打通数据、证据与看板链路的能力。</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/skills")} className="hidden gap-1 text-xs sm:inline-flex">
+                  Skills 能力市场<ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllCapabilities((current) => !current)} className="rounded-none border-b border-border px-1 text-xs">
+                  {showAllCapabilities ? "收起" : `全部 ${readyCapabilities.length} 项`}
+                </Button>
+              </div>
             </div>
-          ))}
-        </motion.div>
+
+            <div className="mt-4 grid border-y border-border/70 md:grid-cols-2">
+              {displayedCapabilities.map((capability, index) => {
+                const isActive = selectedCapability === capability.id;
+                return (
+                  <button
+                    key={capability.id}
+                    type="button"
+                    onClick={() => handleCapabilityCardClick(capability.id)}
+                    className={cn(
+                      "group grid min-h-40 grid-cols-[3rem_minmax(0,1fr)_1.5rem] items-start gap-4 border-b border-border/60 py-6 text-left transition-colors hover:bg-muted/20 md:px-6 md:odd:border-r md:[&:nth-child(2n+1)]:pl-0 md:[&:nth-child(2n)]:pr-0",
+                      isActive ? "border-l-2 border-l-primary md:border-l-0 md:border-t-2 md:border-t-primary" : "border-l-2 border-l-transparent md:border-l-0 md:border-t-2 md:border-t-transparent"
+                    )}
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <span className="font-mono text-[10px] text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="flex h-8 w-8 items-center justify-center text-primary">{CAPABILITY_ICONS[capability.id]}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-base font-bold transition-colors group-hover:text-primary">{capability.name}</h3>
+                        {isActive ? <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary">当前模式</span> : null}
+                      </div>
+                      <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">{capability.description}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-2">
+                        {capability.tags.slice(0, 3).map((tag) => <span key={tag} className="text-[10px] text-muted-foreground">{tag}</span>)}
+                      </div>
+                    </div>
+                    <ChevronRight className="mt-1 h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+                  </button>
+                );
+              })}
+            </div>
+          </motion.section>
+        </div>
       </main>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-4 border-t border-border/80 bg-background/95 px-2 backdrop-blur-xl md:hidden" aria-label="移动端首页导航">
+        <button type="button" aria-current="page" className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-primary text-[10px] font-semibold text-primary"><Home className="h-4 w-4" />首页</button>
+        <button type="button" onClick={() => setTaskDrawerOpen(true)} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><FolderKanban className="h-4 w-4" />项目</button>
+        <button type="button" onClick={() => document.getElementById("capability-templates")?.scrollIntoView({ behavior: "smooth" })} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><LayoutGrid className="h-4 w-4" />能力</button>
+        <button type="button" onClick={() => router.push("/account/usage")} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><UserRound className="h-4 w-4" />我的</button>
+      </nav>
 
       {/* Task drawer */}
       <TaskDrawer

@@ -56,15 +56,15 @@ function TaskDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="left" className="flex w-[min(420px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden border-r border-slate-200 bg-white p-0 sm:max-w-none">
-        <SheetHeader className="border-b bg-white px-4 py-3">
+      <SheetContent side="left" className="flex w-[min(420px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden border-r border-border/70 bg-background p-0 sm:max-w-none">
+        <SheetHeader className="border-b border-border/70 bg-background px-4 py-4">
           <div className="flex items-baseline gap-1.5">
             <SheetTitle className="text-base">任务记录</SheetTitle>
             <SheetDescription className="text-xs">({projects.length})</SheetDescription>
           </div>
         </SheetHeader>
 
-        <div className="border-b bg-slate-50 px-4 py-3">
+        <div className="border-b border-border/60 bg-muted/35 px-4 py-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -92,7 +92,7 @@ function TaskDrawer({
               return (
                 <div
                   key={project.id}
-                  className="group relative border-b border-slate-100 px-4 py-3 transition-colors hover:bg-slate-50"
+                  className="group relative border-b border-border/55 px-4 py-3 transition-colors hover:bg-muted/45"
                 >
                   {isEditing ? (
                     <form
@@ -138,14 +138,14 @@ function TaskDrawer({
                         }}
                         className="block w-full min-w-0 text-left"
                       >
-                        <p className="truncate text-sm font-semibold text-slate-950">
+                        <p className="truncate text-sm font-semibold text-foreground">
                           {title}
                         </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span>{formatTime(project.lastMessageAt || project.createdAt)}</span>
                           <span>@{project.id.slice(-8)}</span>
                         </div>
-                        <p className="mt-1 truncate text-xs text-slate-400">
+                        <p className="mt-1 truncate text-xs text-muted-foreground/75">
                           {capabilityName} ·{" "}
                           {formatCliInfo(
                             project.preferredCli ?? undefined,
@@ -157,7 +157,7 @@ function TaskDrawer({
                         <button
                           type="button"
                           onClick={() => onEditProject(project)}
-                          className="pointer-events-auto rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-red-500"
+                          className="pointer-events-auto rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-primary"
                           aria-label="重命名任务"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -165,7 +165,7 @@ function TaskDrawer({
                         <button
                           type="button"
                           onClick={() => onDeleteProject(project)}
-                          className="pointer-events-auto rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-red-500"
+                          className="pointer-events-auto rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-red-500"
                           aria-label="删除任务"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
