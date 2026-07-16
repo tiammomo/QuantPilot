@@ -99,8 +99,11 @@ export interface MoAgentE2eQualityThresholds {
 }
 
 export const DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS = Object.freeze({
-  maxTurnsPerCase: 20,
-  maxCacheMissInputTokensPerCase: 120_000,
+  // One custom root run plus at most three failure-scoped repair runs.
+  // PhaseGraph caps each physical model run at three turns; the corresponding
+  // cache-miss ceilings are 24k for custom and 20k for every repair.
+  maxTurnsPerCase: 12,
+  maxCacheMissInputTokensPerCase: 84_000,
   maxUnexpectedToolFailures: 0,
 }) satisfies MoAgentE2eQualityThresholds;
 

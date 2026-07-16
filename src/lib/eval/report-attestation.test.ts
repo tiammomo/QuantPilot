@@ -8,7 +8,7 @@ const options: EvalReportAttestationOptions = {
   expectedCaseIds: ['a', 'b'],
   expectedCasesSha256: 'cases-hash',
   expectedPromptsSha256: 'prompts-hash',
-  frameworkVersion: 'moagent:1.7.0',
+  frameworkVersion: 'moagent:1.8.0',
   buildRevision: 'build-current',
   gitRevision: GIT,
   qualityThresholds: {
@@ -32,7 +32,7 @@ function baseReport(mode: 'contract' | 'e2e') {
       runtime: {
         cli: 'moagent',
         model: mode === 'e2e' ? 'deepseek-v4-flash' : null,
-        frameworkVersion: 'moagent:1.7.0',
+        frameworkVersion: 'moagent:1.8.0',
         buildRevision: 'build-current',
         agentExecuted: false,
         executedCaseCount: 0,
@@ -50,7 +50,7 @@ function baseReport(mode: 'contract' | 'e2e') {
       },
       provenance: {
         gitRevision: GIT,
-        frameworkVersion: 'moagent:1.7.0',
+        frameworkVersion: 'moagent:1.8.0',
         buildRevision: 'build-current',
         casesSha256: 'cases-hash',
         promptsSha256: 'prompts-hash',
@@ -120,7 +120,7 @@ function execution(id: string) {
         status: 'candidate_complete',
         provider: 'deepseek',
         model: 'deepseek-v4-flash',
-        frameworkVersion: 'moagent:1.7.0',
+        frameworkVersion: 'moagent:1.8.0',
         buildRevision: 'build-current',
         startedAt: '2026-07-15T00:00:00.000Z',
         completedAt: '2026-07-15T00:01:00.000Z',
@@ -139,7 +139,7 @@ function execution(id: string) {
       acceptedSourceRunId: runId,
       acceptedSourceRequestId: requestId,
       acceptedCandidateSource: 'moagent_submit_result',
-      frameworkVersion: 'moagent:1.7.0',
+      frameworkVersion: 'moagent:1.8.0',
       buildRevision: 'build-current',
       gitRevision: GIT,
       startedAt: '2026-07-15T00:00:00.000Z',
@@ -202,7 +202,7 @@ describe('eval report attestation', () => {
   });
 
   it.each([
-    'unversioned:moagent:1.7.0',
+    'unversioned:moagent:1.8.0',
     `${'a'.repeat(40)}-dirty.unavailable`,
   ])('rejects E2E evidence from a non-attestable build revision: %s', (buildRevision) => {
     const report = baseReport('e2e');

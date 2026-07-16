@@ -4,6 +4,7 @@
     "name": "贵州茅台基本面看板",
     "question": "贵州茅台最近财务怎么样？生成基本面看板。",
     "capabilityId": "fundamental_analysis",
+    "expectedExecutionLane": "model_custom",
     "expectedVariantId": "fundamental-quality-scorecard",
     "expectedSymbol": "600519",
     "expectedAssetType": "stock",
@@ -25,6 +26,7 @@
     "name": "沪深300技术趋势看板",
     "question": "生成沪深300最近120天趋势看板。",
     "capabilityId": "technical_analysis",
+    "expectedExecutionLane": "model_custom",
     "expectedVariantId": "technical-kline-trader",
     "expectedSymbol": "000300",
     "expectedAssetType": "index",
@@ -148,6 +150,7 @@
     "name": "持仓调仓风险分析",
     "question": "我当前持有杭钢股份、京沪高铁、三七互娱、中国黄金、完美世界，帮我先集中风险，再决定是否动用现金，生成调仓分析看板。",
     "capabilityId": "portfolio_risk",
+    "expectedExecutionLane": "model_custom",
     "expectedSymbol": "600126",
     "expectedAssetType": "stock",
     "expectedSymbols": [
@@ -188,6 +191,40 @@
     "name": "中信证券自然语言诊断不误澄清",
     "question": "中信证券最近怎么样",
     "capabilityId": "stock_diagnosis",
+    "expectedExecutionLane": "deterministic_standard",
+    "expectClarification": false,
+    "expectedSymbol": "600030",
+    "expectedAssetType": "stock",
+    "expectedTemplateId": "single-stock-diagnosis",
+    "expectedVariantId": "single-stock-command-center",
+    "expectedRawFiles": [
+      "quote.json",
+      "kline-daily-qfq.json",
+      "technical-indicators.json",
+      "financials.json",
+      "announcements.json"
+    ],
+    "expectedDatasets": [
+      "quote",
+      "kline",
+      "technical_indicators",
+      "financials",
+      "announcements"
+    ],
+    "visualCheck": true,
+    "expectedVisualKeywords": [
+      "中信证券",
+      "K 线",
+      "数据信源"
+    ]
+  },
+  {
+    "id": "stock-diagnosis-citic-custom-no-cards",
+    "name": "中信证券连续工作台无卡片定制",
+    "question": "中信证券最近怎么样？生成连续的金融分析工作台，不要卡片式界面，不要圆角卡片网格，用分区线、指标带、主图和表格组织信息。",
+    "capabilityId": "stock_diagnosis",
+    "expectedExecutionLane": "model_custom",
+    "expectedNoCardSurface": true,
     "expectClarification": false,
     "expectedSymbol": "600030",
     "expectedAssetType": "stock",

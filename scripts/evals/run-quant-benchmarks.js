@@ -59,6 +59,10 @@ const {
   attestEvalReport,
   EVAL_REPORT_SCHEMA_VERSION,
 } = jiti('../../src/lib/eval/report-attestation.ts');
+const {
+  attestProductControlEvidence,
+  loadQuantE2eSuite,
+} = require('../checks/quant-e2e-suite');
 
 // Keep CLI evaluation consistent with the web launcher while preserving
 // explicitly provided CI environment variables. Local overrides load first.
@@ -309,6 +313,8 @@ function caseCoverageTags(testCase) {
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (testCase.visualCheck) tags.add('visual:playwright');
   if (testCase.expectedImageExtraction) tags.add('evidence:image_extraction');
+  if (testCase.expectedExecutionLane) tags.add(`lane:${testCase.expectedExecutionLane}`);
+  if (testCase.expectedNoCardSurface) tags.add('visual:no-card-workbench');
   if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
@@ -693,6 +699,31 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
       `sources 应包含信源 ${expectedProvider}`,
       failures
     );
+  }
+
+  if (testCase.expectedNoCardSurface) {
+    const visualReport = await readArtifact('.quantpilot/visual-validation.json');
+    const viewports = Array.isArray(visualReport?.viewports) ? visualReport.viewports : [];
+    assertCondition(viewports.length >= 2, '无卡片定制必须保留桌面端和移动端视觉证据。', failures);
+    for (const viewport of viewports) {
+      const metrics = viewport?.metrics || {};
+      assertCondition(
+        metrics.hasFinancialWorkbenchMarker === true,
+        `${viewport?.id || 'unknown'} 无卡片定制缺少 financial-workbench 标记。`,
+        failures,
+      );
+      assertCondition(
+        metrics.cardGridClusterCount === 0,
+        `${viewport?.id || 'unknown'} 仍存在独立圆角卡片网格。`,
+        failures,
+      );
+      assertCondition(
+        Number(metrics.firstViewportCardLikeSurfaceCount || 0) < 4 &&
+          Number(metrics.cardLikeSurfaceCount || 0) < 8,
+        `${viewport?.id || 'unknown'} 独立卡片式容器仍然偏多。`,
+        failures,
+      );
+    }
   }
 
   return {
@@ -1531,7 +1562,54 @@ function toolExecutionSummary(executions) {
       execution.status === 'succeeded' && execution.effect === 'workspace_write').length,
     submitResultSucceeded: executions.filter((execution) =>
       execution.status === 'succeeded' && execution.toolName === 'submit_result').length,
+    succeededToolNames: Array.from(new Set(executions
+      .filter((execution) => execution.status === 'succeeded')
+      .map((execution) => execution.toolName)))
+      .sort(),
   };
+}
+
+function expectedExecutionLaneFailures(testCase, execution) {
+  if (!testCase.expectedExecutionLane) return [];
+  const rootRun = execution?.runs?.find((run) => run.requestId === execution.requestId);
+  const rootToolNames = rootRun?.tools?.succeededToolNames || [];
+  if (testCase.expectedExecutionLane === 'deterministic_standard') {
+    return execution?.provider === 'moagent-trusted-renderer' &&
+      execution?.model === 'moagent-deterministic-renderer-v1' &&
+      execution?.turns === 2 &&
+      execution?.usage?.totalTokens === 0 &&
+      execution?.usage?.inputTokens === 0 &&
+      execution?.usage?.outputTokens === 0 &&
+      execution?.usage?.cachedInputTokens === 0 &&
+      execution?.usage?.cacheMissInputTokens === 0 &&
+      execution?.usage?.reasoningTokens === 0 &&
+      rootRun?.turns === 2 &&
+      rootRun?.tools?.unexpectedFailureCount === 0 &&
+      rootToolNames.includes('apply_dashboard_spec') &&
+      rootToolNames.includes('submit_result')
+      ? []
+      : ['期望 deterministic_standard 零模型 Token 路径，但实际运行身份不匹配。'];
+  }
+  if (testCase.expectedExecutionLane === 'model_custom') {
+    return execution?.provider === 'deepseek' &&
+      execution?.model === 'deepseek-v4-flash' &&
+      Number.isSafeInteger(rootRun?.turns) &&
+      rootRun.turns > 0 &&
+      rootRun.turns <= 3 &&
+      Number.isSafeInteger(rootRun?.usage?.inputTokens) &&
+      rootRun.usage.inputTokens >= 0 &&
+      rootRun.usage.inputTokens <= 24_000 &&
+      Number.isSafeInteger(rootRun?.usage?.cacheMissInputTokens) &&
+      rootRun.usage.cacheMissInputTokens >= 0 &&
+      rootRun.usage.cacheMissInputTokens <= 24_000 &&
+      rootRun?.tools?.unexpectedFailureCount === 0 &&
+      rootToolNames.includes('semantic_edit') &&
+      !rootToolNames.includes('quant_api_get') &&
+      !rootToolNames.includes('apply_dashboard_spec')
+      ? []
+      : ['期望 model_custom DeepSeek 路径，但实际运行身份不匹配。'];
+  }
+  return [`未知 expectedExecutionLane：${testCase.expectedExecutionLane}`];
 }
 
 function candidateSource(receipt) {
@@ -1720,6 +1798,7 @@ async function runLiveProductE2eCase(testCase, options) {
     ...artifactInspection.failures,
     ...(visualCheck?.failures || []),
     ...eventAudit.failures,
+    ...expectedExecutionLaneFailures(testCase, agentExecution),
     ...(validation.passed
       ? []
       : validation.checks
@@ -1773,7 +1852,7 @@ async function runLiveProductE2eCase(testCase, options) {
 }
 
 async function runCase(testCase, options) {
-  if (options.mode === 'e2e') {
+  if (options.mode === 'e2e' || options.mode === 'product-control') {
     return runLiveProductE2eCase(testCase, options);
   }
   if (testCase.type === 'runtime_registry') {
@@ -2108,12 +2187,27 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const benchmarkStartedAt = new Date().toISOString();
   const allCases = await readJson(CASES_PATH);
+  const allCaseIds = new Set(allCases.map((testCase) => testCase.id));
+  const unknownSelectedIds = Array.from(args.selected).filter((id) => !allCaseIds.has(id));
+  if (unknownSelectedIds.length > 0) {
+    throw new Error(`包含未知 benchmark case：${unknownSelectedIds.join(', ')}`);
+  }
+  const e2eSuite = args.mode === 'e2e'
+    ? loadQuantE2eSuite({
+        root: process.cwd(),
+        suitePath: E2E_SUITE_PATH,
+        cases: allCases,
+        requireReleaseCoverage: true,
+      })
+    : null;
+  const formalSuiteRun = Boolean(
+    e2eSuite && args.selected.size === 0 && args.limit === null,
+  );
   let cases = allCases;
   if (args.selected.size > 0) {
     cases = cases.filter((testCase) => args.selected.has(testCase.id));
-  } else if (args.mode === 'e2e') {
-    const suite = await readJson(E2E_SUITE_PATH);
-    const suiteIds = new Set(Array.isArray(suite.caseIds) ? suite.caseIds : []);
+  } else if (e2eSuite) {
+    const suiteIds = new Set(e2eSuite.caseIds);
     cases = cases.filter((testCase) => suiteIds.has(testCase.id));
   }
   if (args.limit !== null) {
@@ -2126,6 +2220,18 @@ async function main() {
 
   await fs.mkdir(REPORTS_DIR, { recursive: true });
   console.log(`[QuantBenchmark] mode=${args.mode} evaluator=${args.evaluatorId} concurrency=${args.concurrency} cases=${cases.length}`);
+  const productControlsStartedAt = formalSuiteRun ? new Date().toISOString() : null;
+  const productControlCases = formalSuiteRun
+    ? e2eSuite.productControlCaseIds.map((id) => e2eSuite.caseById.get(id))
+    : [];
+  const productControlResults = productControlCases.length > 0
+    ? await runCasesWithConcurrency(
+        productControlCases,
+        1,
+        { ...args, mode: 'product-control' },
+      )
+    : [];
+  const productControlsFinishedAt = formalSuiteRun ? new Date().toISOString() : null;
   const results = await runCasesWithConcurrency(cases, args.concurrency, args);
 
   const coverage = buildCoverageSummary(cases, results);
@@ -2135,6 +2241,34 @@ async function main() {
     : null;
   const benchmarkFinishedAt = new Date().toISOString();
   const reportCreatedAt = new Date().toISOString();
+  let releaseControls = null;
+  if (formalSuiteRun) {
+    releaseControls = {
+      schemaVersion: 1,
+      suiteId: e2eSuite.id,
+      suiteSchemaVersion: e2eSuite.schemaVersion,
+      frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+      buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+      gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+      startedAt: productControlsStartedAt,
+      finishedAt: productControlsFinishedAt,
+      caseIds: e2eSuite.productControlCaseIds,
+      runtimeTestFiles: e2eSuite.runtimeTestFiles,
+      passed: productControlResults.every((result) => result.passed),
+      results: productControlResults,
+    };
+    const productControlAttestation = attestProductControlEvidence(releaseControls, {
+      suite: e2eSuite,
+      frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+      buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+      gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    });
+    releaseControls.attestation = {
+      schemaVersion: 1,
+      verifiedAt: reportCreatedAt,
+      ...productControlAttestation,
+    };
+  }
   const report = {
     schemaVersion: EVAL_REPORT_SCHEMA_VERSION,
     createdAt: reportCreatedAt,
@@ -2164,6 +2298,14 @@ async function main() {
         executionClass: args.mode === 'e2e'
           ? 'live_mission_e2e'
           : 'deterministic_contract',
+        ...(e2eSuite
+          ? {
+              id: e2eSuite.id,
+              schemaVersion: e2eSuite.schemaVersion,
+              productControlCaseIds: e2eSuite.productControlCaseIds,
+              scenarios: e2eSuite.scenarios,
+            }
+          : {}),
       },
       provenance: {
         gitCommit: MOAGENT_BUILD_IDENTITY.gitRevision,
@@ -2185,6 +2327,7 @@ async function main() {
         databaseEvidenceRetained: args.mode === 'e2e',
         workspaceRetained: args.mode === 'e2e' || args.keepProjects,
       },
+      ...(releaseControls ? { releaseControls } : {}),
       skillLockSnapshot: await readSkillLockSnapshot(),
     },
     passed: results.every((result) => result.passed) && (e2eQuality?.passed ?? true),
@@ -2214,6 +2357,9 @@ async function main() {
     problems: inProcessAttestation.problems,
   };
   if (!inProcessAttestation.passed) report.passed = false;
+  report.releasePassed = formalSuiteRun
+    ? report.passed && releaseControls?.attestation?.passed === true
+    : null;
 
   const reportPath = path.join(REPORTS_DIR, `report-${Date.now()}.json`);
   await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -2245,6 +2391,16 @@ async function main() {
   }
   if (args.mode === 'e2e') {
     console.log('[QuantBenchmark] E2E AgentRun/Mission evidence retained for the external gate.');
+    if (formalSuiteRun) {
+      console.log(
+        `[QuantBenchmark] product controls ` +
+        `${releaseControls.attestation.passed ? 'PASS' : 'FAIL'} ` +
+        `(${productControlResults.filter((result) => result.passed).length}/${productControlResults.length})`,
+      );
+      for (const problem of releaseControls.attestation.problems) {
+        console.log(`[QuantBenchmark] product control attestation: ${problem}`);
+      }
+    }
   } else if (!args.keepProjects) {
     console.log('[QuantBenchmark] 临时 benchmark 项目已清理。使用 --keep-projects 可保留项目目录。');
   }
@@ -2252,7 +2408,7 @@ async function main() {
     console.log(`[QuantBenchmark] evidence attestation: ${problem}`);
   }
 
-  if (!report.passed) {
+  if (!report.passed || (formalSuiteRun && report.releasePassed !== true)) {
     process.exitCode = 1;
   }
 }

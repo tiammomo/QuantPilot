@@ -11,6 +11,13 @@ const includeRuntime = process.argv.includes('--runtime');
 const generateContractEvidence = process.argv.includes('--eval-contract');
 const includeE2eEvidence = process.argv.includes('--e2e-evidence');
 
+if (includeE2eEvidence && !String(process.env.DEEPSEEK_API_KEY || '').trim()) {
+  console.error(
+    '[release] DEEPSEEK_API_KEY is required for release evidence; refusing to skip live MoAgent E2E.',
+  );
+  process.exit(1);
+}
+
 const checks = [
   ['AI provider boundary', 'npm', ['run', 'check:ai-provider-boundary'], ROOT],
   ['Documentation links', 'npm', ['run', 'check:docs'], ROOT],
@@ -45,7 +52,21 @@ if (generateContractEvidence) {
   );
 }
 if (includeE2eEvidence) {
-  checks.push(['Current-build live Mission E2E evidence', 'npm', ['run', 'eval:ci:e2e'], ROOT]);
+  checks.push(
+    [
+      'MoAgent repair/cancellation/crash release controls',
+      'node',
+      ['scripts/checks/check-quant-e2e-suite.js', '--run-runtime-controls'],
+      ROOT,
+    ],
+    [
+      'Generate current-build live Mission E2E evidence',
+      'npm',
+      ['run', 'benchmark:quant:e2e', '--', '--concurrency', '1'],
+      ROOT,
+    ],
+    ['Current-build live Mission E2E evidence', 'npm', ['run', 'eval:ci:e2e'], ROOT],
+  );
 }
 
 const startedAt = performance.now();

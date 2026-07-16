@@ -17,6 +17,10 @@ const {
   MOAGENT_BUILD_IDENTITY,
   MOAGENT_FRAMEWORK_VERSION,
 } = jiti('../../src/lib/agent/framework-identity.ts');
+const {
+  attestProductControlEvidence,
+  loadQuantE2eSuite,
+} = require('./quant-e2e-suite');
 
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
@@ -148,6 +152,29 @@ function parseArgs(argv) {
       throw new Error(`${label} 必须是非负整数`);
     }
   }
+  for (const [label, value, releaseMaximum] of [
+    [
+      'maxTurnsPerCase',
+      args.maxTurnsPerCase,
+      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase,
+    ],
+    [
+      'maxCacheMissInputTokensPerCase',
+      args.maxCacheMissInputTokensPerCase,
+      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase,
+    ],
+    [
+      'maxUnexpectedToolFailures',
+      args.maxUnexpectedToolFailures,
+      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures,
+    ],
+  ]) {
+    if (value > releaseMaximum) {
+      throw new Error(
+        `${label} 只能收紧发布上限 ${releaseMaximum}，不能通过 CLI 或环境变量放宽`,
+      );
+    }
+  }
   return args;
 }
 
@@ -157,7 +184,14 @@ function sha256(value) {
 
 function expectedCases(args) {
   const allCases = JSON.parse(fs.readFileSync(CASES_PATH, 'utf8'));
-  const configuredE2e = JSON.parse(fs.readFileSync(E2E_SUITE_PATH, 'utf8'));
+  const configuredE2e = args.mode === 'e2e'
+    ? loadQuantE2eSuite({
+        root: process.cwd(),
+        suitePath: E2E_SUITE_PATH,
+        cases: allCases,
+        requireReleaseCoverage: true,
+      })
+    : null;
   const requestedIds = args.caseIds.length > 0
     ? args.caseIds
     : args.mode === 'e2e'
@@ -169,7 +203,7 @@ function expectedCases(args) {
   if (missing.length > 0 || cases.length !== selected.size) {
     throw new Error(`评测门包含未知 case：${missing.join(', ')}`);
   }
-  return cases;
+  return { cases, e2eSuite: configuredE2e };
 }
 
 function reportMode(report) {
@@ -240,7 +274,7 @@ function main() {
   const createdAtMs = Date.parse(report.createdAt || report.metadata?.finishedAt || '');
   const ageHours = Number.isFinite(createdAtMs) ? (Date.now() - createdAtMs) / 3_600_000 : Number.POSITIVE_INFINITY;
 
-  const cases = expectedCases(args);
+  const { cases, e2eSuite } = expectedCases(args);
   const attestation = attestEvalReport(report, {
     mode: args.mode,
     expectedCaseIds: cases.map((testCase) => testCase.id),
@@ -258,6 +292,24 @@ function main() {
     },
   });
   problems.push(...attestation.problems);
+  if (args.mode === 'e2e' && args.caseIds.length === 0) {
+    const productControlAttestation = attestProductControlEvidence(
+      report?.metadata?.releaseControls,
+      {
+        suite: e2eSuite,
+        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+        gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+      },
+    );
+    problems.push(...productControlAttestation.problems);
+    const expectedReleasePassed = report.passed === true &&
+      attestation.passed &&
+      productControlAttestation.passed;
+    if (report.releasePassed !== expectedReleasePassed) {
+      problems.push('报告 releasePassed 与 live-model/product-control 重算结果不一致');
+    }
+  }
   if (Number.isFinite(ageHours) && ageHours < -(5 / 60)) {
     problems.push('报告时间位于允许时钟偏差之外的未来');
   }

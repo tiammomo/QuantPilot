@@ -1,9 +1,69 @@
 {
-  "schemaVersion": 1,
-  "description": "MoAgent live Mission/EvidenceVerifier release regression suite",
+  "schemaVersion": 2,
+  "id": "moagent-release-evidence-v2",
+  "description": "MoAgent release evidence suite: DeepSeek live Mission cases plus deterministic product and runtime recovery controls",
   "caseIds": [
-    "stock-diagnosis-citic-no-false-clarification",
+    "stock-diagnosis-citic-custom-no-cards",
+    "index-technical-hs300",
     "stock-fundamental-maotai",
-    "asset-comparison-bluechips"
-  ]
+    "portfolio-risk-adjustment"
+  ],
+  "productControlCaseIds": [
+    "stock-diagnosis-citic-no-false-clarification"
+  ],
+  "scenarios": {
+    "standard": {
+      "evidenceClass": "product_control",
+      "caseIds": [
+        "stock-diagnosis-citic-no-false-clarification"
+      ],
+      "runtimeTests": []
+    },
+    "custom-no-card": {
+      "evidenceClass": "live_model",
+      "caseIds": [
+        "stock-diagnosis-citic-custom-no-cards"
+      ],
+      "runtimeTests": []
+    },
+    "repair": {
+      "evidenceClass": "contract_and_runtime_test",
+      "caseIds": [
+        "validation-repair-contract"
+      ],
+      "runtimeTests": [
+        "src/lib/eval/benchmark-repair.test.ts",
+        "src/lib/quant/validation-repair.test.ts"
+      ]
+    },
+    "technical": {
+      "evidenceClass": "live_model",
+      "caseIds": [
+        "index-technical-hs300"
+      ],
+      "runtimeTests": []
+    },
+    "fundamental": {
+      "evidenceClass": "live_model",
+      "caseIds": [
+        "stock-fundamental-maotai"
+      ],
+      "runtimeTests": []
+    },
+    "portfolio": {
+      "evidenceClass": "live_model",
+      "caseIds": [
+        "portfolio-risk-adjustment"
+      ],
+      "runtimeTests": []
+    },
+    "cancellation-or-crash": {
+      "evidenceClass": "runtime_test",
+      "caseIds": [],
+      "runtimeTests": [
+        "src/lib/services/moagent-recovery.test.ts",
+        "src/lib/agent/runtime/workspace-mutation-journal.test.ts"
+      ]
+    }
+  }
 }

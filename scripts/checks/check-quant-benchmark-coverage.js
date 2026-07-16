@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadQuantE2eSuite } = require('./quant-e2e-suite');
 
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
 
@@ -26,6 +27,8 @@ function caseTags(testCase) {
   if (testCase.imageAttachment) tags.add('input:image_attachment');
   if (testCase.visualCheck) tags.add('visual:playwright');
   if (testCase.expectedImageExtraction) tags.add('evidence:image_extraction');
+  if (testCase.expectedExecutionLane) tags.add(`lane:${testCase.expectedExecutionLane}`);
+  if (testCase.expectedNoCardSurface) tags.add('visual:no-card-workbench');
   if (testCase.type === 'runtime_registry') tags.add('runtime:deepseek_v4_flash');
   if (testCase.type === 'repair_plan') tags.add('validation:repair_plan');
   if (testCase.type === 'source_degradation_contract') tags.add('data:source_degradation');
@@ -97,6 +100,9 @@ function main() {
     'analysis:selection',
     'data:multi_symbol',
     'dashboard:renderer_capability',
+    'lane:deterministic_standard',
+    'lane:model_custom',
+    'visual:no-card-workbench',
     'variant:sector-capital-flow-board',
     'variant:strategy-signal-lab',
   ];
@@ -112,6 +118,22 @@ function main() {
 
   if (problems.length > 0) {
     fail('量化 benchmark 覆盖不足。', problems);
+    return;
+  }
+
+  try {
+    const e2eSuite = loadQuantE2eSuite({
+      root: process.cwd(),
+      cases,
+      requireReleaseCoverage: true,
+    });
+    console.log(
+      `[benchmark-coverage] e2e=${e2eSuite.id} live-model=${e2eSuite.caseIds.length} ` +
+      `product-controls=${e2eSuite.productControlCaseIds.length} ` +
+      `runtime-tests=${e2eSuite.runtimeTestFiles.length}`,
+    );
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
     return;
   }
 

@@ -1,30 +1,38 @@
-name: DeepSeek E2E Evaluation
+name: Release Evidence Gate
 
 on:
-  schedule:
-    - cron: '30 18 * * *'
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    secrets:
+      DEEPSEEK_API_KEY:
+        required: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: deepseek-e2e-evaluation
+  group: release-evidence-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  evaluate:
-    name: Real DeepSeek workspace generation
+  evidence:
+    name: Current-build MoAgent release evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
     env:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public
       REDIS_URL: redis://127.0.0.1:36380/0
       QUANTPILOT_MARKET_API_URL: http://127.0.0.1:8000
-      PROJECTS_DIR: ./tmp/e2e-projects
+      PROJECTS_DIR: ./tmp/release-evidence-projects
       QUANTPILOT_EVAL_MODE: e2e
-      QUANTPILOT_EVAL_TRIGGER: nightly
+      QUANTPILOT_EVAL_TRIGGER: release
+      MOAGENT_BUILD_REVISION: ${{ github.sha }}
       MOAGENT_MAX_TURNS: '3'
       MOAGENT_TIMEOUT_MS: '900000'
-      MOAGENT_BUILD_REVISION: ${{ github.sha }}
       MOAGENT_E2E_MAX_TURNS_PER_CASE: '12'
       MOAGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE: '84000'
       MOAGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES: '0'
@@ -33,11 +41,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Require evaluation secret
+      - name: Require release evaluation secret
         shell: bash
         run: |
           if [ -z "$DEEPSEEK_API_KEY" ]; then
-            echo "::error::DEEPSEEK_API_KEY is required; nightly E2E cannot be skipped."
+            echo "::error::DEEPSEEK_API_KEY is required; release evidence cannot be skipped."
             exit 1
           fi
 
@@ -59,41 +67,36 @@ jobs:
           uv sync --project services/market-data --locked --all-groups
           npm run prisma:generate
 
-      - name: Start data infrastructure
+      - name: Start release evidence infrastructure
         run: |
           docker compose up -d --wait timescaledb redis
           npm run db:init
           mkdir -p tmp
-          npm run dev:market > tmp/eval-market.log 2>&1 &
+          npm run dev:market > tmp/release-market.log 2>&1 &
           for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
               exit 0
             fi
             sleep 2
           done
-          tail -100 tmp/eval-market.log
+          tail -100 tmp/release-market.log
           exit 1
 
-      - name: Run repair and crash controls
-        run: node scripts/checks/check-quant-e2e-suite.js --run-runtime-controls
+      - name: Enforce complete release evidence gate
+        run: npm run release:check:evidence
 
-      - name: Run real DeepSeek regression suite
-        run: npm run benchmark:quant:e2e -- --concurrency 1
-
-      - name: Enforce E2E gate
-        run: npm run eval:ci:e2e -- --min-pass-rate 100 --min-average-score 90
-
-      - name: Upload evaluation evidence
+      - name: Upload release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: deepseek-e2e-evidence-${{ github.run_id }}
+          name: release-evidence-${{ github.run_id }}-${{ github.sha }}
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
           path: |
             tmp/quantpilot-benchmark-reports/
             tmp/quantpilot-benchmark-screenshots/
-            tmp/eval-market.log
+            tmp/visual-checks/
+            tmp/release-market.log
 
       - name: Stop infrastructure
         if: always()
