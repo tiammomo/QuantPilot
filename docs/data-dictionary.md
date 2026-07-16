@@ -16,12 +16,12 @@
 
 | 表 | 来源 | 责任 |
 | --- | --- | --- |
-| `projects` | `Project` | 首页项目、workspace 路径、CLI 偏好和预览状态 |
+| `projects` | `Project` | 首页项目、workspace 路径、CLI 偏好、预览状态和项目 owner |
 | `messages` | `Message` | 用户、助手、工具调用和错误消息 |
 | `sessions` | `Session` | 旧版 Agent session 兼容记录；MoAgent 当前运行不依赖 provider session |
 | `tool_usages` | `ToolUsage` | 旧版通用工具记录；包含 raw input/output，不得用于 MoAgent durable ledger |
-| `user_requests` | `UserRequest` | 用户请求队列和执行状态 |
-| `agent_runs` | `AgentRun` | MoAgent 物理执行、run/workspace 双重 fencing、usage、终态和 provenance hashes |
+| `user_requests` | `UserRequest` | 用户请求队列和执行状态；`actor_user_id` 记录发起账号并参与 request ID 防串用校验 |
+| `agent_runs` | `AgentRun` | MoAgent 物理执行、发起账号、run/workspace 双重 fencing、usage、终态和 provenance hashes |
 | `agent_workspace_leases` | `AgentWorkspaceLease` | 每个 project/canonical workspace 的跨进程独占 lease、active run 和单调 fencing token |
 | `agent_events` | `AgentEvent` | 经过安全 projector 的低频生命周期事件；源 sequence 可有间隙 |
 | `agent_checkpoints` | `AgentCheckpoint` | 只用于 `replan_required` 的安全边界元数据，不保存 messages/prompt/reasoning |
@@ -42,8 +42,45 @@
 | `eval_queue_items` | `EvalQueueItem` | 评测队列任务 |
 | `eval_repair_tickets` | `EvalRepairTicket` | 失败修复单 |
 | `eval_schedules` | `EvalSchedule` | 定时评测配置 |
+| `auth_users` | `AuthUser` | 登录用户、邮箱、`admin/member` 平台角色、停用状态、首次改密和最近登录时间 |
+| `auth_accounts` | `AuthAccount` | 本地 credential 账号与 Argon2id 密码哈希；不保存明文密码 |
+| `auth_sessions` | `AuthSession` | 数据库登录会话、到期时间和请求设备摘要；与旧 Agent `sessions` 完全独立 |
+| `auth_verifications` | `AuthVerification` | 一次性验证记录，为后续验证/重置流程预留 |
+| `auth_rate_limits` | `AuthRateLimit` | 跨进程共享的认证接口限流计数 |
+| `project_memberships` | `ProjectMembership` | 用户与项目的 `owner/editor/viewer` 权限；同一用户在同一项目唯一 |
+| `auth_audit_events` | `AuthAuditEvent` | 登录、改密、用户治理、项目授权和权限拒绝事件；只保存安全摘要，不保存密码/token |
+| `permission_profiles` | `PermissionProfile` | 可分配的账号 capability 模板；至多一个默认模板 |
+| `permission_profile_grants` | `PermissionProfileGrant` | 模板中的 capability `allow/deny`；同一模板和 key 唯一 |
+| `user_permission_overrides` | `UserPermissionOverride` | 用户级 capability `allow/deny`、变更原因和可选到期时间 |
+| `quota_profiles` | `QuotaProfile` | 可分配的配额模板；至多一个默认模板 |
+| `quota_rules` | `QuotaRule` | 模板 metric 上限、`observe/warn/hard`、窗口与 reservation TTL |
+| `user_quota_overrides` | `UserQuotaOverride` | 用户级限额/无限覆盖、执行模式、窗口、原因和可选到期时间 |
+| `usage_buckets` | `UsageBucket` | actor + metric + 窗口唯一的 `used/reserved` 聚合计数和并发更新版本 |
+| `quota_reservations` | `QuotaReservation` | 执行前资源预留及其策略快照、TTL、结算/释放状态和幂等键 |
+| `usage_events` | `UsageEvent` | 实际用量/调整的幂等事实账本，关联 actor、project、reservation、bucket 和业务 source |
 
 Prisma 表只管理平台状态，不承载大体量 K 线和生成源码。工作空间原件仍在 `data/projects/`。
+
+认证授权以 `projects.owner_id` 和 `project_memberships` 为项目归属事实源。owner 同时保留一条 owner membership，便于列表和审计；服务端判定时 `projects.owner_id` 优先。`auth_users.banned` 表示账号停用，`must_change_password` 会将账号限制在账户安全和退出相关入口，`password_changed_at` 与 `last_login_at` 用于管理员判断账号生命周期。`auth_sessions.token`、`auth_accounts.password` 属于敏感认证数据，任何列表 API、审计 metadata、日志和 Skills 都不得返回或记录原值。
+
+`auth_users.permission_profile_id` 与 `quota_profile_id` 分别指向账号 capability 和配额模板；`access_version` 是非负乐观锁版本。管理员更新权限/配额时必须提交读取到的版本和变更原因，事务成功后版本加一，防止两位管理员静默覆盖。`user_*_overrides.expires_at` 为空表示长期有效，否则只在到期前参与策略解析。权限覆盖与模板合并时任何有效 `deny` 优先；项目范围 capability 还必须与 `owner/editor/viewer` 的角色规则取交集。
+
+### 权限与配额事实模型
+
+| 数据关系 | 不变量 |
+| --- | --- |
+| `permission_profiles -> permission_profile_grants` | `profile_id + permission_key` 唯一，effect 只能是 `allow/deny`；未知 capability 在应用层失败关闭 |
+| `quota_profiles -> quota_rules` | `profile_id + metric` 唯一，limit 必须大于 0；window 只能是 `minute/hour/day/month/fixed/lifetime` |
+| `auth_users -> user_*_overrides` | `user_id + permission_key/metric` 唯一；override 可以到期，管理员策略在应用层固定为全权限和无限配额 |
+| `usage_buckets` | `actor_user_id + metric + window_start + window_end` 唯一；`used/reserved` 不得为负，版本只递增 |
+| `quota_reservations` | `idempotency_key` 全局唯一；状态为 `active/settled/released/expired`，创建时保存 limit、enforcement、window 的策略快照 |
+| `usage_events` | `idempotency_key` 唯一且每个 reservation 至多一个结算事件；`quantity` 可用于正向用量或受控冲正，bucket 不得下溢 |
+
+reservation 创建时先把数量原子加入 `usage_buckets.reserved`；settlement 按实际数量减少预留、增加 `used` 并新增 `usage_events`，release/expire 只归还 `reserved`。`hard` 模式使用 `used + reserved + requested <= limit` 的条件更新防止并发超卖；`observe/warn` 允许越过阈值但保留 `exceeded` 状态。管理员和未配置 metric 的策略可无限使用，事件通过 `enforcement_exempt=true` 表示免于拦截，实际数量仍然计入 bucket 和账本。
+
+`user_requests.actor_user_id` 在认证启用时来自当前数据库会话，`agent_runs.actor_user_id` 从绑定的 request 继承，`usage_events.actor_user_id` 再由执行或 reservation 传播。它们和业务 `source_type/source_id` 一起回答“谁在什么项目、由哪次执行产生了多少用量”。历史请求/run 可以保留空 actor，迁移不做猜测式回填；`usage_events.actor_user_id`、`project_id`、`reservation_id` 和 `bucket_id` 允许在关联对象删除后置空以保留用量事实。API 输出这些 `BIGINT` 计数时使用十进制字符串。
+
+默认成员模板包含 8 条规则：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 observe/day`、`llm.total_tokens.monthly=2000000 observe/month`、`query_rewrite.llm.daily=200 observe/day`、`quant.data_units.daily=2000 observe/day`、`research.report_runs.daily=20 observe/day`、`research.report_sends.daily=10 hard/day`。管理员解析为无限但仍记账；普通成员优先使用未到期用户配额覆盖，其次是分配模板和默认模板。
 
 MoAgent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；文件内容仍以工作空间为事实源。`agent_workspace_leases.workspace_key` 是 deployment namespace 与 canonical realpath 的哈希，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。
 

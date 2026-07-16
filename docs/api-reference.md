@@ -29,6 +29,7 @@
 | `/api/projects/[project_id]/artifact` | `GET` | 预览、运行治理中心 | 读取生成产物或验证报告摘要 |
 | `/api/projects/[project_id]/install-dependencies` | `POST` | 项目聊天页 | 生成项目依赖安装 |
 | `/api/projects/[project_id]/retry-initialization` | `POST` | 项目聊天页 | 重新初始化失败 workspace |
+| `/api/projects/[project_id]/members` | `GET/PUT/DELETE` | 用户管理 | owner/管理员查看、授予和移除项目成员权限 |
 | `/api/workspaces/health` | `GET` | 运行治理中心 | 工作空间健康、验证、产物和预览状态 |
 | `/api/workspaces/trace` | `GET` | 运行治理中心 | 生成链路 trace、阶段事件和工具调用 |
 | `/api/observability/generation` | `GET` | 运行治理中心 | 生成状态、队列、事件和可观测性聚合 |
@@ -85,6 +86,31 @@ Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失
 | `/api/env/[project_id]/*` | `GET/POST/DELETE` | 项目设置 | 项目环境变量读取、upsert、冲突检查 |
 | `/api/tokens`、`/api/tokens/[...segments]` | `GET/POST/DELETE` | 设置弹窗 | 服务 token 管理 |
 | `/api/github/*`、`/api/vercel/*`、`/api/supabase/*` | `GET/POST` | 集成弹窗 | 外部平台连接和项目创建 |
+
+### 认证、权限、配额与用户治理
+
+| 路由 | 方法 | 调用方 | 责任 |
+| --- | --- | --- | --- |
+| `/api/auth/*` | Better Auth methods | 登录页、用户菜单 | 登录、退出和数据库会话合同 |
+| `/api/account/password` | `POST` | 账户安全 | 校验当前密码、修改密码、解除首次改密限制并撤销其他会话 |
+| `/api/account/sessions` | `GET/DELETE` | 账户安全 | 查看不含 token 的设备摘要，撤销单个或其他全部会话 |
+| `/api/account/usage` | `GET` | 账户用量 | 当前用户的有效 capability、权限来源、配额窗口及 `used/reserved/remaining` |
+| `/api/admin/users` | `GET/POST/PATCH` | 用户管理 | 查询/创建用户、角色与状态治理、重置密码和撤销会话 |
+| `/api/admin/access-control` | `GET` | 权限与配额管理 | capability 目录、权限模板、配额模板和规则；仅管理员可读 |
+| `/api/admin/users/[user_id]/access` | `GET/PATCH` | 权限与配额管理 | 查看用户有效策略/用量；使用新鲜管理员会话更新模板和用户覆盖 |
+| `/api/admin/audit` | `GET` | 用户管理 | 分页读取脱敏安全审计事件 |
+
+认证启用后，Next.js 代理层对页面、API 和 WebSocket 执行统一的登录与早期授权检查，具体 route/service 对敏感操作再次执行权威校验。项目范围的有效权限是“账号 capability 与 `owner/editor/viewer` 项目角色的交集”；只有一层允许仍会拒绝。不存在或无权访问的项目统一返回 `404`，减少项目 ID 枚举。平台 `admin` 固定拥有全部 capability 和无限用户级配额，但已接入操作仍记录实际用量。
+
+`PATCH /api/admin/users/[user_id]/access` 请求体支持 `permissionProfileId`、`quotaProfileId`、`permissionOverrides` 和 `quotaOverrides`。它必须同时提供 3-500 字的 `reason` 与最近一次读取的 `expectedAccessVersion`；成功后 `accessVersion` 加一并写入 `admin.access_policy_updated` 审计。版本已变化时返回 `409 ACCESS_POLICY_VERSION_CONFLICT`，未知 capability/metric 或不存在的模板返回 `400`，不能通过该接口限制管理员。传入某类 override 数组表示整体替换该类覆盖；省略则保持不变。配额 `limit/used/reserved/remaining` 是 `BIGINT`，JSON 中使用十进制字符串。
+
+默认权限模板为 `member-default`，只读模板为 `readonly-default`。普通用户会合并有效用户覆盖与分配模板（未分配时使用默认模板）：任何有效 `deny` 优先，无 `deny` 时至少一个 `allow` 才会放行；项目 capability 还要与项目角色取交集。完整 capability 目录、模板边界和 scope 见[用户、权限与会话管理](authentication.md#capability-与项目角色)。
+
+配额支持 `observe/warn/hard`：前两者允许执行并保留是否超额的计量状态，`hard` 在资源预留阶段检查 `used + reserved + requested`。硬配额不足时接口返回 `429 QUOTA_EXCEEDED`，响应包含 `metric`、`enforcement`、`used`、`reserved`、`requested`、`limit`、`remaining`、`resetAt`，并设置 `Retry-After`。可能产生成本或占用并发的入口使用“reservation -> settlement/release”协议；预留和用量事件都使用唯一幂等键，重复相同操作不会二次扣量，复用键提交不同 actor、metric、项目或数量返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。
+
+默认成员配额共 8 项：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 observe/day`、`llm.total_tokens.monthly=2000000 observe/month`、`query_rewrite.llm.daily=200 observe/day`、`quant.data_units.daily=2000 observe/day`、`research.report_runs.daily=20 observe/day`、`research.report_sends.daily=10 hard/day`。管理员的限额和 `remaining` 为 `null`（表示无限），但 `used/reserved` 仍按真实 actor 记账；个人用量页读取 `/api/account/usage`，管理员查看指定用户则读取 `/api/admin/users/[user_id]/access`。报告生成任务计入 `research.report_runs.daily`；只有非 dry-run 的真实推送才计入 `research.report_sends.daily`。
+
+启用认证时，聊天入口把当前用户写入 `user_requests.actor_user_id`，物理 Agent run 继承为 `agent_runs.actor_user_id`，后续用量事件关联 actor、project 和 source。相同 request ID 不能跨用户或跨项目复用。LLM 问题改写的确定性 `preview` 不消费 `query_rewrite.llm.daily`；只有 execution 实际进入模型链路时才计该指标和模型 Token。
 
 ## 市场数据服务 API
 

@@ -76,6 +76,9 @@ npm run dev
 | 含依赖审计与运行态诊断 | `npm run release:check:full` |
 | 数据库启动 | `npm run db:up && npm run db:init` |
 | 数据库检查 | `npm run db:doctor` |
+| 初始化/维护登录管理员 | `npm run auth:bootstrap` |
+| 验证完整用户生命周期 | `npm run auth:verify` |
+| 清理过期认证数据与配额预留 | `npm run auth:cleanup` |
 | Redis CLI | `npm run redis:cli` |
 | 可观测性启动 | `npm run obs:up` |
 | 可观测性日志 | `npm run obs:logs` |
@@ -101,6 +104,7 @@ npm run dev
 | 想查接口、字段或数据源口径 | [API 总览](docs/api-reference.md) / [数据字典](docs/data-dictionary.md) / [行情数据源知识库](docs/market-data-source-knowledge.md) |
 | 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](docs/research-automation-guide.md) |
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |
+| 想启用登录或配置权限/用量配额 | [用户、权限、配额与会话管理](docs/authentication.md) |
 | 想看后续优先级 | [持续完善路线图](docs/ROADMAP.md) |
 
 ## 推荐学习路径

@@ -14,6 +14,7 @@
 | 想看后续持续完善路线 | [持续完善路线图](ROADMAP.md) |
 | 想建立全局学习路线 | [教学 00：项目学习地图](learning/00-project-study-map.md) |
 | 想快速跑起来 | [教学 01：本地启动与健康检查](learning/01-quick-start.md) |
+| 想配置登录、用户权限或用量配额 | [用户、权限与会话管理](authentication.md) |
 | 想确认当前前端启动模式 | [基础设施配置](infrastructure.md#主前端启动器) / [架构总览](architecture.md#构建与开发模式) |
 | 想理解生成链路 | [教学 02：AI 工作空间生成链路](learning/02-ai-workspace-generation.md) |
 | 想理解或扩展自研 Agent | [MoAgent 架构](moagent.md) |
@@ -44,6 +45,7 @@
 | API | [API 总览](api-reference.md) | Next.js API、market-data API、调用方和排查路径 |
 | 数据字典 | [数据字典](data-dictionary.md) | Prisma 表、quant schema、字段来源、因子和数据质量口径 |
 | 基础设施 | [基础设施配置](infrastructure.md) | PostgreSQL、TimescaleDB、Redis、Loki/Grafana/Alloy、SQL 初始化和降级模式 |
+| 认证与访问治理 | [用户、权限与会话管理](authentication.md) | 用户生命周期、capability 与项目角色双层授权、用量配额、数据库会话、安全审计和页面/API/WebSocket 边界 |
 | 行情数据 | [行情数据源采集知识库](market-data-source-knowledge.md) | 东方财富、Baostock、AKShare、字段口径和补数规则 |
 | 策略平台 | [策略平台使用与设计指南](strategy-platform-guide.md) | 股票池、ETF/指数池、策略目录、因子目录、补数控制和策略数据依赖 |
 | 投研情报中心 | [投研情报中心与日报自动化指南](research-automation-guide.md) | 观察池、证据采样、报告库、主题洞察和自动化交付 |
