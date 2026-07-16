@@ -2619,11 +2619,25 @@ export async function repairQuantPlatformOwnedArtifacts(params: {
   return { runPlanRebuilt: true };
 }
 
+export function isQuantDashboardTemplateRecoveryEligible(
+  report: QuantValidationReport,
+): boolean {
+  if (report.passed || report.status !== 'failed') return false;
+  const failedCheckIds = Array.from(new Set(
+    report.checks
+      .filter((check) => check.status === 'failed')
+      .map((check) => check.id),
+  ));
+  return failedCheckIds.length > 0 && failedCheckIds.every(
+    (checkId) => DASHBOARD_TEMPLATE_RESTORE_CHECK_IDS.has(checkId),
+  );
+}
+
 /**
- * Last-resort recovery for an exhausted Agent repair loop. The platform template
- * may replace the generated page only when every blocking check is presentation
- * related; data, evidence, contract, policy, or proxy failures must be repaired
- * without overwriting the page.
+ * Deterministic recovery for an exhausted or provably stalled Agent repair.
+ * The platform template may replace the generated page only when every blocking
+ * check is presentation related; data, evidence, contract, policy, or proxy
+ * failures must be repaired without overwriting the page.
  */
 export async function restoreQuantDashboardTemplateAfterRepairExhaustion(params: {
   projectPath: string;

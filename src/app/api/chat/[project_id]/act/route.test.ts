@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     markFailed: vi.fn(),
     isCancelled: vi.fn(),
     createMessage: vi.fn(),
+    ensureMessage: vi.fn(),
   };
 });
 
@@ -40,6 +41,7 @@ vi.mock('@/lib/services/user-requests', () => ({
 
 vi.mock('@/lib/services/message', () => ({
   createMessage: mocks.createMessage,
+  ensureMessage: mocks.ensureMessage,
 }));
 
 import { POST } from './route';

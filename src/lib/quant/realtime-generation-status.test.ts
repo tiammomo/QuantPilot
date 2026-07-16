@@ -58,6 +58,16 @@ describe('realtime generation terminal classification', () => {
     ).toBe('failure');
   });
 
+  it.each(['agent_execution_failed', 'quant_data_preparation_failed'])(
+    'ends the request when %s is explicitly terminal',
+    (status) => {
+      expect(classifyRealtimeGenerationStatus(status, { terminalFailure: true })).toMatchObject({
+        terminal: 'failure',
+        keepsRequestActive: false,
+      });
+    },
+  );
+
   it('uses preview readiness as the successful overall terminal', () => {
     expect(classifyRealtimeGenerationStatus('preview_ready')).toMatchObject({
       terminal: 'success',
@@ -92,6 +102,33 @@ describe('realtime generation terminal classification', () => {
         hasContent: true,
         isFinal: true,
         metadata: { isMissionIntermediate: true },
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps waiting while visible workspace progress is projected', () => {
+    expect(
+      shouldRealtimeAssistantUpdateStopWaiting({
+        hasContent: true,
+        isFinal: true,
+        metadata: {
+          isWorkspaceProgress: true,
+          progressStep: 5,
+          progressTotal: 5,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    { isTransientToolMessage: true },
+    { isQuantPilotPipelineStep: true },
+  ])('keeps waiting while a tool lifecycle projection is rendered (%o)', (metadata) => {
+    expect(
+      shouldRealtimeAssistantUpdateStopWaiting({
+        hasContent: true,
+        isFinal: true,
+        metadata,
       }),
     ).toBe(false);
   });

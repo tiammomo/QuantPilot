@@ -425,6 +425,11 @@ const ToolResultItem: React.FC<ToolResultItemProps> = ({
             待恢复
           </span>
         )}
+        {status === 'done' && success === true && (
+          <span className="shrink-0 text-[11px] font-medium leading-4 text-emerald-700">
+            已完成
+          </span>
+        )}
         {status === 'done' && success !== false && attemptCount !== undefined && attemptCount > 1 && (
           <span
             className="shrink-0 text-[11px] leading-4 text-slate-500"

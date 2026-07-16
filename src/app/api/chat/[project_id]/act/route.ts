@@ -10,6 +10,7 @@ import {
   updateProjectActivity,
 } from "@/lib/services/project";
 import { createMessage } from "@/lib/services/message";
+import { collectMoAgentTurnMetrics } from "@/lib/services/moagent-turn-metrics";
 import {
   getDefaultModelForCli,
   normalizeModelId,
@@ -41,6 +42,12 @@ import {
 } from "@/lib/services/user-requests";
 import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/quant/workspace";
 import { prefetchQuantDataForRunPlan } from "@/lib/quant/data-prefetch";
+import { getQuantCapability } from "@/lib/quant/capabilities";
+import {
+  createWorkspaceProgressPublisher,
+  type WorkspaceProgressPublisher,
+} from "@/lib/quant/workspace-progress";
+import { shouldEscalateStalledRepair } from "@/lib/quant/repair-convergence";
 import {
   buildClarificationContinuation,
   buildQuantClarificationMessage,
@@ -183,6 +190,72 @@ function canUsePrefetchedSelectionDashboard(params: {
   );
 }
 
+function quantPipelineToolAction(toolName: string) {
+  return toolName === "run-planner"
+    ? "Generated"
+    : toolName === "dashboard-visualization"
+      ? "Created"
+      : "Read";
+}
+
+function stringifyQuantPipelineToolDetail(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+async function publishQuantPipelineToolStart(params: {
+  projectId: string;
+  requestId: string;
+  conversationId?: string | null;
+  cliSource?: string | null;
+  toolName: string;
+  summary: string;
+  target?: string;
+  input?: unknown;
+}): Promise<string> {
+  const toolCallId = `quant-pipeline-${randomUUID()}`;
+  const metadata = {
+    toolName: params.toolName,
+    tool_name: params.toolName,
+    toolCallId,
+    tool_call_id: toolCallId,
+    action: quantPipelineToolAction(params.toolName),
+    success: true,
+    resultStatus: "running",
+    summary: params.summary,
+    isTransientToolMessage: true,
+    ...(params.target ? { target: params.target, filePath: params.target } : {}),
+    ...(params.input !== undefined
+      ? {
+          toolInput: params.input,
+          tool_input: params.input,
+          input: params.input,
+        }
+      : {}),
+    isQuantPilotPipelineStep: true,
+  };
+  const message = await createMessage({
+    projectId: params.projectId,
+    role: "assistant",
+    messageType: "tool_use",
+    content: params.summary,
+    conversationId: params.conversationId ?? undefined,
+    cliSource: params.cliSource ?? undefined,
+    metadata,
+    requestId: params.requestId,
+  });
+  streamManager.publish(params.projectId, {
+    type: "message",
+    data: serializeMessage(message, { requestId: params.requestId }),
+  });
+  return toolCallId;
+}
+
 async function publishQuantPipelineToolMessage(params: {
   projectId: string;
   requestId: string;
@@ -193,28 +266,23 @@ async function publishQuantPipelineToolMessage(params: {
   target?: string;
   input?: unknown;
   output?: unknown;
+  toolCallId?: string;
+  success?: boolean;
+  resultStatus?: "completed" | "failed" | "skipped";
 }) {
-  const action = params.toolName === "run-planner"
-    ? "Generated"
-    : params.toolName === "dashboard-visualization"
-      ? "Created"
-      : "Read";
-  const stringifyDetail = (value: unknown) => {
-    if (value === undefined || value === null) return undefined;
-    if (typeof value === "string") return value;
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
-  };
+  const success = params.success !== false;
+  const resultStatus = params.resultStatus ?? (success ? "completed" : "failed");
   const metadata = {
     toolName: params.toolName,
     tool_name: params.toolName,
-    action,
-    success: true,
-    resultStatus: "completed",
+    ...(params.toolCallId
+      ? { toolCallId: params.toolCallId, tool_call_id: params.toolCallId }
+      : {}),
+    action: quantPipelineToolAction(params.toolName),
+    success,
+    resultStatus,
     summary: params.summary,
+    isTransientToolMessage: false,
     ...(params.target
       ? {
           target: params.target,
@@ -230,9 +298,9 @@ async function publishQuantPipelineToolMessage(params: {
       : {}),
     ...(params.output !== undefined
       ? {
-          toolOutput: stringifyDetail(params.output),
-          tool_output: stringifyDetail(params.output),
-          output: stringifyDetail(params.output),
+          toolOutput: stringifyQuantPipelineToolDetail(params.output),
+          tool_output: stringifyQuantPipelineToolDetail(params.output),
+          output: stringifyQuantPipelineToolDetail(params.output),
         }
       : {}),
     isQuantPilotPipelineStep: true,
@@ -283,6 +351,8 @@ function runValidationAfterExecution(params: {
   conversationId?: string | null;
   cliSource?: string | null;
   agentExecutionSuccessSummary?: string;
+  publishWorkspaceProgress: WorkspaceProgressPublisher;
+  relatedAgentRequestIds: Set<string>;
 }): Promise<void> {
   let activeRepairRequestId: string | null = null;
   let activeMission = params.mission;
@@ -374,6 +444,10 @@ function runValidationAfterExecution(params: {
         );
       }
     }
+    await params.publishWorkspaceProgress({
+      stage: 5,
+      previewUrl: accepted.previewUrl,
+    });
     streamManager.publish(params.projectId, {
       type: "status",
       data: {
@@ -495,6 +569,10 @@ function runValidationAfterExecution(params: {
         status: "cancelled",
         errorMessage: "请求已取消。",
       });
+      await params.publishWorkspaceProgress({
+        stage: 5,
+        cancelledReason: "用户暂停了当前任务。",
+      });
       return;
     }
 
@@ -556,6 +634,10 @@ function runValidationAfterExecution(params: {
         status: "failed",
         errorMessage: executionFailureMessage,
       });
+      await params.publishWorkspaceProgress({
+        stage: 5,
+        failureReason: executionFailureMessage,
+      });
       streamManager.publish(params.projectId, {
         type: "status",
         data: {
@@ -572,6 +654,7 @@ function runValidationAfterExecution(params: {
       return;
     }
 
+    await params.publishWorkspaceProgress({ stage: 4 });
     const quantValidation = await loadQuantValidation();
     await quantValidation.prepareQuantProjectForValidation({
       projectId: params.projectId,
@@ -701,6 +784,10 @@ function runValidationAfterExecution(params: {
           status: "cancelled",
           errorMessage: "请求已取消。",
         });
+        await params.publishWorkspaceProgress({
+          stage: 5,
+          cancelledReason: "用户在验收完成投影前暂停了当前任务。",
+        });
         return;
       }
 
@@ -747,6 +834,14 @@ function runValidationAfterExecution(params: {
         status: "completed",
       });
       await markUserRequestAsCompleted(params.projectId, params.requestId);
+      await params.publishWorkspaceProgress({
+        stage: 5,
+        validationCheckCount: report.checks.length,
+        validationWarningCount: report.checks.filter(
+          (check) => check.status === "warning",
+        ).length,
+        previewUrl: preview.url,
+      });
       publishPreviewReady(preview);
       if (executionError) {
         streamManager.publish(params.projectId, {
@@ -824,6 +919,8 @@ function runValidationAfterExecution(params: {
         repairAttempt === 1
           ? baseRepairRequestId
           : `${baseRepairRequestId}-${repairAttempt}`;
+      params.relatedAgentRequestIds.add(repairRequestId);
+      const failedCheckIdsBeforeRepair = latestFailedChecks.map((check) => check.id);
       await beginRepair();
       const platformRepair = await quantValidation.repairQuantPlatformOwnedArtifacts({
         projectPath: params.projectPath,
@@ -946,6 +1043,10 @@ function runValidationAfterExecution(params: {
         if (activeRepairRequestId === repairRequestId) {
           activeRepairRequestId = null;
         }
+        await params.publishWorkspaceProgress({
+          stage: 5,
+          cancelledReason: "用户暂停了当前任务，自动修复未继续。",
+        });
         return;
       }
 
@@ -1039,6 +1140,10 @@ function runValidationAfterExecution(params: {
           status: "cancelled",
           errorMessage: "原始请求已取消。",
         });
+        await params.publishWorkspaceProgress({
+          stage: 5,
+          cancelledReason: "用户暂停了当前任务，修复后的证据不再接受。",
+        });
         return;
       }
 
@@ -1116,6 +1221,10 @@ function runValidationAfterExecution(params: {
             status: "cancelled",
             errorMessage: "原始请求已取消。",
           });
+          await params.publishWorkspaceProgress({
+            stage: 5,
+            cancelledReason: "用户暂停了当前任务，修复结果未投影为完成态。",
+          });
           return;
         }
 
@@ -1163,7 +1272,16 @@ function runValidationAfterExecution(params: {
       latestFailedChecks = finalReport.checks.filter(
         (check) => check.status === "failed",
       );
-      if (repairAttempt < maxRepairAttempts) {
+      const stalledRepair = shouldEscalateStalledRepair({
+        repairAttempt,
+        maxRepairAttempts,
+        repairExecutionFailed,
+        previousFailedCheckIds: failedCheckIdsBeforeRepair,
+        currentFailedCheckIds: latestFailedChecks.map((check) => check.id),
+      });
+      const earlyTemplateRecovery = stalledRepair &&
+        quantValidation.isQuantDashboardTemplateRecoveryEligible(latestReport);
+      if (repairAttempt < maxRepairAttempts && !earlyTemplateRecovery) {
         await markUserRequestAsFailed(
           params.projectId,
           repairRequestId,
@@ -1203,10 +1321,13 @@ function runValidationAfterExecution(params: {
           type: "status",
           data: {
             status: "validation_repairing",
-            message: "Agent 修复已耗尽，平台正在使用验证安全模板做最后一次确定性恢复。",
+            message: earlyTemplateRecovery
+              ? "Agent 修复未正常提交且失败项没有收敛，平台提前使用验证安全模板进行确定性恢复。"
+              : "Agent 修复已耗尽，平台正在使用验证安全模板做最后一次确定性恢复。",
             requestId: params.requestId,
             metadata: {
               deterministicTemplateRecovery: true,
+              earlyConvergence: earlyTemplateRecovery,
               failedChecks: templateRecovery.failedCheckIds,
             },
           },
@@ -1221,6 +1342,7 @@ function runValidationAfterExecution(params: {
           runStatus: "repairing",
           metadata: {
             deterministicTemplateRecovery: true,
+            earlyConvergence: earlyTemplateRecovery,
             failedChecks: templateRecovery.failedCheckIds,
           },
         });
@@ -1263,6 +1385,7 @@ function runValidationAfterExecution(params: {
             summary: "平台验证安全模板恢复后，最终自动验证通过。",
             metadata: {
               deterministicTemplateRecovery: true,
+              earlyConvergence: earlyTemplateRecovery,
               checkCount: recoveredReport.checks.length,
             },
           });
@@ -1290,6 +1413,31 @@ function runValidationAfterExecution(params: {
         }
       }
 
+      if (earlyTemplateRecovery && repairAttempt < maxRepairAttempts) {
+        await updateQuantGenerationStep({
+          projectPath: params.projectPath,
+          projectId: params.projectId,
+          requestId: params.requestId,
+          stepId: "final_validation",
+          status: "warning",
+          summary: templateRecovery.restored
+            ? "确定性模板恢复后仍有阻断项，继续下一次受限修复。"
+            : "失败项虽未收敛，但确定性模板不满足安全恢复条件，继续下一次受限修复。",
+          metadata: {
+            failedChecks: latestFailedChecks.map((check) => ({
+              id: check.id,
+              summary: check.summary,
+            })),
+            repairAttempt,
+            maxRepairAttempts,
+            earlyConvergence: true,
+            deterministicTemplateRecovery: templateRecovery.restored,
+          },
+          runStatus: "repairing",
+        });
+        continue;
+      }
+
       await failMission(
         "MISSION_VALIDATION_EXHAUSTED",
         "自动验证和修复耗尽后仍未通过平台验收。",
@@ -1300,7 +1448,7 @@ function runValidationAfterExecution(params: {
         requestId: params.requestId,
         stepId: "final_validation",
         status: "failed",
-        summary: `自动修复 ${maxRepairAttempts} 次后仍未通过：${latestFailedChecks.length} 项失败。`,
+        summary: `自动修复 ${repairAttempt} 次后仍未通过：${latestFailedChecks.length} 项失败。`,
         metadata: {
           failedChecks: latestFailedChecks.map((check) => ({
             id: check.id,
@@ -1334,6 +1482,10 @@ function runValidationAfterExecution(params: {
         requestId: params.requestId,
         status: "failed",
         errorMessage: "自动验证和修复后仍未通过，请查看验证摘要。",
+      });
+      await params.publishWorkspaceProgress({
+        stage: 5,
+        failureReason: `自动验证和修复后仍有 ${latestFailedChecks.length} 项失败。`,
       });
       streamManager.publish(params.projectId, {
         type: "status",
@@ -1418,6 +1570,10 @@ function runValidationAfterExecution(params: {
         requestId: params.requestId,
         status: "failed",
         errorMessage: message,
+      });
+      await params.publishWorkspaceProgress({
+        stage: 5,
+        failureReason: message,
       });
       streamManager.publish(params.projectId, {
         type: "status",
@@ -1975,6 +2131,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       data: serializeMessage(userMessage, { requestId }),
     });
 
+    const relatedAgentRequestIds = new Set<string>([requestId]);
+    const publishWorkspaceProgress = createWorkspaceProgressPublisher({
+      projectId: project_id,
+      requestId,
+      conversationId,
+      cliSource: cliPreference,
+      relatedAgentRequestIds,
+    });
+
     await updateProjectActivity(project_id);
 
     const existingSelected = normalizeModelId(
@@ -1999,6 +2164,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           generationState.status === "cancelled" ||
           (await isUserRequestCancelled(project_id, requestId))
         ) {
+          await publishWorkspaceProgress({
+            stage: 5,
+            cancelledReason: "请求在规划开始前已暂停。",
+          });
           return NextResponse.json({
             success: true,
             status: "cancelled",
@@ -2008,6 +2177,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             conversationId: conversationId ?? null,
           });
         }
+        let runPlannerToolCallId: string | undefined;
+        let dataRegistryToolCallId: string | undefined;
+        let marketDataToolCallId: string | undefined;
+        let dashboardVisualizationToolCallId: string | undefined;
         try {
       await updateQuantGenerationStep({
         projectPath,
@@ -2021,6 +2194,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
           ? effectiveDisplayInstruction.trim()
           : effectiveInstruction;
+      runPlannerToolCallId = await publishQuantPipelineToolStart({
+        projectId: project_id,
+        requestId,
+        conversationId,
+        cliSource: cliPreference,
+        toolName: "run-planner",
+        target: ".quantpilot/run_plan.json",
+        summary: "正在核对分析对象、时间范围、数据需求和验收规则。",
+        input: {
+          question: planningInstruction,
+          requestedCapabilityId: quantCapabilityId,
+        },
+      });
       const runPlan = await writeInitialRunPlan({
         projectPath,
         instruction: planningInstruction,
@@ -2030,6 +2216,32 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         hasImageAttachments: processedImages.length > 0,
         previousPlan: previousRunPlan,
       });
+
+      await publishWorkspaceProgress({ stage: 1, runPlan });
+      await publishQuantPipelineToolMessage({
+        projectId: project_id,
+        requestId,
+        conversationId,
+        cliSource: cliPreference,
+        toolName: "run-planner",
+        toolCallId: runPlannerToolCallId,
+        target: ".quantpilot/run_plan.json",
+        summary: runPlan.status === "needs_clarification"
+          ? "已完成初步识别，发现关键输入仍需澄清。"
+          : `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
+        input: {
+          question: runPlan.question,
+          capabilityId: runPlan.capabilityId,
+        },
+        output: {
+          status: runPlan.status,
+          templateId: runPlan.visualization?.templateId,
+          symbols: runPlan.symbols,
+          dataRequirements: runPlan.dataRequirements,
+          analysisSteps: runPlan.analysisSteps,
+        },
+      });
+      runPlannerToolCallId = undefined;
 
       if (
         runPlan.status === "needs_clarification" &&
@@ -2051,6 +2263,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const clarificationContent = buildQuantClarificationMessage(
           runPlan.clarification,
         );
+        const turnMetrics = await collectMoAgentTurnMetrics({
+          projectId: project_id,
+          requestId,
+          relatedRequestIds: relatedAgentRequestIds,
+        }).catch((error) => {
+          console.error('[API] Failed to collect clarification turn metrics:', error);
+          return null;
+        });
         const assistantMessage = await createMessage({
           projectId: project_id,
           role: "assistant",
@@ -2062,6 +2282,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             type: "intent_clarification",
             clarification: runPlan.clarification,
             runPlanPath: ".quantpilot/run_plan.json",
+            isMissionFinal: true,
+            progressStatus: "clarification",
+            ...(turnMetrics ? { turnMetrics } : {}),
           },
           requestId,
         });
@@ -2126,23 +2349,44 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         nodeKey: "planning",
         status: "passed",
       });
-      await publishQuantPipelineToolMessage({
+      await publishWorkspaceProgress({
+        stage: 2,
+        runPlan,
+        skillIds: Array.from(new Set([
+          "quant-data-registry",
+          ...getQuantCapability(
+            runPlan.requestedCapabilityId ?? runPlan.capabilityId,
+          ).requiredSkills.filter((skillId) =>
+            skillId !== "run-planner" &&
+            skillId !== "dashboard-visualization" &&
+            (skillId !== "image-extraction" || processedImages.length > 0)
+          ),
+        ])),
+      });
+      dataRegistryToolCallId = await publishQuantPipelineToolStart({
         projectId: project_id,
         requestId,
         conversationId,
         cliSource: cliPreference,
-        toolName: "run-planner",
-        target: ".quantpilot/run_plan.json",
-        summary: `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
+        toolName: "quant-data-registry",
+        target: "本地数据覆盖与标的解析",
+        summary: "正在核验本地数据覆盖、标的解析和可用信源。",
         input: {
           question: runPlan.question,
-          capabilityId: runPlan.capabilityId,
-        },
-        output: {
           templateId: runPlan.visualization?.templateId,
+        },
+      });
+      marketDataToolCallId = await publishQuantPipelineToolStart({
+        projectId: project_id,
+        requestId,
+        conversationId,
+        cliSource: cliPreference,
+        toolName: "quant-market-data",
+        target: "data_file/final/dashboard-data.json",
+        summary: "正在获取真实行情、历史数据和任务所需指标。",
+        input: {
           symbols: runPlan.symbols,
-          dataRequirements: runPlan.dataRequirements,
-          analysisSteps: runPlan.analysisSteps,
+          timeRange: runPlan.timeRange,
         },
       });
       await updateQuantGenerationStep({
@@ -2206,9 +2450,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         nodeKey: "workspace_generation",
         status: "running",
       });
-      if (!prefetch.skipped) {
-        await ensureQuantDashboardTemplateForAct(projectPath);
-      }
       if (prefetch.skipped) {
         await publishQuantPipelineToolMessage({
           projectId: project_id,
@@ -2216,12 +2457,35 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           conversationId,
           cliSource: cliPreference,
           toolName: "quant-data-registry",
+          toolCallId: dataRegistryToolCallId,
           target: "本地数据预取",
           summary: prefetch.summary,
           output: {
             skipped: true,
             reason: prefetch.summary,
           },
+        });
+        dataRegistryToolCallId = undefined;
+        await publishQuantPipelineToolMessage({
+          projectId: project_id,
+          requestId,
+          conversationId,
+          cliSource: cliPreference,
+          toolName: "quant-market-data",
+          toolCallId: marketDataToolCallId,
+          target: "data_file/final/dashboard-data.json",
+          summary: `本阶段未重复获取行情数据：${prefetch.summary}`,
+          resultStatus: "skipped",
+          output: {
+            skipped: true,
+            reason: prefetch.summary,
+          },
+        });
+        marketDataToolCallId = undefined;
+        await publishWorkspaceProgress({
+          stage: 3,
+          runPlan,
+          skillIds: ["dashboard-visualization"],
         });
       } else {
         const symbols = prefetch.symbols?.length
@@ -2239,6 +2503,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           conversationId,
           cliSource: cliPreference,
           toolName: "quant-data-registry",
+          toolCallId: dataRegistryToolCallId,
           target: usedScreener
             ? "/api/v1/research/screeners/a-share/short-term-candidates"
             : "/api/v1/symbols/resolve",
@@ -2258,12 +2523,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             rawFiles: usedScreener ? screenerRawFiles : prefetch.rawFiles,
           },
         });
+        dataRegistryToolCallId = undefined;
         await publishQuantPipelineToolMessage({
           projectId: project_id,
           requestId,
           conversationId,
           cliSource: cliPreference,
           toolName: "quant-market-data",
+          toolCallId: marketDataToolCallId,
           target: "data_file/final/dashboard-data.json",
           summary: prefetch.summary,
           input: {
@@ -2280,6 +2547,29 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             rawFiles: prefetch.rawFiles,
           },
         });
+        marketDataToolCallId = undefined;
+        await publishWorkspaceProgress({
+          stage: 3,
+          runPlan,
+          skillIds: ["dashboard-visualization"],
+        });
+        if (usePrefetchedSelectionDashboard) {
+          dashboardVisualizationToolCallId = await publishQuantPipelineToolStart({
+            projectId: project_id,
+            requestId,
+            conversationId,
+            cliSource: cliPreference,
+            toolName: "dashboard-visualization",
+            target: "app/page.tsx",
+            summary: "正在基于本地选股数据生成标准选股工作区。",
+            input: {
+              templateId: "stock-selection",
+              variantId: runPlan.visualization?.variantId,
+              symbols,
+            },
+          });
+        }
+        await ensureQuantDashboardTemplateForAct(projectPath);
         if (usePrefetchedSelectionDashboard) {
           await publishQuantPipelineToolMessage({
             projectId: project_id,
@@ -2287,6 +2577,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             conversationId,
             cliSource: cliPreference,
             toolName: "dashboard-visualization",
+            toolCallId: dashboardVisualizationToolCallId,
             target: "app/page.tsx",
             summary:
               "平台已基于本地选股数据生成标准选股看板，后续直接进入自动验证。",
@@ -2300,6 +2591,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               deterministicDashboard: true,
             },
           });
+          dashboardVisualizationToolCallId = undefined;
         }
       }
       if (!prefetch.skipped) {
@@ -2325,6 +2617,54 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           const preparationMessage = error instanceof Error
             ? error.message
             : String(error);
+          const pendingToolFailures = [
+            runPlannerToolCallId
+              ? {
+                  toolName: "run-planner",
+                  toolCallId: runPlannerToolCallId,
+                  target: ".quantpilot/run_plan.json",
+                }
+              : null,
+            dataRegistryToolCallId
+              ? {
+                  toolName: "quant-data-registry",
+                  toolCallId: dataRegistryToolCallId,
+                  target: "本地数据覆盖与标的解析",
+                }
+              : null,
+            marketDataToolCallId
+              ? {
+                  toolName: "quant-market-data",
+                  toolCallId: marketDataToolCallId,
+                  target: "data_file/final/dashboard-data.json",
+                }
+              : null,
+            dashboardVisualizationToolCallId
+              ? {
+                  toolName: "dashboard-visualization",
+                  toolCallId: dashboardVisualizationToolCallId,
+                  target: "app/page.tsx",
+                }
+              : null,
+          ].filter((value): value is NonNullable<typeof value> => value !== null);
+          await Promise.all(pendingToolFailures.map((pending) =>
+            publishQuantPipelineToolMessage({
+              projectId: project_id,
+              requestId,
+              conversationId,
+              cliSource: cliPreference,
+              ...pending,
+              summary: `本阶段未完成：${preparationMessage}`,
+              success: false,
+              resultStatus: "failed",
+              output: { error: preparationMessage },
+            }).catch((projectionError) => {
+              console.error(
+                `[API] Failed to settle ${pending.toolName} projection:`,
+                projectionError,
+              );
+            })
+          ));
           const missionProjectBusy =
             error instanceof MoAgentMissionStateError &&
             error.code === "MISSION_PROJECT_BUSY";
@@ -2348,6 +2688,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         errorMessage: preparationMessage,
           });
           await markUserRequestAsFailed(project_id, requestId, preparationMessage);
+          await publishWorkspaceProgress({
+            stage: 5,
+            failureReason: preparationMessage,
+          });
           streamManager.publish(project_id, {
             type: "status",
             data: {
@@ -2476,6 +2820,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           agentExecutionSuccessSummary: usePrefetchedSelectionDashboard
             ? "平台已完成本地选股、行情预取和标准看板生成，跳过 Agent 生成并进入自动验证。"
             : undefined,
+          publishWorkspaceProgress,
+          relatedAgentRequestIds,
         });
       },
     }).catch((error) => {

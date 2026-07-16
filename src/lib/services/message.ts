@@ -30,6 +30,23 @@ function mapPrismaMessage(message: PrismaMessage): Message {
   };
 }
 
+export function isRuntimeOnlyChatProjection(
+  message: Pick<Message, 'role' | 'metadataJson'>,
+): boolean {
+  if (message.role !== 'assistant' || !message.metadataJson) return false;
+  try {
+    const metadata = JSON.parse(message.metadataJson) as Record<string, unknown>;
+    if (
+      metadata.hidden_from_ui === true ||
+      metadata.isMissionIntermediate === true ||
+      metadata.isMoAgentIntermediateTurn === true
+    ) return true;
+    return metadata.isWorkspaceProgress === true && metadata.isMoAgentFinal !== true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Retrieve project messages (with pagination)
  */
@@ -65,10 +82,17 @@ export async function getRecentChatMessagesByProjectId(
       role: { in: ['user', 'assistant'] },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: safeLimit,
+    // Progress/tool narration can outnumber real conversation turns. Scan a
+    // bounded wider window, remove runtime-only projections, then apply the
+    // requested conversation limit so progress never evicts user context.
+    take: Math.min(250, safeLimit * 8),
   });
 
-  return messages.reverse().map(mapPrismaMessage);
+  return messages
+    .map(mapPrismaMessage)
+    .filter((message) => !isRuntimeOnlyChatProjection(message))
+    .slice(0, safeLimit)
+    .reverse();
 }
 
 /**
@@ -164,6 +188,42 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
   // All retries failed
   console.error('[MessageService] All retry attempts failed to create message:', lastError);
   throw lastError || new Error('Failed to create message after 3 attempts');
+}
+
+/**
+ * Persist a platform projection exactly once under a caller-owned stable ID.
+ * Retries and route re-entry return the original row instead of duplicating a
+ * user-visible lifecycle message.
+ */
+export async function ensureMessage(
+  input: CreateMessageInput & { id: string },
+): Promise<Message> {
+  const metadataJson = input.metadata ? JSON.stringify(input.metadata) : undefined;
+  const message = await prisma.message.upsert({
+    where: { id: input.id },
+    update: {},
+    create: {
+      id: input.id,
+      projectId: input.projectId,
+      role: input.role,
+      messageType: input.messageType,
+      content: input.content,
+      metadataJson,
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      cliSource: input.cliSource,
+      requestId: input.requestId,
+    },
+  });
+  if (
+    message.projectId !== input.projectId ||
+    message.requestId !== (input.requestId ?? null) ||
+    message.role !== input.role ||
+    message.messageType !== input.messageType
+  ) {
+    throw new Error(`Stable message ID collision: ${input.id}`);
+  }
+  return mapPrismaMessage(message);
 }
 
 /**

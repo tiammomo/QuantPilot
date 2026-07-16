@@ -3,7 +3,9 @@ import React, { useEffect, useState, useRef, ReactElement, useCallback, useMemo 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import ToolResultItem from './ToolResultItem';
+import TurnMetricsFooter from './TurnMetricsFooter';
 import type { ChatMessage, RealtimeEvent, RealtimeStatus } from '@/types';
+import { parseMoAgentTurnMetrics } from '@/lib/chat/turn-metrics';
 import { toChatMessage, normalizeChatContent } from '@/lib/serializers/client/chat';
 import { toRelativePath } from '@/lib/utils/path';
 import {
@@ -1441,14 +1443,14 @@ const isMarkdownTableSeparator = (line: string): boolean => {
 };
 
 const renderMarkdownTable = (headers: string[], rows: string[][], key: string): ReactElement => (
-  <div key={key} className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-white">
-    <table className="min-w-full border-collapse text-sm">
+  <div key={key} className="my-3 w-full overflow-x-auto">
+    <table className="min-w-full border-collapse border border-slate-300 text-sm">
       <thead className="bg-slate-50">
         <tr>
           {headers.map((header, index) => (
             <th
               key={index}
-              className="border-b border-slate-200 px-3 py-2 text-left font-semibold text-slate-800"
+              className="border border-slate-300 px-3 py-2 text-left font-semibold text-slate-800"
             >
               {renderInlineMarkdown(header)}
             </th>
@@ -1457,9 +1459,9 @@ const renderMarkdownTable = (headers: string[], rows: string[][], key: string): 
       </thead>
       <tbody>
         {rows.map((row, rowIndex) => (
-          <tr key={rowIndex} className="border-t border-slate-100">
+          <tr key={rowIndex}>
             {headers.map((_, cellIndex) => (
-              <td key={cellIndex} className="px-3 py-2 align-top text-slate-700">
+              <td key={cellIndex} className="border border-slate-300 px-3 py-2 align-top text-slate-700">
                 {renderInlineMarkdown(row[cellIndex] ?? '')}
               </td>
             ))}
@@ -3383,6 +3385,9 @@ const ToolResultMessage = ({
         {displayMessages.filter(shouldDisplayMessage).map((message, index) => {
           const messageMetadata = message.metadata as Record<string, unknown> | null;
           const messageText = normalizeChatContent(message.content);
+          const turnMetrics = messageMetadata?.isMissionFinal === true
+            ? parseMoAgentTurnMetrics(messageMetadata.turnMetrics)
+            : null;
           const isToolMessage = message.messageType === 'tool_result' || isToolUsageMessage(message);
           const toolMessageKey = isToolMessage
             ? ensureStableMessageId(message)
@@ -3571,6 +3576,7 @@ const ToolResultMessage = ({
                       // Regular agent message - plain text
                       <div className="text-sm text-slate-900 leading-relaxed">
                         {renderContentWithThinking(shortenPath(messageText))}
+                        {turnMetrics ? <TurnMetricsFooter metrics={turnMetrics} /> : null}
                       </div>
                     )}
                   </div>

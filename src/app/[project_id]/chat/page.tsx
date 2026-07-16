@@ -41,48 +41,8 @@ const CLI_LABELS = ACTIVE_CLI_NAME_MAP;
 
 const CLI_ORDER = ACTIVE_CLI_IDS;
 
-const VISIBLE_PROCESS_INSTRUCTIONS = `
-
-请默认使用中文输出可见的执行过程摘要。不要暴露隐藏推理链，只写用户可验证的任务拆解、数据路径、工具动作和执行状态。
-
-请在正式执行或回答前，先用如下格式输出：
-### 任务拆解
-| 维度 | 初步识别 | 状态 |
-| --- | --- | --- |
-| 分析对象 | 需要分析的股票、指数、ETF、组合或业务对象 | 明确/需确认 |
-| 时间范围 | 默认或用户指定的分析周期 | 明确/需确认 |
-| 数据需求 | 行情、K 线、财务、公告、指标、回测或风控数据 | 明确/需确认 |
-| 输出形式 | 可视化看板、结论摘要、数据文件或验证结果 | 明确/需确认 |
-
-### 执行计划
-1. 确认可直接推断的条件和需要补充的信息。
-2. 按 run_plan 规划取数路径，并说明数据来源或接口。
-3. 获取真实数据后进行质量检查，再生成分析或可视化页面。
-4. 做 build、HTTP、数据文件和图表存在性检查。
-
-### 当前状态
-- 已明确：
-- 待确认：
-- 下一步：
-
-后续执行过程中，请把工具调用组织成“阶段化执行日志”，不要只连续输出工具名：
-- 每次调用 skill 前先写一句：现在使用 \`skill-name\` 做什么、为什么需要它。
-- 每组 Bash/Read/Write/Edit 前后都用 1-2 句中文说明：本步目标、输入数据、得到的结果或下一步。
-- 数据请求完成后说明接口、标的、时间范围、记录数、关键字段和数据质量；不要只展示命令。
-- 写入文件后说明文件用途，例如 run_plan、sources、data_quality、dashboard-data、页面代码分别解决什么问题。
-- 验证阶段必须逐项说明 build、HTTP 200、数据文件、图表存在性和 /api/market 代理检查结果。
-- Todo List 要持续更新，已完成项用 ✅，失败或待处理项用 ❌/⏳ 并写明原因。
-- 最终可视化页面和数据都准备完成后，再呈现或说明预览结果。`;
-
 type MobileWorkspaceView = 'chat' | 'preview' | 'files';
 type ProjectAvailability = 'checking' | 'available' | 'missing' | 'error';
-
-const appendVisibleProcessInstructions = (message: string) => {
-  if (message.includes('可见的执行过程摘要')) {
-    return message;
-  }
-  return `${message}${VISIBLE_PROCESS_INSTRUCTIONS}`;
-};
 
 const sanitizeCli = (cli?: string | null) => sanitizeActiveCli(cli, DEFAULT_ACTIVE_CLI);
 
@@ -407,7 +367,7 @@ export default function ChatPage() {
       setInitialPromptSent(true);
 
       const requestBody = {
-        instruction: appendVisibleProcessInstructions(initialPrompt),
+        instruction: initialPrompt.trim(),
         displayInstruction: initialPrompt.trim(),
         images: [],
         isInitialPrompt: true,
@@ -2096,8 +2056,6 @@ const persistProjectPreferences = useCallback(
     if (mode === 'chat') {
       finalMessage = finalMessage + "\n\nDo not modify code, only answer to the user's request.";
     }
-
-    finalMessage = appendVisibleProcessInstructions(finalMessage);
 
     // Create request fingerprint for deduplication
     const requestFingerprint = JSON.stringify({

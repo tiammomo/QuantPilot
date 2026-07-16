@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  isQuantDashboardTemplateRecoveryEligible,
   restoreQuantDashboardTemplateAfterRepairExhaustion,
   type QuantValidationCheck,
   type QuantValidationReport,
@@ -88,6 +89,15 @@ async function createGeneratedProject() {
 }
 
 describe('dashboard template restore fallback', () => {
+  it('only declares presentation-only reports eligible for deterministic recovery', () => {
+    expect(isQuantDashboardTemplateRecoveryEligible(
+      failedReport(['visual_presentation', 'chart_presence']),
+    )).toBe(true);
+    expect(isQuantDashboardTemplateRecoveryEligible(
+      failedReport(['visual_presentation', 'final_data_file']),
+    )).toBe(false);
+  });
+
   it('restores the platform page for presentation-only failures and preserves final/evidence', async () => {
     const { projectPath, protectedContents } = await createGeneratedProject();
     const result = await restoreQuantDashboardTemplateAfterRepairExhaustion({

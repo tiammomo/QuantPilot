@@ -9,7 +9,10 @@ export function shouldRealtimeAssistantUpdateStopWaiting(params: {
   // physical-run projections, not a user-facing Mission completion message.
   if (
     params.metadata?.hidden_from_ui === true ||
-    params.metadata?.isMissionIntermediate === true
+    params.metadata?.isMissionIntermediate === true ||
+    params.metadata?.isWorkspaceProgress === true ||
+    params.metadata?.isTransientToolMessage === true ||
+    params.metadata?.isQuantPilotPipelineStep === true
   ) return false;
   return params.hasContent || params.isFinal === true;
 }
@@ -18,6 +21,7 @@ const WORKSPACE_LIFECYCLE_STATUSES = new Set([
   'agent_candidate_complete',
   'agent_execution_completed',
   'agent_execution_failed',
+  'quant_data_preparation_failed',
   'evidence_verification',
   'evidence_verification_running',
   'validation_running',
@@ -52,11 +56,15 @@ export function classifyRealtimeGenerationStatus(
   keepsRequestActive: boolean;
 } {
   const terminalFailure = metadata?.terminalFailure === true;
+  const terminalFailureStatus = terminalFailure && [
+    'agent_execution_failed',
+    'quant_data_preparation_failed',
+    'validation_failed',
+  ].includes(status);
   const terminal: RealtimeGenerationTerminal =
     status === 'preview_ready'
       ? 'success'
-      : status === 'preview_failed' ||
-          (status === 'validation_failed' && terminalFailure)
+      : status === 'preview_failed' || terminalFailureStatus
         ? 'failure'
         : status === 'agent_paused'
           ? 'cancelled'
