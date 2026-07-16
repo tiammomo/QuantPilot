@@ -2570,9 +2570,13 @@ function resolvePort(preferredPort) {
   console.log(\`🚀 Starting Next.js dev server on \${url}\`);
 
   const hasProductionBuild = fs.existsSync(path.join(projectRoot, '.next', 'BUILD_ID'));
+  const hasBundlerFlag = passthrough.some((arg) =>
+    ['--webpack', '--turbo', '--turbopack'].includes(arg)
+  );
+  const defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack'];
   const commandArgs = hasProductionBuild
     ? ['next', 'start', '--port', String(port), ...passthrough]
-    : ['next', 'dev', '--port', String(port), ...passthrough];
+    : ['next', 'dev', ...defaultBundlerArgs, '--port', String(port), ...passthrough];
   const runtimeEnv = {
     ...process.env,
     PORT: String(port),

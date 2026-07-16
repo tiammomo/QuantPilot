@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { CLIStatus } from '@/types/backend';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { MOAGENT_MODEL_DEFINITIONS } from '@/lib/constants/cliModels';
 
 async function checkMoAgent(): Promise<CLIStatus[string]> {
@@ -16,13 +19,20 @@ async function checkMoAgent(): Promise<CLIStatus[string]> {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'quant.data.read',
+    });
     const status: CLIStatus = {
       moagent: await checkMoAgent(),
     };
-    return NextResponse.json(status);
+    const response = NextResponse.json(status);
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to check DeepSeek runtime status:', error);
     return NextResponse.json(
       {

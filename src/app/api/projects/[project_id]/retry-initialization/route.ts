@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
 import { serializeProject } from '@/lib/serializers/project';
 import { streamManager } from '@/lib/services/stream';
@@ -12,6 +15,16 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: 'project.update',
+      projectId: project_id,
+    });
+    await requireAction({
+      headers: request.headers,
+      action: 'agent.run',
+      projectId: project_id,
+    });
     const body = await request.json().catch(() => ({}));
     const project = await getProjectById(project_id);
 
@@ -56,9 +69,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
 
     const actUrl = new URL(`/api/chat/${project_id}/act`, request.url);
+    const actHeaders = new Headers({
+      'Content-Type': 'application/json',
+      Origin: request.nextUrl.origin,
+    });
+    for (const name of ['cookie', 'authorization', 'user-agent', 'x-forwarded-for', 'x-real-ip']) {
+      const value = request.headers.get(name);
+      if (value) actHeaders.set(name, value);
+    }
     const actResponse = await fetch(actUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: actHeaders,
       body: JSON.stringify({
         instruction,
         displayInstruction: instruction,
@@ -100,6 +121,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to retry project initialization:', error);
     return NextResponse.json(
       {

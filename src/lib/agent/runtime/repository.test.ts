@@ -225,6 +225,36 @@ describe('InMemoryAgentRuntimeRepository', () => {
     );
   });
 
+  it('atomically checkpoints cumulative usage with its public usage event', async () => {
+    const clock = fixture();
+    const run = await clock.repository.createRun(runInput());
+    const cumulativeUsage = {
+      inputTokens: 90,
+      outputTokens: 30,
+      totalTokens: 120,
+      cachedInputTokens: 20,
+      cacheMissInputTokens: 70,
+      reasoningTokens: 8,
+    } as const;
+
+    const appended = await clock.repository.appendEvent({
+      ...fence(run, clock.now()),
+      eventId: `${run.id}:usage:1`,
+      sequence: 1,
+      eventType: 'usage',
+      payload: { turn: 1, totalUsage: cumulativeUsage },
+      cumulativeUsage,
+      occurredAt: clock.now(),
+    });
+
+    expect(appended.run).toMatchObject({
+      ...cumulativeUsage,
+      lastEventSequence: 1,
+      version: 1,
+    });
+    expect(await clock.repository.getRun(run.id)).toMatchObject(cumulativeUsage);
+  });
+
   it('rejects private reasoning and raw message history from durable public JSON', async () => {
     const clock = fixture();
     const run = await clock.repository.createRun(runInput());

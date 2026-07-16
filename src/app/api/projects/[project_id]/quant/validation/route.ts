@@ -1,5 +1,8 @@
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
+import { requireAction } from "@/lib/auth/action";
+import { AuthorizationError } from "@/lib/auth/authorization";
+import { authErrorResponse } from "@/lib/auth/http";
 import { getProjectById } from "@/lib/services/project";
 import {
   readQuantGenerationState,
@@ -148,9 +151,14 @@ function acceptanceProjection(
   };
 }
 
-export async function GET(_request: NextRequest, { params }: RouteContext) {
+export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: "project.read",
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json(
@@ -180,6 +188,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       acceptance,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error("[API] Failed to read quant validation report:", error);
     return NextResponse.json(
       {
@@ -195,6 +204,16 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: "agent.run",
+      projectId: project_id,
+    });
+    await requireAction({
+      headers: request.headers,
+      action: "project.source.write",
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json(
@@ -620,6 +639,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     if (error instanceof MoAgentMissionStateError) {
       return NextResponse.json(
         {

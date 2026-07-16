@@ -1,5 +1,9 @@
 import fs from 'node:fs/promises';
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { getProjectById } from '@/lib/services/project';
 import {
   configuredMaxImageBytes,
@@ -18,6 +22,11 @@ export async function GET(_request: Request, { params }: RouteContext) {
   const { project_id, filename } = await params;
 
   try {
+    await requireAction({
+      headers: _request.headers,
+      action: projectRouteAction('asset', _request.method),
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
@@ -36,11 +45,15 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const detectedImage = validateImageBytes(fileBuffer, { maxBytes: MAX_IMAGE_UPLOAD_BYTES });
     const response = new NextResponse(fileBuffer as unknown as BodyInit);
     response.headers.set('Content-Type', detectedImage.mimeType);
-    response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+    // Project assets are authorization-protected source artifacts. Shared or
+    // immutable caching would allow a stale response to outlive membership
+    // revocation and bypass the route-level decision on subsequent requests.
+    response.headers.set('Cache-Control', 'private, no-store');
     response.headers.set('X-Content-Type-Options', 'nosniff');
     response.headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
     return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     if (error instanceof ImageAssetError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }

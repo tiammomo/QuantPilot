@@ -265,10 +265,13 @@ async function validateViewport(params: {
         const style = window.getComputedStyle(element);
         return rect.width >= 120 && rect.height >= 52 && style.visibility !== 'hidden' && style.display !== 'none';
       });
-      const isDetachedUi = (element: Element) =>
-        element.matches('dialog,[role="dialog"],[role="alert"],[popover],.alert,.warning,.error,.tooltip,.popover,.toast');
       const cardLikeRegions = contentRegions.filter((element) => {
-        if (isDetachedUi(element)) return false;
+        // Keep this predicate inline. The callback passed to page.evaluate is
+        // serialized into the browser; a named local helper is rewritten by
+        // the server-side TS transform with an out-of-scope `__name` helper.
+        if (element.matches('dialog,[role="dialog"],[role="alert"],[popover],.alert,.warning,.error,.tooltip,.popover,.toast')) {
+          return false;
+        }
         const style = window.getComputedStyle(element);
         const parentStyle = element.parentElement ? window.getComputedStyle(element.parentElement) : null;
         const radii = [

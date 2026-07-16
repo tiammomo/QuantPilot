@@ -1,21 +1,30 @@
 # QuantPilot Prisma migration adoption
 
 The migration history starts with the application schema at Git revision
-`c641c00`, followed by the additive durable MoAgent runtime migration and the
-additive Mission Graph/evidence migration, and the cross-worker generation
-slot guard, followed by immutable AgentRun build provenance. None of these
-migrations contains a destructive reset:
+`c641c00`, followed by additive MoAgent runtime/evidence migrations, user and
+project authentication, capability authorization, and idempotent usage quota
+metering. None of these migrations contains a destructive reset:
 
 - `20260715000100_baseline_pre_moagent`
 - `20260715000200_add_moagent_runtime`
 - `20260715000300_add_moagent_mission_graph`
 - `20260715000400_add_moagent_generation_epoch_slot`
 - `20260715000500_add_moagent_build_revision`
+- `20260716000100_add_eval_queue_repeat`
+- `20260716000200_add_project_authentication`
+- `20260716000300_add_user_management_authorization`
+- `20260716000400_add_permissions_and_usage_quotas`
 
 Do not use `prisma migrate reset`, `prisma db push --force-reset`, or execute the
 baseline SQL manually against a database that already contains QuantPilot data.
 Take a verified backup before adopting migration history on an existing
 database.
+
+Normal application startup, `db:init`, and production releases use
+`prisma migrate deploy`. Raw `prisma db push` is not an equivalent deployment
+path: Prisma schema introspection does not preserve every checked-in CHECK
+constraint or partial unique index. The package command `npm run prisma:push`
+is retained as a compatibility alias for the versioned deploy/bootstrap chain.
 
 ## New, empty database
 
@@ -26,7 +35,61 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-All five migrations are applied in order.
+All migrations are applied in order.
+
+## Permissions and usage quota migration
+
+`20260716000400_add_permissions_and_usage_quotas` is an additive migration. It:
+
+- creates `permission_profiles`, `permission_profile_grants` and
+  `user_permission_overrides` for account capability policy;
+- creates `quota_profiles`, `quota_rules`, `user_quota_overrides`,
+  `usage_buckets`, `quota_reservations` and `usage_events` for quota policy,
+  atomic reservation/settlement and the idempotent usage ledger;
+- adds `permission_profile_id`, `quota_profile_id` and the non-negative
+  optimistic-lock `access_version` to `auth_users`;
+- adds nullable `actor_user_id` attribution to `user_requests` and
+  `agent_runs`; existing rows deliberately remain null instead of being
+  guessed or retroactively charged;
+- seeds the default `member-default` permission/quota profiles and the optional
+  `readonly-default` permission profile, then assigns both default profiles to
+  existing `member` users. Administrators are not assigned restrictive
+  profiles; the application always resolves them as all-capability and
+  unlimited while still recording actual usage.
+
+The default quota rules seeded for members are:
+
+| Metric | Limit | Enforcement / window | Reservation TTL |
+| --- | ---: | --- | ---: |
+| `projects.owned` | 10 | `hard` / `lifetime` | 3,600 s |
+| `agent.concurrent` | 2 | `hard` / `lifetime` | 3,600 s（运行中每 5 分钟内续租） |
+| `agent.requests.daily` | 100 | `observe` / `day` | 900 s |
+| `llm.total_tokens.monthly` | 2,000,000 | `observe` / `month` | 3,600 s |
+| `query_rewrite.llm.daily` | 200 | `observe` / `day` | 900 s |
+| `quant.data_units.daily` | 2,000 | `observe` / `day` | 900 s |
+| `research.report_runs.daily` | 20 | `observe` / `day` | 3,600 s |
+| `research.report_sends.daily` | 10 | `hard` / `day` | 3,600 s |
+
+After deploy, regenerate the Prisma client for the same application revision
+and bootstrap the administrator before accepting traffic:
+
+```bash
+npx prisma generate
+npm run auth:ensure-access-control
+npm run auth:bootstrap
+npm run auth:cleanup -- --dry-run
+```
+
+`auth:ensure-access-control` is idempotent and also reconciles the lifetime
+`projects.owned` bucket from authoritative project ownership before traffic is
+accepted. It shares the quota bucket advisory lock with runtime mutations and
+skips actors that still have a live project-create reservation. This exact
+allocation reconciliation is intentionally not part of recurring cleanup.
+
+Run `npm run auth:cleanup` on a recurring schedule. In addition to expired
+authentication records it expires abandoned active quota reservations and
+returns their quantities from `usage_buckets.reserved`; it does not delete the
+`usage_events` ledger.
 
 ## Existing pre-MoAgent database
 
@@ -61,8 +124,9 @@ npx prisma migrate status
 ```
 
 `migrate resolve` records history only; it does not execute the baseline SQL.
-`migrate deploy` then creates the runtime and Mission tables, indexes,
-uniqueness guards, evidence linkage, and foreign keys.
+`migrate deploy` then applies every later migration in this list, including the
+runtime/Mission tables, authentication and project membership records,
+capability profiles, quota policy, actor attribution, indexes and foreign keys.
 
 ## Database already on the durable runtime migration
 
@@ -75,12 +139,12 @@ npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-This applies `20260715000300_add_moagent_mission_graph` and then
-`20260715000400_add_moagent_generation_epoch_slot` and
-`20260715000500_add_moagent_build_revision`. If migration
-history claims the durable runtime migration is applied but any of its five
-tables or required constraints is missing, stop and repair the catalog with a
-reviewed roll-forward migration first.
+This applies `20260715000300_add_moagent_mission_graph` and every subsequent
+migration in order, through
+`20260716000400_add_permissions_and_usage_quotas`. If migration history claims
+the durable runtime migration is applied but any of its five tables or required
+constraints is missing, stop and repair the catalog with a reviewed
+roll-forward migration first.
 
 ## Database already synchronized with `prisma db push`
 
@@ -104,6 +168,16 @@ the migration history is empty, do not mark the Mission migration as applied.
 First verify the five-table `00200` contract against the deployed application
 revision, record the baseline and runtime migrations, and then run
 `prisma migrate deploy` to create the three Mission tables.
+
+If a raw `db push` already created the later authentication, permission, quota,
+or API-idempotency tables as well, do not use the five-migration recipe above:
+the tables may exist while migration-only CHECK constraints, partial unique
+indexes, seed/backfill rows, or migration history are absent. Back up the
+database, compare it with a fresh database produced by all nine migrations,
+apply a reviewed additive roll-forward for every catalog difference, run
+`auth:ensure-access-control`, and only then record the matching migrations as
+applied. Never let `migrate deploy` discover those pre-existing tables by
+trial and error.
 
 ## Partial or unknown schema
 

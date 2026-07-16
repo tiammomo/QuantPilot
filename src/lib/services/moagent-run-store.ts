@@ -7,6 +7,8 @@ import {
   sha256,
 } from '@/lib/agent/runtime';
 import { mutationOutcomeRequiresReconciliation } from '@/lib/agent/core/tool-outcome';
+import { recordQuotaUsage } from '@/lib/quota';
+import { runIndependentTerminalCallbacks } from './terminal-callbacks';
 import type {
   AgentRunProvenance,
   AgentRunRecord,
@@ -63,6 +65,7 @@ export interface CreateMoAgentDurableRunSessionOptions {
   clock?: () => Date;
   scheduler?: MoAgentRunStoreScheduler;
   onFatal?: (error: unknown) => Awaitable<void>;
+  onTerminalRun?: (run: AgentRunRecord) => Awaitable<void>;
 }
 
 export type CreatePrismaMoAgentDurableRunSessionOptions = Omit<
@@ -258,6 +261,7 @@ export class MoAgentDurableRunSession {
   private readonly clock: () => Date;
   private readonly scheduler: MoAgentRunStoreScheduler;
   private readonly onFatal?: (error: unknown) => Awaitable<void>;
+  private readonly onTerminalRun?: (run: AgentRunRecord) => Awaitable<void>;
   private currentRun: AgentRunRecord;
   private writeQueue: Promise<void> = Promise.resolve();
   private timerHandle: unknown;
@@ -284,6 +288,7 @@ export class MoAgentDurableRunSession {
     this.clock = options.clock ?? (() => new Date());
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.onFatal = options.onFatal;
+    this.onTerminalRun = options.onTerminalRun;
 
     if (options.heartbeatEnabled !== false) this.startHeartbeat();
   }
@@ -393,6 +398,7 @@ export class MoAgentDurableRunSession {
           message: `MoAgent run was interrupted with ${code}.`,
         },
       });
+      await this.notifyTerminalRun();
       this.terminal = true;
     });
   }
@@ -562,12 +568,18 @@ export class MoAgentDurableRunSession {
     projection: RuntimeJsonObject
   ): Promise<void> {
     const occurredAt = new Date(event.timestamp);
+    const cumulativeUsage = event.type === 'usage'
+      ? normalizeUsage(event.totalUsage)
+      : event.type === 'run_finished'
+        ? normalizeUsage(event.result.usage)
+        : undefined;
     const appended = await this.repository.appendEvent({
       ...this.fence(this.clock()),
       eventId: event.eventId,
       sequence: event.sequence,
       eventType: event.type,
       payload: projection,
+      ...(cumulativeUsage ? { cumulativeUsage } : {}),
       occurredAt,
     });
     this.currentRun = appended.run;
@@ -620,7 +632,19 @@ export class MoAgentDurableRunSession {
       finishedAt,
       ...(error ? { error } : {}),
     });
+    await this.notifyTerminalRun();
     this.terminal = true;
+  }
+
+  private async notifyTerminalRun(): Promise<void> {
+    if (!this.onTerminalRun) return;
+    try {
+      await this.onTerminalRun(cloneRun(this.currentRun));
+    } catch (error) {
+      // Terminal notifications happen after the durable state commit and must
+      // never turn an already-terminal run into a failed run.
+      console.error('[MoAgent] Terminal run notification failed:', error);
+    }
   }
 
   private observeCounters(event: MoAgentEvent): void {
@@ -647,5 +671,34 @@ export async function createPrismaMoAgentDurableRunSession(
     ...options,
     clock,
     repository: new PrismaAgentRuntimeRepository(prisma, clock),
+    onTerminalRun: async (run) => runIndependentTerminalCallbacks([
+      async () => {
+        if (run.totalTokens <= 0) return;
+        const binding = await prisma.agentRun.findUnique({
+          where: { id: run.id },
+          select: { actorUserId: true },
+        });
+        if (!binding?.actorUserId) return;
+        await recordQuotaUsage({
+          actorUserId: binding.actorUserId,
+          projectId: run.projectId,
+          metric: 'llm.total_tokens.monthly',
+          quantity: run.totalTokens,
+          idempotencyKey: `agent-run:${run.id}:total-tokens`,
+          sourceType: 'agent_run',
+          sourceId: run.id,
+          occurredAt: run.finishedAt ?? clock(),
+          metadata: {
+            provider: run.provider,
+            model: run.model,
+            inputTokens: run.inputTokens,
+            outputTokens: run.outputTokens,
+          },
+        });
+      },
+      ...(options.onTerminalRun
+        ? [async () => options.onTerminalRun!(run)]
+        : []),
+    ]),
   });
 }

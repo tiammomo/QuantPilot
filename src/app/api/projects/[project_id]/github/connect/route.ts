@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { connectProjectToGitHub } from '@/lib/services/github';
 
 interface RouteContext {
@@ -8,6 +12,11 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('service-connection', request.method),
+      projectId: project_id,
+    });
     const body = await request.json();
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
@@ -36,6 +45,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       message: 'GitHub repository created and connected',
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to connect GitHub repository:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

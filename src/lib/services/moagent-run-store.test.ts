@@ -334,6 +334,81 @@ describe('MoAgentDurableRunSession', () => {
     await session.close();
   });
 
+  it('persists cumulative token usage before the run reaches a terminal event', async () => {
+    const repository = new RecordingRepository({ now: () => new Date(START) });
+    const session = await createMoAgentDurableRunSession({
+      ...runOptions(repository),
+      heartbeatEnabled: false,
+    });
+
+    await session.record(runStarted());
+    await session.record({
+      ...eventBase(2),
+      type: 'usage',
+      turn: 1,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        totalTokens: 120,
+        cachedInputTokens: 30,
+        cacheMissInputTokens: 70,
+        reasoningTokens: 5,
+      },
+      totalUsage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        totalTokens: 120,
+        cachedInputTokens: 30,
+        cacheMissInputTokens: 70,
+        reasoningTokens: 5,
+      },
+    });
+    expect(await repository.getRun(session.run.id)).toMatchObject({
+      status: 'running',
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      cachedInputTokens: 30,
+      cacheMissInputTokens: 70,
+      reasoningTokens: 5,
+    });
+
+    await session.record({
+      ...eventBase(3),
+      type: 'usage',
+      turn: 2,
+      usage: {
+        inputTokens: 40,
+        outputTokens: 15,
+        totalTokens: 55,
+        cachedInputTokens: 10,
+        cacheMissInputTokens: 30,
+        reasoningTokens: 3,
+      },
+      totalUsage: {
+        inputTokens: 140,
+        outputTokens: 35,
+        totalTokens: 175,
+        cachedInputTokens: 40,
+        cacheMissInputTokens: 100,
+        reasoningTokens: 8,
+      },
+    });
+    await session.interrupt({ code: 'PROCESS_SHUTDOWN' });
+
+    expect(await repository.getRun(session.run.id)).toMatchObject({
+      status: 'interrupted',
+      turnCount: 2,
+      inputTokens: 140,
+      outputTokens: 35,
+      totalTokens: 175,
+      cachedInputTokens: 40,
+      cacheMissInputTokens: 100,
+      reasoningTokens: 8,
+    });
+    await session.close();
+  });
+
   it('treats an existing operation ledger entry as a hard execution gate', async () => {
     const repository = new RecordingRepository({ now: () => new Date(START) });
     const session = await createMoAgentDurableRunSession({

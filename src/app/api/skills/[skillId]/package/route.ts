@@ -1,6 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -46,10 +49,14 @@ async function resolvePackagePath(skillId: string) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ skillId: string }> }
 ) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'quant.data.read',
+    });
     const { skillId } = await context.params;
     const packagePath = await resolvePackagePath(skillId);
     const buffer = await fs.readFile(packagePath);
@@ -61,6 +68,7 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,

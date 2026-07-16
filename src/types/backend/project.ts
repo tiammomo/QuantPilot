@@ -15,6 +15,8 @@ export type TemplateType = 'nextjs' | 'react' | 'vue' | 'custom';
 
 export interface Project {
   id: string;
+  /** Server-only ownership identity; serializers intentionally omit it. */
+  ownerId?: string | null;
   name: string;
   description?: string;
   status: ProjectStatus;

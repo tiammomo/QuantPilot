@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { updateEnvVar, deleteEnvVar } from '@/lib/services/env';
 
 interface RouteContext {
@@ -8,6 +11,11 @@ interface RouteContext {
 export async function PUT(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id, key } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: 'project.secrets.write',
+      projectId: project_id,
+    });
     const body = await request.json();
     if (typeof body?.value !== 'string') {
       return NextResponse.json(
@@ -29,6 +37,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       message: `Environment variable '${key}' updated`,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[Env API] Failed to update env var:', error);
     return NextResponse.json(
       {
@@ -44,6 +53,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 export async function DELETE(_request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id, key } = await params;
+    await requireAction({
+      headers: _request.headers,
+      action: 'project.secrets.write',
+      projectId: project_id,
+    });
     const deleted = await deleteEnvVar(project_id, key);
     if (!deleted) {
       return NextResponse.json(
@@ -57,6 +71,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
       message: `Environment variable '${key}' deleted`,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[Env API] Failed to delete env var:', error);
     return NextResponse.json(
       {

@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   getProjectCliPreference,
   updateProjectCliPreference,
@@ -11,6 +15,15 @@ interface RouteContext {
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
   const { project_id } = await params;
+  try {
+    await requireAction({
+      headers: _request.headers,
+      action: projectRouteAction('project', _request.method),
+      projectId: project_id,
+    });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
   const preference = await getProjectCliPreference(project_id);
   if (!preference) {
     return NextResponse.json(
@@ -25,6 +38,11 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 export async function POST(_request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: _request.headers,
+      action: projectRouteAction('project', _request.method),
+      projectId: project_id,
+    });
     const update = {
       preferredCli: 'moagent',
       fallbackEnabled: false,
@@ -34,6 +52,7 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
     const updated = await updateProjectCliPreference(project_id, update);
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to update CLI preference:', error);
     return NextResponse.json(
       {

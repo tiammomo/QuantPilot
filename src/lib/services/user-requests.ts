@@ -157,8 +157,16 @@ export async function getActiveRequests(projectId: string): Promise<ActiveReques
 interface UpsertUserRequestOptions {
   id: string;
   projectId: string;
+  actorUserId?: string | null;
   instruction: string;
   cliPreference?: string | null;
+}
+
+export class UserRequestAlreadyExistsError extends Error {
+  constructor(readonly requestId: string) {
+    super('The request ID is already in use.');
+    this.name = 'UserRequestAlreadyExistsError';
+  }
 }
 
 export class UserRequestProjectMismatchError extends Error {
@@ -168,22 +176,34 @@ export class UserRequestProjectMismatchError extends Error {
   }
 }
 
+export class UserRequestActorMismatchError extends Error {
+  constructor(readonly requestId: string) {
+    super('The request ID is already bound to a different user.');
+    this.name = 'UserRequestActorMismatchError';
+  }
+}
+
 /**
  * Verify the global request ID is either unclaimed or already owned by the
- * expected project. Returns false when no request exists yet so product ingress
- * can safely proceed to the transactional upsert.
+ * expected project. Pass actorUserId explicitly (including null) when the
+ * caller also needs actor isolation; omitting it performs a project-only check
+ * for project-wide operations such as cancellation and validation.
  */
 export async function assertUserRequestProjectBinding(
   projectId: string,
   requestId: string,
+  actorUserId?: string | null,
 ): Promise<boolean> {
   const existing = await prisma.userRequest.findUnique({
     where: { id: requestId },
-    select: { projectId: true },
+    select: { projectId: true, actorUserId: true },
   });
   if (!existing) return false;
   if (existing.projectId !== projectId) {
     throw new UserRequestProjectMismatchError(requestId);
+  }
+  if (actorUserId !== undefined && existing.actorUserId !== actorUserId) {
+    throw new UserRequestActorMismatchError(requestId);
   }
   return true;
 }
@@ -209,16 +229,20 @@ async function handleNotFound(error: unknown, context: string): Promise<void> {
 export async function upsertUserRequest({
   id,
   projectId,
+  actorUserId,
   instruction,
   cliPreference,
 }: UpsertUserRequestOptions) {
   const scopedUpsert = () => prisma.$transaction(async (tx) => {
     const existing = await tx.userRequest.findUnique({
       where: { id },
-      select: { projectId: true },
+      select: { projectId: true, actorUserId: true },
     });
     if (existing && existing.projectId !== projectId) {
       throw new UserRequestProjectMismatchError(id);
+    }
+    if (existing && existing.actorUserId !== (actorUserId ?? null)) {
+      throw new UserRequestActorMismatchError(id);
     }
     if (existing) {
       return tx.userRequest.update({
@@ -233,6 +257,7 @@ export async function upsertUserRequest({
       data: {
         id,
         projectId,
+        actorUserId: actorUserId ?? null,
         instruction,
         status: 'pending',
         ...(cliPreference !== undefined ? { cliPreference } : {}),
@@ -249,6 +274,45 @@ export async function upsertUserRequest({
       return scopedUpsert();
     }
     throw error;
+  }
+}
+
+/**
+ * Atomically claims a client request ID for a new user operation. Unlike the
+ * repair-oriented upsert helper, this never turns a retry into a second
+ * execution or lets a concurrent caller update the winner's request row.
+ */
+export async function claimUserRequest({
+  id,
+  projectId,
+  actorUserId,
+  instruction,
+  cliPreference,
+}: UpsertUserRequestOptions) {
+  try {
+    return await prisma.userRequest.create({
+      data: {
+        id,
+        projectId,
+        actorUserId: actorUserId ?? null,
+        instruction,
+        status: 'pending',
+        ...(cliPreference !== undefined ? { cliPreference } : {}),
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      throw error;
+    }
+    const existing = await prisma.userRequest.findUnique({
+      where: { id },
+      select: { projectId: true, actorUserId: true },
+    });
+    if (existing?.projectId !== projectId) throw new UserRequestProjectMismatchError(id);
+    if (existing.actorUserId !== (actorUserId ?? null)) {
+      throw new UserRequestActorMismatchError(id);
+    }
+    throw new UserRequestAlreadyExistsError(id);
   }
 }
 

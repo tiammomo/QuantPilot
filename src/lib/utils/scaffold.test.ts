@@ -134,15 +134,24 @@ describe('restoreQuantDashboardTemplate', () => {
 
     await scaffoldBasicNextApp(projectPath, 'continuous-workbench-project');
 
-    const [page, css] = await Promise.all([
+    const [page, css, nextConfig, buildScript, devScript] = await Promise.all([
       fs.readFile(path.join(projectPath, 'app', 'page.tsx'), 'utf8'),
       fs.readFile(path.join(projectPath, 'app', 'globals.css'), 'utf8'),
+      fs.readFile(path.join(projectPath, 'next.config.js'), 'utf8'),
+      fs.readFile(path.join(projectPath, 'scripts', 'run-build.js'), 'utf8'),
+      fs.readFile(path.join(projectPath, 'scripts', 'run-dev.js'), 'utf8'),
     ]);
     expect(page).toContain('data-visual-language="financial-workbench"');
     expect(css).toContain('FINANCIAL WORKBENCH CANVAS');
     expect(css).toContain('border-inline: 1px solid var(--line)');
     expect(css).toContain('border-bottom: 1px solid var(--line)');
     expect(css).not.toContain('linear-gradient(180deg, #eef4ff');
+    expect(nextConfig).toContain('outputFileTracingRoot: projectRoot');
+    expect(nextConfig).toContain('root: projectRoot');
+    expect(nextConfig).not.toContain('outputFileTracingRoot: workspaceRoot');
+    expect(nextConfig).not.toContain('root: workspaceRoot');
+    expect(buildScript).toContain("defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack']");
+    expect(devScript).toContain("defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack']");
   });
 
   it('keeps an existing page and stylesheet during non-destructive scaffolding', async () => {

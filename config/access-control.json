@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "defaultMemberProfile": "member-default",
+  "actions": {
+    "project.create": {
+      "scope": "account",
+      "description": "Create a project"
+    },
+    "project.read": {
+      "scope": "project",
+      "description": "Read project metadata and ordinary outputs"
+    },
+    "project.update": {
+      "scope": "project",
+      "description": "Update project metadata and settings"
+    },
+    "project.delete": {
+      "scope": "project",
+      "description": "Delete a project"
+    },
+    "project.members.manage": {
+      "scope": "project",
+      "description": "Manage project memberships"
+    },
+    "project.source.read": {
+      "scope": "project",
+      "description": "Read non-secret project source files"
+    },
+    "project.source.write": {
+      "scope": "project",
+      "description": "Modify project source files"
+    },
+    "project.secrets.read": {
+      "scope": "project",
+      "description": "Read project secrets"
+    },
+    "project.secrets.write": {
+      "scope": "project",
+      "description": "Create, update, or delete project secrets"
+    },
+    "project.services.read": {
+      "scope": "project",
+      "description": "Read project service status and metadata"
+    },
+    "project.services.manage": {
+      "scope": "project",
+      "description": "Manage project services and external integrations"
+    },
+    "project.deploy": {
+      "scope": "project",
+      "description": "Deploy a project to an external runtime"
+    },
+    "agent.run": {
+      "scope": "project",
+      "description": "Start an agent run"
+    },
+    "agent.cancel": {
+      "scope": "project",
+      "description": "Cancel an agent run"
+    },
+    "quant.data.read": {
+      "scope": "account",
+      "description": "Query quantitative data sources"
+    },
+    "quant.query.rewrite.llm": {
+      "scope": "account",
+      "description": "Use an LLM to rewrite a quantitative query"
+    },
+    "quant.strategy.run": {
+      "scope": "account",
+      "description": "Run a quantitative strategy"
+    },
+    "quant.strategy.manage": {
+      "scope": "account",
+      "description": "Create or modify quantitative strategies"
+    },
+    "research.report.read": {
+      "scope": "account",
+      "description": "Read research reports"
+    },
+    "research.report.run": {
+      "scope": "account",
+      "description": "Generate research reports"
+    },
+    "research.report.send": {
+      "scope": "account",
+      "description": "Send or publish research reports"
+    },
+    "platform.users.manage": {
+      "scope": "platform",
+      "description": "Manage platform users and sessions"
+    },
+    "platform.quotas.manage": {
+      "scope": "platform",
+      "description": "Manage quota policies and user quota overrides"
+    },
+    "platform.audit.read": {
+      "scope": "platform",
+      "description": "Read the security audit log"
+    },
+    "platform.observability.read": {
+      "scope": "platform",
+      "description": "Read platform-wide operational telemetry"
+    },
+    "platform.settings.manage": {
+      "scope": "platform",
+      "description": "Manage platform-wide settings"
+    },
+    "platform.tokens.manage": {
+      "scope": "platform",
+      "description": "Manage platform-wide provider tokens"
+    }
+  },
+  "profiles": {
+    "member-default": {
+      "name": "Standard researcher",
+      "allow": [
+        "project.create",
+        "project.read",
+        "project.update",
+        "project.delete",
+        "project.members.manage",
+        "project.source.read",
+        "project.source.write",
+        "project.secrets.read",
+        "project.secrets.write",
+        "project.services.read",
+        "project.services.manage",
+        "project.deploy",
+        "agent.run",
+        "agent.cancel",
+        "quant.data.read",
+        "quant.query.rewrite.llm",
+        "quant.strategy.run",
+        "research.report.read",
+        "research.report.run"
+      ],
+      "deny": []
+    },
+    "standard-researcher": {
+      "name": "Standard researcher",
+      "allow": [
+        "project.create",
+        "project.read",
+        "project.update",
+        "project.delete",
+        "project.members.manage",
+        "project.source.read",
+        "project.source.write",
+        "project.secrets.read",
+        "project.secrets.write",
+        "project.services.read",
+        "project.services.manage",
+        "project.deploy",
+        "agent.run",
+        "agent.cancel",
+        "quant.data.read",
+        "quant.query.rewrite.llm",
+        "quant.strategy.run",
+        "quant.strategy.manage",
+        "research.report.read",
+        "research.report.run",
+        "research.report.send"
+      ],
+      "deny": []
+    },
+    "readonly-default": {
+      "name": "Read only",
+      "allow": [
+        "project.read",
+        "project.source.read",
+        "quant.data.read",
+        "research.report.read"
+      ],
+      "deny": []
+    },
+    "read-only": {
+      "name": "Read only",
+      "allow": [
+        "project.read",
+        "project.source.read",
+        "quant.data.read",
+        "research.report.read"
+      ],
+      "deny": []
+    }
+  },
+  "projectRoles": {
+    "viewer": {
+      "allow": [
+        "project.read",
+        "project.source.read",
+        "project.services.read"
+      ],
+      "deny": []
+    },
+    "editor": {
+      "allow": [
+        "project.read",
+        "project.update",
+        "project.source.read",
+        "project.source.write",
+        "project.services.read",
+        "agent.run",
+        "agent.cancel"
+      ],
+      "deny": []
+    },
+    "owner": {
+      "allow": [
+        "project.read",
+        "project.update",
+        "project.delete",
+        "project.members.manage",
+        "project.source.read",
+        "project.source.write",
+        "project.secrets.read",
+        "project.secrets.write",
+        "project.services.read",
+        "project.services.manage",
+        "project.deploy",
+        "agent.run",
+        "agent.cancel"
+      ],
+      "deny": []
+    }
+  }
+}

@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { checkRepositoryAvailability } from '@/lib/services/github';
 
 interface RouteContext {
   params: Promise<{ repo_name: string }>;
 }
 
-export async function GET(_request: Request, { params }: RouteContext) {
+export async function GET(request: Request, { params }: RouteContext) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.tokens.manage',
+    });
     const { repo_name } = await params;
     const result = await checkRepositoryAvailability(repo_name);
     if (result.exists) {
@@ -14,6 +21,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
     }
     return NextResponse.json({ available: true, username: result.username });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to check repository availability:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

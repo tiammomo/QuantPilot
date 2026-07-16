@@ -360,6 +360,7 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
     assertBoundedIdentifier(input.eventType, 'event.eventType');
     assertValidDate(input.occurredAt, 'event.occurredAt');
     const payload = clonePublicRuntimeJson(input.payload, 'agent event payload');
+    if (input.cumulativeUsage) assertUsage(input.cumulativeUsage);
     const now = input.now ?? this.clock();
     const run = this.requireRun(input.runId);
     const existingByEventId = (this.events.get(run.id) ?? []).find(
@@ -407,6 +408,14 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
       createdAt: new Date(now),
     };
     run.lastEventSequence = input.sequence;
+    if (input.cumulativeUsage) {
+      run.inputTokens = input.cumulativeUsage.inputTokens;
+      run.outputTokens = input.cumulativeUsage.outputTokens;
+      run.totalTokens = input.cumulativeUsage.totalTokens;
+      run.cachedInputTokens = input.cumulativeUsage.cachedInputTokens;
+      run.cacheMissInputTokens = input.cumulativeUsage.cacheMissInputTokens;
+      run.reasoningTokens = input.cumulativeUsage.reasoningTokens;
+    }
     this.bump(run, now);
     this.events.set(run.id, [...(this.events.get(run.id) ?? []), event]);
     this.eventIds.add(input.eventId);

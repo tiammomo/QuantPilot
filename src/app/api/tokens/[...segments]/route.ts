@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import {
   deleteServiceToken,
   getPlainServiceToken,
@@ -34,6 +37,15 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
   const { segments = [] } = await params;
 
   if (segments.length === 1) {
+    try {
+      await requireAction({
+        headers: request.headers,
+        action: 'platform.tokens.manage',
+      });
+    } catch (error) {
+      if (error instanceof AuthorizationError) return authErrorResponse(error);
+      throw error;
+    }
     const provider = segments[0];
     if (!isProvider(provider)) {
       return NextResponse.json(
@@ -47,7 +59,9 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'Token not found' }, { status: 404 });
     }
 
-    return NextResponse.json(record);
+    const response = NextResponse.json(record);
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   }
 
   if (segments.length === 3 && segments[0] === 'internal' && segments[2] === 'token') {
@@ -72,17 +86,29 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     }
 
     await touchServiceToken(provider);
-    return NextResponse.json({ token });
+    const response = NextResponse.json({ token });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   }
 
   return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
   const { segments = [] } = await params;
 
   if (segments.length !== 1) {
     return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
+  }
+
+  try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.tokens.manage',
+    });
+  } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
+    throw error;
   }
 
   const tokenId = segments[0];

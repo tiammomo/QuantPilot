@@ -4,6 +4,9 @@
  */
 
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { isExplicitPreviewStopIntent } from '@/lib/services/preview-stop-intent';
 
 interface RouteContext {
@@ -16,6 +19,11 @@ export async function POST(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: 'project.update',
+      projectId: project_id,
+    });
     const { previewManager } = await import('@/lib/services/preview');
     const body = await request.json().catch(() => null);
     if (
@@ -43,6 +51,7 @@ export async function POST(
       data: preview,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to stop preview:', error);
     return NextResponse.json(
       {

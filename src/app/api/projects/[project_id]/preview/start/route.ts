@@ -4,16 +4,27 @@
  */
 
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { authErrorResponse } from '@/lib/auth/http';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: RouteContext
 ) {
   const { project_id } = await params;
+  try {
+    await requireAction({
+      headers: request.headers,
+      action: 'project.update',
+      projectId: project_id,
+    });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
   try {
     const { previewManager } = await import('@/lib/services/preview');
     const preview = await previewManager.start(project_id);

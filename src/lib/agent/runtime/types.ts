@@ -236,6 +236,11 @@ export interface AppendAgentEventInput extends AgentWriteFence {
   sequence: number;
   eventType: string;
   payload: RuntimeJsonObject;
+  /**
+   * Latest cumulative usage observed by this event. Keeping it on the run row
+   * lets crash recovery terminalize and meter an interrupted run accurately.
+   */
+  cumulativeUsage?: AgentTokenUsage;
   occurredAt: Date;
 }
 

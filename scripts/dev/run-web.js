@@ -81,10 +81,10 @@ function hasHostnameArg(args) {
   ));
 }
 
-function runPrismaDbPush() {
+function runPrismaMigrations() {
   return new Promise((resolve, reject) => {
-    console.log('🗃️  Synchronizing Prisma schema (prisma db push)...');
-    const child = spawn('npx', ['prisma', 'db', 'push'], {
+    console.log('🗃️  Applying versioned Prisma migrations...');
+    const child = spawn('npx', ['prisma', 'migrate', 'deploy'], {
       cwd: rootDir,
       stdio: 'inherit',
       shell: isWindows,
@@ -100,7 +100,7 @@ function runPrismaDbPush() {
         resolve();
       } else {
         reject(
-          new Error(`prisma db push exited with code ${code ?? 'unknown'}`)
+          new Error(`prisma migrate deploy exited with code ${code ?? 'unknown'}`)
         );
       }
     });
@@ -108,6 +108,31 @@ function runPrismaDbPush() {
     child.on('error', (error) => {
       reject(error);
     });
+  });
+}
+
+function runAccessControlBootstrap() {
+  return new Promise((resolve, reject) => {
+    console.log('🛡️  Ensuring built-in permission and quota policies...');
+    const child = spawn('npx', ['tsx', 'scripts/auth/ensure-access-control.ts'], {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: isWindows,
+      detached: !isWindows,
+      env: process.env,
+    });
+
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new Error(`access-control bootstrap exited with code ${code ?? 'unknown'}`)
+        );
+      }
+    });
+
+    child.on('error', reject);
   });
 }
 
@@ -125,12 +150,11 @@ async function ensureDatabaseSynced() {
     return;
   }
 
-  // A connectivity check against one long-lived table cannot detect newly added
-  // models or constraints. That allowed development to start with `projects`
-  // available while the MoAgent runtime tables were still absent. `db push` is
-  // idempotent and performs the full schema diff; importantly, it also fails
-  // closed when Prisma detects a potentially destructive change.
-  await runPrismaDbPush();
+  // Connectivity alone cannot detect newly added tables or semantic CHECK /
+  // partial-index constraints. Use the same versioned migration path in local
+  // startup and deployment so development cannot silently run a weaker schema.
+  await runPrismaMigrations();
+  await runAccessControlBootstrap();
 }
 
 function delay(ms) {

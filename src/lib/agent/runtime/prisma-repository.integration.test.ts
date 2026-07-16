@@ -373,6 +373,35 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     });
   });
 
+  it('persists cumulative usage in the same transaction as a usage event', async () => {
+    const projectId = await createProject('incremental-usage');
+    const run = await repositoryA.createRun(
+      runInput(projectId, workspaceKey('incremental-usage'), 'incremental-usage')
+    );
+    const cumulativeUsage = {
+      inputTokens: 900,
+      outputTokens: 120,
+      totalTokens: 1_020,
+      cachedInputTokens: 300,
+      cacheMissInputTokens: 600,
+      reasoningTokens: 25,
+    } as const;
+
+    const appended = await repositoryA.appendEvent({
+      ...fence(run),
+      eventId: uniqueId('event:incremental-usage'),
+      sequence: 1,
+      eventType: 'usage',
+      payload: { turn: 1, totalUsage: cumulativeUsage },
+      cumulativeUsage,
+      occurredAt: new Date(),
+    });
+
+    expect(appended.run).toMatchObject(cumulativeUsage);
+    expect(await clientB.agentRun.findUniqueOrThrow({ where: { id: run.id } }))
+      .toMatchObject(cumulativeUsage);
+  });
+
   it('never lets a reconciliation owner execute an old prepared operation', async () => {
     const projectId = await createProject('stale-operation-owner');
     const workspace = workspaceKey('stale-operation-owner');

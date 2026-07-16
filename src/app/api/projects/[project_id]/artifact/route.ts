@@ -1,6 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
+import {
+  assertProjectFilePathAllowed,
+  FileBrowserError,
+} from '@/lib/services/file-browser';
 import { getProjectById } from '@/lib/services/project';
 
 interface RouteContext {
@@ -39,9 +47,29 @@ function resolveSafeArtifactPath(projectPath: string, relativePath: string) {
   return resolved;
 }
 
+async function resolveCanonicalArtifactPath(projectPath: string, artifactPath: string) {
+  const [canonicalRoot, canonicalArtifact] = await Promise.all([
+    fs.realpath(projectPath),
+    fs.realpath(artifactPath),
+  ]);
+  if (
+    canonicalArtifact !== canonicalRoot &&
+    !canonicalArtifact.startsWith(canonicalRoot + path.sep)
+  ) {
+    throw new FileBrowserError('Artifact not found', 404);
+  }
+  assertProjectFilePathAllowed(path.relative(canonicalRoot, canonicalArtifact) || '.');
+  return canonicalArtifact;
+}
+
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('artifact', request.method),
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
@@ -51,6 +79,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     if (!artifactPath) {
       return NextResponse.json({ success: false, error: 'path query parameter is required' }, { status: 400 });
     }
+    assertProjectFilePathAllowed(artifactPath);
 
     const projectPath = resolveProjectPath(project_id, project.repoPath);
     const absolutePath = resolveSafeArtifactPath(projectPath, artifactPath);
@@ -59,12 +88,20 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'Artifact not found' }, { status: 404 });
     }
 
-    const body = await fs.readFile(absolutePath);
+    const canonicalArtifactPath = await resolveCanonicalArtifactPath(projectPath, absolutePath);
+    const body = await fs.readFile(canonicalArtifactPath);
     const response = new NextResponse(body as unknown as BodyInit);
     response.headers.set('Content-Type', contentType(absolutePath));
     response.headers.set('Cache-Control', 'no-store');
     return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
+    if (error instanceof FileBrowserError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
+    }
     console.error('[API] Failed to read project artifact:', error);
     return NextResponse.json(
       {

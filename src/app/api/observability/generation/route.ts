@@ -1,13 +1,22 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+
+import { AuthorizationError, requireAdminSession } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { getGenerationObservabilityDashboard } from '@/lib/quant/generation-observability';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    return NextResponse.json({
+    await requireAdminSession(request.headers);
+    const response = NextResponse.json({
       success: true,
       data: await getGenerationObservabilityDashboard(),
     });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return authErrorResponse(error);
+    }
     return NextResponse.json(
       {
         success: false,

@@ -4,7 +4,7 @@ import { MOAGENT_SCHEMA_CONTRACT_VERSION } from '@/lib/db/moagent-schema-readine
 // Prisma Client singleton pattern for Next.js
 // Prevents multiple instances in development (hot reload)
 
-const PRISMA_CLIENT_CONTRACT = MOAGENT_SCHEMA_CONTRACT_VERSION;
+const PRISMA_CLIENT_CONTRACT = `${MOAGENT_SCHEMA_CONTRACT_VERSION}:access-quota-management-v3`;
 const globalForPrisma = global as unknown as {
   prisma?: PrismaClient;
   prismaClientContract?: string;

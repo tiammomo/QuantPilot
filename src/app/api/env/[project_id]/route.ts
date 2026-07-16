@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { listEnvVars, createEnvVar } from '@/lib/services/env';
 
 interface RouteContext {
@@ -8,9 +11,17 @@ interface RouteContext {
 export async function GET(_request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: _request.headers,
+      action: 'project.secrets.read',
+      projectId: project_id,
+    });
     const envVars = await listEnvVars(project_id);
-    return NextResponse.json(envVars);
+    const response = NextResponse.json(envVars);
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[Env API] Failed to fetch env vars:', error);
     return NextResponse.json(
       {
@@ -26,6 +37,11 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: 'project.secrets.write',
+      projectId: project_id,
+    });
     const body = await request.json();
     if (!body?.key || typeof body.key !== 'string') {
       return NextResponse.json(
@@ -51,6 +67,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json({ success: true, data: record }, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[Env API] Failed to create env var:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     const status = message.includes('already exists') ? 409 : 500;

@@ -6,6 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   getProjectById,
   updateProject,
@@ -28,6 +32,11 @@ export async function GET(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('project', request.method),
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
 
     if (!project) {
@@ -39,6 +48,7 @@ export async function GET(
 
     return NextResponse.json({ success: true, data: serializeProject(project) });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to get project:', error);
     return NextResponse.json(
       {
@@ -61,6 +71,11 @@ export async function PUT(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('project', request.method),
+      projectId: project_id,
+    });
     const body = await request.json();
 
     const input: UpdateProjectInput = {
@@ -77,6 +92,7 @@ export async function PUT(
     const project = await updateProject(project_id, input);
     return NextResponse.json({ success: true, data: serializeProject(project) });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to update project:', error);
 
     // Distinguish between different error types
@@ -116,13 +132,27 @@ export async function DELETE(
 ) {
   try {
     const { project_id } = await params;
-    await deleteProject(project_id);
+    const actionContext = await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('project', request.method),
+      projectId: project_id,
+    });
+    const deleted = await deleteProject(project_id, {
+      deletedByUserId: actionContext.session?.user.id ?? null,
+    });
+    if (!deleted) {
+      return NextResponse.json(
+        { success: false, error: 'Project not found' },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
       message: 'Project deleted successfully',
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to delete project:', error);
     return NextResponse.json(
       {

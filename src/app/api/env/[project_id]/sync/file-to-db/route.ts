@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { syncEnvFileToDb } from '@/lib/services/env';
 
 interface RouteContext {
@@ -8,6 +11,11 @@ interface RouteContext {
 export async function POST(_request: Request, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: _request.headers,
+      action: 'project.secrets.write',
+      projectId: project_id,
+    });
     const synced = await syncEnvFileToDb(project_id);
     return NextResponse.json({
       success: true,
@@ -15,6 +23,7 @@ export async function POST(_request: Request, { params }: RouteContext) {
       message: `Synced ${synced} env vars from file to database`,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[Env API] Failed to sync file to DB:', error);
     return NextResponse.json(
       {

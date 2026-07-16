@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { createRepository, getGithubUser } from '@/lib/services/github';
 
 export async function POST(request: NextRequest) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.tokens.manage',
+    });
     const body = await request.json();
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
@@ -33,6 +40,7 @@ export async function POST(request: NextRequest) {
       owner: user.login,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to create GitHub repository:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

@@ -682,11 +682,11 @@ const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
 
 const nextConfig = {
   turbopack: {
-    root: workspaceRoot,
+    root: projectRoot,
   },
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   typedRoutes: true,
-  outputFileTracingRoot: workspaceRoot,
+  outputFileTracingRoot: projectRoot,
 };
 
 module.exports = nextConfig;
@@ -736,14 +736,14 @@ const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
 `
     );
   }
-  nextContent = nextContent.replace(/outputFileTracingRoot:\s*projectRoot/g, 'outputFileTracingRoot: workspaceRoot');
-  nextContent = nextContent.replace(/root:\s*projectRoot/g, 'root: workspaceRoot');
+  nextContent = nextContent.replace(/outputFileTracingRoot:\s*workspaceRoot/g, 'outputFileTracingRoot: projectRoot');
+  nextContent = nextContent.replace(/root:\s*workspaceRoot/g, 'root: projectRoot');
   if (!nextContent.includes('turbopack:')) {
     nextContent = nextContent.replace(
       /const nextConfig = \{\n/,
       `const nextConfig = {
   turbopack: {
-    root: workspaceRoot,
+    root: projectRoot,
   },
 `
     );

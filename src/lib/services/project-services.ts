@@ -74,15 +74,14 @@ export async function upsertProjectServiceConnection(
   return deserializeServiceData(created);
 }
 
-export async function deleteProjectService(serviceId: string): Promise<boolean> {
-  try {
-    await prisma.projectServiceConnection.delete({
-      where: { id: serviceId },
-    });
-    return true;
-  } catch (error) {
-    return false;
-  }
+export async function deleteProjectService(
+  projectId: string,
+  serviceId: string,
+): Promise<boolean> {
+  const result = await prisma.projectServiceConnection.deleteMany({
+    where: { id: serviceId, projectId },
+  });
+  return result.count > 0;
 }
 
 export async function updateProjectServiceData(

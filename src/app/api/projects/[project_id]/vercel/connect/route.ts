@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { connectVercelProject } from '@/lib/services/vercel';
 
 interface RouteContext {
@@ -8,6 +12,11 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('service-connection', request.method),
+      projectId: project_id,
+    });
     const body = await request.json();
     const projectName = typeof body?.project_name === 'string' ? body.project_name : undefined;
     if (!projectName) {
@@ -31,6 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       message: `Connected Vercel project ${projectName}`,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to connect Vercel project:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

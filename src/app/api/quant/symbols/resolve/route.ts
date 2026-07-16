@@ -1,10 +1,21 @@
+import { randomUUID } from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { authErrorResponse } from '@/lib/auth/http';
+import { consumeQuota, quotaErrorResponse } from '@/lib/quota';
 
 const MARKET_API_BASE_URL = (
   process.env.QUANTPILOT_MARKET_API_URL ?? 'http://127.0.0.1:8000'
 ).replace(/\/$/, '');
 
 export async function GET(request: NextRequest) {
+  let context: Awaited<ReturnType<typeof requireAction>>;
+  try {
+    context = await requireAction({ headers: request.headers, action: 'quant.data.read' });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
   const query = request.nextUrl.searchParams.get('query')?.normalize('NFKC').trim() ?? '';
   const requestedCount = Number.parseInt(request.nextUrl.searchParams.get('count') ?? '3', 10);
   const count = Number.isFinite(requestedCount)
@@ -16,6 +27,26 @@ export async function GET(request: NextRequest) {
       { success: false, error: '证券名称或代码长度必须在 2 到 64 个字符之间。' },
       { status: 400 },
     );
+  }
+
+  if (context.session) {
+    const requestId = randomUUID();
+    try {
+      await consumeQuota({
+        actorUserId: context.session.user.id,
+        metric: 'quant.data_units.daily',
+        quantity: 1,
+        idempotencyKey: `symbol-resolve:${context.session.user.id}:${requestId}`,
+        sourceType: 'symbol_resolve',
+        sourceId: requestId,
+        usageEventIdempotencyKey: `symbol-resolve:${context.session.user.id}:${requestId}:usage`,
+      });
+    } catch (error) {
+      return quotaErrorResponse(error) ?? NextResponse.json(
+        { success: false, error: '暂时无法确认数据配额，请稍后重试。' },
+        { status: 503 },
+      );
+    }
   }
 
   const controller = new AbortController();

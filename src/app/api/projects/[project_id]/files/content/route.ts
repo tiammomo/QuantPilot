@@ -3,6 +3,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   readProjectFileContent,
   writeProjectFileContent,
@@ -16,6 +20,11 @@ interface RouteContext {
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('source', request.method),
+      projectId: project_id,
+    });
     const url = new URL(request.url);
     const filePath = url.searchParams.get('path');
 
@@ -33,6 +42,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       data: file,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     if (error instanceof FileBrowserError) {
       return NextResponse.json(
         { success: false, error: error.message },
@@ -54,6 +64,11 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 export async function PUT(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('source', request.method),
+      projectId: project_id,
+    });
     const body = await request.json();
     const filePath = body.path;
     const content = body.content;
@@ -79,6 +94,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       data: { path: filePath },
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     if (error instanceof FileBrowserError) {
       return NextResponse.json(
         { success: false, error: error.message },

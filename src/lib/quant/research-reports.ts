@@ -1,4 +1,6 @@
-import { Prisma } from '@prisma/client';
+import { createHash } from 'node:crypto';
+
+import { Prisma, type NotificationDelivery } from '@prisma/client';
 import { prisma } from '@/lib/db/client';
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import {
@@ -572,36 +574,90 @@ async function findChannelsForWatchlist(watchlist: ResearchWatchlistSnapshot | n
   return fallback ? [fallback] : [];
 }
 
-async function createNotificationDeliveries(params: {
+export async function createNotificationDeliveries(params: {
   runId?: string | null;
   report: ResearchNotificationReportInput;
   channels: ResearchNotificationChannelInput[];
   dryRun: boolean;
+  idempotencyKey?: string | null;
 }) {
-  const deliveries = [];
+  const deliveries: NotificationDelivery[] = [];
 
   for (const channel of params.channels) {
-    const result = await deliverResearchReportNotification({
-      channel,
-      report: params.report,
-      forceDryRun: params.dryRun,
-    });
+    const deliveryIdempotencyKey = params.idempotencyKey
+      ? `research-notification:${createHash('sha256')
+        .update(`${params.idempotencyKey}\0${params.report.id}\0${channel.id}`)
+        .digest('hex')}`
+      : null;
+    let reserved: NotificationDelivery;
+    try {
+      // Persist the delivery fence before contacting an external webhook. If
+      // the process dies after the webhook call, a retry sees this row and does
+      // not send a second notification.
+      reserved = await prisma.notificationDelivery.create({
+        data: {
+          idempotencyKey: deliveryIdempotencyKey,
+          runId: params.runId ?? null,
+          reportId: params.report.id,
+          channelId: channel.id,
+          status: 'sending',
+          channelType: channel.channelType,
+          title: params.report.title,
+          payload: inputJson({
+            adapter: `${channel.channelType}-webhook`,
+            mode: params.dryRun ? 'dry_run_reserved' : 'real_reserved',
+            channelId: channel.id,
+            reportId: params.report.id,
+          }),
+          error: null,
+          deliveredAt: null,
+        },
+      });
+    } catch (error) {
+      if (
+        deliveryIdempotencyKey &&
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        const existing = await prisma.notificationDelivery.findUnique({
+          where: { idempotencyKey: deliveryIdempotencyKey },
+        });
+        if (existing) {
+          deliveries.push(existing);
+          continue;
+        }
+      }
+      throw error;
+    }
 
-    const delivery = await prisma.notificationDelivery.create({
-      data: {
-        runId: params.runId ?? null,
-        reportId: params.report.id,
-        channelId: channel.id,
-        status: result.status,
-        channelType: result.channelType,
-        title: result.title,
-        payload: result.payload,
-        error: result.error,
-        deliveredAt: result.deliveredAt,
-      },
-    });
-
-    deliveries.push(delivery);
+    try {
+      const result = await deliverResearchReportNotification({
+        channel,
+        report: params.report,
+        forceDryRun: params.dryRun,
+      });
+      deliveries.push(await prisma.notificationDelivery.update({
+        where: { id: reserved.id },
+        data: {
+          status: result.status,
+          channelType: result.channelType,
+          title: result.title,
+          payload: result.payload,
+          error: result.error,
+          deliveredAt: result.deliveredAt,
+        },
+      }));
+    } catch (error) {
+      // An adapter or persistence failure remains fenced. The same operation
+      // key may be retried safely without contacting this channel again.
+      const failed = await prisma.notificationDelivery.update({
+        where: { id: reserved.id },
+        data: { status: 'failed', error: compactError(error) },
+      }).catch(() => reserved);
+      deliveries.push(failed);
+    }
   }
 
   return deliveries;
@@ -932,7 +988,7 @@ export async function sendResearchReport(
   const dryRun = options.dryRun ?? false;
   const idempotencyKey = options.idempotencyKey?.trim();
   const reservationKey = !dryRun && idempotencyKey
-    ? `research-delivery-idempotency:${idempotencyKey.slice(0, 160)}`
+    ? `research-delivery-idempotency:${createHash('sha256').update(idempotencyKey).digest('hex')}`
     : null;
   if (!dryRun && !reservationKey) {
     throw new Error('Real research report delivery requires an idempotency key');
@@ -952,9 +1008,30 @@ export async function sendResearchReport(
       });
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
-        return getResearchAutomationDashboard();
+        const existing = await prisma.platformSetting.findUnique({ where: { key: reservationKey } });
+        const value = asRecord(existing?.value);
+        if (asString(value.reportId) && asString(value.reportId) !== report.id) {
+          throw new Error('Research delivery idempotency conflict: the key is bound to another report');
+        }
+        if (asString(value.status) !== 'failed') {
+          // completed means a known success; reserved means the outcome may be
+          // uncertain after a crash. Both are at-most-once and must not resend.
+          return getResearchAutomationDashboard();
+        }
+        await prisma.platformSetting.update({
+          where: { key: reservationKey },
+          data: {
+            value: {
+              status: 'reserved',
+              reportId: report.id,
+              requestedAt: new Date().toISOString(),
+              retryOfFailedAttempt: true,
+            },
+          },
+        });
+      } else {
+        throw error;
       }
-      throw error;
     }
   }
 
@@ -964,6 +1041,7 @@ export async function sendResearchReport(
       report: mapNotificationReport(report),
       channels: deliveryChannels.map(mapNotificationChannel),
       dryRun,
+      idempotencyKey: reservationKey,
     });
     if (reservationKey) {
       await prisma.platformSetting.update({

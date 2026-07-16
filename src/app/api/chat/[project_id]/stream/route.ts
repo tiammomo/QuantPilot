@@ -4,6 +4,9 @@
  */
 
 import { NextRequest } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { streamManager } from '@/lib/services/stream';
 
 interface RouteContext {
@@ -19,6 +22,15 @@ export async function GET(
   { params }: RouteContext
 ) {
   const { project_id } = await params;
+  try {
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('chat-data', request.method),
+      projectId: project_id,
+    });
+  } catch (error) {
+    return authErrorResponse(error);
+  }
 
   // Create ReadableStream
   const stream = new ReadableStream({

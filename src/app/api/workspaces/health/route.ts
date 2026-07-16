@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { getWorkspaceHealthDashboard } from '@/lib/quant/workspace-health';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.observability.read',
+    });
+    const response = NextResponse.json({
       success: true,
       data: await getWorkspaceHealthDashboard(),
     });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,

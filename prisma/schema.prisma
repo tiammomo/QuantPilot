@@ -16,6 +16,7 @@ datasource db {
 
 model Project {
   id          String  @id @default(cuid())
+  ownerId     String? @map("owner_id")
   name        String
   description String?
   status      String  @default("idle") // idle, running, stopped, error
@@ -59,7 +60,12 @@ model Project {
   agentRuns           AgentRun[]
   agentMissions       AgentMission[]
   agentWorkspaceLease AgentWorkspaceLease?
+  owner               AuthUser?                  @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  memberships         ProjectMembership[]
+  usageEvents         UsageEvent[]
+  quotaReservations   QuotaReservation[]
 
+  @@index([ownerId])
   @@map("projects")
 }
 
@@ -243,8 +249,9 @@ model ToolUsage {
 }
 
 model UserRequest {
-  id        String @id @default(cuid())
-  projectId String @map("project_id")
+  id          String  @id @default(cuid())
+  projectId   String  @map("project_id")
+  actorUserId String? @map("actor_user_id")
 
   // Request info
   instruction   String
@@ -257,13 +264,15 @@ model UserRequest {
   completedAt DateTime? @map("completed_at")
 
   // Relations
-  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  agentRuns AgentRun[]
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor        AuthUser?     @relation("UserRequestActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  agentRuns    AgentRun[]
   agentMission AgentMission?
 
   @@unique([id, projectId])
   @@index([projectId])
   @@index([status])
+  @@index([actorUserId, createdAt])
   @@map("user_requests")
 }
 
@@ -278,6 +287,7 @@ model AgentRun {
   runInstanceId String  @unique @default(uuid()) @map("run_instance_id") @db.Uuid
   projectId     String  @map("project_id")
   requestId     String? @map("request_id")
+  actorUserId   String? @map("actor_user_id")
   workspaceKey  String  @default("legacy:unknown") @map("workspace_key")
 
   status                String    @default("pending")
@@ -317,12 +327,14 @@ model AgentRun {
 
   project        Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
   request        UserRequest?         @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
+  actor          AuthUser?            @relation("AgentRunActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   events         AgentEvent[]
   checkpoints    AgentCheckpoint[]
   toolExecutions AgentToolExecution[]
 
   @@index([projectId, createdAt])
   @@index([requestId, createdAt])
+  @@index([actorUserId, createdAt])
   @@index([status, leaseExpiresAt])
   @@map("agent_runs")
 }
@@ -434,10 +446,10 @@ model AgentMission {
   projectId    String @map("project_id")
   requestId    String @unique @map("request_id")
 
-  status                    String @default("running")
-  activeSlot                Int?   @default(1) @map("active_slot")
-  version                   Int    @default(0)
-  candidateVersion          Int    @default(0) @map("candidate_version")
+  status                    String  @default("running")
+  activeSlot                Int?    @default(1) @map("active_slot")
+  version                   Int     @default(0)
+  candidateVersion          Int     @default(0) @map("candidate_version")
   currentCandidateRunId     String? @map("current_candidate_run_id")
   currentCandidateRequestId String? @map("current_candidate_request_id")
   acceptedReceiptId         String? @unique @map("accepted_receipt_id")
@@ -448,17 +460,17 @@ model AgentMission {
   errorCode    String? @map("error_code")
   errorMessage String? @map("error_message")
 
-  candidateSubmittedAt DateTime? @map("candidate_submitted_at")
+  candidateSubmittedAt  DateTime? @map("candidate_submitted_at")
   verificationStartedAt DateTime? @map("verification_started_at")
   completedAt           DateTime? @map("completed_at")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  request  UserRequest            @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
-  nodes    AgentMissionNode[]
-  receipts AgentEvidenceReceipt[] @relation("MissionReceipts")
-  acceptedReceipt AgentEvidenceReceipt? @relation("AcceptedMissionReceipt", fields: [acceptedReceiptId], references: [id], onDelete: SetNull)
+  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request         UserRequest            @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
+  nodes           AgentMissionNode[]
+  receipts        AgentEvidenceReceipt[] @relation("MissionReceipts")
+  acceptedReceipt AgentEvidenceReceipt?  @relation("AcceptedMissionReceipt", fields: [acceptedReceiptId], references: [id], onDelete: SetNull)
 
   @@unique([requestId, projectId])
   @@unique([projectId, activeSlot])
@@ -483,8 +495,8 @@ model AgentMissionNode {
   requiredSkillSections Json @map("required_skill_sections")
   inputArtifacts        Json @map("input_artifacts")
   outputArtifacts       Json @map("output_artifacts")
-  budget                 Json
-  acceptancePredicates   Json @map("acceptance_predicates")
+  budget                Json
+  acceptancePredicates  Json @map("acceptance_predicates")
 
   startedAt  DateTime? @map("started_at")
   finishedAt DateTime? @map("finished_at")
@@ -501,19 +513,19 @@ model AgentMissionNode {
 /// Immutable, bounded evidence projection. Raw prompts, reasoning, build logs,
 /// HTML, screenshots and unrestricted tool output never belong in this table.
 model AgentEvidenceReceipt {
-  id               String @id
-  missionId        String @map("mission_id")
-  candidateVersion Int    @map("candidate_version")
-  receiptType      String @map("receipt_type")
+  id               String   @id
+  missionId        String   @map("mission_id")
+  candidateVersion Int      @map("candidate_version")
+  receiptType      String   @map("receipt_type")
   verdict          String
-  subjectHash      String @map("subject_hash")
-  receiptHash      String @unique @map("receipt_hash")
-  sourceRunId      String? @map("source_run_id")
-  sourceRequestId  String? @map("source_request_id")
+  subjectHash      String   @map("subject_hash")
+  receiptHash      String   @unique @map("receipt_hash")
+  sourceRunId      String?  @map("source_run_id")
+  sourceRequestId  String?  @map("source_request_id")
   payload          Json
   createdAt        DateTime @default(now()) @map("created_at")
 
-  mission AgentMission @relation("MissionReceipts", fields: [missionId], references: [id], onDelete: Cascade)
+  mission           AgentMission  @relation("MissionReceipts", fields: [missionId], references: [id], onDelete: Cascade)
   acceptedByMission AgentMission? @relation("AcceptedMissionReceipt")
 
   @@unique([missionId, candidateVersion, receiptType, subjectHash])
@@ -707,18 +719,19 @@ model NotificationChannel {
 }
 
 model NotificationDelivery {
-  id          String    @id @default(cuid())
-  runId       String?   @map("run_id")
-  reportId    String?   @map("report_id")
-  channelId   String?   @map("channel_id")
-  status      String
-  channelType String    @map("channel_type")
-  title       String
-  payload     Json
-  error       String?
-  deliveredAt DateTime? @map("delivered_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id             String    @id @default(cuid())
+  idempotencyKey String?   @unique @map("idempotency_key")
+  runId          String?   @map("run_id")
+  reportId       String?   @map("report_id")
+  channelId      String?   @map("channel_id")
+  status         String
+  channelType    String    @map("channel_type")
+  title          String
+  payload        Json
+  error          String?
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   run     ResearchReportRun?   @relation(fields: [runId], references: [id], onDelete: SetNull)
   report  ResearchReport?      @relation(fields: [reportId], references: [id], onDelete: SetNull)
@@ -829,4 +842,365 @@ model EvalSchedule {
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@map("eval_schedules")
+}
+
+// ============================================================
+// Project Authentication (Better Auth)
+// ============================================================
+
+model AuthUser {
+  id                  String                   @id
+  name                String
+  email               String                   @unique
+  emailVerified       Boolean                  @default(false) @map("email_verified")
+  image               String?
+  role                String                   @default("member")
+  banned              Boolean                  @default(false)
+  banReason           String?                  @map("ban_reason")
+  banExpires          DateTime?                @map("ban_expires")
+  mustChangePassword  Boolean                  @default(false) @map("must_change_password")
+  lastLoginAt         DateTime?                @map("last_login_at")
+  passwordChangedAt   DateTime?                @map("password_changed_at")
+  permissionProfileId String?                  @map("permission_profile_id")
+  quotaProfileId      String?                  @map("quota_profile_id")
+  accessVersion       Int                      @default(0) @map("access_version")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  sessions            AuthSession[]
+  accounts            AuthAccount[]
+  ownedProjects       Project[]                @relation("ProjectOwner")
+  projectMemberships  ProjectMembership[]
+  auditEvents         AuthAuditEvent[]         @relation("AuthAuditActor")
+  permissionProfile   PermissionProfile?       @relation(fields: [permissionProfileId], references: [id], onDelete: SetNull)
+  permissionOverrides UserPermissionOverride[]
+  quotaProfile        QuotaProfile?            @relation(fields: [quotaProfileId], references: [id], onDelete: SetNull)
+  quotaOverrides      UserQuotaOverride[]
+  usageEvents         UsageEvent[]             @relation("UsageActor")
+  usageBuckets        UsageBucket[]
+  quotaReservations   QuotaReservation[]
+  initiatedRequests   UserRequest[]            @relation("UserRequestActor")
+  initiatedAgentRuns  AgentRun[]               @relation("AgentRunActor")
+
+  @@index([role])
+  @@index([banned])
+  @@index([permissionProfileId])
+  @@index([quotaProfileId])
+  @@map("auth_users")
+}
+
+model AuthSession {
+  id             String   @id
+  expiresAt      DateTime @map("expires_at")
+  token          String   @unique
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  userId         String   @map("user_id")
+  impersonatedBy String?  @map("impersonated_by")
+  user           AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model AuthAccount {
+  id                    String    @id
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  userId                String    @map("user_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  user                  AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model AuthVerification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([identifier])
+  @@index([expiresAt])
+  @@map("auth_verifications")
+}
+
+model AuthRateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt @map("last_request")
+
+  @@map("auth_rate_limits")
+}
+
+model ProjectMembership {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("viewer")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([projectId, role])
+  @@map("project_memberships")
+}
+
+model AuthAuditEvent {
+  id          String    @id @default(cuid())
+  actorUserId String?   @map("actor_user_id")
+  eventType   String    @map("event_type")
+  targetType  String?   @map("target_type")
+  targetId    String?   @map("target_id")
+  outcome     String
+  ipAddress   String?   @map("ip_address")
+  userAgent   String?   @map("user_agent")
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  actor       AuthUser? @relation("AuthAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([targetType, targetId])
+  @@map("auth_audit_events")
+}
+
+// ============================================================
+// Capability permissions
+// ============================================================
+
+model PermissionProfile {
+  id          String                   @id @default(cuid())
+  key         String                   @unique
+  name        String
+  description String?
+  isDefault   Boolean                  @default(false) @map("is_default")
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  grants      PermissionProfileGrant[]
+  users       AuthUser[]
+
+  @@index([isDefault])
+  @@map("permission_profiles")
+}
+
+model PermissionProfileGrant {
+  id            String            @id @default(cuid())
+  profileId     String            @map("profile_id")
+  permissionKey String            @map("permission_key")
+  effect        String            @default("allow")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  profile       PermissionProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, permissionKey])
+  @@index([permissionKey, effect])
+  @@map("permission_profile_grants")
+}
+
+model UserPermissionOverride {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  permissionKey String    @map("permission_key")
+  effect        String
+  reason        String?
+  expiresAt     DateTime? @map("expires_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  user          AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionKey])
+  @@index([permissionKey, effect])
+  @@index([expiresAt])
+  @@map("user_permission_overrides")
+}
+
+// ============================================================
+// Usage quotas and idempotent metering
+// ============================================================
+
+model QuotaProfile {
+  id          String      @id @default(cuid())
+  key         String      @unique
+  name        String
+  description String?
+  isDefault   Boolean     @default(false) @map("is_default")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  rules       QuotaRule[]
+  users       AuthUser[]
+
+  @@index([isDefault])
+  @@map("quota_profiles")
+}
+
+model QuotaRule {
+  id                    String       @id @default(cuid())
+  profileId             String       @map("profile_id")
+  metric                String
+  limit                 BigInt
+  enforcement           String       @default("observe")
+  windowType            String       @default("month") @map("window_type")
+  windowSeconds         Int?         @map("window_seconds")
+  reservationTtlSeconds Int          @default(900) @map("reservation_ttl_seconds")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  profile               QuotaProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, metric])
+  @@index([metric, enforcement])
+  @@map("quota_rules")
+}
+
+model UserQuotaOverride {
+  id                    String    @id @default(cuid())
+  userId                String    @map("user_id")
+  metric                String
+  isUnlimited           Boolean   @default(false) @map("is_unlimited")
+  limit                 BigInt?
+  enforcement           String    @default("observe")
+  windowType            String    @default("month") @map("window_type")
+  windowSeconds         Int?      @map("window_seconds")
+  reservationTtlSeconds Int       @default(900) @map("reservation_ttl_seconds")
+  reason                String?
+  expiresAt             DateTime? @map("expires_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  user                  AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, metric])
+  @@index([metric, enforcement])
+  @@index([expiresAt])
+  @@map("user_quota_overrides")
+}
+
+model UsageBucket {
+  id           String             @id @default(cuid())
+  actorUserId  String             @map("actor_user_id")
+  metric       String
+  windowStart  DateTime           @map("window_start")
+  windowEnd    DateTime           @map("window_end")
+  used         BigInt             @default(0)
+  reserved     BigInt             @default(0)
+  version      Int                @default(0)
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  actor        AuthUser           @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  reservations QuotaReservation[]
+  events       UsageEvent[]
+
+  @@unique([actorUserId, metric, windowStart, windowEnd])
+  @@index([metric, windowStart, windowEnd])
+  @@index([actorUserId, windowEnd])
+  @@map("usage_buckets")
+}
+
+model QuotaReservation {
+  id                String                   @id @default(cuid())
+  idempotencyKey    String                   @unique @map("idempotency_key")
+  actorUserId       String                   @map("actor_user_id")
+  projectId         String?                  @map("project_id")
+  bucketId          String                   @map("bucket_id")
+  metric            String
+  reservedQuantity  BigInt                   @map("reserved_quantity")
+  committedQuantity BigInt                   @default(0) @map("committed_quantity")
+  status            String                   @default("active")
+  policyLimit       BigInt?                  @map("policy_limit")
+  policyEnforcement String                   @map("policy_enforcement")
+  policyWindowType  String                   @map("policy_window_type")
+  enforcementExempt Boolean                  @default(false) @map("enforcement_exempt")
+  expiresAt         DateTime                 @map("expires_at")
+  settledAt         DateTime?                @map("settled_at")
+  releasedAt        DateTime?                @map("released_at")
+  createdAt         DateTime                 @default(now()) @map("created_at")
+  updatedAt         DateTime                 @updatedAt @map("updated_at")
+  actor             AuthUser                 @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+  project           Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  bucket            UsageBucket              @relation(fields: [bucketId], references: [id], onDelete: Restrict)
+  usageEvent        UsageEvent?
+  apiOperation      ApiIdempotencyOperation?
+
+  @@index([actorUserId, metric, createdAt])
+  @@index([status, expiresAt])
+  @@index([projectId])
+  @@map("quota_reservations")
+}
+
+model UsageEvent {
+  id                String            @id @default(cuid())
+  idempotencyKey    String            @unique @map("idempotency_key")
+  actorUserId       String?           @map("actor_user_id")
+  projectId         String?           @map("project_id")
+  reservationId     String?           @unique @map("reservation_id")
+  bucketId          String?           @map("bucket_id")
+  metric            String
+  quantity          BigInt
+  sourceType        String            @map("source_type")
+  sourceId          String?           @map("source_id")
+  enforcementExempt Boolean           @default(false) @map("enforcement_exempt")
+  occurredAt        DateTime          @map("occurred_at")
+  metadata          Json              @default("{}")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  actor             AuthUser?         @relation("UsageActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  project           Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  reservation       QuotaReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  bucket            UsageBucket?      @relation(fields: [bucketId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, metric, occurredAt])
+  @@index([projectId, occurredAt])
+  @@index([metric, occurredAt])
+  @@index([sourceType, sourceId])
+  @@index([bucketId])
+  @@map("usage_events")
+}
+
+/// Durable replay ledger for explicitly idempotent, potentially expensive API
+/// operations. Only payload hashes and bounded JSON responses are retained;
+/// authentication headers and raw request bodies must never be stored here.
+model ApiIdempotencyOperation {
+  id                 String            @id @default(cuid())
+  scope              String
+  actorKey           String            @map("actor_key")
+  idempotencyKeyHash String            @map("idempotency_key_hash")
+  payloadHash        String            @map("payload_hash")
+  status             String            @default("running")
+  attempt            Int               @default(1)
+  leaseExpiresAt     DateTime          @map("lease_expires_at")
+  responseStatus     Int?              @map("response_status")
+  responseBody       Json?             @map("response_body")
+  responseBytes      Int?              @map("response_bytes")
+  quotaReservationId String?           @unique @map("quota_reservation_id")
+  quotaSettlement    Json?             @map("quota_settlement")
+  quotaAccountedAt   DateTime?         @map("quota_accounted_at")
+  errorCode          String?           @map("error_code")
+  errorMessage       String?           @map("error_message")
+  completedAt        DateTime?         @map("completed_at")
+  retentionExpiresAt DateTime          @map("retention_expires_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  quotaReservation   QuotaReservation? @relation(fields: [quotaReservationId], references: [id], onDelete: SetNull)
+
+  @@unique([scope, actorKey, idempotencyKeyHash])
+  @@index([status, leaseExpiresAt])
+  @@index([retentionExpiresAt])
+  @@index([status, quotaAccountedAt])
+  @@map("api_idempotency_operations")
 }

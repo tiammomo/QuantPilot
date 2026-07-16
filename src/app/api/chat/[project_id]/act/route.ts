@@ -34,13 +34,28 @@ import {
 import { serializeMessage } from "@/lib/serializers/chat";
 import {
   assertUserRequestProjectBinding,
+  claimUserRequest,
   upsertUserRequest,
   markUserRequestAsProcessing,
   markUserRequestAsCompleted,
   markUserRequestAsFailed,
   isUserRequestCancelled,
+  UserRequestActorMismatchError,
+  UserRequestAlreadyExistsError,
   UserRequestProjectMismatchError,
 } from "@/lib/services/user-requests";
+import { requireAction } from "@/lib/auth/action";
+import { AuthorizationError } from "@/lib/auth/authorization";
+import { authErrorResponse } from "@/lib/auth/http";
+import {
+  consumeQuota,
+  quotaErrorResponse,
+  recordQuotaUsage,
+  releaseQuotaReservation,
+  renewQuotaReservation,
+  reserveQuota,
+  settleQuotaReservation,
+} from "@/lib/quota";
 import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/quant/workspace";
 import { prefetchQuantDataForRunPlan } from "@/lib/quant/data-prefetch";
 import { getQuantCapability } from "@/lib/quant/capabilities";
@@ -360,6 +375,7 @@ function runValidationAfterExecution(params: {
   instruction: string;
   selectedModel: string;
   requestId: string;
+  actorUserId: string | null;
   conversationId?: string | null;
   cliSource?: string | null;
   agentExecutionSuccessSummary?: string;
@@ -1015,6 +1031,7 @@ function runValidationAfterExecution(params: {
         await upsertUserRequest({
           id: repairRequestId,
           projectId: params.projectId,
+          actorUserId: params.actorUserId,
           instruction: repairInstruction,
           cliPreference: params.cliSource,
         });
@@ -1854,8 +1871,31 @@ ${imageList}`;
  * Execute AI command
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
+  let concurrentQuotaReservationId: string | null = null;
+  let concurrentQuotaHeartbeat: ReturnType<typeof setInterval> | null = null;
+  let concurrentQuotaHandedOff = false;
+  let claimedRequest: { projectId: string; requestId: string } | null = null;
+  const releaseConcurrentQuota = async () => {
+    if (concurrentQuotaHeartbeat) {
+      clearInterval(concurrentQuotaHeartbeat);
+      concurrentQuotaHeartbeat = null;
+    }
+    if (!concurrentQuotaReservationId) return;
+    await releaseQuotaReservation({
+      reservationId: concurrentQuotaReservationId,
+    }).catch((error) => {
+      console.error("[Quota] Failed to release Agent concurrency reservation:", error);
+    });
+  };
   try {
     const { project_id } = await params;
+    const actionContext = await requireAction({
+      headers: request.headers,
+      action: "agent.run",
+      projectId: project_id,
+    });
+    const authSession = actionContext.session;
+    const actorUserId = authSession?.user.id ?? null;
     const contentLength = Number(request.headers.get("content-length"));
     const maxRequestBytes = Math.ceil((MAX_TOTAL_IMAGE_BYTES * 4) / 3) + 2 * 1024 * 1024;
     if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
@@ -1890,6 +1930,33 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
+    const rawImages: RawImageAttachment[] = Array.isArray(
+      (body as Record<string, unknown>).images,
+    )
+      ? ((body as Record<string, unknown>).images as RawImageAttachment[])
+      : Array.isArray(legacyBody["images"])
+        ? (legacyBody["images"] as RawImageAttachment[])
+        : [];
+    if (rawImages.length > MAX_IMAGE_ATTACHMENTS) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `At most ${MAX_IMAGE_ATTACHMENTS} image attachments are allowed`,
+        },
+        { status: 413 },
+      );
+    }
+    if (
+      !rawInstruction.trim()
+      && !(rawDisplayInstruction ?? "").trim()
+      && rawImages.length === 0
+    ) {
+      return NextResponse.json(
+        { success: false, error: "instruction or images are required" },
+        { status: 400 },
+      );
+    }
+
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json(
@@ -1898,16 +1965,123 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
+    let requestAlreadyExists = false;
     try {
-      await assertUserRequestProjectBinding(project_id, requestId);
+      requestAlreadyExists = await assertUserRequestProjectBinding(
+        project_id,
+        requestId,
+        actorUserId,
+      );
     } catch (error) {
-      if (error instanceof UserRequestProjectMismatchError) {
+      if (
+        error instanceof UserRequestProjectMismatchError ||
+        error instanceof UserRequestActorMismatchError
+      ) {
         return NextResponse.json(
-          { success: false, error: "Request ID belongs to a different project" },
+          { success: false, error: "Request ID belongs to a different project or user" },
           { status: 409 },
         );
       }
       throw error;
+    }
+    if (requestAlreadyExists) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "REQUEST_ID_ALREADY_EXISTS",
+          message: "该 requestId 已被使用；请读取原请求状态，或为新的执行生成新 requestId。",
+          requestId,
+        },
+        { status: 409 },
+      );
+    }
+
+    const cliPreference = "moagent";
+    try {
+      await claimUserRequest({
+        id: requestId,
+        projectId: project_id,
+        actorUserId,
+        instruction:
+          rawDisplayInstruction?.trim()
+          || rawInstruction.trim()
+          || "请分析用户上传的图片附件。",
+        cliPreference,
+      });
+      claimedRequest = { projectId: project_id, requestId };
+    } catch (error) {
+      if (error instanceof UserRequestAlreadyExistsError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "REQUEST_ID_ALREADY_EXISTS",
+            message: "该 requestId 已由另一个请求占用，请读取原请求状态。",
+            requestId,
+          },
+          { status: 409 },
+        );
+      }
+      if (
+        error instanceof UserRequestProjectMismatchError
+        || error instanceof UserRequestActorMismatchError
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Request ID belongs to a different project or user" },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
+
+    if (authSession) {
+      const concurrencyQuota = await reserveQuota({
+        actorUserId: authSession.user.id,
+        projectId: project_id,
+        metric: "agent.concurrent",
+        quantity: 1,
+        idempotencyKey: `agent-concurrent:${authSession.user.id}:${requestId}`,
+        reservationTtlSeconds: 3_600,
+      });
+      if (
+        !concurrencyQuota.reservation ||
+        concurrencyQuota.reservation.status !== "active" ||
+        concurrencyQuota.reservation.idempotent
+      ) {
+        await markUserRequestAsFailed(
+          project_id,
+          requestId,
+          "Agent concurrency reservation could not be acquired for this request.",
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error: "REQUEST_ACCEPTANCE_IN_PROGRESS",
+            message: "相同 requestId 正在被接收或已经结束，请读取原请求状态。",
+            requestId,
+          },
+          { status: 409 },
+        );
+      }
+      concurrentQuotaReservationId = concurrencyQuota.reservation.id;
+      const reservationLeaseMs = Math.max(
+        30_000,
+        concurrencyQuota.reservation.expiresAt.getTime() - Date.now(),
+      );
+      const heartbeatIntervalMs = Math.max(
+        1_000,
+        Math.min(5 * 60 * 1_000, Math.floor(reservationLeaseMs / 3)),
+      );
+      concurrentQuotaHeartbeat = setInterval(() => {
+        void renewQuotaReservation({
+          reservationId: concurrentQuotaReservationId!,
+          reservationTtlSeconds: 3_600,
+        }).catch((error) => {
+          console.error("[Quota] Failed to renew Agent concurrency reservation:", error);
+        });
+      }, heartbeatIntervalMs);
+      if (typeof concurrentQuotaHeartbeat === "object" && "unref" in concurrentQuotaHeartbeat) {
+        concurrentQuotaHeartbeat.unref();
+      }
     }
 
     const projectRoot = resolveProjectRoot(project_id, project.repoPath);
@@ -1931,24 +2105,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       coerceString(body.conversationId) ??
       coerceString(legacyBody["conversation_id"]);
 
-    const rawImages: RawImageAttachment[] = Array.isArray(
-      (body as Record<string, unknown>).images,
-    )
-      ? ((body as Record<string, unknown>).images as RawImageAttachment[])
-      : Array.isArray(legacyBody["images"])
-        ? (legacyBody["images"] as RawImageAttachment[])
-        : [];
-
-    if (rawImages.length > MAX_IMAGE_ATTACHMENTS) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `At most ${MAX_IMAGE_ATTACHMENTS} image attachments are allowed`,
-        },
-        { status: 413 },
-      );
-    }
-
     const processedImages: ProcessedImageAttachment[] = [];
     let totalImageBytes = 0;
     try {
@@ -1970,6 +2126,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
     } catch (error) {
       if (error instanceof ImageAssetError) {
+        await markUserRequestAsFailed(project_id, requestId, error.message);
         return NextResponse.json(
           { success: false, error: error.message },
           { status: error.status },
@@ -2004,13 +2161,29 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       (processedImages.length > 0 ? "请分析上传的图片附件" : finalInstruction);
 
     if (!finalInstruction) {
+      await markUserRequestAsFailed(
+        project_id,
+        requestId,
+        "instruction or images are required",
+      );
       return NextResponse.json(
         { success: false, error: "instruction or images are required" },
         { status: 400 },
       );
     }
 
-    const cliPreference = "moagent";
+    if (authSession) {
+      await consumeQuota({
+        actorUserId: authSession.user.id,
+        projectId: project_id,
+        metric: "agent.requests.daily",
+        quantity: 1,
+        idempotencyKey: `agent-request:${authSession.user.id}:${requestId}`,
+        sourceType: "user_request",
+        sourceId: requestId,
+        usageEventIdempotencyKey: `user-request:${requestId}:daily`,
+      });
+    }
 
     const selectedModelRaw =
       coerceString(body.selectedModel) ??
@@ -2098,6 +2271,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       await upsertUserRequest({
         id: requestId,
         projectId: project_id,
+        actorUserId,
         instruction: storedInstruction || effectiveInstruction,
         cliPreference,
       });
@@ -2109,9 +2283,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         );
       }
     } catch (error) {
-      if (error instanceof UserRequestProjectMismatchError) {
+      if (
+        error instanceof UserRequestProjectMismatchError ||
+        error instanceof UserRequestActorMismatchError
+      ) {
         return NextResponse.json(
-          { success: false, error: "Request ID belongs to a different project" },
+          { success: false, error: "Request ID belongs to a different project or user" },
           { status: 409 },
         );
       }
@@ -2203,6 +2380,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         let dataRegistryToolCallId: string | undefined;
         let marketDataToolCallId: string | undefined;
         let dashboardVisualizationToolCallId: string | undefined;
+        let queryRewriteQuotaReservationId: string | null = null;
         try {
       await updateQuantGenerationStep({
         projectPath,
@@ -2242,6 +2420,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           requestedCapabilityId: quantCapabilityId,
         },
       });
+      if (authSession) {
+        const queryRewriteQuota = await reserveQuota({
+          actorUserId: authSession.user.id,
+          projectId: project_id,
+          metric: "query_rewrite.llm.daily",
+          quantity: 1,
+          idempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:reservation`,
+        });
+        queryRewriteQuotaReservationId = queryRewriteQuota.reservation?.id ?? null;
+      }
       const runPlan = await writeInitialRunPlan({
         projectPath,
         instruction: planningInstruction,
@@ -2253,6 +2441,47 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         enableLlmRewrite: true,
         llmModel: selectedModel,
       });
+
+      const queryRewriteUsage = runPlan.queryRewrite?.execution.llm.usage;
+      if (authSession && queryRewriteQuotaReservationId) {
+        await settleQuotaReservation({
+          reservationId: queryRewriteQuotaReservationId,
+          actualQuantity: runPlan.queryRewrite?.execution.llm.attempted ? 1 : 0,
+          sourceType: "query_rewrite",
+          sourceId: requestId,
+          usageEventIdempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:request`,
+          metadata: {
+            status: runPlan.queryRewrite?.execution.llm.status ?? "not_attempted",
+            strategy: runPlan.queryRewrite?.execution.strategy ?? "deterministic",
+          },
+        });
+        queryRewriteQuotaReservationId = null;
+      }
+      if (
+        authSession
+        && runPlan.queryRewrite?.execution.llm.attempted
+        && queryRewriteUsage
+        && queryRewriteUsage.totalTokens > 0
+      ) {
+        const actorId = authSession.user.id;
+        await recordQuotaUsage({
+          actorUserId: actorId,
+          projectId: project_id,
+          metric: "llm.total_tokens.monthly",
+          quantity: queryRewriteUsage.totalTokens,
+          idempotencyKey: `chat-query-rewrite:${actorId}:${requestId}:tokens`,
+          sourceType: "query_rewrite",
+          sourceId: requestId,
+          metadata: {
+            provider: runPlan.queryRewrite.execution.llm.provider,
+            model: runPlan.queryRewrite.execution.llm.model,
+            inputTokens: queryRewriteUsage.inputTokens,
+            outputTokens: queryRewriteUsage.outputTokens,
+          },
+        }).catch((error) => {
+          console.error("[Quota] Failed to record chat Query Rewrite token usage:", error);
+        });
+      }
 
       await publishQuantPipelineToolMessage({
         projectId: project_id,
@@ -2519,6 +2748,24 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         projectPath,
         plan: runPlan,
       });
+      if (authSession && !prefetch.skipped) {
+        const dataUnits = Math.max(1, prefetch.rawFiles?.length ?? 0);
+        await recordQuotaUsage({
+          actorUserId: authSession.user.id,
+          projectId: project_id,
+          metric: "quant.data_units.daily",
+          quantity: dataUnits,
+          idempotencyKey: `chat-data-prefetch:${authSession.user.id}:${requestId}`,
+          sourceType: "quant_data_prefetch",
+          sourceId: requestId,
+          metadata: {
+            symbolCount: prefetch.symbols?.length ?? (prefetch.symbol ? 1 : 0),
+            rawFileCount: prefetch.rawFiles?.length ?? 0,
+          },
+        }).catch((error) => {
+          console.error("[Quota] Failed to record chat data-prefetch usage:", error);
+        });
+      }
       const missingPreparedArtifacts = await missingAgentInputArtifacts(projectPath);
       if (
         processedImages.length === 0 &&
@@ -2735,6 +2982,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
       }
         } catch (error) {
+          if (queryRewriteQuotaReservationId) {
+            await releaseQuotaReservation({
+              reservationId: queryRewriteQuotaReservationId,
+            }).catch((releaseError) => {
+              console.error("[Quota] Failed to release Query Rewrite reservation:", releaseError);
+            });
+            queryRewriteQuotaReservationId = null;
+          }
       console.error(
         "[API] Failed to prepare QuantPilot run plan or data prefetch:",
         error,
@@ -2886,6 +3141,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const cliRuntime = await loadCliRuntime();
 
+    concurrentQuotaHandedOff = true;
     void runQuantGenerationQueued({
       projectPath,
       projectId: project_id,
@@ -2952,6 +3208,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           instruction: userVisibleInstructionForRepair,
           selectedModel,
           requestId,
+          actorUserId,
           conversationId,
           cliSource: cliPreference,
           agentExecutionSuccessSummary: usePrefetchedSelectionDashboard
@@ -2961,9 +3218,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           relatedAgentRequestIds,
         });
       },
-    }).catch((error) => {
-      console.error("[API] Queued generation task failed:", error);
-    });
+    })
+      .catch((error) => {
+        console.error("[API] Queued generation task failed:", error);
+      })
+      .finally(releaseConcurrentQuota);
 
     return NextResponse.json({
       success: true,
@@ -2976,6 +3235,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
   } catch (error) {
     console.error("[API] Failed to execute AI:", error);
+    if (claimedRequest) {
+      await markUserRequestAsFailed(
+        claimedRequest.projectId,
+        claimedRequest.requestId,
+        error instanceof Error ? error.message : "Request acceptance failed",
+      ).catch((statusError) => {
+        console.error("[API] Failed to mark rejected request as failed:", statusError);
+      });
+    }
+    const quotaResponse = quotaErrorResponse(error);
+    if (quotaResponse) return quotaResponse;
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,
@@ -2984,6 +3255,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       },
       { status: 500 },
     );
+  } finally {
+    if (!concurrentQuotaHandedOff) await releaseConcurrentQuota();
   }
 }
 

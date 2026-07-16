@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { getQuantEvalRun } from '@/lib/eval';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ runId: string }> }
 ) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.observability.read',
+    });
     const { runId } = await context.params;
     const run = await getQuantEvalRun(runId);
     if (!run) {
@@ -18,8 +25,11 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ success: true, data: run });
+    const response = NextResponse.json({ success: true, data: run });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,

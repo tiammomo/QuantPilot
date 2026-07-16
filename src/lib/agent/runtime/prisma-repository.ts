@@ -571,10 +571,11 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
 
     try {
       const record = await this.client.$transaction(async (tx) => {
+        let actorUserId: string | null = null;
         if (input.requestId !== undefined) {
           const request = await tx.userRequest.findUnique({
             where: { id: input.requestId },
-            select: { projectId: true },
+            select: { projectId: true, actorUserId: true },
           });
           if (!request || request.projectId !== input.projectId) {
             throw new AgentRuntimeRepositoryError(
@@ -582,6 +583,7 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
               'Agent run requestId is not bound to the same project.'
             );
           }
+          actorUserId = request.actorUserId;
         }
         const workspaceLease = hasLeaseOwner
           ? await acquireWorkspaceLease(tx, {
@@ -601,6 +603,7 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
               : {}),
             projectId: input.projectId,
             requestId: input.requestId ?? null,
+            actorUserId,
             workspaceKey: input.workspaceKey,
             status: input.status ?? (hasLeaseOwner ? 'running' : 'pending'),
             leaseOwner: input.leaseOwner ?? null,
@@ -794,6 +797,7 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
     assertBoundedIdentifier(input.eventType, 'event.eventType');
     assertValidDate(input.occurredAt, 'event.occurredAt');
     const payload = clonePublicRuntimeJson(input.payload, 'agent event payload');
+    if (input.cumulativeUsage) assertUsage(input.cumulativeUsage);
     const existing = await this.findEventCollision(input);
     if (existing) return this.resolveExistingEvent(input, payload, existing);
 
@@ -807,6 +811,16 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
           },
           data: {
             lastEventSequence: input.sequence,
+            ...(input.cumulativeUsage
+              ? {
+                  inputTokens: input.cumulativeUsage.inputTokens,
+                  outputTokens: input.cumulativeUsage.outputTokens,
+                  totalTokens: input.cumulativeUsage.totalTokens,
+                  cachedInputTokens: input.cumulativeUsage.cachedInputTokens,
+                  cacheMissInputTokens: input.cumulativeUsage.cacheMissInputTokens,
+                  reasoningTokens: input.cumulativeUsage.reasoningTokens,
+                }
+              : {}),
             version: { increment: 1 },
           },
         });

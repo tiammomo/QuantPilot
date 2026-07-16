@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import {
   cancelQuantEvalRun,
   createQuantEvalCase,
@@ -11,13 +14,20 @@ import {
 } from '@/lib/eval';
 import { assertPrivilegedMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.observability.read',
+    });
+    const response = NextResponse.json({
       success: true,
       data: await getQuantEvalDashboardData(),
     });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,
@@ -30,6 +40,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.settings.manage',
+    });
     assertPrivilegedMutation(request);
     const body = await request.json().catch(() => ({}));
     const action = String(body.action ?? '');
@@ -139,6 +153,7 @@ export async function POST(request: Request) {
       );
     }
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
       {
         success: false,

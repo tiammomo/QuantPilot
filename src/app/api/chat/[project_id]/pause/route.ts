@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { cancelAgentRuns } from '@/lib/services/agent-runtime';
 import {
   assertUserRequestProjectBinding,
@@ -24,6 +28,11 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('agent-cancel', request.method),
+      projectId: project_id,
+    });
     const body = await request.json().catch(() => ({}));
     const requestId =
       typeof body.requestId === 'string' && body.requestId.trim()
@@ -118,6 +127,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       data: cancellation,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to pause agent:', error);
     return NextResponse.json(
       {

@@ -1,6 +1,6 @@
 const isStandaloneBuild = process.env.QUANTPILOT_STANDALONE_BUILD === '1';
-const skipRouteOutputTracing = process.env.QUANTPILOT_SKIP_ROUTE_TRACING !== '0' && !isStandaloneBuild;
 const projectRoot = __dirname;
+const skipRouteOutputTracing = process.env.QUANTPILOT_SKIP_ROUTE_TRACING !== '0' && !isStandaloneBuild;
 const tracingExcludes = [
   './.git/**',
   './.next/**',
@@ -68,9 +68,13 @@ const nextConfig = {
           return true;
         }
         if (skipRouteOutputTracing) {
-          return false;
+          // Next 16 requires proxy.js.nft.json during finalization even for a
+          // non-standalone build. Keep the plugin so it emits the trace files,
+          // but ignore dependencies to preserve the fast non-standalone path.
+          plugin.traceIgnores.push('**/*');
+          return true;
         }
-        if (plugin?.constructor?.name === 'TraceEntryPointsPlugin' && Array.isArray(plugin.traceIgnores)) {
+        if (Array.isArray(plugin.traceIgnores)) {
           plugin.traceIgnores.push(...tracePluginIgnores);
         }
         return true;
@@ -89,6 +93,20 @@ const nextConfig = {
       { source: '/workspaces', destination: '/ops-platform', permanent: true },
       { source: '/evals', destination: '/eval-platform', permanent: true },
       { source: '/evals/runs/:runId', destination: '/eval-platform/runs/:runId', permanent: true },
+    ];
+  },
+  async headers() {
+    const privateNoStore = [
+      { key: 'Cache-Control', value: 'private, no-store, max-age=0' },
+      { key: 'Pragma', value: 'no-cache' },
+    ];
+    return [
+      { source: '/api/admin/:path*', headers: privateNoStore },
+      { source: '/api/account/:path*', headers: privateNoStore },
+      { source: '/api/auth/:path*', headers: privateNoStore },
+      { source: '/admin/:path*', headers: privateNoStore },
+      { source: '/account/:path*', headers: privateNoStore },
+      { source: '/login', headers: privateNoStore },
     ];
   },
   env: {

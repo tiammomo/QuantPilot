@@ -1,12 +1,26 @@
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
 import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
 import { assertPrivilegedMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
-export async function GET() {
-  return NextResponse.json({
-    success: true,
-    data: await getSkillsDashboardData(),
-  });
+export async function GET(request: Request) {
+  try {
+    await requireAction({
+      headers: request.headers,
+      action: 'quant.data.read',
+    });
+    const response = NextResponse.json({
+      success: true,
+      data: await getSkillsDashboardData(),
+    });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
+  } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
+    return errorResponse(error, 500);
+  }
 }
 
 function errorResponse(error: unknown, status = 400) {
@@ -35,6 +49,10 @@ function parseChanges(value: unknown): string[] {
 export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') ?? '';
   try {
+    await requireAction({
+      headers: request.headers,
+      action: 'platform.settings.manage',
+    });
     assertPrivilegedMutation(request);
     const skillsAdmin = await import('@/lib/quant/skills-admin');
     if (contentType.includes('multipart/form-data')) {
@@ -132,6 +150,7 @@ export async function POST(request: Request) {
 
     return errorResponse('不支持的 action。');
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     return errorResponse(error, error instanceof PrivilegedRequestError ? error.status : 400);
   }
 }

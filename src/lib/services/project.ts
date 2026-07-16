@@ -11,6 +11,7 @@ import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
 import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 import { getProjectLlmConfig } from '@/lib/config/llm';
+import { deleteProjectWithOwnedQuota } from '@/lib/quota/allocation-reconciliation';
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
@@ -207,8 +208,21 @@ export async function ensureProjectLlmConfiguration(params: {
 /**
  * Retrieve all projects
  */
-export async function getAllProjects(): Promise<Project[]> {
+export async function getAllProjects(access?: {
+  userId: string;
+  isAdmin: boolean;
+}): Promise<Project[]> {
   const projects = await prisma.project.findMany({
+    ...(access && !access.isAdmin
+      ? {
+          where: {
+            OR: [
+              { ownerId: access.userId },
+              { memberships: { some: { userId: access.userId } } },
+            ],
+          },
+        }
+      : {}),
     orderBy: {
       lastActiveAt: 'desc',
     },
@@ -240,7 +254,10 @@ export async function getProjectById(id: string): Promise<Project | null> {
 /**
  * Create new project
  */
-export async function createProject(input: CreateProjectInput): Promise<Project> {
+export async function createProject(
+  input: CreateProjectInput,
+  access?: { ownerId: string },
+): Promise<Project> {
   // Create project directory
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
@@ -265,6 +282,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const project = await prisma.project.create({
     data: {
       id: input.project_id,
+      ownerId: access?.ownerId,
       name: input.name,
       description: input.description,
       initialPrompt: input.initialPrompt,
@@ -277,6 +295,16 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       lastActiveAt: new Date(),
       previewUrl: null,
       previewPort: null,
+      ...(access?.ownerId
+        ? {
+            memberships: {
+              create: {
+                userId: access.ownerId,
+                role: 'owner',
+              },
+            },
+          }
+        : {}),
     },
   });
 
@@ -322,10 +350,18 @@ export async function updateProject(
 /**
  * Delete project
  */
-export async function deleteProject(id: string): Promise<void> {
-  // Delete project directory
-  const project = await getProjectById(id);
-  if (project?.repoPath) {
+export async function deleteProject(
+  id: string,
+  options: { deletedByUserId?: string | null } = {},
+): Promise<boolean> {
+  // Commit the authoritative database deletion first. If filesystem cleanup
+  // fails, it leaves a removable orphan instead of a live project whose files
+  // were irreversibly removed before the database operation could commit. The
+  // ownership allocation decrement shares that same database transaction.
+  const project = await deleteProjectWithOwnedQuota(prisma, id, options);
+  if (!project) return false;
+
+  if (project.repoPath) {
     try {
       await fs.rm(project.repoPath, { recursive: true, force: true });
     } catch (error) {
@@ -333,12 +369,8 @@ export async function deleteProject(id: string): Promise<void> {
     }
   }
 
-  // Delete project from database (related data automatically deleted via Cascade)
-  await prisma.project.delete({
-    where: { id },
-  });
-
   console.log(`[ProjectService] Deleted project: ${id}`);
+  return true;
 }
 
 /**

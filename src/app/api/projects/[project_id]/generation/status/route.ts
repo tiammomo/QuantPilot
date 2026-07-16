@@ -1,5 +1,9 @@
 import path from 'path';
 import { NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   deriveQuantGenerationTerminalSnapshot,
   requiresMoAgentMissionAcceptance,
@@ -16,6 +20,11 @@ interface RouteContext {
 export async function GET(_request: Request, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: _request.headers,
+      action: projectRouteAction('project', _request.method),
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json(
@@ -54,6 +63,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
 
     return NextResponse.json({ success: true, data: snapshot });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to reconcile generation terminal status:', error);
     return NextResponse.json(
       {

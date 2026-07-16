@@ -73,8 +73,6 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
 
   if (normalizedPath.endsWith('/scripts/run-dev.js')) {
     return (
-      existing.includes('--webpack') ||
-      existing.includes('hasBundlerFlag') ||
       existing.includes("NEXT_RSPACK: process.env.NEXT_RSPACK || 'true'") ||
       existing.includes('const useRspack = process.env.NEXT_RSPACK ===') ||
       existing.includes('Rspack dev mode enabled') ||
@@ -82,6 +80,7 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
       existing.includes("commandArgs.push('--turbo')") ||
       existing.includes('delete runtimeEnv.NEXT_RSPACK') ||
       existing.includes('delete runtimeEnv.TURBOPACK') ||
+      !existing.includes("defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack']") ||
       !existing.includes('QUANTPILOT_WORKSPACE_ROOT') ||
       !existing.includes("fs.existsSync(path.join(projectRoot, '.next', 'BUILD_ID'))")
     );
@@ -94,6 +93,7 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
       !existing.includes("NODE_ENV: 'production'") ||
       !existing.includes('QUANTPILOT_WORKSPACE_ROOT') ||
       !existing.includes('NEXT_PRIVATE_BUILD_WORKER') ||
+      !existing.includes("defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack']") ||
       !existing.includes("['next', 'build'")
     );
   }
@@ -134,9 +134,18 @@ const buildEnv = {
   NEXT_TELEMETRY_DISABLED: '1',
 };
 
+const passthrough = process.argv.slice(2);
+const hasBundlerFlag = passthrough.some((arg) =>
+  ['--webpack', '--turbo', '--turbopack'].includes(arg)
+);
+// Turbopack rejects the generated project's shared node_modules symlink when
+// the filesystem root is correctly isolated to this project. Webpack supports
+// that layout without widening source discovery into the platform workspace.
+const defaultBundlerArgs = hasBundlerFlag ? [] : ['--webpack'];
+
 const child = spawn(
   'npx',
-  ['next', 'build', ...process.argv.slice(2)],
+  ['next', 'build', ...defaultBundlerArgs, ...passthrough],
   {
     cwd: projectRoot,
     stdio: 'inherit',
@@ -234,9 +243,12 @@ const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
 const nextConfig = {
   allowedDevOrigins: ['localhost', '127.0.0.1'],
   typedRoutes: true,
-  outputFileTracingRoot: workspaceRoot,
+  // Next 16 requires the tracing and Turbopack roots to match. Keeping both at
+  // the generated project boundary prevents discovery of platform entrypoints
+  // such as src/proxy.ts while the node_modules symlink remains resolvable.
+  outputFileTracingRoot: projectRoot,
   turbopack: {
-    root: workspaceRoot,
+    root: projectRoot,
   },
 };
 
@@ -290,14 +302,14 @@ const workspaceRoot = process.env.QUANTPILOT_WORKSPACE_ROOT
 `
     );
   }
-  nextContent = nextContent.replace(/outputFileTracingRoot:\s*projectRoot/g, 'outputFileTracingRoot: workspaceRoot');
-  nextContent = nextContent.replace(/root:\s*projectRoot/g, 'root: workspaceRoot');
+  nextContent = nextContent.replace(/outputFileTracingRoot:\s*workspaceRoot/g, 'outputFileTracingRoot: projectRoot');
+  nextContent = nextContent.replace(/root:\s*workspaceRoot/g, 'root: projectRoot');
   if (!nextContent.includes('turbopack:')) {
     nextContent = nextContent.replace(
       /const nextConfig = \{\n/,
       `const nextConfig = {
   turbopack: {
-    root: workspaceRoot,
+    root: projectRoot,
   },
 `
     );

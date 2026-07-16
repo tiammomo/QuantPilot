@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { connectExistingSupabase } from '@/lib/services/supabase';
 
 interface RouteContext {
@@ -8,6 +12,11 @@ interface RouteContext {
 export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('service-connection', request.method),
+      projectId: project_id,
+    });
     const body = await request.json();
     const supabaseProjectId =
       typeof body?.project_id === 'string'
@@ -31,6 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to connect Supabase project:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

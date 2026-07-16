@@ -4,6 +4,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   getMessagesByProjectId,
   getMessagesByProjectIdAfter,
@@ -28,6 +32,11 @@ export async function GET(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('chat-data', request.method),
+      projectId: project_id,
+    });
     const { searchParams } = new URL(request.url);
     const rawLimit = Number.parseInt(searchParams.get('limit') || '50', 10);
     const rawOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
@@ -100,6 +109,7 @@ export async function GET(
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to get messages:', error);
     return NextResponse.json(
       {
@@ -122,6 +132,11 @@ export async function POST(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('chat-data', request.method),
+      projectId: project_id,
+    });
     const payload = await request.json();
 
     const content =
@@ -181,6 +196,7 @@ export async function POST(
     res.headers.set('Cache-Control', 'no-store');
     return res;
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to create message:', error);
     return NextResponse.json(
       {
@@ -203,6 +219,11 @@ export async function DELETE(
 ) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('chat-data', request.method),
+      projectId: project_id,
+    });
     const { searchParams } = new URL(request.url);
     const conversationId =
       searchParams.get('conversationId') ?? searchParams.get('conversation_id') ?? undefined;
@@ -214,6 +235,7 @@ export async function DELETE(
       deleted,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to delete messages:', error);
     return NextResponse.json(
       {

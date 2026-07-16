@@ -46,7 +46,29 @@ describe('MoAgent replan recovery audit', () => {
   it('closes an expired attempt with no unresolved mutation as interrupted', async () => {
     let now = START;
     const repository = new InMemoryAgentRuntimeRepository({ now: () => now });
-    await expiredRun(repository, 'moagent-expired-safe');
+    const run = await expiredRun(repository, 'moagent-expired-safe');
+    const cumulativeUsage = {
+      inputTokens: 80,
+      outputTokens: 20,
+      totalTokens: 100,
+      cachedInputTokens: 30,
+      cacheMissInputTokens: 50,
+      reasoningTokens: 5,
+    } as const;
+    await repository.appendEvent({
+      runId: run.id,
+      expectedVersion: run.version,
+      leaseOwner: run.leaseOwner!,
+      fencingToken: run.fencingToken,
+      workspaceFencingToken: run.workspaceFencingToken,
+      now,
+      eventId: `${run.id}:usage:1`,
+      sequence: 1,
+      eventType: 'usage',
+      payload: { turn: 1, totalUsage: cumulativeUsage },
+      cumulativeUsage,
+      occurredAt: now,
+    });
     now = new Date(START.getTime() + 2_000);
 
     const result = await reconcileExpiredMoAgentRuns({
@@ -64,6 +86,12 @@ describe('MoAgent replan recovery audit', () => {
     expect(await repository.getRun('moagent-expired-safe')).toMatchObject({
       status: 'interrupted',
       errorCode: 'LEASE_EXPIRED_REPLAN_REQUIRED',
+      inputTokens: 80,
+      outputTokens: 20,
+      totalTokens: 100,
+      cachedInputTokens: 30,
+      cacheMissInputTokens: 50,
+      reasoningTokens: 5,
     });
   });
 

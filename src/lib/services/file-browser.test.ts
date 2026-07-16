@@ -14,7 +14,11 @@ vi.mock('@/lib/services/project', () => ({
   getProjectById: mocks.getProjectById,
 }));
 
-import { writeProjectFileContent } from './file-browser';
+import {
+  listProjectDirectory,
+  readProjectFileContent,
+  writeProjectFileContent,
+} from './file-browser';
 
 describe('file browser workspace mutation coordination', () => {
   let workspace: string;
@@ -65,5 +69,39 @@ describe('file browser workspace mutation coordination', () => {
     await held;
     await save;
     expect(await fs.readFile(path.join(workspace, 'app/page.tsx'), 'utf8')).toBe('after');
+  });
+
+  it('hides credential files and rejects generic read or write access', async () => {
+    await fs.writeFile(path.join(workspace, '.env'), 'API_KEY=secret', 'utf8');
+    await fs.writeFile(path.join(workspace, '.env.production'), 'TOKEN=secret', 'utf8');
+    await fs.writeFile(path.join(workspace, '.env.example'), 'API_KEY=', 'utf8');
+    await fs.writeFile(path.join(workspace, 'client.key'), 'private-key', 'utf8');
+    await fs.mkdir(path.join(workspace, '.ssh'));
+    await fs.writeFile(path.join(workspace, '.ssh/id_ed25519'), 'private-key', 'utf8');
+    await fs.symlink(path.join(workspace, '.env'), path.join(workspace, 'linked-config'));
+
+    const rootEntries = await listProjectDirectory('project-lock-test');
+    expect(rootEntries.map((entry) => entry.name)).toContain('.env.example');
+    expect(rootEntries.map((entry) => entry.name)).not.toEqual(
+      expect.arrayContaining(['.env', '.env.production', '.ssh', 'client.key']),
+    );
+
+    await expect(
+      readProjectFileContent('project-lock-test', '.env'),
+    ).rejects.toMatchObject({ status: 404, message: 'File not found' });
+    await expect(
+      listProjectDirectory('project-lock-test', '.ssh'),
+    ).rejects.toMatchObject({ status: 404, message: 'File not found' });
+    await expect(
+      writeProjectFileContent('project-lock-test', '.env', 'API_KEY=replaced'),
+    ).rejects.toMatchObject({ status: 404, message: 'File not found' });
+    await expect(
+      readProjectFileContent('project-lock-test', 'linked-config'),
+    ).rejects.toMatchObject({ status: 404, message: 'File not found' });
+
+    expect(await fs.readFile(path.join(workspace, '.env'), 'utf8')).toBe('API_KEY=secret');
+    await expect(
+      readProjectFileContent('project-lock-test', '.env.example'),
+    ).resolves.toMatchObject({ content: 'API_KEY=' });
   });
 });

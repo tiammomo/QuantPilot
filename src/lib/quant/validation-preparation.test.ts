@@ -105,6 +105,7 @@ module.exports = withRspack(nextConfig);
     expect(firstState['package.json'].content).not.toContain('next-rspack');
     expect(firstState['postcss.config.js'].content).toContain('plugins: []');
     expect(firstState['next.config.js'].content).not.toContain('next-rspack');
-    expect(firstState['next.config.js'].content).toContain('root: workspaceRoot');
+    expect(firstState['next.config.js'].content).toContain('root: projectRoot');
+    expect(firstState['next.config.js'].content).not.toContain('root: workspaceRoot');
   });
 });

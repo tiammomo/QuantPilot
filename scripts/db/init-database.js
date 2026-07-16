@@ -76,12 +76,14 @@ async function applyBootstrapSql() {
 
 async function main() {
   await applyBootstrapSql();
-  console.log('[db:init] syncing Prisma schema');
-  await run('npx', ['prisma', 'db', 'push'], {
+  console.log('[db:init] applying versioned Prisma migrations');
+  await run('npx', ['prisma', 'migrate', 'deploy'], {
     env: {
       PRISMA_HIDE_UPDATE_MESSAGE: '1',
     },
   });
+  console.log('[db:init] ensuring built-in permission and quota policies');
+  await run('npx', ['tsx', 'scripts/auth/ensure-access-control.ts']);
   console.log('[db:init] done');
 }
 

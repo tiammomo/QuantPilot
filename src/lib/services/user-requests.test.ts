@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     },
   };
   const userRequest = {
+    create: vi.fn(),
     findUnique: vi.fn(),
     findFirst: vi.fn(),
     updateMany: vi.fn(),
@@ -31,10 +32,12 @@ vi.mock('@/lib/db/client', () => ({
 
 import {
   assertUserRequestProjectBinding,
+  claimUserRequest,
   isUserRequestCancelled,
   markUserRequestAsCancelled,
   markUserRequestAsRunning,
   upsertUserRequest,
+  UserRequestActorMismatchError,
   UserRequestProjectMismatchError,
 } from './user-requests';
 
@@ -44,7 +47,10 @@ describe('upsertUserRequest project scope', () => {
   });
 
   it('rejects a client request ID already owned by another project before mutation', async () => {
-    mocks.transactionClient.userRequest.findUnique.mockResolvedValue({ projectId: 'project-b' });
+    mocks.transactionClient.userRequest.findUnique.mockResolvedValue({
+      projectId: 'project-b',
+      actorUserId: 'user-a',
+    });
 
     await expect(upsertUserRequest({
       id: 'request-1',
@@ -57,7 +63,10 @@ describe('upsertUserRequest project scope', () => {
   });
 
   it('updates an existing request only when it belongs to the same project', async () => {
-    mocks.transactionClient.userRequest.findUnique.mockResolvedValue({ projectId: 'project-a' });
+    mocks.transactionClient.userRequest.findUnique.mockResolvedValue({
+      projectId: 'project-a',
+      actorUserId: null,
+    });
     mocks.transactionClient.userRequest.update.mockResolvedValue({ id: 'request-1' });
 
     await upsertUserRequest({
@@ -73,8 +82,51 @@ describe('upsertUserRequest project scope', () => {
     });
   });
 
+  it('rejects a request ID already owned by another member of the same project', async () => {
+    mocks.transactionClient.userRequest.findUnique.mockResolvedValue({
+      projectId: 'project-a',
+      actorUserId: 'user-b',
+    });
+
+    await expect(upsertUserRequest({
+      id: 'request-1',
+      projectId: 'project-a',
+      actorUserId: 'user-a',
+      instruction: 'do not overwrite another user request',
+    })).rejects.toBeInstanceOf(UserRequestActorMismatchError);
+
+    expect(mocks.transactionClient.userRequest.update).not.toHaveBeenCalled();
+    expect(mocks.transactionClient.userRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('claims a new ingress request with one create-only write', async () => {
+    mocks.userRequest.create.mockResolvedValue({ id: 'request-new' });
+
+    await claimUserRequest({
+      id: 'request-new',
+      projectId: 'project-a',
+      actorUserId: 'user-a',
+      instruction: 'run once',
+      cliPreference: 'moagent',
+    });
+
+    expect(mocks.userRequest.create).toHaveBeenCalledWith({
+      data: {
+        id: 'request-new',
+        projectId: 'project-a',
+        actorUserId: 'user-a',
+        instruction: 'run once',
+        status: 'pending',
+        cliPreference: 'moagent',
+      },
+    });
+  });
+
   it('rejects an existing cross-project binding at the read-only ingress guard', async () => {
-    mocks.userRequest.findUnique.mockResolvedValue({ projectId: 'project-b' });
+    mocks.userRequest.findUnique.mockResolvedValue({
+      projectId: 'project-b',
+      actorUserId: 'user-a',
+    });
 
     await expect(
       assertUserRequestProjectBinding('project-a', 'request-1'),
@@ -87,6 +139,17 @@ describe('upsertUserRequest project scope', () => {
     await expect(
       assertUserRequestProjectBinding('project-a', 'request-new'),
     ).resolves.toBe(false);
+  });
+
+  it('enforces actor isolation when the ingress guard receives an actor explicitly', async () => {
+    mocks.userRequest.findUnique.mockResolvedValue({
+      projectId: 'project-a',
+      actorUserId: 'user-b',
+    });
+
+    await expect(
+      assertUserRequestProjectBinding('project-a', 'request-1', 'user-a'),
+    ).rejects.toBeInstanceOf(UserRequestActorMismatchError);
   });
 
   it('scopes state transitions by both project ID and request ID', async () => {

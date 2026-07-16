@@ -226,14 +226,6 @@ function mergeQueryRewriteClarification(params: {
   };
 }
 
-function wantsVisualization(instruction: string): boolean {
-  return /看板|可视化|图表|页面|dashboard|html/i.test(instruction);
-}
-
-function isQuantAnalysisTask(instruction: string): boolean {
-  return /股票|个股|证券|行情|走势|K线|K 线|财务|基本面|年报|季报|报告期|营收|利润|现金流|ROE|估值|公告|指数|对比|量化|分析|回测|策略|持仓|仓位|组合|调仓|盈亏|成本|账户|截图/i.test(instruction);
-}
-
 function shouldUseAssetComparison(instruction: string) {
   const normalized = normalizeForIntent(instruction);
   const inferredSymbols = inferSymbols(instruction);
@@ -645,7 +637,7 @@ export async function writeInitialRunPlan(params: {
       required:
         !refused &&
         !clarification.required &&
-        (wantsVisualization(planningInstruction) || isQuantAnalysisTask(planningInstruction)),
+        queryRewrite.outputIntent === 'dashboard',
       templateId: visualizationTemplate.templateId,
       name: visualizationTemplate.name,
       scenario: visualizationTemplate.scenario,

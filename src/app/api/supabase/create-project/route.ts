@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { getProjectById } from '@/lib/services/project';
 import { createSupabaseProject } from '@/lib/services/supabase';
 
 export async function POST(request: NextRequest) {
@@ -19,10 +23,24 @@ export async function POST(request: NextRequest) {
         ? body.organizationId
         : undefined;
 
+    if (projectId) {
+      await requireAction({
+        headers: request.headers,
+        action: 'project.services.manage',
+        projectId,
+      });
+    }
+
     if (!projectId || !projectName || !dbPass || !organizationId) {
       return NextResponse.json(
         { success: false, error: 'project_id, project_name, organization_id, and db_pass are required' },
         { status: 400 },
+      );
+    }
+    if (!await getProjectById(projectId)) {
+      return NextResponse.json(
+        { success: false, error: 'PROJECT_NOT_FOUND' },
+        { status: 404 },
       );
     }
 
@@ -42,6 +60,7 @@ export async function POST(request: NextRequest) {
       created_at: result.inserted_at ?? result.created_at ?? new Date().toISOString(),
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     console.error('[API] Failed to create Supabase project:', error);
     const status = error instanceof Error && 'status' in error ? (error as any).status ?? 500 : 500;
     return NextResponse.json(

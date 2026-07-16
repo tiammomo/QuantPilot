@@ -77,6 +77,63 @@ describe('writeInitialRunPlan', () => {
     ).resolves.toContain('600589');
   });
 
+  it('uses query rewrite output intent for short named-security questions', async () => {
+    const projectPath = await createProject();
+    const queryRewrite = await rewriteQuantQuery('北方稀土怎么样', {
+      resolver: async () => ({
+        results: [{
+          symbol: '600111',
+          name: '北方稀土',
+          asset_type: 'stock',
+          market: 'SH',
+          secid: '1.600111',
+          source: 'test-market-api',
+        }],
+      }),
+    });
+
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'short-named-security-dashboard-regression',
+      capabilityId: 'stock_diagnosis',
+      capabilitySource: 'auto',
+      instruction: '北方稀土怎么样',
+      queryRewrite,
+    });
+
+    expect(queryRewrite.outputIntent).toBe('dashboard');
+    expect(plan.visualization.required).toBe(true);
+    expect(plan.visualization.templateId).toBe('single-stock-diagnosis');
+  });
+
+  it('keeps an explicit answer-only request out of dashboard generation', async () => {
+    const projectPath = await createProject();
+    const queryRewrite = await rewriteQuantQuery('只回答北方稀土怎么样，不需要看板', {
+      resolver: async () => ({
+        results: [{
+          symbol: '600111',
+          name: '北方稀土',
+          asset_type: 'stock',
+          market: 'SH',
+          secid: '1.600111',
+          source: 'test-market-api',
+        }],
+      }),
+    });
+
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'short-named-security-answer-regression',
+      capabilityId: 'stock_diagnosis',
+      capabilitySource: 'auto',
+      instruction: '只回答北方稀土怎么样，不需要看板',
+      queryRewrite,
+    });
+
+    expect(queryRewrite.outputIntent).toBe('answer');
+    expect(plan.visualization.required).toBe(false);
+  });
+
   it('keeps a single symbol with duplicate aliases on the technical-analysis template', async () => {
     const projectPath = await createProject();
     const plan = await writeInitialRunPlan({

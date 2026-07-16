@@ -25,6 +25,83 @@ const EXCLUDED_DIRECTORIES = new Set([
 
 const EXCLUDED_FILES = new Set(['.DS_Store']);
 
+const SENSITIVE_DIRECTORY_NAMES = new Set([
+  '.aws',
+  '.azure',
+  '.gnupg',
+  '.secrets',
+  '.ssh',
+]);
+
+const SENSITIVE_FILE_NAMES = new Set([
+  '.envrc',
+  '.git-credentials',
+  '.htpasswd',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  'credentials.json',
+  'docker-config.json',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+  'id_rsa',
+  'kubeconfig',
+  'secret.json',
+  'secrets.json',
+  'secrets.yaml',
+  'secrets.yml',
+  'service-account.json',
+  'service_account.json',
+]);
+
+const SENSITIVE_FILE_SUFFIXES = [
+  '.jks',
+  '.key',
+  '.keystore',
+  '.p12',
+  '.pem',
+  '.pfx',
+  '.tfstate',
+  '.tfstate.backup',
+];
+
+const SAFE_ENV_TEMPLATE_PATTERN = /^\.env\.(?:example|sample|template)$/i;
+
+/**
+ * Files that may contain credentials are never exposed through the generic
+ * project-file APIs. Secret management must use its dedicated API; this guard
+ * is intentionally independent from route-level role checks so a future route
+ * cannot accidentally make credentials readable to viewers.
+ */
+export function isSensitiveProjectPath(targetPath: string): boolean {
+  const segments = targetPath
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment.length > 0 && segment !== '.');
+  const normalizedSegments = segments.map((segment) => segment.toLowerCase());
+
+  if (normalizedSegments.some((segment) => SENSITIVE_DIRECTORY_NAMES.has(segment))) {
+    return true;
+  }
+
+  const fileName = normalizedSegments.at(-1);
+  if (!fileName) return false;
+  if (fileName === '..' || normalizedSegments.includes('..')) return true;
+  if (fileName.startsWith('.env') && !SAFE_ENV_TEMPLATE_PATTERN.test(fileName)) {
+    return true;
+  }
+  if (SENSITIVE_FILE_NAMES.has(fileName)) return true;
+  return SENSITIVE_FILE_SUFFIXES.some((suffix) => fileName.endsWith(suffix));
+}
+
+export function assertProjectFilePathAllowed(targetPath: string): void {
+  if (isSensitiveProjectPath(targetPath)) {
+    // Use the same response as a missing file to avoid disclosing secret names.
+    throw new FileBrowserError('File not found', 404);
+  }
+}
+
 export class FileBrowserError extends Error {
   status: number;
 
@@ -63,6 +140,26 @@ async function resolveSafePath(base: string, target: string): Promise<string> {
     throw new FileBrowserError('Path traversal not allowed', 400);
   }
 
+  // Lexical containment is insufficient when a caller addresses a symlink
+  // directly. Resolve existing targets and verify both canonical containment
+  // and the canonical relative path against the credential policy.
+  try {
+    const [canonicalBase, canonicalTarget] = await Promise.all([
+      fs.realpath(normalizedBase),
+      fs.realpath(resolvedTarget),
+    ]);
+    if (
+      canonicalTarget !== canonicalBase &&
+      !canonicalTarget.startsWith(canonicalBase + path.sep)
+    ) {
+      throw new FileBrowserError('Path traversal not allowed', 400);
+    }
+    assertProjectFilePathAllowed(path.relative(canonicalBase, canonicalTarget) || '.');
+  } catch (error) {
+    if (error instanceof FileBrowserError) throw error;
+    // Missing targets retain the existing caller-specific 404 behavior.
+  }
+
   return resolvedTarget;
 }
 
@@ -85,12 +182,16 @@ function joinRelativePath(parent: string, child: string): string {
 }
 
 async function directoryHasVisibleChildren(
-  absolutePath: string
+  absolutePath: string,
+  relativePath: string,
 ): Promise<boolean> {
   try {
     const entries = await fs.readdir(absolutePath, { withFileTypes: true });
     return entries.some((entry) => {
       if (entry.isSymbolicLink()) return false;
+      if (isSensitiveProjectPath(joinRelativePath(relativePath, entry.name))) {
+        return false;
+      }
       if (entry.isDirectory()) {
         return !EXCLUDED_DIRECTORIES.has(entry.name);
       }
@@ -112,6 +213,7 @@ export async function listProjectDirectory(
 
   const repoRoot = resolveRepoRoot(project);
   const targetDir = normalizeRelativePath(dir);
+  assertProjectFilePathAllowed(targetDir);
   const absoluteDir = await resolveSafePath(repoRoot, targetDir === '.' ? '.' : targetDir);
 
   let stats;
@@ -138,6 +240,10 @@ export async function listProjectDirectory(
     if (entry.isSymbolicLink()) {
       continue;
     }
+    const relativePath = joinRelativePath(targetDir, entry.name);
+    if (isSensitiveProjectPath(relativePath)) {
+      continue;
+    }
     if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) {
       continue;
     }
@@ -145,11 +251,10 @@ export async function listProjectDirectory(
       continue;
     }
 
-    const relativePath = joinRelativePath(targetDir, entry.name);
     const absolutePath = await resolveSafePath(repoRoot, relativePath);
 
     if (entry.isDirectory()) {
-      const hasChildren = await directoryHasVisibleChildren(absolutePath);
+      const hasChildren = await directoryHasVisibleChildren(absolutePath, relativePath);
       entries.push({
         name: entry.name,
         path: relativePath.replace(/\\/g, '/'),
@@ -191,6 +296,7 @@ export async function readProjectFileContent(
 
   const repoRoot = resolveRepoRoot(project);
   const normalizedPath = normalizeRelativePath(filePath);
+  assertProjectFilePathAllowed(normalizedPath);
   const absolutePath = await resolveSafePath(
     repoRoot,
     normalizedPath === '.' ? '.' : normalizedPath
@@ -246,6 +352,7 @@ export async function writeProjectFileContent(
   try {
     await withMoAgentWorkspaceResourceLock(repoRoot, async () => {
       const normalizedPath = normalizeRelativePath(filePath);
+      assertProjectFilePathAllowed(normalizedPath);
       const absolutePath = await resolveSafePath(
         repoRoot,
         normalizedPath === '.' ? '.' : normalizedPath,

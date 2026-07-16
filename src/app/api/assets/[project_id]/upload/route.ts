@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { requireAction } from '@/lib/auth/action';
+import { AuthorizationError } from '@/lib/auth/authorization';
+import { authErrorResponse } from '@/lib/auth/http';
+import { projectRouteAction } from '@/lib/auth/project-route-action';
 import { getProjectById } from '@/lib/services/project';
 import {
   configuredMaxImageBytes,
@@ -25,6 +29,11 @@ const MAX_IMAGE_UPLOAD_BYTES = configuredMaxImageBytes();
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const { project_id } = await params;
+    await requireAction({
+      headers: request.headers,
+      action: projectRouteAction('asset', request.method),
+      projectId: project_id,
+    });
     const project = await getProjectById(project_id);
     if (!project) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
@@ -100,6 +109,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       public_url: publicUrl,
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) return authErrorResponse(error);
     if (error instanceof ImageAssetError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     }
