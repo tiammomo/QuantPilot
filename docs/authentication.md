@@ -112,7 +112,7 @@ npm run auth:bootstrap
 | --- | --- | --- |
 | `observe` | 允许请求并持续计量，供建立真实分布基线 | 新 metric 或成本指标初期 |
 | `warn` | 允许请求，响应/管理视图可显示 `exceeded`，由运营侧提示或告警 | 已有阈值但暂不阻断 |
-| `hard` | 预留阶段原子检查 `used + reserved + requested`，超额返回 `429 QUOTA_EXCEEDED` 和 `Retry-After` | 项目数、并发数等确定性资源 |
+| `hard` | 预留阶段原子检查 `used + reserved + requested`，超额返回 `429 QUOTA_EXCEEDED` 和 `Retry-After` | 项目数、并发数和请求前可判断的次数 |
 
 默认 `member-default` 配额如下。日/月窗口按 UTC 边界计算，`lifetime` 使用固定全生命周期窗口：
 
@@ -120,11 +120,11 @@ npm run auth:bootstrap
 | --- | ---: | --- | --- |
 | `projects.owned` | 10 | `hard` / `lifetime` | 用户创建并结算的自有项目 |
 | `agent.concurrent` | 2 | `hard` / `lifetime` | 活跃 Agent 执行预留；结束或失败后释放 |
-| `agent.requests.daily` | 100 | `observe` / `day` | 每日 Agent 请求数 |
-| `llm.total_tokens.monthly` | 2,000,000 | `observe` / `month` | Agent 与其他已接入模型链路的实际总 Token |
-| `query_rewrite.llm.daily` | 200 | `observe` / `day` | 每日进入 LLM 问题改写的次数；纯确定性 preview 不计此项 |
-| `quant.data_units.daily` | 2,000 | `observe` / `day` | 量化取数/策略任务的标准化数据工作量 |
-| `research.report_runs.daily` | 20 | `observe` / `day` | 每日研究报告生成任务数 |
+| `agent.requests.daily` | 100 | `hard` / `day` | 每日 Agent 请求数 |
+| `llm.total_tokens.monthly` | 2,000,000 | `warn` / `month` | Agent 与其他已接入模型链路的实际总 Token；结果结算后提示超额 |
+| `query_rewrite.llm.daily` | 200 | `hard` / `day` | 每日进入 LLM 问题改写的次数；纯确定性 preview 不计此项 |
+| `quant.data_units.daily` | 2,000 | `warn` / `day` | 量化取数/策略任务的标准化数据工作量；结果结算后提示超额 |
+| `research.report_runs.daily` | 20 | `hard` / `day` | 每日研究报告生成任务数 |
 | `research.report_sends.daily` | 10 | `hard` / `day` | 每日真实研究报告推送数；dry-run 不计此项 |
 
 可能产生资源消耗的操作先创建带 TTL 的 reservation，成功后按实际数量 settlement，将 `reserved` 转入 `used` 并写入 `usage_events`；失败或取消则 release。预留、结算和直接记账都要求唯一幂等键，同一键重复相同请求只返回原结果，用不同 actor、metric、项目或数量复用则返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。这避免客户端重试和 worker 重放造成重复扣量，并用数据库事务、advisory lock 与条件更新防止并发超卖。

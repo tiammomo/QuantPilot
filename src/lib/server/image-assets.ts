@@ -135,7 +135,7 @@ export function resolveProjectAssetsPath(projectId: string): string {
   const configuredRoot = process.env.PROJECTS_DIR || './data/projects';
   const projectsRoot = path.isAbsolute(configuredRoot)
     ? path.resolve(configuredRoot)
-    : path.resolve(process.cwd(), configuredRoot);
+    : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredRoot);
   return assertContained(projectsRoot, path.join(projectsRoot, projectId, 'assets'));
 }
 

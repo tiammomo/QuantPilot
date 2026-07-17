@@ -35,8 +35,11 @@ async function ensureNotLastAdmin(
   // Serialize every operation that can remove an active administrator. The
   // check and the mutation must share this transaction or two simultaneous
   // demotions could both observe another administrator and leave none.
-  await transaction.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended('auth:active-admin-governance', 0))
+  await transaction.$queryRaw<Array<{ acquired: number }>>`
+    SELECT 1::integer AS "acquired"
+    FROM (
+      SELECT pg_advisory_xact_lock(hashtextextended('auth:active-admin-governance', 0))
+    ) AS "admin_governance_lock"
   `;
   const target = await transaction.authUser.findUnique({
     where: { id: userId },

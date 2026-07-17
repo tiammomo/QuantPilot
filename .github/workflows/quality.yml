@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Lint
         run: npm run lint
 
@@ -72,6 +75,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Standalone release build and runtime smoke
+        run: |
+          npm run build:standalone
+          npm run check:standalone-runtime
+
   backend-market-data:
     name: Backend Market Data
     runs-on: ubuntu-latest
@@ -94,11 +102,85 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-groups
 
+      - name: Production dependency audit
+        run: |
+          uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes --format requirements-txt --output-file /tmp/quantpilot-market-requirements.txt
+          uvx pip-audit -r /tmp/quantpilot-market-requirements.txt
+
       - name: Lint
         run: uv run ruff check .
 
       - name: Test
         run: uv run pytest
+
+  authenticated-smoke:
+    name: Authenticated lifecycle smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public
+      REDIS_URL: redis://127.0.0.1:36380/0
+      PROJECTS_DIR: ./tmp/auth-projects
+      QUANTPILOT_AUTH_MODE: local
+      QUANTPILOT_AUTH_SECRET: ci-auth-secret-with-at-least-thirty-two-random-characters
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      QUANTPILOT_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:3000
+      QUANTPILOT_AUTH_SECURE_COOKIES: 0
+      QUANTPILOT_AUTH_ALLOW_SIGNUP: 0
+      QUANTPILOT_DEGRADATION_MODE: auto
+      QUANTPILOT_MARKET_API_ENABLED: 0
+      QUANTPILOT_REDIS_CACHE_ENABLED: 1
+      QUANTPILOT_REDIS_REQUIRED: 0
+      QUANTPILOT_OBSERVABILITY_ENABLED: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run prisma:generate
+
+      - name: Prepare database and local administrator
+        run: |
+          docker compose up -d --wait timescaledb redis
+          npm run prisma:deploy
+          npm run auth:bootstrap
+
+      - name: Start web and verify authorization lifecycle
+        run: |
+          mkdir -p tmp
+          npm run dev:web > tmp/auth-web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null; then
+              npm run auth:verify
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -100 tmp/auth-web.log
+          exit 1
+
+      - name: Upload auth smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-smoke-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: tmp/auth-web.log
+
+      - name: Stop infrastructure
+        if: always()
+        run: docker compose down -v
 
   contract-evaluation:
     name: Quant contract evaluation

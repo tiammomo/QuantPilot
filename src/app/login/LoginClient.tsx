@@ -78,17 +78,24 @@ export default function LoginClient({
             QuantPilot
           </div>
 
-          <div className="absolute bottom-7 left-7 right-7 hidden rounded-3xl border border-white/75 bg-white/82 p-6 text-slate-950 shadow-[0_18px_48px_-24px_rgba(15,23,42,0.28)] backdrop-blur-xl lg:block">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              AI 驱动的量化研究工作台
+          <div className="absolute bottom-7 left-7 right-7 hidden overflow-hidden rounded-[1.75rem] border border-white/80 bg-white/88 text-slate-950 shadow-[0_20px_52px_-28px_rgba(15,23,42,0.34)] backdrop-blur-xl lg:block">
+            <div className="h-1 bg-gradient-to-r from-primary via-primary/45 to-transparent" />
+            <div className="p-6">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-2 text-xs font-semibold text-primary">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI 量化研究工作台
+                </span>
+                <span aria-hidden="true" className="h-3 w-px bg-slate-300" />
+                <span className="text-xs font-medium text-slate-500">数据真实 · 过程可追溯</span>
+              </div>
+              <h1 className="mt-3 text-[1.7rem] font-bold leading-[1.2] tracking-[-0.035em]">
+                让数据说话，让结论经得起验证。
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                专业 Skills 连接数据能力，Agent 协同完成分析与验证。
+              </p>
             </div>
-            <h1 className="max-w-lg text-3xl font-bold leading-tight tracking-[-0.035em]">
-              从清晰的问题开始，抵达可验证的研究结论。
-            </h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-slate-600">
-              连接真实数据、Skills 与 Agent Runtime，让每一次分析都有依据、有过程、有结果。
-            </p>
           </div>
         </section>
 

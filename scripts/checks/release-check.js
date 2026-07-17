@@ -8,6 +8,7 @@ const ROOT = process.cwd();
 const MARKET_DATA_ROOT = path.join(ROOT, 'services', 'market-data');
 const includeSecurity = process.argv.includes('--security');
 const includeRuntime = process.argv.includes('--runtime');
+const includeProduction = process.argv.includes('--production');
 const generateContractEvidence = process.argv.includes('--eval-contract');
 const includeE2eEvidence = process.argv.includes('--e2e-evidence');
 
@@ -47,6 +48,13 @@ if (includeSecurity) {
 }
 if (includeRuntime) {
   checks.push(['Runtime and infrastructure doctor', 'npm', ['run', 'doctor:full'], ROOT]);
+}
+if (includeProduction) {
+  checks.unshift(['Production configuration preflight', 'npm', ['run', 'check:production'], ROOT]);
+  checks.push(
+    ['Standalone production artifact', 'npm', ['run', 'build:standalone'], ROOT],
+    ['Standalone runtime smoke', 'npm', ['run', 'check:standalone-runtime'], ROOT],
+  );
 }
 if (generateContractEvidence) {
   checks.push(

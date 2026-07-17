@@ -1,0 +1,16 @@
+[Unit]
+Description=QuantPilot expired auth data and audit retention cleanup
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=quantpilot
+Group=quantpilot
+WorkingDirectory=/opt/quantpilot/current
+EnvironmentFile=/etc/quantpilot/quantpilot.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env npm run auth:cleanup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/quantpilot /opt/quantpilot/current/tmp

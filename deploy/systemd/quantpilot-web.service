@@ -1,0 +1,28 @@
+[Unit]
+Description=QuantPilot standalone web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quantpilot
+Group=quantpilot
+WorkingDirectory=/opt/quantpilot/current
+EnvironmentFile=/etc/quantpilot/quantpilot.env
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStartPre=/usr/bin/env node scripts/checks/check-production-readiness.js
+ExecStart=/usr/bin/env node .next/standalone/server.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=45s
+KillMode=mixed
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/quantpilot /opt/quantpilot/current/tmp /opt/quantpilot/current/public/uploads /opt/quantpilot/current/.next/standalone/.next/cache
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

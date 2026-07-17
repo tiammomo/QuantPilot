@@ -8,6 +8,7 @@
  */
 
 const { execFile, spawn } = require('child_process');
+const fs = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const { promisify } = require('util');
@@ -138,11 +139,60 @@ async function runNextBuild(args, { standalone } = {}) {
   });
 }
 
+async function prepareStandaloneRuntime() {
+  const standaloneDir = path.join(rootDir, '.next', 'standalone');
+  const staticSource = path.join(rootDir, '.next', 'static');
+  const staticTarget = path.join(standaloneDir, '.next', 'static');
+  const serverSource = path.join(rootDir, '.next', 'server');
+  const serverTarget = path.join(standaloneDir, '.next', 'server');
+  const publicSource = path.join(rootDir, 'public');
+  const publicTarget = path.join(standaloneDir, 'public');
+  const excludedPublicDirectories = new Set([
+    path.join(publicSource, 'generated'),
+    path.join(publicSource, 'uploads'),
+  ]);
+
+  await fs.access(path.join(standaloneDir, 'server.js'));
+  const standaloneRootEntries = await fs.readdir(standaloneDir);
+  await Promise.all(
+    standaloneRootEntries
+      .filter((entry) => entry === '.env' || entry.startsWith('.env.'))
+      .map((entry) => fs.rm(path.join(standaloneDir, entry), { force: true })),
+  );
+  await fs.rm(staticTarget, { recursive: true, force: true });
+  await fs.mkdir(path.dirname(staticTarget), { recursive: true });
+  await fs.cp(staticSource, staticTarget, { recursive: true, force: true });
+
+  // Turbopack's standalone trace can omit shared server chunks even though the
+  // generated route entrypoints reference them. Copying the compiled server
+  // tree keeps the artifact self-contained; it contains build output only.
+  await fs.rm(serverTarget, { recursive: true, force: true });
+  await fs.cp(serverSource, serverTarget, { recursive: true, force: true });
+
+  await fs.rm(publicTarget, { recursive: true, force: true });
+  await fs.cp(publicSource, publicTarget, {
+    recursive: true,
+    force: true,
+    filter: (source) => !excludedPublicDirectories.has(source),
+  });
+  const stableCssSource = path.join(publicSource, 'generated', 'quantpilot-tailwind.css');
+  const stableCssTarget = path.join(publicTarget, 'generated', 'quantpilot-tailwind.css');
+  await fs.mkdir(path.dirname(stableCssTarget), { recursive: true });
+  await fs.copyFile(stableCssSource, stableCssTarget);
+
+  console.log('[build] Standalone runtime staged with immutable public and Next static assets.');
+}
+
 async function main() {
   const { args, standalone } = parseBuildArgs(process.argv.slice(2));
   await stopRootDevServer();
   await buildStableCss();
-  await withNextArtifactLock(rootDir, 'production build', () => runNextBuild(args, { standalone }));
+  await withNextArtifactLock(rootDir, 'production build', async () => {
+    await runNextBuild(args, { standalone });
+    if (standalone) {
+      await prepareStandaloneRuntime();
+    }
+  });
 }
 
 main().catch((error) => {

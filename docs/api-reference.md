@@ -108,7 +108,7 @@ Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失
 
 配额支持 `observe/warn/hard`：前两者允许执行并保留是否超额的计量状态，`hard` 在资源预留阶段检查 `used + reserved + requested`。硬配额不足时接口返回 `429 QUOTA_EXCEEDED`，响应包含 `metric`、`enforcement`、`used`、`reserved`、`requested`、`limit`、`remaining`、`resetAt`，并设置 `Retry-After`。可能产生成本或占用并发的入口使用“reservation -> settlement/release”协议；预留和用量事件都使用唯一幂等键，重复相同操作不会二次扣量，复用键提交不同 actor、metric、项目或数量返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。
 
-默认成员配额共 8 项：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 observe/day`、`llm.total_tokens.monthly=2000000 observe/month`、`query_rewrite.llm.daily=200 observe/day`、`quant.data_units.daily=2000 observe/day`、`research.report_runs.daily=20 observe/day`、`research.report_sends.daily=10 hard/day`。管理员的限额和 `remaining` 为 `null`（表示无限），但 `used/reserved` 仍按真实 actor 记账；个人用量页读取 `/api/account/usage`，管理员查看指定用户则读取 `/api/admin/users/[user_id]/access`。报告生成任务计入 `research.report_runs.daily`；只有非 dry-run 的真实推送才计入 `research.report_sends.daily`。
+默认成员配额共 8 项：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 hard/day`、`llm.total_tokens.monthly=2000000 warn/month`、`query_rewrite.llm.daily=200 hard/day`、`quant.data_units.daily=2000 warn/day`、`research.report_runs.daily=20 hard/day`、`research.report_sends.daily=10 hard/day`。Token 与数据单元只能在结果产生后结算，因此超额时告警而不丢弃已完成结果；请求前可判断的次数执行硬限制。管理员的限额和 `remaining` 为 `null`（表示无限），但 `used/reserved` 仍按真实 actor 记账；个人用量页读取 `/api/account/usage`，管理员查看指定用户则读取 `/api/admin/users/[user_id]/access`。报告生成任务计入 `research.report_runs.daily`；只有非 dry-run 的真实推送才计入 `research.report_sends.daily`。
 
 启用认证时，聊天入口把当前用户写入 `user_requests.actor_user_id`，物理 Agent run 继承为 `agent_runs.actor_user_id`，后续用量事件关联 actor、project 和 source。相同 request ID 不能跨用户或跨项目复用。LLM 问题改写的确定性 `preview` 不消费 `query_rewrite.llm.daily`；只有 execution 实际进入模型链路时才计该指标和模型 Token。
 
@@ -118,7 +118,8 @@ Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失
 
 | 路由 | 方法 | 责任 |
 | --- | --- | --- |
-| `/health` | `GET` | 服务健康检查 |
+| `/health` | `GET` | 进程存活检查，不探测下游依赖 |
+| `/ready` | `GET` | 数据库与 Redis 就绪检查；required 依赖失败返回 503 |
 | `/api/v1/registry` | `GET` | 数据源注册表和字段契约 |
 | `/api/v1/provider-candidates` | `GET` | 候选免费信源池 |
 | `/api/v1/provider-candidates/probe` | `GET` | 探测候选信源可达性 |

@@ -16,8 +16,8 @@
         "protocol": "http",
         "env": ["NEXT_PUBLIC_APP_URL"],
         "default": "http://localhost:3000",
-        "healthPath": "/",
-        "healthMethod": "HEAD"
+        "healthPath": "/api/ready",
+        "healthMethod": "GET"
       },
       "commands": {
         "start": "npm run dev",
@@ -43,7 +43,7 @@
         "protocol": "http",
         "env": ["QUANTPILOT_MARKET_API_URL", "QUANTPILOT_MARKET_API_BASE_URL"],
         "default": "http://127.0.0.1:8000",
-        "healthPath": "/health",
+        "healthPath": "/ready",
         "healthMethod": "GET"
       },
       "commands": {

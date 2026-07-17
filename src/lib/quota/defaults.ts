@@ -3,7 +3,7 @@ import type { QuotaEnforcement, QuotaWindowType } from './types';
 export const DEFAULT_QUOTA_PROFILE = Object.freeze({
   key: 'member-default',
   name: '普通成员',
-  description: '确定性资源使用硬限制；成本型指标先观察真实分布再逐步启用硬限制。',
+  description: '请求前可判断的有限配额执行硬限制，结果型用量提醒；管理员保持无限。',
 } as const);
 
 export interface BuiltinQuotaRule {
@@ -40,7 +40,7 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
   {
     metric: 'agent.requests.daily',
     limit: 100n,
-    enforcement: 'observe',
+    enforcement: 'hard',
     windowType: 'day',
     windowSeconds: null,
     reservationTtlSeconds: 900,
@@ -48,7 +48,7 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
   {
     metric: 'llm.total_tokens.monthly',
     limit: 2_000_000n,
-    enforcement: 'observe',
+    enforcement: 'warn',
     windowType: 'month',
     windowSeconds: null,
     reservationTtlSeconds: 3_600,
@@ -56,7 +56,7 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
   {
     metric: 'query_rewrite.llm.daily',
     limit: 200n,
-    enforcement: 'observe',
+    enforcement: 'hard',
     windowType: 'day',
     windowSeconds: null,
     reservationTtlSeconds: 900,
@@ -64,7 +64,7 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
   {
     metric: 'quant.data_units.daily',
     limit: 2_000n,
-    enforcement: 'observe',
+    enforcement: 'warn',
     windowType: 'day',
     windowSeconds: null,
     reservationTtlSeconds: 900,
@@ -72,7 +72,7 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
   {
     metric: 'research.report_runs.daily',
     limit: 20n,
-    enforcement: 'observe',
+    enforcement: 'hard',
     windowType: 'day',
     windowSeconds: null,
     reservationTtlSeconds: 3_600,

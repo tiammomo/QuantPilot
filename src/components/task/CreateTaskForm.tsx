@@ -144,7 +144,7 @@ function CreateTaskForm({
         if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
       }}
       className={cn(
-        "relative w-full overflow-hidden rounded-[1.5rem] border bg-background/95 text-card-foreground shadow-xl shadow-slate-900/5 transition-all focus-within:border-primary/35 focus-within:shadow-2xl focus-within:shadow-primary/5",
+        "relative w-full overflow-hidden rounded-[1.5rem] border bg-card/92 text-card-foreground shadow-[0_22px_60px_-38px_hsl(var(--shadow-color)/0.5)] ring-1 ring-white/70 backdrop-blur-xl transition-all before:pointer-events-none before:absolute before:inset-x-10 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-primary/30 before:to-transparent focus-within:border-primary/45 focus-within:shadow-[0_28px_68px_-40px_hsl(var(--primary)/0.5)] dark:ring-white/5",
         isDragOver
           ? "border-primary"
           : "border-border/75"
@@ -183,7 +183,7 @@ function CreateTaskForm({
         aria-label="量化分析需求"
         placeholder={selectedRole.inputPlaceholder ?? selectedRole.inputHint ?? "描述你的金融分析需求..."}
         disabled={isCreating}
-        className="min-h-[108px] resize-none border-0 bg-transparent px-5 pb-3 pt-4 text-base leading-7 shadow-none focus-visible:ring-0 md:min-h-[150px] md:px-6 md:pt-6"
+        className="min-h-[96px] resize-none border-0 bg-transparent px-5 pb-3 pt-4 text-base leading-7 shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 md:min-h-[112px] md:px-6 md:pt-5"
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -204,7 +204,7 @@ function CreateTaskForm({
       )}
 
       {showAdvanced ? (
-        <div className="grid border-t border-border/50 bg-muted/15 px-4 py-2 sm:grid-cols-2 sm:divide-x sm:divide-border">
+        <div className="grid border-t border-border/45 bg-muted/[0.1] px-4 py-1.5 sm:grid-cols-2 sm:divide-x sm:divide-border">
           <div className="flex min-w-0 items-center gap-2 py-1 sm:pr-3">
             <Bot className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">Agent</span>
@@ -238,7 +238,7 @@ function CreateTaskForm({
       ) : null}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2.5">
+      <div className="flex items-center gap-2 border-t border-border/40 bg-background/55 px-3 py-2">
         {/* Upload button */}
         <Button
           type="button"
@@ -275,17 +275,19 @@ function CreateTaskForm({
           size="sm"
           onClick={() => setShowAdvanced((current) => !current)}
           aria-expanded={showAdvanced}
-          className={cn("h-8 gap-1.5 rounded-none px-2 text-xs", showAdvanced ? "border-b border-primary text-primary" : "text-muted-foreground")}
+          className={cn("h-8 gap-1.5 rounded-lg px-2 text-xs", showAdvanced ? "bg-primary/[0.08] text-primary hover:bg-primary/[0.12]" : "text-muted-foreground")}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          高级
+          高级设置
         </Button>
+
+        <span className="ml-auto hidden text-[10px] text-muted-foreground/75 lg:inline">Enter 发送 · Shift + Enter 换行</span>
 
         {/* Submit button */}
         <Button
           type="submit"
           disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreating}
-          className="ml-auto h-9 gap-1.5 rounded-lg px-3 text-xs font-semibold"
+          className="ml-auto h-9 gap-1.5 rounded-xl bg-gradient-to-r from-[#ef765f] to-[#dd5846] px-3 text-xs font-semibold text-white shadow-[0_12px_28px_-14px_rgba(221,88,70,0.85)] hover:from-[#e96953] hover:to-[#cf4c3b] lg:ml-0"
           aria-label="提交任务"
         >
           {isCreating ? (

@@ -97,7 +97,7 @@ export type MoAgentImageAttachment = {
 const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
+  : path.resolve(/* turbopackIgnore: true */ process.cwd(), PROJECTS_DIR);
 const HISTORY_FETCH_LIMIT = 30;
 const HISTORY_MESSAGE_LIMIT = 8;
 const HISTORY_CHARACTER_BUDGET = 8_000;

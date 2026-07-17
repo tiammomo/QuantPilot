@@ -133,28 +133,16 @@ async function commandOutput(command: string, args: string[], timeout = 1800): P
   }
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function hasMoAgentRuntime(): Promise<boolean> {
-  const required = [
-    'src/lib/agent/core/run-engine.ts',
-    'src/lib/agent/providers/deepseek.ts',
-    'src/lib/agent/tools/index.ts',
-    'src/lib/services/cli/moagent.ts',
-  ];
-  return (await Promise.all(required.map((file) => fileExists(path.join(ROOT, file))))).every(Boolean);
+  // This module is part of the same compiled server graph as the agent runtime.
+  // Checking source-tree files breaks in a valid standalone deployment and can
+  // also make output tracing copy the repository into the release artifact.
+  return true;
 }
 
 async function countDirectoryItems(dirPath: string, prefix?: string): Promise<number> {
   try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const entries = await fs.readdir(/* turbopackIgnore: true */ dirPath, { withFileTypes: true });
     return entries.filter((entry) => entry.isDirectory() && (!prefix || entry.name.startsWith(prefix))).length;
   } catch {
     return 0;
@@ -196,13 +184,13 @@ function disabledProbe(label: string): { ok: boolean; status: number | null; ms:
 
 async function findLatestLogFile(dirPath: string): Promise<string | null> {
   try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const entries = await fs.readdir(/* turbopackIgnore: true */ dirPath, { withFileTypes: true });
     const files = await Promise.all(
       entries
         .filter((entry) => entry.isFile() && entry.name.endsWith('.log'))
         .map(async (entry) => {
           const filePath = path.join(dirPath, entry.name);
-          const stat = await fs.stat(filePath);
+          const stat = await fs.stat(/* turbopackIgnore: true */ filePath);
           return { filePath, mtime: stat.mtimeMs };
         })
     );
@@ -231,10 +219,10 @@ async function tailLogSource(id: string, label: string, filePath: string | null,
   }
 
   try {
-    const stat = await fs.stat(filePath);
+    const stat = await fs.stat(/* turbopackIgnore: true */ filePath);
     const maxBytes = 220_000;
     const start = Math.max(0, stat.size - maxBytes);
-    const handle = await fs.open(filePath, 'r');
+    const handle = await fs.open(/* turbopackIgnore: true */ filePath, 'r');
     try {
       const buffer = Buffer.alloc(stat.size - start);
       await handle.read(buffer, 0, buffer.length, start);
@@ -291,7 +279,7 @@ async function inspectLogSourceMetadata(id: string, label: string, filePath: str
     };
   }
   try {
-    const stat = await fs.stat(filePath);
+    const stat = await fs.stat(/* turbopackIgnore: true */ filePath);
     return {
       id,
       label,
@@ -798,21 +786,16 @@ export async function getOpsPlatformDashboard(params: {
   ]);
 
   const projectsDir = path.resolve(
-    /*turbopackIgnore: true*/ process.cwd(),
+    /* turbopackIgnore: true */ process.cwd(),
     process.env.PROJECTS_DIR || './data/projects'
   );
   const projectCount = await countDirectoryItems(projectsDir, 'project-');
-  const requiredFiles = await Promise.all([
-    fileExists(path.join(ROOT, '.env')),
-    fileExists(path.join(ROOT, '.env.example')),
-    fileExists(path.join(ROOT, 'sqls')),
-    fileExists(path.join(ROOT, 'services', 'market-data')),
-  ]);
   const missingRequired = [
-    requiredFiles[0] ? null : '.env',
-    requiredFiles[1] ? null : '.env.example',
-    requiredFiles[2] ? null : 'sqls',
-    requiredFiles[3] ? null : 'services/market-data',
+    process.env.DATABASE_URL?.trim() ? null : 'DATABASE_URL',
+    process.env.DEEPSEEK_API_KEY?.trim() ? null : 'DEEPSEEK_API_KEY',
+    marketApi.enabled && !process.env.QUANTPILOT_MARKET_API_URL?.trim()
+      ? 'QUANTPILOT_MARKET_API_URL'
+      : null,
   ].filter((item): item is string => Boolean(item));
   const lokiSource = logSources.find((source) => source.id === 'loki');
   const databaseHealthy = infrastructure.data.connected && infrastructure.data.timescale.enabled;
@@ -929,8 +912,10 @@ export async function getOpsPlatformDashboard(params: {
       id: 'repo-baseline',
       label: '项目基础文件',
       status: missingRequired.length ? 'failed' : 'ok',
-      summary: missingRequired.length ? `缺少 ${missingRequired.join('、')}` : '环境、SQL、后端服务目录齐全',
-      actions: missingRequired.length ? ['补齐缺失的项目基础文件。'] : [],
+      summary: missingRequired.length
+        ? `缺少 ${missingRequired.join('、')}`
+        : '核心运行配置齐全',
+      actions: missingRequired.length ? ['补齐缺失的核心运行配置。'] : [],
     },
   ];
 

@@ -168,7 +168,9 @@ const REQUIRED_AGENT_INPUT_ARTIFACTS = [
 async function missingAgentInputArtifacts(projectPath: string): Promise<string[]> {
   const checks = await Promise.all(REQUIRED_AGENT_INPUT_ARTIFACTS.map(async (relativePath) => {
     try {
-      const stat = await fs.stat(path.join(projectPath, relativePath));
+      const stat = await fs.stat(
+        path.join(/* turbopackIgnore: true */ projectPath, relativePath),
+      );
       return stat.isFile() && stat.size > 2 ? null : relativePath;
     } catch {
       return relativePath;
@@ -186,7 +188,10 @@ function coerceString(value: unknown): string | null {
 const PROJECTS_DIR = process.env.PROJECTS_DIR || "./data/projects";
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
-  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
+  : path.resolve(
+      /* turbopackIgnore: true */ process.cwd(),
+      /* turbopackIgnore: true */ PROJECTS_DIR,
+    );
 
 function resolveProjectRoot(
   projectId: string,
@@ -195,9 +200,15 @@ function resolveProjectRoot(
   if (repoPath) {
     return path.isAbsolute(repoPath)
       ? repoPath
-      : path.resolve(/*turbopackIgnore: true*/ process.cwd(), repoPath);
+      : path.resolve(
+          /* turbopackIgnore: true */ process.cwd(),
+          /* turbopackIgnore: true */ repoPath,
+        );
   }
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
+  return path.join(
+    /* turbopackIgnore: true */ PROJECTS_DIR_ABSOLUTE,
+    projectId,
+  );
 }
 
 function canUsePrefetchedSelectionDashboard(params: {
@@ -1635,16 +1646,23 @@ async function mirrorAssetToProjectPublic(
   sourcePath: string,
 ): Promise<string> {
   const [canonicalProjectRoot, canonicalAssetsRoot] = await Promise.all([
-    fs.realpath(projectRoot),
-    fs.realpath(path.dirname(sourcePath)),
+    fs.realpath(/* turbopackIgnore: true */ projectRoot),
+    fs.realpath(path.dirname(/* turbopackIgnore: true */ sourcePath)),
   ]);
   if (!isPathInside(canonicalProjectRoot, canonicalAssetsRoot)) {
     throw new ImageAssetError("Project attachment storage is outside the project workspace");
   }
-  const uploadsDir = path.join(canonicalProjectRoot, "public", "uploads");
-  await fs.mkdir(uploadsDir, { recursive: true });
-  const destinationPath = path.join(uploadsDir, filename);
-  await fs.copyFile(sourcePath, destinationPath);
+  const uploadsDir = path.join(
+    /* turbopackIgnore: true */ canonicalProjectRoot,
+    "public",
+    "uploads",
+  );
+  await fs.mkdir(/* turbopackIgnore: true */ uploadsDir, { recursive: true });
+  const destinationPath = path.join(/* turbopackIgnore: true */ uploadsDir, filename);
+  await fs.copyFile(
+    /* turbopackIgnore: true */ sourcePath,
+    /* turbopackIgnore: true */ destinationPath,
+  );
   return `/uploads/${filename}`;
 }
 
@@ -1670,9 +1688,9 @@ async function materializeBase64Image(
     nameHint && nameHint.trim() ? nameHint.trim() : `image-${randomUUID()}`;
   const filename = `${safeName.slice(0, 80).replace(/[^a-zA-Z0-9-_]/g, "-") || "image"}-${randomUUID()}${detected.extension}`;
   const assetsDir = resolveProjectAssetsPath(projectId);
-  await fs.mkdir(assetsDir, { recursive: true });
+  await fs.mkdir(/* turbopackIgnore: true */ assetsDir, { recursive: true });
   const absolutePath = resolveProjectAssetPath(projectId, filename);
-  await fs.writeFile(absolutePath, buffer, { flag: "wx" });
+  await fs.writeFile(/* turbopackIgnore: true */ absolutePath, buffer, { flag: "wx" });
   const publicUrl = await mirrorAssetToProjectPublic(projectRoot, filename, absolutePath);
   return {
     path: `assets/${filename}`,
@@ -1733,7 +1751,7 @@ async function normalizeImageAttachment(
         413,
       );
     }
-    const bytes = await fs.readFile(asset.absolutePath);
+    const bytes = await fs.readFile(/* turbopackIgnore: true */ asset.absolutePath);
     const detected = validateImageBytes(bytes, {
       ...(mimeTypeCandidate ? { declaredMimeType: mimeTypeCandidate } : {}),
       maxBytes: MAX_IMAGE_BYTES,
@@ -1786,9 +1804,12 @@ async function writeAttachmentContext(params: {
     return null;
   }
 
-  const quantDir = path.join(params.projectRoot, ".quantpilot");
+  const quantDir = path.join(/* turbopackIgnore: true */ params.projectRoot, ".quantpilot");
   const relativePath = ".quantpilot/attachments.json";
-  const absolutePath = path.join(params.projectRoot, relativePath);
+  const absolutePath = path.join(
+    /* turbopackIgnore: true */ params.projectRoot,
+    relativePath,
+  );
   const payload = {
     schemaVersion: 1,
     projectId: params.projectId,
@@ -1828,9 +1849,9 @@ async function writeAttachmentContext(params: {
     },
   };
 
-  await fs.mkdir(quantDir, { recursive: true });
+  await fs.mkdir(/* turbopackIgnore: true */ quantDir, { recursive: true });
   await fs.writeFile(
-    absolutePath,
+    /* turbopackIgnore: true */ absolutePath,
     `${JSON.stringify(payload, null, 2)}\n`,
     "utf8",
   );

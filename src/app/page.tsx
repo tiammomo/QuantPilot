@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -11,17 +12,9 @@ import {
   Home,
   LayoutGrid,
   Settings,
-  TrendingUp,
   XCircle,
   Sparkles,
   ChevronRight,
-  Activity,
-  Search,
-  BarChart2,
-  PieChart,
-  Layers,
-  Target,
-  Zap,
   UserRound,
   Users,
 } from "lucide-react";
@@ -64,22 +57,35 @@ import {
   type QuantCapabilityId,
 } from "@/lib/quant/capabilities";
 import { cn } from "@/lib/utils";
+import homeAnimeResearcher from "@/assets/home-anime-quant-researcher-v3.webp";
+import homeAnimeResearcherAvatar from "@/assets/home-anime-quant-researcher-avatar-v1.webp";
 
 const fetchAPI = globalThis.fetch || fetch;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
 const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name }) => ({ id, name }));
 
-const CAPABILITY_ICONS: Record<string, React.ReactNode> = {
-  stock_diagnosis: <Activity className="h-5 w-5" />,
-  technical_analysis: <TrendingUp className="h-5 w-5" />,
-  fundamental_analysis: <BarChart2 className="h-5 w-5" />,
-  asset_comparison: <Search className="h-5 w-5" />,
-  sector_rotation: <PieChart className="h-5 w-5" />,
-  strategy_research: <Layers className="h-5 w-5" />,
-  backtest_review: <Target className="h-5 w-5" />,
-  portfolio_risk: <Zap className="h-5 w-5" />,
-};
+const RESEARCH_STARTERS: Array<{
+  capabilityId: QuantCapabilityId;
+  label: string;
+  prompt: string;
+}> = [
+  {
+    capabilityId: "stock_diagnosis",
+    label: "贵州茅台近 60 日趋势",
+    prompt: "分析贵州茅台近 60 个交易日的趋势、量能、估值与主要风险。",
+  },
+  {
+    capabilityId: "fundamental_analysis",
+    label: "宁德时代基本面",
+    prompt: "评估宁德时代当前的估值、盈利质量、现金流和成长持续性。",
+  },
+  {
+    capabilityId: "asset_comparison",
+    label: "沪深 300 对比中证 500",
+    prompt: "对比沪深 300 与中证 500 近一年的收益、波动率、最大回撤和估值水平。",
+  },
+];
 
 const ACTIVE_PROJECT_STATUSES = new Set(["running", "building", "initializing"]);
 
@@ -93,7 +99,7 @@ function getProjectStatus(project: ProjectSummary) {
   if (project.status === "failed" || project.status === "error") {
     return { label: "需要处理", tone: "red", icon: CircleAlert } as const;
   }
-  return { label: "可继续", tone: "slate", icon: CircleDashed } as const;
+  return { label: "草稿", tone: "slate", icon: CircleDashed } as const;
 }
 
 export default function HomePage() {
@@ -173,7 +179,6 @@ export default function HomePage() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [showAllCapabilities, setShowAllCapabilities] = useState(false);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [greeting, setGreeting] = useState("你好");
 
@@ -193,9 +198,6 @@ export default function HomePage() {
   const readyProjects = projects.filter((project) => Boolean(project.previewUrl)).length;
   const recentProjects = projects.slice(0, 3);
   const readyCapabilities = QUANT_CAPABILITIES.filter((capability) => capability.status === "ready");
-  const displayedCapabilities = showAllCapabilities
-    ? readyCapabilities
-    : readyCapabilities.slice(0, 4);
   const accountName = user?.name || user?.email || "研究员";
   const accountInitial = accountName.slice(0, 1).toUpperCase();
 
@@ -560,6 +562,12 @@ export default function HomePage() {
     document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  const handleStarterClick = (starter: (typeof RESEARCH_STARTERS)[number]) => {
+    setSelectedCapability(starter.capabilityId);
+    setPrompt(starter.prompt);
+    document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   // --- Render ---
   return (
     <div className="home-shell relative flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
@@ -576,7 +584,7 @@ export default function HomePage() {
               <FolderKanban className="h-3.5 w-3.5" />项目
               {projects.length > 0 ? <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{projects.length}</span> : null}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => document.getElementById("capability-templates")?.scrollIntoView({ behavior: "smooth" })} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/skills")} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
               <LayoutGrid className="h-3.5 w-3.5" />能力中心
             </Button>
             <PlatformSwitcher />
@@ -601,88 +609,123 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="platform-content flex-1 px-4 pb-28 pt-7 md:px-6 md:pb-16 md:pt-10">
-        <div className="mx-auto w-full max-w-[110rem]">
+      <main className="platform-content flex-1 px-4 pb-28 pt-4 md:px-6 md:pb-16 md:pt-5">
+        <div className="mx-auto w-full max-w-[90rem]">
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+            className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-center sm:justify-between"
           >
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/[0.06] px-3 py-1 text-xs font-semibold text-primary">
-                <Sparkles className="h-3.5 w-3.5" />AI 量化研究工作台
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-primary">
+                <Sparkles className="h-3.5 w-3.5" />量化研究工作台
               </div>
-              <h2 className="mt-3 text-2xl font-bold tracking-[-0.03em] sm:text-3xl">{greeting}，{accountName}</h2>
-              <p className="mt-1.5 text-sm text-muted-foreground">从一个清晰的问题开始，数据、分析与可视化会在同一工作区完成。</p>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <h2 className="text-xl font-bold tracking-[-0.03em] sm:text-2xl">{greeting}，{accountName}</h2>
+                <p className="text-xs leading-5 text-muted-foreground sm:text-sm">从问题出发，在同一工作区完成取数、分析与可视化。</p>
+              </div>
             </div>
-            <div className="grid grid-cols-3 divide-x divide-border border-y border-border/65 sm:flex sm:border-y-0">
-              {[
-                { label: "全部项目", value: projects.length, tone: "text-foreground" },
-                { label: "正在运行", value: runningProjects, tone: "text-amber-600" },
-                { label: "看板就绪", value: readyProjects, tone: "text-emerald-600" },
-              ].map((item) => (
-                <div key={item.label} className="min-w-24 px-3 py-2 sm:px-5 sm:py-1">
-                  <p className={cn("text-lg font-bold", item.tone)}>{item.value}</p>
-                  <p className="text-[11px] text-muted-foreground">{item.label}</p>
-                </div>
-              ))}
+            <div className="flex w-full items-center justify-between border-y border-border/60 py-2 text-[11px] text-muted-foreground sm:w-auto sm:justify-start sm:border-y-0 sm:py-0">
+              <button type="button" onClick={() => setTaskDrawerOpen(true)} className="group inline-flex items-baseline gap-1 px-2 transition-colors hover:text-foreground sm:px-3">
+                <strong className="text-base text-foreground group-hover:text-primary">{projects.length}</strong>项研究
+              </button>
+              <span aria-hidden="true" className="h-5 w-px bg-border" />
+              <span className="inline-flex items-baseline gap-1 px-2 sm:px-3"><strong className="text-base text-amber-600">{runningProjects}</strong>运行中</span>
+              <span aria-hidden="true" className="h-5 w-px bg-border" />
+              <span className="inline-flex items-baseline gap-1 px-2 sm:px-3"><strong className="text-base text-emerald-600">{readyProjects}</strong>看板就绪</span>
             </div>
           </motion.section>
 
-          <section className="mt-4 sm:mt-8">
+          <section className="mt-2 sm:mt-4">
             <motion.article
               id="task-input"
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
-              className="relative mx-auto max-w-7xl py-4 sm:py-10"
+              className="relative isolate overflow-hidden border-b border-border/55 py-4 sm:py-6"
             >
-              <div className="pointer-events-none absolute left-1/2 top-8 -z-10 h-60 w-[44rem] max-w-[90vw] -translate-x-1/2 rounded-full bg-primary/[0.08] blur-3xl" />
-              <div className="relative mb-5 text-center">
-                <p className="text-xs font-semibold text-primary">新建量化研究</p>
-                <h3 className="mt-1.5 text-2xl font-bold tracking-[-0.03em] sm:text-3xl">今天想研究什么？</h3>
-                <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">描述标的、时间范围或分析目标，系统会自动补全取数、证据与验证步骤。</p>
-              </div>
-
-              <div className="relative mb-3 flex justify-start gap-4 overflow-x-auto pb-1 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {readyCapabilities.slice(0, 4).map((capability) => (
-                  <button
-                    key={capability.id}
-                    type="button"
-                    onClick={() => handleCapabilityCardClick(capability.id)}
-                    className={cn(
-                      "shrink-0 border-b-2 px-1 py-2 text-xs font-semibold transition-colors",
-                      selectedCapability === capability.id
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
-                    )}
-                  >
-                    {capability.name}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative">
-                <CreateTaskForm
-                  prompt={prompt}
-                  onPromptChange={setPrompt}
-                  isCreating={isCreatingProject}
-                  onSubmit={handleSubmit}
-                  uploadedImages={uploadedImages}
-                  onImagesChange={setUploadedImages}
-                  selectedAssistant={selectedAssistant}
-                  onAssistantChange={handleAssistantChange}
-                  assistantOptions={ASSISTANT_OPTIONS}
-                  isAssistantSelectable={isAssistantSelectable}
-                  selectedModel={selectedModel}
-                  onModelChange={handleModelChange}
-                  modelOptions={availableModels}
-                  selectedRole={selectedRoleModule}
+              <div className="pointer-events-none absolute inset-0 -z-20 bg-[linear-gradient(135deg,hsl(var(--background)),hsl(var(--primary)/0.045)_52%,hsl(var(--background)))]" />
+              <div className="pointer-events-none absolute left-1/2 top-0 -z-10 h-52 w-[52rem] max-w-[92vw] -translate-x-1/2 rounded-full bg-primary/[0.08] blur-3xl" />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute right-1 top-0 hidden h-32 w-80 overflow-hidden xl:block dark:hidden"
+              >
+                <Image
+                  src={homeAnimeResearcher}
+                  alt=""
+                  fill
+                  sizes="320px"
+                  className="object-cover object-[50%_25%] saturate-[1.04] [mask-image:radial-gradient(ellipse_at_66%_44%,black_32%,transparent_76%)]"
                 />
+                <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background to-transparent" />
+              </div>
+
+              <div className="relative z-10">
+                <div className="relative text-center">
+                  <h3 className="text-[1.7rem] font-bold tracking-[-0.035em] sm:text-3xl">今天想研究什么？</h3>
+                  <p className="mx-auto mt-1 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">
+                    <span className="sm:hidden">说清标的、时间和目标。</span>
+                    <span className="hidden sm:inline">说清标的、时间和目标，系统会自动补全取数、证据与验证步骤。</span>
+                  </p>
+                  <div aria-hidden="true" className="absolute right-0 -top-2 h-14 w-14 overflow-hidden sm:hidden dark:hidden [mask-image:radial-gradient(circle,black_50%,transparent_74%)]">
+                    <Image src={homeAnimeResearcherAvatar} alt="" fill sizes="64px" className="object-cover" />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex justify-start gap-4 overflow-x-auto pb-0.5 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {readyCapabilities.slice(0, 4).map((capability) => (
+                    <button
+                      key={capability.id}
+                      type="button"
+                      aria-pressed={selectedCapability === capability.id}
+                      onClick={() => handleCapabilityCardClick(capability.id)}
+                      className={cn(
+                        "shrink-0 border-b-2 px-1 py-1.5 text-xs font-semibold transition-colors",
+                        selectedCapability === capability.id
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                      )}
+                    >
+                      {capability.name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mx-auto mt-2 w-full max-w-[76rem]">
+                  <CreateTaskForm
+                    prompt={prompt}
+                    onPromptChange={setPrompt}
+                    isCreating={isCreatingProject}
+                    onSubmit={handleSubmit}
+                    uploadedImages={uploadedImages}
+                    onImagesChange={setUploadedImages}
+                    selectedAssistant={selectedAssistant}
+                    onAssistantChange={handleAssistantChange}
+                    assistantOptions={ASSISTANT_OPTIONS}
+                    isAssistantSelectable={isAssistantSelectable}
+                    selectedModel={selectedModel}
+                    onModelChange={handleModelChange}
+                    modelOptions={availableModels}
+                    selectedRole={selectedRoleModule}
+                  />
+                </div>
+
+                <div className="mt-3 hidden items-center justify-center gap-3 overflow-x-auto pb-1 sm:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">试试</span>
+                  {RESEARCH_STARTERS.map((starter) => (
+                    <button
+                      key={starter.label}
+                      type="button"
+                      onClick={() => handleStarterClick(starter)}
+                      className="shrink-0 border-b border-border px-0.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                    >
+                      {starter.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </motion.article>
-
           </section>
 
           <motion.section
@@ -690,42 +733,53 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.18, ease: "easeOut" }}
-            className="mt-10"
+            className="mt-4 sm:mt-5"
           >
-            <div className="flex items-end justify-between gap-4">
+            <div className="flex items-end justify-between gap-3">
               <div>
                 <p className="text-lg font-bold tracking-tight">最近研究</p>
-                <p className="mt-1 text-xs text-muted-foreground">无需翻找历史记录，直接回到最近的分析上下文。</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">回到最近的分析上下文。</p>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="gap-1 text-xs">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="h-8 gap-1 rounded-none border-b border-border px-1 text-xs">
                 查看全部 {projects.length > 0 ? `(${projects.length})` : ""}<ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
 
             {projectsLoading ? (
-              <div className="mt-4 divide-y divide-border border-y border-border/70">
-                {[0, 1, 2].map((item) => <div key={item} className="h-20 animate-pulse bg-muted/35" />)}
+              <div className="mt-3 divide-y divide-border border-y border-border/70">
+                {[0, 1, 2].map((item) => <div key={item} className="h-16 animate-pulse bg-muted/35" />)}
               </div>
             ) : recentProjects.length > 0 ? (
-              <div className="mt-4 divide-y divide-border border-y border-border/70">
+              <div className="mt-3 divide-y divide-border border-y border-border/70">
                 {recentProjects.map((project, index) => {
                   const status = getProjectStatus(project);
                   const StatusIcon = status.icon;
+                  const title = project.name || project.initialPrompt || "未命名研究";
+                  const candidateSummary = project.initialPrompt || project.description || "";
+                  const normalizedTitle = title.replace(/\.{3}$/, "").trim();
+                  const isDuplicateSummary = Boolean(
+                    candidateSummary && normalizedTitle && (
+                      candidateSummary.startsWith(normalizedTitle) || normalizedTitle.startsWith(candidateSummary)
+                    )
+                  );
+                  const detail = candidateSummary && !isDuplicateSummary
+                    ? candidateSummary
+                    : formatCliInfo(project.preferredCli ?? undefined, project.selectedModel ?? undefined);
                   return (
                     <button
                       key={project.id}
                       type="button"
                       onClick={() => openProject(project)}
-                      className="group grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto_1rem] items-center gap-3 py-4 text-left transition-colors hover:bg-muted/25 md:grid-cols-[3rem_minmax(0,1fr)_8rem_8rem_7rem_3rem_1.5rem] md:gap-5"
+                      className="group grid w-full grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 py-3.5 text-left transition-colors hover:bg-muted/25 md:grid-cols-[2.5rem_minmax(0,1fr)_6.5rem_7.5rem_6rem_1.25rem] md:gap-4"
                     >
-                      <span className="font-mono text-xs text-muted-foreground/65">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="font-mono text-[11px] text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{project.name || project.initialPrompt || "未命名研究"}</h3>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{project.initialPrompt || project.description || "进入工作区继续这项研究。"}</p>
+                        <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{title}</h3>
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
                       </div>
-                      <span className="hidden text-xs font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
+                      <span className="hidden text-[11px] font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
                       <span className={cn(
-                        "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-xs",
+                        "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-[11px]",
                         status.tone === "amber" && "text-amber-600",
                         status.tone === "red" && "text-red-600",
                         status.tone === "green" && "text-emerald-600",
@@ -733,72 +787,15 @@ export default function HomePage() {
                       )}>
                         <StatusIcon className="h-3 w-3" />{status.label}
                       </span>
-                      <span className="hidden text-xs text-muted-foreground md:block">{formatTime(project.lastMessageAt || project.createdAt)}</span>
-                      <span className="hidden text-xs font-semibold text-foreground md:block">继续</span>
+                      <span className="hidden text-[11px] text-muted-foreground md:block">{formatTime(project.lastMessageAt || project.createdAt)}</span>
                       <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
                     </button>
                   );
                 })}
               </div>
             ) : (
-              <div className="mt-4 border-y border-dashed border-border py-8 text-center text-sm text-muted-foreground">创建第一个任务后，最近研究会出现在这里。</div>
+              <div className="mt-3 border-y border-dashed border-border py-7 text-center text-sm text-muted-foreground">创建第一个任务后，最近研究会出现在这里。</div>
             )}
-          </motion.section>
-
-          <motion.section
-            id="capability-templates"
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: 0.24, ease: "easeOut" }}
-            className="mt-10 scroll-mt-24"
-          >
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="text-lg font-bold tracking-tight">常用研究模板</p>
-                <p className="mt-1 text-xs text-muted-foreground">只展示已经打通数据、证据与看板链路的能力。</p>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/skills")} className="hidden gap-1 text-xs sm:inline-flex">
-                  Skills 能力市场<ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllCapabilities((current) => !current)} className="rounded-none border-b border-border px-1 text-xs">
-                  {showAllCapabilities ? "收起" : `全部 ${readyCapabilities.length} 项`}
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-4 grid border-y border-border/70 md:grid-cols-2">
-              {displayedCapabilities.map((capability, index) => {
-                const isActive = selectedCapability === capability.id;
-                return (
-                  <button
-                    key={capability.id}
-                    type="button"
-                    onClick={() => handleCapabilityCardClick(capability.id)}
-                    className={cn(
-                      "group grid min-h-40 grid-cols-[3rem_minmax(0,1fr)_1.5rem] items-start gap-4 border-b border-border/60 py-6 text-left transition-colors hover:bg-muted/20 md:px-6 md:odd:border-r md:[&:nth-child(2n+1)]:pl-0 md:[&:nth-child(2n)]:pr-0",
-                      isActive ? "border-l-2 border-l-primary md:border-l-0 md:border-t-2 md:border-t-primary" : "border-l-2 border-l-transparent md:border-l-0 md:border-t-2 md:border-t-transparent"
-                    )}
-                  >
-                    <div className="flex flex-col items-center gap-3">
-                      <span className="font-mono text-[10px] text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
-                      <span className="flex h-8 w-8 items-center justify-center text-primary">{CAPABILITY_ICONS[capability.id]}</span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-base font-bold transition-colors group-hover:text-primary">{capability.name}</h3>
-                        {isActive ? <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary">当前模式</span> : null}
-                      </div>
-                      <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">{capability.description}</p>
-                      <div className="mt-3 flex flex-wrap gap-x-2">
-                        {capability.tags.slice(0, 3).map((tag) => <span key={tag} className="text-[10px] text-muted-foreground">{tag}</span>)}
-                      </div>
-                    </div>
-                    <ChevronRight className="mt-1 h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-                  </button>
-                );
-              })}
-            </div>
           </motion.section>
         </div>
       </main>
@@ -806,7 +803,7 @@ export default function HomePage() {
       <nav className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-4 border-t border-border/80 bg-background/95 px-2 backdrop-blur-xl md:hidden" aria-label="移动端首页导航">
         <button type="button" aria-current="page" className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-primary text-[10px] font-semibold text-primary"><Home className="h-4 w-4" />首页</button>
         <button type="button" onClick={() => setTaskDrawerOpen(true)} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><FolderKanban className="h-4 w-4" />项目</button>
-        <button type="button" onClick={() => document.getElementById("capability-templates")?.scrollIntoView({ behavior: "smooth" })} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><LayoutGrid className="h-4 w-4" />能力</button>
+        <button type="button" onClick={() => router.push("/skills")} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><LayoutGrid className="h-4 w-4" />能力</button>
         <button type="button" onClick={() => router.push("/account/usage")} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><UserRound className="h-4 w-4" />我的</button>
       </nav>
 

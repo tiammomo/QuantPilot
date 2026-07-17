@@ -259,6 +259,14 @@ npm run release:check
 npm run release:check:full
 ```
 
+生产发布还必须使用生产环境执行配置预检、standalone 构建和真实启动 smoke：
+
+```bash
+npm run release:check:production
+```
+
+完整的备份、迁移、readiness、切流、回滚和恢复顺序见[生产发布 Runbook](release-runbook.md)。
+
 检查全部依赖安全状态可运行 `npm run security:audit`，只看生产依赖可运行 `npm run security:audit:production`；只检查 Markdown 本地链接可运行 `npm run check:docs`。
 
 涉及数据库：

@@ -9,6 +9,7 @@ const PAGES_API_ROOT = path.join(ROOT, 'src', 'pages', 'api');
 
 const PUBLIC_ROUTE_FILES = new Set([
   'src/app/api/health/route.ts',
+  'src/app/api/ready/route.ts',
 ]);
 
 const ROUTE_BOUNDARY = /\b(?:requireAction|requireAdminSession|requireAuthSession|toNextJsHandler)\s*\(/;
@@ -51,7 +52,10 @@ describe('API route authorization coverage', () => {
     await expect(Promise.all(
       [...PUBLIC_ROUTE_FILES].map((file) => fs.access(path.join(ROOT, file))),
     )).resolves.toBeDefined();
-    expect([...PUBLIC_ROUTE_FILES]).toEqual(['src/app/api/health/route.ts']);
+    expect([...PUBLIC_ROUTE_FILES]).toEqual([
+      'src/app/api/health/route.ts',
+      'src/app/api/ready/route.ts',
+    ]);
   });
 
   it('maps high-risk global and cross-project routes to catalogued capabilities', async () => {

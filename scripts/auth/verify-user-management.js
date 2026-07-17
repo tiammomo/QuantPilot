@@ -122,10 +122,10 @@ async function main() {
       const viewerRead = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
       if (viewerRead.status !== 200) throw new Error('Viewer could not read an assigned project.');
       const viewerWrite = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`, {
-        method: 'PATCH',
+        method: 'PUT',
         body: JSON.stringify({ name: foreignProject.name }),
       });
-      if (viewerWrite.status !== 404) {
+      if (viewerWrite.status !== 403) {
         throw new Error(`Viewer write access was not denied: ${viewerWrite.status}`);
       }
       const removeViewer = await api(adminPage, membershipPath, {
@@ -151,7 +151,9 @@ async function main() {
       method: 'PATCH',
       body: JSON.stringify({ action: 'set-status', userId: memberId, banned: true }),
     });
-    if (disabled.status !== 200) throw new Error(`Disable member failed: ${disabled.status}`);
+    if (disabled.status !== 200) {
+      throw new Error(`Disable member failed: ${disabled.status} ${JSON.stringify(disabled.body)}`);
+    }
     const afterDisable = await api(memberPage, '/api/projects');
     if (![401, 403].includes(afterDisable.status)) {
       throw new Error(`Disabled member retained access: ${afterDisable.status}`);

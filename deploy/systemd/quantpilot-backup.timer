@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a QuantPilot backup every six hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:10:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=10m
+Unit=quantpilot-backup.service
+
+[Install]
+WantedBy=timers.target

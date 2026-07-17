@@ -159,7 +159,7 @@ const CHANGELOG_PATH = path.join(ROOT, '.claude', 'skills.changelog.json');
 const LOCK_PATH = path.join(ROOT, '.claude', 'skills.lock.json');
 
 async function readJson(filePath: string): Promise<JsonRecord> {
-  const content = await fs.readFile(filePath, 'utf8');
+  const content = await fs.readFile(/* turbopackIgnore: true */ filePath, 'utf8');
   const parsed = JSON.parse(content);
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as JsonRecord)
@@ -176,7 +176,7 @@ async function readJsonAs<T extends JsonRecord>(filePath: string, fallback: T): 
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
-    await fs.access(filePath);
+    await fs.access(/* turbopackIgnore: true */ filePath);
     return true;
   } catch {
     return false;
@@ -188,7 +188,7 @@ function sha256(buffer: Buffer | string): string {
 }
 
 async function listFiles(dir: string): Promise<string[]> {
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs.readdir(/* turbopackIgnore: true */ dir, { withFileTypes: true }).catch(() => []);
   const nested = await Promise.all(
     entries.flatMap((entry) => {
       if (entry.name === '.DS_Store') return [];
@@ -202,7 +202,7 @@ async function listFiles(dir: string): Promise<string[]> {
 }
 
 async function listDirectories(dir: string): Promise<string[]> {
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs.readdir(/* turbopackIgnore: true */ dir, { withFileTypes: true }).catch(() => []);
   const nested = await Promise.all(
     entries.flatMap((entry) => {
       if (entry.name === '.DS_Store') return [];
@@ -223,7 +223,7 @@ async function hashSkillSource(skillId: string) {
     const relativePath = path.relative(sourceDir, filePath).replaceAll(path.sep, '/');
     hash.update(relativePath);
     hash.update('\0');
-    hash.update(await fs.readFile(filePath));
+    hash.update(await fs.readFile(/* turbopackIgnore: true */ filePath));
     hash.update('\0');
   }
 
@@ -276,8 +276,8 @@ async function listSkillSourceFiles(skillId: string): Promise<SkillSourceFile[]>
   const items = await Promise.all(files.map(async (filePath) => {
     const relativePath = path.relative(sourceDir, filePath).replaceAll(path.sep, '/');
     const [buffer, stat] = await Promise.all([
-      fs.readFile(filePath),
-      fs.stat(filePath).catch(() => null),
+      fs.readFile(/* turbopackIgnore: true */ filePath),
+      fs.stat(/* turbopackIgnore: true */ filePath).catch(() => null),
     ]);
     const digest = sha256(buffer);
     return {
@@ -311,7 +311,7 @@ async function listSkillSourceDirectories(skillId: string): Promise<SkillSourceD
   const items = await Promise.all(directories.map(async (directoryPath) => {
     const relativePath = path.relative(sourceDir, directoryPath).replaceAll(path.sep, '/');
     const [stat, files] = await Promise.all([
-      fs.stat(directoryPath).catch(() => null),
+      fs.stat(/* turbopackIgnore: true */ directoryPath).catch(() => null),
       listFiles(directoryPath),
     ]);
     return {
@@ -369,7 +369,7 @@ function resolvePackageDirectory(policy: JsonRecord): string {
   ) {
     return path.join(ROOT, '.claude', 'skill-packages');
   }
-  return path.resolve(ROOT, configured);
+  return path.resolve(/* turbopackIgnore: true */ ROOT, configured);
 }
 
 function hasValidAgentMetadata(source: string, skillId: string): boolean {
@@ -423,8 +423,12 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
     const lockEntry = lockSkills[skill.id] ?? null;
     const packagePath = path.join(packageDir, `${skill.id}.tgz`);
     const packageExists = await pathExists(packagePath);
-    const packageBuffer = packageExists ? await fs.readFile(packagePath) : null;
-    const packageStat = packageExists ? await fs.stat(packagePath) : null;
+    const packageBuffer = packageExists
+      ? await fs.readFile(/* turbopackIgnore: true */ packagePath)
+      : null;
+    const packageStat = packageExists
+      ? await fs.stat(/* turbopackIgnore: true */ packagePath)
+      : null;
     const packageSha256 = packageBuffer ? sha256(packageBuffer) : null;
     const releases = await Promise.all((changelogSkills[skill.id]?.releases ?? []).map(async (release) => {
       const snapshotPath = path.join(packageDir, 'versions', skill.id, `${release.version}.tgz`);
@@ -448,9 +452,12 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       file.path.startsWith('scripts/') && /\.(?:py|js|mjs|sh)$/.test(file.path));
     const registeredScripts = new Set(asStringArray(skill.scripts));
     const registeredReferences = new Set(asStringArray(skill.references));
-    const skillSource = await fs.readFile(skillFilePath, 'utf8').catch(() => '');
+    const skillSource = await fs.readFile(
+      /* turbopackIgnore: true */ skillFilePath,
+      'utf8',
+    ).catch(() => '');
     const agentSource = await fs.readFile(
-      path.join(sourceDir, 'agents', 'openai.yaml'),
+      /* turbopackIgnore: true */ path.join(sourceDir, 'agents', 'openai.yaml'),
       'utf8',
     ).catch(() => '');
 

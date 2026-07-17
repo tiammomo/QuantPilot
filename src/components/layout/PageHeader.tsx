@@ -31,7 +31,7 @@ function PageHeader({
   return (
     <header className={cn("platform-header", className)}>
       <div className={cn(
-        "mx-auto flex min-h-[4.5rem] w-full max-w-[1900px] items-stretch justify-between gap-3 px-4 py-3 lg:flex-row lg:items-center lg:px-6",
+        "flex min-h-[4.5rem] w-full items-stretch justify-between gap-3 px-4 py-3 lg:flex-row lg:items-center lg:px-6",
         compactOnMobile ? "flex-row items-center" : "flex-col",
       )}>
         <div className="flex min-w-0 flex-1 items-center gap-3">

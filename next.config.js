@@ -1,7 +1,16 @@
 const isStandaloneBuild = process.env.QUANTPILOT_STANDALONE_BUILD === '1';
+const enableHsts = /^(?:1|true|yes|on)$/i.test(process.env.QUANTPILOT_SECURITY_HSTS || '');
 const projectRoot = __dirname;
 const skipRouteOutputTracing = process.env.QUANTPILOT_SKIP_ROUTE_TRACING !== '0' && !isStandaloneBuild;
 const tracingExcludes = [
+  './.env',
+  './.env.*',
+  './**/.env',
+  './**/.env.*',
+  './**/.npmrc',
+  './**/.netrc',
+  './**/*.key',
+  './**/*.pem',
   './.git/**',
   './.next/**',
   './.turbo/**',
@@ -18,6 +27,12 @@ const tracingExcludes = [
   './node_modules/.cache/**',
 ];
 const tracePluginIgnores = [
+  '**/.env',
+  '**/.env.*',
+  '**/.npmrc',
+  '**/.netrc',
+  '**/*.key',
+  '**/*.pem',
   '**/.git/**',
   '**/.next/**',
   '**/.turbo/**',
@@ -32,6 +47,7 @@ const tracePluginIgnores = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
   productionBrowserSourceMaps: false,
   devIndicators: false,
   allowedDevOrigins: ['127.0.0.1', 'host.docker.internal'],
@@ -100,7 +116,18 @@ const nextConfig = {
       { key: 'Cache-Control', value: 'private, no-store, max-age=0' },
       { key: 'Pragma', value: 'no-cache' },
     ];
+    const securityHeaders = [
+      { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-Frame-Options', value: 'DENY' },
+      ...(enableHsts
+        ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+        : []),
+    ];
     return [
+      { source: '/:path*', headers: securityHeaders },
       { source: '/api/admin/:path*', headers: privateNoStore },
       { source: '/api/account/:path*', headers: privateNoStore },
       { source: '/api/auth/:path*', headers: privateNoStore },

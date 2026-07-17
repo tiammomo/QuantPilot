@@ -97,7 +97,10 @@ export CLICKHOUSE_PASSWORD=quantpilot_dev_password
 
 ```bash
 curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/ready
 ```
+
+`/health` 只确认 FastAPI 进程存活；负载均衡器接流前使用 `/ready`，它会按降级配置检查数据库与 Redis，required 依赖失败时返回 503，且不会返回连接串或内部异常。
 
 ### 数据源注册表
 

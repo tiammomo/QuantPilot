@@ -1,0 +1,28 @@
+[Unit]
+Description=QuantPilot market data API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quantpilot
+Group=quantpilot
+WorkingDirectory=/opt/quantpilot/current
+EnvironmentFile=/etc/quantpilot/quantpilot.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=UV_CACHE_DIR=/var/cache/quantpilot/uv
+ExecStart=/usr/bin/env uv run --frozen --extra baostock --extra akshare --project services/market-data quantpilot-market-api
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillMode=mixed
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/quantpilot /var/cache/quantpilot
+LimitNOFILE=32768
+
+[Install]
+WantedBy=multi-user.target

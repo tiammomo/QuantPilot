@@ -11,6 +11,16 @@ const MIGRATION_PATH = path.join(
   'prisma/migrations/20260716000400_add_permissions_and_usage_quotas/migration.sql',
 );
 const migrationSql = readFileSync(MIGRATION_PATH, 'utf8');
+const hardeningMigrationSql = readFileSync(path.join(
+  process.cwd(),
+  'prisma/migrations/20260717000100_harden_default_member_quotas/migration.sql',
+), 'utf8');
+const hardeningBlock = hardeningMigrationSql.match(
+  /SET\s+"enforcement" = 'hard'[\s\S]+?;/,
+)?.[0] ?? '';
+const warningBlock = hardeningMigrationSql.match(
+  /SET\s+"enforcement" = 'warn'[\s\S]+?;/,
+)?.[0] ?? '';
 
 function migrationPermissionGrants(profileId: string): string[] {
   const marker = `\n  '${profileId}',\n  permission_key,`;
@@ -64,6 +74,11 @@ describe('built-in access-control defaults', () => {
     const expected = DEFAULT_QUOTA_RULES.map((rule) => ({ ...rule }))
       .sort((left, right) => left.metric.localeCompare(right.metric));
     const actual = migrationQuotaRules()
+      .map((rule) => hardeningBlock.includes(`'${rule.metric}'`)
+        ? { ...rule, enforcement: 'hard' }
+        : warningBlock.includes(`'${rule.metric}'`)
+          ? { ...rule, enforcement: 'warn' }
+          : rule)
       .sort((left, right) => left.metric.localeCompare(right.metric));
 
     expect(new Set(DEFAULT_QUOTA_RULES.map((rule) => rule.metric)).size)
@@ -71,6 +86,7 @@ describe('built-in access-control defaults', () => {
     expect(actual).toEqual(expected);
     expect(migrationSql).toContain(`'${DEFAULT_QUOTA_PROFILE.key}'`);
     expect(migrationSql).toContain(`'${DEFAULT_QUOTA_PROFILE.name}'`);
-    expect(migrationSql).toContain(`'${DEFAULT_QUOTA_PROFILE.description}'`);
+    expect(`${migrationSql}\n${hardeningMigrationSql}`)
+      .toContain(`'${DEFAULT_QUOTA_PROFILE.description}'`);
   });
 });

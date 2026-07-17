@@ -61,20 +61,23 @@ export function fingerprintUntrackedFiles(
     readEntry?: (absolutePath: string) => UntrackedFingerprintEntry;
   } = {},
 ): string {
-  const cwd = resolve(options.cwd ?? process.cwd());
+  const cwd = resolve(/* turbopackIgnore: true */ options.cwd ?? process.cwd());
   const maxContentBytes = options.maxContentBytes ?? MAX_UNTRACKED_CONTENT_BYTES;
   const readEntry = options.readEntry ?? ((absolutePath: string) => {
-    const stat = lstatSync(absolutePath);
+    const stat = lstatSync(/* turbopackIgnore: true */ absolutePath);
     if (stat.isSymbolicLink()) {
       return {
         kind: 'symlink' as const,
-        content: Buffer.from(readlinkSync(absolutePath), 'utf8'),
+        content: Buffer.from(readlinkSync(/* turbopackIgnore: true */ absolutePath), 'utf8'),
       };
     }
     if (!stat.isFile()) {
       throw new Error(`Unsupported untracked entry: ${absolutePath}`);
     }
-    return { kind: 'file' as const, content: readFileSync(absolutePath) };
+    return {
+      kind: 'file' as const,
+      content: readFileSync(/* turbopackIgnore: true */ absolutePath),
+    };
   });
   const normalizedPaths = [...new Set(paths)].sort((left, right) =>
     Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')),
