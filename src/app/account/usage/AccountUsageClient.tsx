@@ -3,7 +3,6 @@
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   Bot,
   CheckCircle2,
   Database,
@@ -19,9 +18,9 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { AccountPageShell } from '@/components/account/AccountPageShell';
 import { Button } from '@/components/ui/button';
 
 type PermissionScope = 'account' | 'project' | 'platform';
@@ -213,21 +212,24 @@ export default function AccountUsageClient() {
   const activeQuotaCount = details?.quotas.filter(hasQuotaActivity).length ?? 0;
 
   return (
-    <main className="min-h-screen bg-background px-4 py-8 sm:px-6 sm:py-10">
-      <div className="mx-auto max-w-7xl space-y-10">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <Button variant="ghost" size="sm" className="-ml-3 mb-2" asChild>
-              <Link href="/"><ArrowLeft className="h-4 w-4" />返回工作台</Link>
-            </Button>
-            <p className="text-sm font-medium text-primary">账号中心</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">用量与配额</h1>
-            <p className="mt-2 text-sm text-muted-foreground">查看当前有效权限、执行中预留和各统计窗口的剩余额度。</p>
-          </div>
-          <Button variant="ghost" className="rounded-none border-b border-border px-1" disabled={loading} onClick={() => void loadUsage()}>
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />刷新
-          </Button>
-        </header>
+    <AccountPageShell
+      title="用量与配额"
+      subtitle="查看当前有效权限、执行中预留和各统计窗口的剩余额度。"
+      contentClassName="max-w-7xl space-y-10"
+      actions={(
+        <Button
+          aria-label="刷新用量与配额"
+          title="刷新用量与配额"
+          variant="outline"
+          size="sm"
+          disabled={loading}
+          onClick={() => void loadUsage()}
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">刷新</span>
+        </Button>
+      )}
+    >
 
         {error ? (
           <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600">
@@ -339,7 +341,6 @@ export default function AccountUsageClient() {
             </section>
           </>
         ) : null}
-      </div>
-    </main>
+    </AccountPageShell>
   );
 }

@@ -3,6 +3,7 @@
 import { KeyRound, Laptop, LogOut, ShieldCheck, Smartphone } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 
+import { AccountPageShell } from '@/components/account/AccountPageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -90,55 +91,51 @@ export default function AccountSecurityClient({ required }: { required: boolean 
   }
 
   return (
-    <main className="min-h-screen bg-muted/25 px-4 py-10 sm:px-6">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <header>
-          <p className="text-sm font-medium text-primary">账号安全</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">密码与登录设备</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{user?.email}</p>
-        </header>
+    <AccountPageShell
+      title="密码与登录设备"
+      subtitle={user?.email ? `管理密码与已登录设备 · ${user.email}` : '管理密码与已登录设备'}
+      contentClassName="max-w-4xl space-y-6"
+    >
+      {(required || user?.mustChangePassword) ? (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300">
+          当前使用的是初始密码。修改密码后才能进入其他 QuantPilot 功能。
+        </div>
+      ) : null}
 
-        {(required || user?.mustChangePassword) ? (
-          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-300">
-            当前使用的是初始密码。修改密码后才能进入其他 QuantPilot 功能。
-          </div>
-        ) : null}
+      <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><KeyRound className="h-5 w-5" /></span>
+          <div><h2 className="font-semibold">修改密码</h2><p className="text-sm text-muted-foreground">至少 12 个字符，修改后撤销其他设备会话。</p></div>
+        </div>
+        <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={changePassword}>
+          <div className="space-y-2 sm:col-span-2"><Label htmlFor="current-password">当前密码</Label><Input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
+          <div className="space-y-2"><Label htmlFor="new-password">新密码</Label><Input id="new-password" type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
+          <div className="space-y-2"><Label htmlFor="confirm-password">确认新密码</Label><Input id="confirm-password" type="password" autoComplete="new-password" minLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
+          {feedback ? <p role="status" className={`text-sm sm:col-span-2 ${feedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>{feedback.message}</p> : null}
+          <div className="sm:col-span-2"><Button type="submit" disabled={submitting}>{submitting ? '正在修改…' : '修改密码'}</Button></div>
+        </form>
+      </section>
 
-        <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary"><KeyRound className="h-5 w-5" /></span>
-            <div><h2 className="font-semibold">修改密码</h2><p className="text-sm text-muted-foreground">至少 12 个字符，修改后撤销其他设备会话。</p></div>
-          </div>
-          <form className="mt-6 grid gap-4 sm:grid-cols-2" onSubmit={changePassword}>
-            <div className="space-y-2 sm:col-span-2"><Label htmlFor="current-password">当前密码</Label><Input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></div>
-            <div className="space-y-2"><Label htmlFor="new-password">新密码</Label><Input id="new-password" type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required /></div>
-            <div className="space-y-2"><Label htmlFor="confirm-password">确认新密码</Label><Input id="confirm-password" type="password" autoComplete="new-password" minLength={12} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required /></div>
-            {feedback ? <p role="status" className={`text-sm sm:col-span-2 ${feedback.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>{feedback.message}</p> : null}
-            <div className="sm:col-span-2"><Button type="submit" disabled={submitting}>{submitting ? '正在修改…' : '修改密码'}</Button></div>
-          </form>
-        </section>
-
-        <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span><div><h2 className="font-semibold">活跃会话</h2><p className="text-sm text-muted-foreground">管理已登录的浏览器和设备。</p></div></div>
-            <Button variant="outline" size="sm" onClick={revokeOthers}>撤销其他会话</Button>
-          </div>
-          <div className="mt-5 divide-y rounded-xl border">
-            {sessions.map((session) => {
-              const mobile = /mobile|android|iphone|ipad/i.test(session.userAgent ?? '');
-              const DeviceIcon = mobile ? Smartphone : Laptop;
-              return (
-                <div key={session.id} className="flex items-center gap-3 p-4">
-                  <DeviceIcon className="h-5 w-5 text-muted-foreground" />
-                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{deviceLabel(session.userAgent)} {session.isCurrent ? '· 当前会话' : ''}</p><p className="text-xs text-muted-foreground">{session.ipAddress || 'IP 未记录'} · {new Date(session.updatedAt).toLocaleString('zh-CN')}</p></div>
-                  {!session.isCurrent ? <Button variant="ghost" size="sm" onClick={() => revokeSession(session.id)}><LogOut className="h-4 w-4" />撤销</Button> : null}
-                </div>
-              );
-            })}
-            {sessions.length === 0 ? <p className="p-4 text-sm text-muted-foreground">没有可展示的活跃会话。</p> : null}
-          </div>
-        </section>
-      </div>
-    </main>
+      <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span><div><h2 className="font-semibold">活跃会话</h2><p className="text-sm text-muted-foreground">管理已登录的浏览器和设备。</p></div></div>
+          <Button variant="outline" size="sm" className="self-start sm:self-auto" onClick={revokeOthers}>撤销其他会话</Button>
+        </div>
+        <div className="mt-5 divide-y rounded-xl border">
+          {sessions.map((session) => {
+            const mobile = /mobile|android|iphone|ipad/i.test(session.userAgent ?? '');
+            const DeviceIcon = mobile ? Smartphone : Laptop;
+            return (
+              <div key={session.id} className="flex items-center gap-3 p-4">
+                <DeviceIcon className="h-5 w-5 text-muted-foreground" />
+                <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{deviceLabel(session.userAgent)} {session.isCurrent ? '· 当前会话' : ''}</p><p className="text-xs text-muted-foreground">{session.ipAddress || 'IP 未记录'} · {new Date(session.updatedAt).toLocaleString('zh-CN')}</p></div>
+                {!session.isCurrent ? <Button variant="ghost" size="sm" onClick={() => revokeSession(session.id)}><LogOut className="h-4 w-4" />撤销</Button> : null}
+              </div>
+            );
+          })}
+          {sessions.length === 0 ? <p className="p-4 text-sm text-muted-foreground">没有可展示的活跃会话。</p> : null}
+        </div>
+      </section>
+    </AccountPageShell>
   );
 }

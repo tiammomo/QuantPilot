@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
-import { ArrowUp, Bot, Cpu, Image as ImageIcon, Paperclip, SlidersHorizontal } from "lucide-react";
+import { useCallback, useId, useRef, useState } from "react";
+import {
+  ArrowUp,
+  Bot,
+  Cpu,
+  Image as ImageIcon,
+  LayoutDashboard,
+  MessageSquare,
+  Paperclip,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -43,6 +52,8 @@ interface UploadedImage {
   file?: File;
 }
 
+type CreateTaskOutputMode = "act" | "chat";
+
 interface CreateTaskFormProps {
   prompt: string;
   onPromptChange: (value: string) => void;
@@ -59,6 +70,49 @@ interface CreateTaskFormProps {
   modelOptions: ModelOption[];
   selectedRole: RoleModule;
   onRoleChange?: (id: QuantCapabilityId) => void;
+  /** Image-only tasks are disabled by default; opt in only when the downstream workflow explicitly supports them. */
+  allowImageOnly?: boolean;
+  /** Defaults to dashboard generation and can be controlled by the parent when it is ready to persist the choice. */
+  outputMode?: CreateTaskOutputMode;
+  onOutputModeChange?: (mode: CreateTaskOutputMode) => void;
+}
+
+interface CreateTaskSubmitKey {
+  key: string;
+  shiftKey: boolean;
+  isComposing?: boolean;
+  keyCode?: number;
+}
+
+interface CreateTaskSubmissionState {
+  canSubmit: boolean;
+  validationMessage: string | null;
+}
+
+const IMAGE_ONLY_VALIDATION_MESSAGE = "已添加图片，请补充文字说明后再开始研究。";
+
+function getCreateTaskSubmissionState(
+  prompt: string,
+  uploadedImageCount: number,
+  allowImageOnly = false
+): CreateTaskSubmissionState {
+  const hasPrompt = prompt.trim().length > 0;
+  const hasImages = uploadedImageCount > 0;
+  const isBlockedImageOnly = hasImages && !hasPrompt && !allowImageOnly;
+
+  return {
+    canSubmit: hasPrompt || (hasImages && allowImageOnly),
+    validationMessage: isBlockedImageOnly ? IMAGE_ONLY_VALIDATION_MESSAGE : null,
+  };
+}
+
+function shouldSubmitCreateTaskFromKeyDown({
+  key,
+  shiftKey,
+  isComposing = false,
+  keyCode,
+}: CreateTaskSubmitKey): boolean {
+  return key === "Enter" && !shiftKey && !isComposing && keyCode !== 229;
 }
 
 function CreateTaskForm({
@@ -76,33 +130,57 @@ function CreateTaskForm({
   onModelChange,
   modelOptions,
   selectedRole,
+  allowImageOnly = false,
+  outputMode,
+  onOutputModeChange,
 }: CreateTaskFormProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(true);
+  const [uncontrolledOutputMode, setUncontrolledOutputMode] = useState<CreateTaskOutputMode>("act");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isComposingRef = useRef(false);
+  const fileInputId = useId();
+  const validationMessageId = useId();
+  const submissionState = getCreateTaskSubmissionState(prompt, uploadedImages.length, allowImageOnly);
+  const isSubmitDisabled = !submissionState.canSubmit || isCreating || isUploading;
+  const selectedOutputMode = outputMode ?? uncontrolledOutputMode;
+
+  const submitIfValid = () => {
+    if (isSubmitDisabled) return;
+    onSubmit();
+  };
+
+  const changeOutputMode = (nextMode: CreateTaskOutputMode) => {
+    if (outputMode === undefined) setUncontrolledOutputMode(nextMode);
+    onOutputModeChange?.(nextMode);
+  };
 
   const handleFiles = useCallback(
     (files: FileList | File[]) => {
+      if (isCreating || isUploading) return;
       setIsUploading(true);
-      const filesArray = Array.from(files as ArrayLike<File>);
-      const imagesToAdd = filesArray
-        .filter((file) => file.type.startsWith("image/"))
-        .map((file) => ({
-          id: crypto.randomUUID(),
-          name: file.name,
-          url: URL.createObjectURL(file),
-          path: "",
-          file,
-        }));
+      try {
+        const filesArray = Array.from(files as ArrayLike<File>);
+        const imagesToAdd = filesArray
+          .filter((file) => file.type.startsWith("image/"))
+          .map((file) => ({
+            id: crypto.randomUUID(),
+            name: file.name,
+            url: URL.createObjectURL(file),
+            path: "",
+            file,
+          }));
 
-      if (imagesToAdd.length > 0) {
-        onImagesChange([...uploadedImages, ...imagesToAdd]);
+        if (imagesToAdd.length > 0) {
+          onImagesChange([...uploadedImages, ...imagesToAdd]);
+        }
+      } finally {
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [uploadedImages, onImagesChange]
+    [isCreating, isUploading, uploadedImages, onImagesChange]
   );
 
   const removeImage = (id: string) => {
@@ -118,7 +196,7 @@ function CreateTaskForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        submitIfValid();
       }}
       onDragEnter={(e) => {
         e.preventDefault();
@@ -167,10 +245,11 @@ function CreateTaskForm({
               <button
                 type="button"
                 onClick={() => removeImage(image.id)}
-                className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs text-white opacity-0 transition-opacity hover:bg-destructive/80 group-hover:opacity-100"
+                disabled={isCreating}
+                className="group/remove absolute -right-3 -top-3 flex h-11 w-11 items-center justify-center rounded-full opacity-100 transition-opacity disabled:cursor-not-allowed disabled:opacity-50 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                 aria-label={`移除图片 ${image.name}`}
               >
-                ×
+                <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-xs text-white shadow-sm transition-colors group-hover/remove:bg-destructive/80">×</span>
               </button>
             </div>
           ))}
@@ -183,14 +262,37 @@ function CreateTaskForm({
         aria-label="量化分析需求"
         placeholder={selectedRole.inputPlaceholder ?? selectedRole.inputHint ?? "描述你的金融分析需求..."}
         disabled={isCreating}
+        aria-invalid={submissionState.validationMessage ? true : undefined}
+        aria-describedby={submissionState.validationMessage ? validationMessageId : undefined}
         className="min-h-[96px] resize-none border-0 bg-transparent px-5 pb-3 pt-4 text-base leading-7 shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 md:min-h-[112px] md:px-6 md:pt-5"
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (shouldSubmitCreateTaskFromKeyDown({
+            key: e.key,
+            shiftKey: e.shiftKey,
+            isComposing: isComposingRef.current || e.nativeEvent.isComposing,
+            keyCode: e.keyCode,
+          })) {
             e.preventDefault();
-            onSubmit();
+            submitIfValid();
           }
         }}
       />
+
+      {submissionState.validationMessage ? (
+        <p
+          id={validationMessageId}
+          role="alert"
+          className="mx-5 mb-3 -mt-1 text-xs font-medium text-amber-700 dark:text-amber-300 md:mx-6"
+        >
+          {submissionState.validationMessage}
+        </p>
+      ) : null}
 
       {/* Drag overlay */}
       {isDragOver && (
@@ -209,12 +311,12 @@ function CreateTaskForm({
             <Bot className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">Agent</span>
             <Select value={selectedAssistant} onValueChange={onAssistantChange}>
-              <SelectTrigger aria-label="选择分析助手" className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
+              <SelectTrigger aria-label="选择分析助手" className="h-11 min-h-11 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
                 <SelectValue placeholder="助手" />
               </SelectTrigger>
               <SelectContent>
                 {assistantOptions.map((opt) => (
-                  <SelectItem key={opt.id} value={opt.id} disabled={!isAssistantSelectable(opt.id)}>{opt.name}</SelectItem>
+                  <SelectItem key={opt.id} value={opt.id} disabled={!isAssistantSelectable(opt.id)} className="min-h-11">{opt.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -225,11 +327,11 @@ function CreateTaskForm({
               <Cpu className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="shrink-0 text-[10px] font-semibold text-muted-foreground">模型</span>
               <Select value={selectedModel} onValueChange={onModelChange}>
-                <SelectTrigger aria-label="选择分析模型" className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
+                <SelectTrigger aria-label="选择分析模型" className="h-11 min-h-11 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-xs font-semibold shadow-none">
                   <SelectValue placeholder="模型" />
                 </SelectTrigger>
                 <SelectContent>
-                  {modelOptions.map((model) => <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>)}
+                  {modelOptions.map((model) => <SelectItem key={model.id} value={model.id} className="min-h-11">{model.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -238,33 +340,35 @@ function CreateTaskForm({
       ) : null}
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-t border-border/40 bg-background/55 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border/40 bg-background/55 px-3 py-2">
         {/* Upload button */}
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="relative h-8 w-8 text-muted-foreground hover:text-foreground"
+          className="relative h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground"
           aria-label="上传图片"
-          asChild
+          aria-controls={fileInputId}
+          disabled={isUploading || isCreating}
+          onClick={() => fileInputRef.current?.click()}
         >
-          <label>
-            <Paperclip className="h-4 w-4" />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => e.target.files && handleFiles(e.target.files)}
-              disabled={isUploading || isCreating}
-              className="sr-only"
-            />
-          </label>
+          <Paperclip className="h-4 w-4" />
         </Button>
+        <input
+          ref={fileInputRef}
+          id={fileInputId}
+          type="file"
+          accept="image/*"
+          multiple
+          tabIndex={-1}
+          onChange={(e) => e.currentTarget.files && handleFiles(e.currentTarget.files)}
+          disabled={isUploading || isCreating}
+          className="hidden"
+        />
 
         {/* Capability badge */}
-        <div className="flex items-center gap-1.5 border-l border-border/60 px-2 py-1">
-          <span className="text-xs font-medium text-muted-foreground">
+        <div className="flex min-w-0 max-w-28 items-center gap-1.5 border-l border-border/60 px-2 py-1 sm:max-w-40">
+          <span className="truncate text-xs font-medium text-muted-foreground">
             {selectedRole.shortName ?? selectedRole.name}
           </span>
         </div>
@@ -275,50 +379,102 @@ function CreateTaskForm({
           size="sm"
           onClick={() => setShowAdvanced((current) => !current)}
           aria-expanded={showAdvanced}
-          className={cn("h-8 gap-1.5 rounded-lg px-2 text-xs", showAdvanced ? "bg-primary/[0.08] text-primary hover:bg-primary/[0.12]" : "text-muted-foreground")}
+          className={cn("h-11 min-h-11 gap-1.5 rounded-lg px-2 text-xs", showAdvanced ? "bg-primary/[0.08] text-primary hover:bg-primary/[0.12]" : "text-muted-foreground")}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
-          高级设置
+          <span className="sm:hidden">高级</span>
+          <span className="hidden sm:inline">高级设置</span>
         </Button>
 
         <span className="ml-auto hidden text-[10px] text-muted-foreground/75 lg:inline">Enter 发送 · Shift + Enter 换行</span>
 
-        {/* Submit button */}
-        <Button
-          type="submit"
-          disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreating}
-          className="ml-auto h-9 gap-1.5 rounded-xl bg-gradient-to-r from-[#ef765f] to-[#dd5846] px-3 text-xs font-semibold text-white shadow-[0_12px_28px_-14px_rgba(221,88,70,0.85)] hover:from-[#e96953] hover:to-[#cf4c3b] lg:ml-0"
-          aria-label="提交任务"
-        >
-          {isCreating ? (
-            <svg
-              className="h-4 w-4 animate-spin"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
+        <div className="flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto">
+          <div
+            role="group"
+            aria-label="输出方式"
+            className="grid min-w-0 flex-1 grid-cols-2 rounded-xl border border-border/70 bg-muted/45 p-0.5 sm:flex sm:flex-none"
+          >
+            <button
+              type="button"
+              aria-label="生成看板"
+              aria-pressed={selectedOutputMode === "act"}
+              disabled={isCreating}
+              onClick={() => changeOutputMode("act")}
+              className={cn(
+                "flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-24",
+                selectedOutputMode === "act"
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
             >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-          ) : (
-            <><ArrowUp className="h-4 w-4" />开始研究</>
-          )}
-        </Button>
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              <span>生成看板</span>
+            </button>
+            <button
+              type="button"
+              aria-label="只做问答"
+              aria-pressed={selectedOutputMode === "chat"}
+              disabled={isCreating}
+              onClick={() => changeOutputMode("chat")}
+              className={cn(
+                "flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-24",
+                selectedOutputMode === "chat"
+                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>只做问答</span>
+            </button>
+          </div>
+
+          {/* Submit button */}
+          <Button
+            type="submit"
+            disabled={isSubmitDisabled}
+            aria-describedby={submissionState.validationMessage ? validationMessageId : undefined}
+            className="h-11 min-h-11 shrink-0 gap-1.5 rounded-xl bg-gradient-to-r from-[#c94b38] to-[#a93425] px-3 text-xs font-semibold text-white shadow-[0_12px_28px_-14px_rgba(169,52,37,0.72)] hover:from-[#bd4938] hover:to-[#982f22]"
+            aria-label="提交任务"
+          >
+            {isCreating ? (
+              <svg
+                className="h-4 w-4 animate-spin motion-reduce:animate-none"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            ) : (
+              <><ArrowUp className="h-4 w-4" />开始研究</>
+            )}
+          </Button>
+        </div>
       </div>
     </form>
   );
 }
 
-export { CreateTaskForm };
-export type { CreateTaskFormProps, UploadedImage };
+export {
+  CreateTaskForm,
+  getCreateTaskSubmissionState,
+  shouldSubmitCreateTaskFromKeyDown,
+};
+export type {
+  CreateTaskFormProps,
+  CreateTaskOutputMode,
+  CreateTaskSubmissionState,
+  UploadedImage,
+};

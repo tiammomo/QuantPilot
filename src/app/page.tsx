@@ -1,24 +1,30 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   CircleAlert,
   CircleCheckBig,
   CircleDashed,
+  Clock3,
+  Crosshair,
+  FileChartColumn,
   FolderKanban,
   Home,
-  LayoutGrid,
+  LayoutDashboard,
+  MessageSquare,
   Settings,
   XCircle,
   Sparkles,
   ChevronRight,
+  ArrowRight,
+  RefreshCcw,
   UserRound,
   Users,
 } from "lucide-react";
-import GlobalSettings from "@/components/settings/GlobalSettings";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
 import { getDefaultModelForCli, getModelDisplayName } from "@/lib/constants/cliModels";
 import {
@@ -34,7 +40,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
-import { TaskDrawer } from "@/components/task/TaskDrawer";
 import { CreateTaskForm } from "@/components/task/CreateTaskForm";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,10 +63,23 @@ import {
 } from "@/lib/quant/capabilities";
 import { cn } from "@/lib/utils";
 import homeAnimeResearcher from "@/assets/home-anime-quant-researcher-v3.webp";
-import homeAnimeResearcherAvatar from "@/assets/home-anime-quant-researcher-avatar-v1.webp";
+import {
+  buildQuestionInstruction,
+  inferQuestionFocus,
+  inferQuestionTimeRange,
+  inferSymbolSearchQuery,
+  questionOutputLabel,
+  type QuestionMode,
+} from "@/components/chat/question-composer";
 
 const fetchAPI = globalThis.fetch || fetch;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
+const GlobalSettings = dynamic(() => import("@/components/settings/GlobalSettings"), { ssr: false });
+const TaskDrawer = dynamic(
+  () => import("@/components/task/TaskDrawer").then((module) => module.TaskDrawer),
+  { ssr: false },
+);
 
 const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name }) => ({ id, name }));
 
@@ -102,6 +120,13 @@ function getProjectStatus(project: ProjectSummary) {
   return { label: "草稿", tone: "slate", icon: CircleDashed } as const;
 }
 
+function getProjectActionLabel(project: ProjectSummary) {
+  if (project.previewUrl || project.status === "preview_running" || project.status === "active") return "查看结果";
+  if (project.status === "failed" || project.status === "error") return "查看原因";
+  if (ACTIVE_PROJECT_STATUSES.has(project.status ?? "")) return "查看进度";
+  return "继续编辑";
+}
+
 export default function HomePage() {
   // --- State ---
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -117,6 +142,10 @@ export default function HomePage() {
     type: "success" | "error";
   } | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [outputMode, setOutputMode] = useState<QuestionMode>("act");
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [creationStep, setCreationStep] = useState<string | null>(null);
 
   const DEFAULT_ASSISTANT: ActiveCliId = DEFAULT_ACTIVE_CLI;
   const DEFAULT_MODEL = getDefaultModelForCli(DEFAULT_ASSISTANT);
@@ -196,10 +225,22 @@ export default function HomePage() {
   );
   const runningProjects = activeProjects.length;
   const readyProjects = projects.filter((project) => Boolean(project.previewUrl)).length;
-  const recentProjects = projects.slice(0, 3);
+  const recentResults = projects.filter((project) => Boolean(project.previewUrl)).slice(0, 2);
+  const recentProjects = projects.filter((project) => !project.previewUrl).slice(0, 3);
+  const attentionProject = useMemo(() => {
+    const needsAttention = projects.find((project) => project.status === "failed" || project.status === "error");
+    const currentlyRunning = projects.find(
+      (project) => !project.previewUrl && ACTIVE_PROJECT_STATUSES.has(project.status ?? "")
+    );
+    return needsAttention ?? currentlyRunning ?? null;
+  }, [projects]);
   const readyCapabilities = QUANT_CAPABILITIES.filter((capability) => capability.status === "ready");
   const accountName = user?.name || user?.email || "研究员";
   const accountInitial = accountName.slice(0, 1).toUpperCase();
+  const normalizedPrompt = prompt.trim();
+  const querySubject = normalizedPrompt ? inferSymbolSearchQuery(normalizedPrompt) : null;
+  const queryTimeRange = normalizedPrompt ? inferQuestionTimeRange(normalizedPrompt) : null;
+  const queryFocus = normalizedPrompt ? inferQuestionFocus(normalizedPrompt) : null;
 
   // --- Session persistence ---
   useEffect(() => {
@@ -230,6 +271,13 @@ export default function HomePage() {
   useEffect(() => {
     const currentHour = new Date().getHours();
     setGreeting(currentHour < 11 ? "早上好" : currentHour < 14 ? "中午好" : currentHour < 18 ? "下午好" : "晚上好");
+    const storedMode = window.localStorage.getItem("quantpilot-question-mode");
+    if (storedMode === "act" || storedMode === "chat") setOutputMode(storedMode);
+  }, []);
+
+  const handleOutputModeChange = useCallback((mode: QuestionMode) => {
+    setOutputMode(mode);
+    window.localStorage.setItem("quantpilot-question-mode", mode);
   }, []);
 
   useEffect(() => {
@@ -294,13 +342,11 @@ export default function HomePage() {
     try {
       const r = await fetchAPI(`${API_BASE}/api/projects`);
       if (!r.ok) {
-        setProjects([]);
-        return;
+        throw new Error(`项目列表请求失败（${r.status}）`);
       }
       const payload = await r.json();
       if (payload?.success === false) {
-        setProjects([]);
-        return;
+        throw new Error(payload?.message || payload?.error || "项目列表加载失败");
       }
       const items: unknown[] = Array.isArray(payload?.data)
         ? payload.data
@@ -318,8 +364,9 @@ export default function HomePage() {
         return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
       setProjects(sorted);
-    } catch {
-      setProjects([]);
+      setProjectsError(null);
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : "项目列表加载失败");
     } finally {
       setProjectsLoading(false);
     }
@@ -423,104 +470,125 @@ export default function HomePage() {
   };
 
   const openProject = (project: ProjectSummary) => {
-    const params = new URLSearchParams();
-    if (selectedAssistant) params.set("cli", selectedAssistant);
-    if (selectedModel) params.set("model", selectedModel);
-    router.push(
-      `/${project.id}/chat${params.toString() ? "?" + params.toString() : ""}`
-    );
+    router.push(`/${project.id}/chat`);
   };
 
   const handleSubmit = async () => {
-    if ((!prompt.trim() && uploadedImages.length === 0) || isCreatingProject)
+    if (isCreatingProject) return;
+    if (!prompt.trim()) {
+      showToast("请先描述希望研究的问题，图片可以作为补充材料。", "error");
       return;
+    }
+
     setIsCreatingProject(true);
-    const projectId = `project-${Date.now()}-${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    setCreationStep(pendingProjectId ? "正在重试启动研究" : "正在准备研究空间");
+    let createdProjectId = pendingProjectId;
 
     try {
-      const r = await fetchAPI(`${API_BASE}/api/projects`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId,
-          name: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
-          initialPrompt: prompt.trim(),
-          preferredCli: selectedAssistant,
-          selectedModel,
-          quantCapabilityId: selectedCapability,
-          quantCapabilitySource: "default",
-        }),
-      });
-      if (!r.ok) {
-        showToast("创建任务失败", "error");
-        setIsCreatingProject(false);
-        return;
+      if (!createdProjectId) {
+        const projectId = `project-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 11)}`;
+        const r = await fetchAPI(`${API_BASE}/api/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: projectId,
+            name: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
+            initialPrompt: prompt.trim(),
+            preferredCli: selectedAssistant,
+            selectedModel,
+            quantCapabilityId: selectedCapability,
+            quantCapabilitySource: "manual",
+          }),
+        });
+        const payload = await r.json().catch(() => null);
+        if (!r.ok || payload?.success === false) {
+          throw new Error(payload?.message || payload?.error || `研究空间创建失败（${r.status}）`);
+        }
+        const projectData = payload && typeof payload === "object" ? payload.data ?? payload : payload;
+        createdProjectId = projectData?.id ?? projectId;
+        setPendingProjectId(createdProjectId);
       }
-      const payload = await r.json();
-      const projectData =
-        payload && typeof payload === "object" ? payload.data ?? payload : payload;
-      const createdProjectId: string | undefined = projectData?.id ?? projectId;
 
-      // Upload images
-      let imageData: any[] = [];
+      setCreationStep(uploadedImages.length > 0 ? `正在上传研究材料（0/${uploadedImages.length}）` : "正在提交研究问题");
+      const imageData: Array<{ name: string; path: string; public_url?: string }> = [];
+      const nextImages = [...uploadedImages];
       if (uploadedImages.length > 0) {
-        for (const image of uploadedImages) {
-          if (!image.file) continue;
+        for (let index = 0; index < uploadedImages.length; index += 1) {
+          const image = nextImages[index];
+          if (image.path) {
+            imageData.push({ name: image.name, path: image.path });
+            setCreationStep(`正在上传研究材料（${index + 1}/${uploadedImages.length}）`);
+            continue;
+          }
+          if (!image.file) throw new Error(`无法读取图片“${image.name}”，请重新选择后再试。`);
           const fd = new FormData();
           fd.append("file", image.file);
           const uploadR = await fetchAPI(
             `${API_BASE}/api/assets/${createdProjectId}/upload`,
             { method: "POST", body: fd }
           );
-          if (uploadR.ok) {
-            const result = await uploadR.json();
-            imageData.push({
-              name: result.filename || image.name,
-              path: result.path,
-              public_url:
-                typeof result.public_url === "string"
-                  ? result.public_url
-                  : undefined,
-            });
+          const result = await uploadR.json().catch(() => null);
+          if (!uploadR.ok || !result?.path) {
+            throw new Error(result?.message || result?.error || `图片“${image.name}”上传失败`);
           }
+          const uploaded = {
+            name: result.filename || image.name,
+            path: result.path as string,
+            public_url: typeof result.public_url === "string" ? result.public_url : undefined,
+          };
+          imageData.push(uploaded);
+          nextImages[index] = { ...image, name: uploaded.name, path: uploaded.path };
+          setUploadedImages([...nextImages]);
+          setCreationStep(`正在上传研究材料（${index + 1}/${uploadedImages.length}）`);
         }
       }
 
-      // Fire initial prompt
-      if (prompt.trim()) {
-        await fetchAPI(`${API_BASE}/api/chat/${createdProjectId}/act`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            instruction: prompt.trim(),
-            images: imageData,
-            isInitialPrompt: true,
-            cliPreference: selectedAssistant,
-            selectedModel,
-            quantCapabilityId: selectedCapability,
-            quantCapabilitySource: "default",
-          }),
-        }).catch(() => null);
+      setCreationStep(outputMode === "act" ? "正在启动看板研究" : "正在启动分析问答");
+      const visibleInstruction = prompt.trim();
+      const instruction = buildQuestionInstruction(visibleInstruction, outputMode);
+      const actResponse = await fetchAPI(`${API_BASE}/api/chat/${createdProjectId}/act`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction,
+          displayInstruction: visibleInstruction,
+          images: imageData,
+          isInitialPrompt: true,
+          cliPreference: selectedAssistant,
+          selectedModel,
+          quantCapabilityId: selectedCapability,
+          quantCapabilitySource: "manual",
+        }),
+      });
+      const actPayload = await actResponse.json().catch(() => null);
+      if (!actResponse.ok || actPayload?.success === false) {
+        throw new Error(
+          actPayload?.message || actPayload?.error || `研究任务未能启动（${actResponse.status}）`
+        );
       }
 
-      // Cleanup and navigate
       uploadedImages.forEach((img) => {
         if (img.url) URL.revokeObjectURL(img.url);
       });
       setUploadedImages([]);
       setPrompt("");
+      setPendingProjectId(null);
       const params = new URLSearchParams();
       if (selectedAssistant) params.set("cli", selectedAssistant);
       if (selectedModel) params.set("model", selectedModel);
+      params.set("mode", outputMode);
       router.push(
         `/${createdProjectId}/chat${params.toString() ? "?" + params.toString() : ""}`
       );
-    } catch {
-      showToast("创建任务失败", "error");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "研究任务启动失败";
+      showToast(`${message}。输入和附件已保留，可直接重试。`, "error");
+      if (createdProjectId) void load();
     } finally {
       setIsCreatingProject(false);
+      setCreationStep(null);
     }
   };
 
@@ -555,11 +623,6 @@ export default function HomePage() {
 
   const handleCapabilityCardClick = (capabilityId: QuantCapabilityId) => {
     setSelectedCapability(capabilityId);
-    const cap = QUANT_CAPABILITIES.find((c) => c.id === capabilityId);
-    if (cap && !prompt.trim()) {
-      setPrompt(cap.inputHint);
-    }
-    document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const handleStarterClick = (starter: (typeof RESEARCH_STARTERS)[number]) => {
@@ -568,120 +631,199 @@ export default function HomePage() {
     document.getElementById("task-input")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  const handleCapabilityKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const visibleCapabilities = readyCapabilities.slice(0, 4);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? visibleCapabilities.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + visibleCapabilities.length) % visibleCapabilities.length;
+    setSelectedCapability(visibleCapabilities[nextIndex].id);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>(`[data-home-capability-index="${nextIndex}"]`)?.focus();
+    });
+  };
+
+  const renderProjectRow = (project: ProjectSummary, index: number) => {
+    const status = getProjectStatus(project);
+    const StatusIcon = status.icon;
+    const title = project.name || project.initialPrompt || "未命名研究";
+    const candidateSummary = project.initialPrompt || project.description || "";
+    const normalizedTitle = title.replace(/\.{3}$/, "").trim();
+    const isDuplicateSummary = Boolean(
+      candidateSummary && normalizedTitle && (
+        candidateSummary.startsWith(normalizedTitle) || normalizedTitle.startsWith(candidateSummary)
+      )
+    );
+    const detail = candidateSummary && !isDuplicateSummary
+      ? candidateSummary
+      : formatCliInfo(project.preferredCli ?? undefined, project.selectedModel ?? undefined);
+
+    return (
+      <button
+        key={project.id}
+        type="button"
+        onClick={() => openProject(project)}
+        className="group grid min-h-[4.75rem] w-full scroll-mb-24 grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 px-1 py-3.5 text-left transition-colors hover:bg-muted/25 focus-visible:bg-muted/30 md:grid-cols-[2.5rem_minmax(0,1fr)_6rem_7rem_6.5rem_5.5rem_1.25rem] md:gap-4"
+      >
+        <span className="font-mono text-[11px] text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{title}</h3>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
+        </div>
+        <span className="hidden text-[11px] font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
+        <span className={cn(
+          "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-[11px]",
+          status.tone === "amber" && "text-amber-700 dark:text-amber-400",
+          status.tone === "red" && "text-red-700 dark:text-red-400",
+          status.tone === "green" && "text-emerald-700 dark:text-emerald-400",
+          status.tone === "slate" && "text-muted-foreground",
+        )}>
+          <StatusIcon className="h-3 w-3" />{status.label}
+        </span>
+        <span className="hidden text-[11px] text-muted-foreground md:block">{formatTime(project.lastMessageAt || project.createdAt)}</span>
+        <span className="hidden text-[11px] font-semibold text-foreground transition-colors group-hover:text-primary md:block">{getProjectActionLabel(project)}</span>
+        <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+      </button>
+    );
+  };
+
   // --- Render ---
   return (
     <div className="home-shell relative flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
       <header className="platform-header sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between px-3 md:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ee6b4d] to-[#d84d35] text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(224,83,57,0.8)]">Q</div>
-          <h1 className="text-base font-bold tracking-tight sm:text-lg">QuantPilot</h1>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#e96750] to-[#c94331] text-sm font-bold text-white shadow-[0_10px_22px_-12px_rgba(201,67,49,0.82)]">Q</div>
+          <span className="text-base font-bold tracking-tight sm:text-lg">QuantPilot</span>
 
-          <nav className="ml-4 hidden items-center gap-1 md:flex" aria-label="首页导航">
-            <Button type="button" variant="ghost" size="sm" className="h-10 gap-2 rounded-none border-b-2 border-primary px-3 text-xs font-semibold text-foreground">
+          <nav className="ml-4 hidden items-center gap-1 lg:flex" aria-label="首页导航">
+            <Button type="button" variant="ghost" size="sm" className="h-11 gap-2 rounded-none border-b-2 border-primary px-3 text-xs font-semibold text-foreground">
               <Home className="h-3.5 w-3.5" />首页
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="h-11 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
               <FolderKanban className="h-3.5 w-3.5" />项目
               {projects.length > 0 ? <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{projects.length}</span> : null}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/skills")} className="h-10 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
-              <LayoutGrid className="h-3.5 w-3.5" />能力中心
+            <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/research-reports")} className="h-11 gap-2 rounded-none px-3 text-xs font-semibold text-muted-foreground">
+              <FileChartColumn className="h-3.5 w-3.5" />成果
             </Button>
             <PlatformSwitcher />
           </nav>
         </div>
 
         <div className="flex items-center gap-1.5">
-          <div className="md:hidden"><PlatformSwitcher /></div>
+          <div className="lg:hidden"><PlatformSwitcher /></div>
+          <Button type="button" onClick={() => setTaskDrawerOpen(true)} variant="ghost" size="icon" className="hidden h-11 w-11 rounded-lg md:inline-flex lg:hidden" aria-label="打开项目">
+            <FolderKanban className="h-4 w-4" />
+            <span className="sr-only">项目</span>
+          </Button>
           <ThemeToggle compact />
-          <Button type="button" onClick={() => setShowGlobalSettings(true)} variant="ghost" size="icon" className="hidden h-9 w-9 rounded-none sm:inline-flex" aria-label="全局设置">
+          <Button type="button" onClick={() => setShowGlobalSettings(true)} variant="ghost" size="icon" className="hidden h-11 w-11 rounded-lg sm:inline-flex lg:h-9 lg:w-9" aria-label="全局设置">
             <Settings className="h-4 w-4" />
           </Button>
           {user?.role === "admin" ? (
-            <Button type="button" onClick={() => router.push("/admin/users")} variant="ghost" size="icon" className="hidden h-9 w-9 rounded-none lg:inline-flex" aria-label="用户管理">
+            <Button type="button" onClick={() => router.push("/admin/users")} variant="ghost" size="icon" className="hidden h-9 w-9 rounded-lg xl:inline-flex" aria-label="用户管理">
               <Users className="h-4 w-4" />
             </Button>
           ) : null}
-          <Button type="button" onClick={() => router.push("/account/usage")} variant="ghost" className="hidden h-9 gap-2 rounded-none px-2.5 sm:inline-flex" aria-label="打开我的账号">
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary text-[10px] font-bold text-primary-foreground">{accountInitial || <UserRound className="h-3.5 w-3.5" />}</span>
-            <span className="max-w-24 truncate text-xs font-semibold">{accountName}</span>
+          <Button type="button" onClick={() => router.push("/account/usage")} variant="ghost" className="hidden h-11 gap-2 rounded-lg px-2 sm:inline-flex lg:h-9" aria-label="打开我的账号">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-[10px] font-bold text-primary-foreground">{accountInitial || <UserRound className="h-3.5 w-3.5" />}</span>
+            <span className="hidden max-w-24 truncate text-xs font-semibold xl:inline">{accountName}</span>
           </Button>
         </div>
       </header>
 
-      <main className="platform-content flex-1 px-4 pb-28 pt-4 md:px-6 md:pb-16 md:pt-5">
+      <main className="platform-content flex-1 scroll-pb-24 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 md:px-6 md:pb-16 md:pt-5">
         <div className="mx-auto w-full max-w-[90rem]">
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-2 border-b border-border/60 pb-3 sm:flex-row sm:items-end sm:justify-between"
           >
             <div className="min-w-0">
               <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.08em] text-primary">
                 <Sparkles className="h-3.5 w-3.5" />量化研究工作台
               </div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                <h2 className="text-xl font-bold tracking-[-0.03em] sm:text-2xl">{greeting}，{accountName}</h2>
-                <p className="text-xs leading-5 text-muted-foreground sm:text-sm">从问题出发，在同一工作区完成取数、分析与可视化。</p>
+              <p className="mt-1 text-lg font-bold tracking-[-0.025em] sm:text-xl">{greeting}，{accountName}</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">从一个清晰的问题开始，在同一工作区完成取数、分析、验证与可视化。</p>
+            </div>
+            {projects.length > 0 ? (
+              <div className="hidden items-center gap-4 pb-0.5 text-[11px] text-muted-foreground sm:flex">
+                <span><strong className="mr-1 text-sm text-foreground">{projects.length}</strong>研究</span>
+                {runningProjects > 0 ? <span><strong className="mr-1 text-sm text-amber-700 dark:text-amber-400">{runningProjects}</strong>运行中</span> : null}
+                {readyProjects > 0 ? <span><strong className="mr-1 text-sm text-emerald-700 dark:text-emerald-400">{readyProjects}</strong>成果就绪</span> : null}
               </div>
-            </div>
-            <div className="flex w-full items-center justify-between border-y border-border/60 py-2 text-[11px] text-muted-foreground sm:w-auto sm:justify-start sm:border-y-0 sm:py-0">
-              <button type="button" onClick={() => setTaskDrawerOpen(true)} className="group inline-flex items-baseline gap-1 px-2 transition-colors hover:text-foreground sm:px-3">
-                <strong className="text-base text-foreground group-hover:text-primary">{projects.length}</strong>项研究
-              </button>
-              <span aria-hidden="true" className="h-5 w-px bg-border" />
-              <span className="inline-flex items-baseline gap-1 px-2 sm:px-3"><strong className="text-base text-amber-600">{runningProjects}</strong>运行中</span>
-              <span aria-hidden="true" className="h-5 w-px bg-border" />
-              <span className="inline-flex items-baseline gap-1 px-2 sm:px-3"><strong className="text-base text-emerald-600">{readyProjects}</strong>看板就绪</span>
-            </div>
+            ) : null}
           </motion.section>
 
-          <section className="mt-2 sm:mt-4">
+          {attentionProject ? (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              onClick={() => openProject(attentionProject)}
+              className="group mt-3 grid min-h-12 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-y border-border/70 px-1 py-2.5 text-left hover:bg-muted/25"
+            >
+              {(() => {
+                const status = getProjectStatus(attentionProject);
+                const StatusIcon = status.icon;
+                return <span className={cn("inline-flex items-center gap-1.5 text-xs font-semibold", status.tone === "red" ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400")}><StatusIcon className="h-3.5 w-3.5" />{status.label}</span>;
+              })()}
+              <span className="truncate text-xs font-semibold sm:text-sm">{attentionProject.name || attentionProject.initialPrompt || "未命名研究"}</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground transition-colors group-hover:text-primary">{getProjectActionLabel(attentionProject)}<ArrowRight className="h-3.5 w-3.5" /></span>
+            </motion.button>
+          ) : null}
+
+          <section className="mt-2 sm:mt-3">
             <motion.article
               id="task-input"
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
-              className="relative isolate overflow-hidden border-b border-border/55 py-4 sm:py-6"
+              className="relative isolate overflow-hidden border-b border-border/55 py-6 sm:py-9"
             >
-              <div className="pointer-events-none absolute inset-0 -z-20 bg-[linear-gradient(135deg,hsl(var(--background)),hsl(var(--primary)/0.045)_52%,hsl(var(--background)))]" />
-              <div className="pointer-events-none absolute left-1/2 top-0 -z-10 h-52 w-[52rem] max-w-[92vw] -translate-x-1/2 rounded-full bg-primary/[0.08] blur-3xl" />
+              <div className="pointer-events-none absolute inset-0 -z-30 bg-[linear-gradient(145deg,hsl(var(--background)),hsl(var(--primary)/0.04)_52%,hsl(var(--background)))]" />
+              <div className="pointer-events-none absolute left-1/2 top-2 -z-20 h-64 w-[58rem] max-w-[94vw] -translate-x-1/2 rounded-full bg-primary/[0.075] blur-3xl" />
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute right-1 top-0 hidden h-32 w-80 overflow-hidden xl:block dark:hidden"
+                className="pointer-events-none absolute -right-8 -top-8 -z-10 h-48 w-40 opacity-[0.13] mix-blend-multiply [mask-image:radial-gradient(ellipse_at_62%_42%,black_32%,transparent_76%)] sm:-right-4 sm:-top-24 sm:h-[32rem] sm:w-[26rem] sm:opacity-[0.16] dark:opacity-[0.075] dark:mix-blend-screen"
               >
                 <Image
                   src={homeAnimeResearcher}
                   alt=""
                   fill
-                  sizes="320px"
-                  className="object-cover object-[50%_25%] saturate-[1.04] [mask-image:radial-gradient(ellipse_at_66%_44%,black_32%,transparent_76%)]"
+                  sizes="(max-width: 640px) 160px, 416px"
+                  className="object-cover object-top saturate-[1.02]"
                 />
-                <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background to-transparent" />
               </div>
 
               <div className="relative z-10">
-                <div className="relative text-center">
-                  <h3 className="text-[1.7rem] font-bold tracking-[-0.035em] sm:text-3xl">今天想研究什么？</h3>
-                  <p className="mx-auto mt-1 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">
+                <div className="text-center">
+                  <h1 className="text-[1.9rem] font-bold tracking-[-0.045em] sm:text-[2.45rem]">今天想研究什么？</h1>
+                  <p className="mx-auto mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground sm:text-sm">
                     <span className="sm:hidden">说清标的、时间和目标。</span>
-                    <span className="hidden sm:inline">说清标的、时间和目标，系统会自动补全取数、证据与验证步骤。</span>
+                    <span className="hidden sm:inline">描述标的、时间范围和希望得到的结论，系统会自动补全取数、证据与验证步骤。</span>
                   </p>
-                  <div aria-hidden="true" className="absolute right-0 -top-2 h-14 w-14 overflow-hidden sm:hidden dark:hidden [mask-image:radial-gradient(circle,black_50%,transparent_74%)]">
-                    <Image src={homeAnimeResearcherAvatar} alt="" fill sizes="64px" className="object-cover" />
-                  </div>
                 </div>
 
-                <div className="mt-3 flex justify-start gap-4 overflow-x-auto pb-0.5 sm:justify-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {readyCapabilities.slice(0, 4).map((capability) => (
+                <div role="tablist" aria-label="研究类型" className="mx-auto mt-4 flex max-w-full snap-x snap-mandatory justify-start gap-3 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
+                  {readyCapabilities.slice(0, 4).map((capability, index) => (
                     <button
                       key={capability.id}
                       type="button"
-                      aria-pressed={selectedCapability === capability.id}
+                      role="tab"
+                      aria-selected={selectedCapability === capability.id}
+                      data-home-capability-index={index}
                       onClick={() => handleCapabilityCardClick(capability.id)}
+                      onKeyDown={(event) => handleCapabilityKeyDown(event, index)}
                       className={cn(
-                        "shrink-0 border-b-2 px-1 py-1.5 text-xs font-semibold transition-colors",
+                        "min-h-11 shrink-0 snap-start border-b-2 px-2 py-2.5 text-xs font-semibold transition-colors",
                         selectedCapability === capability.id
                           ? "border-primary text-primary"
                           : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
@@ -692,7 +834,7 @@ export default function HomePage() {
                   ))}
                 </div>
 
-                <div className="mx-auto mt-2 w-full max-w-[76rem]">
+                <div className="mx-auto mt-2.5 w-full max-w-[70rem]">
                   <CreateTaskForm
                     prompt={prompt}
                     onPromptChange={setPrompt}
@@ -708,17 +850,33 @@ export default function HomePage() {
                     onModelChange={handleModelChange}
                     modelOptions={availableModels}
                     selectedRole={selectedRoleModule}
+                    outputMode={outputMode}
+                    onOutputModeChange={handleOutputModeChange}
                   />
                 </div>
 
-                <div className="mt-3 hidden items-center justify-center gap-3 overflow-x-auto pb-1 sm:flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {creationStep ? (
+                  <p role="status" aria-live="polite" className="mx-auto mt-2 flex min-h-6 max-w-[70rem] items-center justify-center gap-2 text-xs font-medium text-primary">
+                    <RefreshCcw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />{creationStep}
+                  </p>
+                ) : normalizedPrompt ? (
+                  <div aria-live="polite" className="mx-auto mt-2.5 flex max-w-[70rem] flex-wrap items-center justify-center gap-1.5 text-[11px]">
+                    <span className="mr-1 font-semibold text-muted-foreground">初步识别</span>
+                    {querySubject ? <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground"><Crosshair className="h-3 w-3 text-primary" />{querySubject}</span> : null}
+                    <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground"><Clock3 className="h-3 w-3 text-primary" />{queryTimeRange}</span>
+                    <span className="inline-flex min-h-7 items-center rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">{queryFocus}</span>
+                    <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">{outputMode === "act" ? <LayoutDashboard className="h-3 w-3 text-primary" /> : <MessageSquare className="h-3 w-3 text-primary" />}{questionOutputLabel(outputMode)}</span>
+                  </div>
+                ) : null}
+
+                <div className="mx-auto mt-3 flex max-w-full snap-x snap-mandatory items-center justify-start gap-3 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
                   <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">试试</span>
                   {RESEARCH_STARTERS.map((starter) => (
                     <button
                       key={starter.label}
                       type="button"
                       onClick={() => handleStarterClick(starter)}
-                      className="shrink-0 border-b border-border px-0.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                      className="min-h-11 shrink-0 snap-start border-b border-border px-1 py-2 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
                     >
                       {starter.label}
                     </button>
@@ -728,83 +886,66 @@ export default function HomePage() {
             </motion.article>
           </section>
 
+          {projectsError ? (
+            <div role="alert" className="mt-5 flex flex-col gap-3 border-y border-red-500/25 bg-red-500/[0.045] px-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div><strong className="text-red-700 dark:text-red-400">最近研究加载失败</strong><p className="mt-0.5 text-xs text-muted-foreground">{projectsError}。当前输入仍可正常使用。</p></div>
+              <Button type="button" variant="outline" size="sm" onClick={() => void load()} className="min-h-11 gap-1.5 self-start sm:self-auto"><RefreshCcw className="h-3.5 w-3.5" />重试</Button>
+            </div>
+          ) : null}
+
+          {recentResults.length > 0 ? (
+            <motion.section
+              id="recent-results"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.14, ease: "easeOut" }}
+              className="mt-5"
+            >
+              <div className="flex items-end justify-between gap-3">
+                <div><h2 className="text-lg font-bold tracking-tight">最近成果</h2><p className="mt-0.5 text-xs text-muted-foreground">直接查看已经完成的数据、证据与可视化结论。</p></div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => router.push("/research-reports")} className="min-h-11 gap-1 rounded-none border-b border-border px-1 text-xs">成果中心<ChevronRight className="h-3.5 w-3.5" /></Button>
+              </div>
+              <div className="mt-2 divide-y divide-border border-y border-border/70">{recentResults.map(renderProjectRow)}</div>
+            </motion.section>
+          ) : null}
+
           <motion.section
             id="recent-projects"
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.18, ease: "easeOut" }}
-            className="mt-4 sm:mt-5"
+            className="mt-5 sm:mt-6"
           >
             <div className="flex items-end justify-between gap-3">
               <div>
-                <p className="text-lg font-bold tracking-tight">最近研究</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">回到最近的分析上下文。</p>
+                <h2 className="text-lg font-bold tracking-tight">继续研究</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">草稿、运行中与需要处理的任务会优先出现在这里。</p>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="h-8 gap-1 rounded-none border-b border-border px-1 text-xs">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTaskDrawerOpen(true)} className="min-h-11 gap-1 rounded-none border-b border-border px-1 text-xs">
                 查看全部 {projects.length > 0 ? `(${projects.length})` : ""}<ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </div>
 
             {projectsLoading ? (
-              <div className="mt-3 divide-y divide-border border-y border-border/70">
-                {[0, 1, 2].map((item) => <div key={item} className="h-16 animate-pulse bg-muted/35" />)}
+              <div role="status" aria-live="polite" aria-label="正在加载最近研究" className="mt-2 divide-y divide-border border-y border-border/70">
+                {[0, 1, 2].map((item) => <div key={item} className="h-[4.75rem] animate-pulse bg-muted/35 motion-reduce:animate-none" />)}
               </div>
             ) : recentProjects.length > 0 ? (
-              <div className="mt-3 divide-y divide-border border-y border-border/70">
-                {recentProjects.map((project, index) => {
-                  const status = getProjectStatus(project);
-                  const StatusIcon = status.icon;
-                  const title = project.name || project.initialPrompt || "未命名研究";
-                  const candidateSummary = project.initialPrompt || project.description || "";
-                  const normalizedTitle = title.replace(/\.{3}$/, "").trim();
-                  const isDuplicateSummary = Boolean(
-                    candidateSummary && normalizedTitle && (
-                      candidateSummary.startsWith(normalizedTitle) || normalizedTitle.startsWith(candidateSummary)
-                    )
-                  );
-                  const detail = candidateSummary && !isDuplicateSummary
-                    ? candidateSummary
-                    : formatCliInfo(project.preferredCli ?? undefined, project.selectedModel ?? undefined);
-                  return (
-                    <button
-                      key={project.id}
-                      type="button"
-                      onClick={() => openProject(project)}
-                      className="group grid w-full grid-cols-[2rem_minmax(0,1fr)_auto_1rem] items-center gap-3 py-3.5 text-left transition-colors hover:bg-muted/25 md:grid-cols-[2.5rem_minmax(0,1fr)_6.5rem_7.5rem_6rem_1.25rem] md:gap-4"
-                    >
-                      <span className="font-mono text-[11px] text-muted-foreground/60">{String(index + 1).padStart(2, "0")}</span>
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{title}</h3>
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
-                      </div>
-                      <span className="hidden text-[11px] font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
-                      <span className={cn(
-                        "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-[11px]",
-                        status.tone === "amber" && "text-amber-600",
-                        status.tone === "red" && "text-red-600",
-                        status.tone === "green" && "text-emerald-600",
-                        status.tone === "slate" && "text-muted-foreground",
-                      )}>
-                        <StatusIcon className="h-3 w-3" />{status.label}
-                      </span>
-                      <span className="hidden text-[11px] text-muted-foreground md:block">{formatTime(project.lastMessageAt || project.createdAt)}</span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-                    </button>
-                  );
-                })}
-              </div>
+              <div className="mt-2 divide-y divide-border border-y border-border/70">{recentProjects.map(renderProjectRow)}</div>
+            ) : recentResults.length > 0 ? (
+              <div className="mt-2 border-y border-dashed border-border py-5 text-center text-xs text-muted-foreground">当前没有待继续的研究，最近成果可直接查看。</div>
             ) : (
-              <div className="mt-3 border-y border-dashed border-border py-7 text-center text-sm text-muted-foreground">创建第一个任务后，最近研究会出现在这里。</div>
+              <div className="mt-2 border-y border-dashed border-border py-6 text-center"><p className="text-sm font-semibold">从上面的示例开始第一项研究</p><p className="mt-1 text-xs text-muted-foreground">系统会保留问题、数据来源、分析过程和最终成果。</p></div>
             )}
           </motion.section>
         </div>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-16 grid-cols-4 border-t border-border/80 bg-background/95 px-2 backdrop-blur-xl md:hidden" aria-label="移动端首页导航">
-        <button type="button" aria-current="page" className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-primary text-[10px] font-semibold text-primary"><Home className="h-4 w-4" />首页</button>
-        <button type="button" onClick={() => setTaskDrawerOpen(true)} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><FolderKanban className="h-4 w-4" />项目</button>
-        <button type="button" onClick={() => router.push("/skills")} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><LayoutGrid className="h-4 w-4" />能力</button>
-        <button type="button" onClick={() => router.push("/account/usage")} className="flex flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><UserRound className="h-4 w-4" />我的</button>
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid h-[calc(4rem+env(safe-area-inset-bottom))] grid-cols-4 border-t border-border/80 bg-background/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden" aria-label="移动端首页导航">
+        <button type="button" aria-current="page" className="flex min-h-11 flex-col items-center justify-center gap-0.5 border-t-2 border-primary text-[10px] font-semibold text-primary"><Home className="h-4 w-4" />首页</button>
+        <button type="button" onClick={() => setTaskDrawerOpen(true)} className="flex min-h-11 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><FolderKanban className="h-4 w-4" />项目</button>
+        <button type="button" onClick={() => router.push("/research-reports")} className="flex min-h-11 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><FileChartColumn className="h-4 w-4" />成果</button>
+        <button type="button" onClick={() => router.push("/account/usage")} className="flex min-h-11 flex-col items-center justify-center gap-0.5 border-t-2 border-transparent text-[10px] font-semibold text-muted-foreground"><UserRound className="h-4 w-4" />我的</button>
       </nav>
 
       {/* Task drawer */}
@@ -862,7 +1003,11 @@ export default function HomePage() {
       {/* Toast */}
       <AnimatePresence>
         {toast && (
-          <div className="fixed bottom-4 right-4 z-50">
+          <div
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
+            className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-50 md:bottom-4"
+          >
             <motion.div
               initial={{ opacity: 0, y: 50, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}

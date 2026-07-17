@@ -5,6 +5,43 @@ import {
 
 export type QuestionMode = 'act' | 'chat';
 
+export const QUESTION_MODE_COPY: Record<QuestionMode, {
+  label: string;
+  description: string;
+  outputLabel: string;
+}> = {
+  act: {
+    label: '生成看板',
+    description: '获取真实数据并生成可交付看板',
+    outputLabel: '生成交互看板',
+  },
+  chat: {
+    label: '只做问答',
+    description: '只回答问题，不修改当前看板',
+    outputLabel: '只做分析问答',
+  },
+};
+
+export const QUESTION_COMPOSER_COPY = {
+  defaultPlaceholder: '向 QuantPilot 描述你的量化需求...',
+  runningPlaceholder: '补充要求将在当前任务结束后自动执行…',
+  recognitionTitle: '发送前识别',
+  recognitionHelper: '可直接发送，系统仍会做正式核验',
+  resolvingTarget: '正在识别标的',
+  pendingTargetVerification: '待执行时确认',
+  advancedSettings: '高级',
+  advancedSettingsDescription: '执行引擎与模型设置',
+} as const;
+
+const CHAT_ONLY_EXECUTION_CONSTRAINT = "Do not modify code or generate a dashboard. Only answer the user's request with evidence.";
+
+export function buildQuestionInstruction(question: string, mode: QuestionMode): string {
+  const visibleQuestion = question.trim();
+  return mode === 'chat'
+    ? `${visibleQuestion}\n\n${CHAT_ONLY_EXECUTION_CONSTRAINT}`
+    : visibleQuestion;
+}
+
 const LEADING_REQUEST_WORDS = /^(?:(?:请|麻烦)?(?:帮我|给我)?(?:看一下|看看|分析一下|分析|研究一下|研究|评估一下|评估|梳理一下|梳理)|我想(?:看看|了解|分析)?|想(?:看看|了解|分析)?)+/u;
 const SUBJECT_BOUNDARY = /(?:的(?:股票|个股)|这(?:只|个)?(?:股票|个股)|股票|个股|最近|近\s*[一二两三四五六七八九十百\d]|过去|今日|今天|昨日|今年|本周|本月|怎么样|如何|走势|行情|财务|基本面|技术|风险|公告|估值|回测|策略|对比|比较)/u;
 
@@ -71,7 +108,7 @@ export function inferQuestionFocus(question: string): string {
 }
 
 export function questionOutputLabel(mode: QuestionMode): string {
-  return mode === 'act' ? '生成交互看板' : '只做分析问答';
+  return QUESTION_MODE_COPY[mode].outputLabel;
 }
 
 export function buildQuickQuestions(projectName = ''): string[] {

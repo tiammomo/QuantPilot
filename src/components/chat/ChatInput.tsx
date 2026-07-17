@@ -21,6 +21,8 @@ import {
   inferQuestionFocus,
   inferQuestionTimeRange,
   inferSymbolSearchQuery,
+  QUESTION_COMPOSER_COPY,
+  QUESTION_MODE_COPY,
   questionOutputLabel,
 } from './question-composer';
 
@@ -94,7 +96,7 @@ interface QueryRewritePreview {
 export default function ChatInput({
   onSendMessage,
   disabled = false,
-  placeholder = "向 QuantPilot 描述你的量化需求...",
+  placeholder = QUESTION_COMPOSER_COPY.defaultPlaceholder,
   mode = 'act',
   onModeChange,
   projectId,
@@ -306,7 +308,7 @@ export default function ChatInput({
   const handleFiles = useCallback(async (files: FileList) => {
     if (!projectId) {
       console.error('❌ No project ID available for image upload');
-      alert('No project selected. Please choose a project first.');
+      alert('当前没有可用项目，请先进入一个研究项目。');
       return;
     }
 
@@ -375,7 +377,7 @@ export default function ChatInput({
       }
     } catch (error) {
       console.error('❌ Image upload failed:', error);
-      alert('Image upload failed. Please try again.');
+      alert('图片上传失败，请重试。');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -577,7 +579,7 @@ export default function ChatInput({
             className="w-full ring-offset-background placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[15px] leading-6 md:text-sm bg-transparent focus:bg-transparent rounded-md px-2 py-2 text-slate-900 border-0"
             id="chatinput"
             aria-label="向 QuantPilot 发送消息"
-            placeholder={isRunning ? '补充要求将在当前任务结束后自动执行…' : placeholder}
+            placeholder={isRunning ? QUESTION_COMPOSER_COPY.runningPlaceholder : placeholder}
             disabled={disabled || isUploading || isSubmitting}
             style={{ minHeight: '84px' }}
           />
@@ -600,8 +602,8 @@ export default function ChatInput({
           <div className="mx-1 mt-1.5 rounded-xl border border-slate-200/80 bg-slate-50/80 px-2.5 py-2">
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              发送前识别
-              <span className="font-normal text-slate-400">可直接发送，系统仍会做正式核验</span>
+              {QUESTION_COMPOSER_COPY.recognitionTitle}
+              <span className="font-normal text-slate-400">{QUESTION_COMPOSER_COPY.recognitionHelper}</span>
             </div>
             {queryRewritePreview?.safety?.decision === 'refuse' && (
               <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
@@ -612,7 +614,7 @@ export default function ChatInput({
               {isResolvingSymbol ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  正在识别标的
+                  {QUESTION_COMPOSER_COPY.resolvingTarget}
                 </span>
               ) : resolvedSymbols.length > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800">
@@ -622,7 +624,7 @@ export default function ChatInput({
                 </span>
               ) : symbolSearchQuery ? (
                 <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                  {symbolSearchQuery} · 待执行时确认
+                  {symbolSearchQuery} · {QUESTION_COMPOSER_COPY.pendingTargetVerification}
                 </span>
               ) : null}
               <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
@@ -722,10 +724,10 @@ export default function ChatInput({
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
                   mode === 'act' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="获取真实数据并生成可交付看板"
+                title={QUESTION_MODE_COPY.act.description}
               >
                 <Wrench className="h-3.5 w-3.5" />
-                <span>生成看板</span>
+                <span>{QUESTION_MODE_COPY.act.label}</span>
               </button>
               <button
                 type="button"
@@ -734,10 +736,10 @@ export default function ChatInput({
                 className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
                   mode === 'chat' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
-                title="只回答问题，不修改当前看板"
+                title={QUESTION_MODE_COPY.chat.description}
               >
                 <MessageSquare className="h-3.5 w-3.5" />
-                <span>只做问答</span>
+                <span>{QUESTION_MODE_COPY.chat.label}</span>
               </button>
             </div>
             <button
@@ -747,10 +749,10 @@ export default function ChatInput({
               className={`flex h-8 items-center gap-1 rounded-full px-2 text-xs transition-colors ${
                 showAdvancedOptions ? 'bg-slate-100 text-slate-800' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
               }`}
-              title="执行引擎与模型设置"
+              title={QUESTION_COMPOSER_COPY.advancedSettingsDescription}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
-              高级
+              {QUESTION_COMPOSER_COPY.advancedSettings}
             </button>
             <span className="hidden text-[10px] text-slate-400 xl:inline">Enter 发送 · Shift+Enter 换行</span>
           </div>
@@ -803,7 +805,7 @@ export default function ChatInput({
                   type="button"
                   onClick={() => removeImage(image.id)}
                   className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Remove image"
+                  title="移除图片"
                   aria-label={`移除图片 ${image.filename}`}
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">

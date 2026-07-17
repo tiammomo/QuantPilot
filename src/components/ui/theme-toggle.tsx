@@ -20,7 +20,8 @@ export function ThemeToggle({ className, compact = false }: ThemeToggleProps) {
   return (
     <div
       className={cn(
-        "inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/50 p-0.5",
+        "inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted/50 p-0.5",
+        compact ? "h-12" : "h-10",
         className,
       )}
       role="group"
@@ -38,11 +39,12 @@ export function ThemeToggle({ className, compact = false }: ThemeToggleProps) {
             aria-pressed={active}
             onClick={() => setColorMode(option.mode)}
             className={cn(
-              "inline-flex h-7 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition-colors",
+              "inline-flex items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+              compact ? "h-11" : "h-9",
               active
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:bg-background/70 hover:text-foreground",
-              compact ? "w-7 px-0" : "min-w-14",
+              compact ? "w-11 px-0" : "min-w-14",
             )}
           >
             <Icon className="h-3.5 w-3.5" />

@@ -40,6 +40,7 @@ import {
   parseStoredChatPaneWidth,
 } from './pane-layout';
 import { planPreviewReconciliation } from './preview-reconciliation';
+import { buildQuestionInstruction } from '@/components/chat/question-composer';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -296,7 +297,9 @@ export default function ChatPage() {
 
   // Track active optimistic messages by requestId
   const optimisticMessagesRef = useRef<Map<string, any>>(new Map());
-  const [mode, setMode] = useState<'act' | 'chat'>('act');
+  const [mode, setMode] = useState<'act' | 'chat'>(() =>
+    searchParams?.get('mode') === 'chat' ? 'chat' : 'act'
+  );
   const [isRunning, setIsRunning] = useState(false);
   const [isPausingAgent, setIsPausingAgent] = useState(false);
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
@@ -2190,10 +2193,7 @@ const persistProjectPreferences = useCallback(
       return;
     }
 
-    // Add additional instructions in Chat Mode
-    if (effectiveMode === 'chat') {
-      finalMessage = finalMessage + "\n\nDo not modify code, only answer to the user's request.";
-    }
+    finalMessage = buildQuestionInstruction(finalMessage, effectiveMode);
 
     // Create request fingerprint for deduplication
     const requestFingerprint = JSON.stringify({

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
-import { ArrowLeft, Orbit } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
+import { AuthUserMenu } from "@/components/auth/AuthUserMenu"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/ui/theme-toggle"
 import { cn } from "@/lib/utils"
@@ -16,6 +17,8 @@ interface PageHeaderProps {
   backHref?: string | false
   /** Keep the app bar on one row and hide secondary metadata on narrow screens. */
   compactOnMobile?: boolean
+  /** Hide the shared account entry when the surrounding shell already provides one. */
+  showAccount?: boolean
   className?: string
 }
 
@@ -26,6 +29,7 @@ function PageHeader({
   children,
   backHref = "/",
   compactOnMobile = false,
+  showAccount = true,
   className,
 }: PageHeaderProps) {
   return (
@@ -37,16 +41,16 @@ function PageHeader({
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {backHref !== false && (
             <Button variant="ghost" size="icon" asChild className="shrink-0">
-              <Link href={backHref} aria-label="返回首页">
+              <Link href={backHref} aria-label={backHref === "/" ? "返回研究工作台" : "返回上一页"}>
                 <ArrowLeft className="h-5 w-5" />
               </Link>
             </Button>
           )}
           <div className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary shadow-sm",
-            compactOnMobile && "max-[479px]:h-9 max-[479px]:w-9",
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ee6b4d] to-[#d84d35] text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(224,83,57,0.8)]",
+            compactOnMobile && "max-[479px]:hidden",
           )}>
-            <Orbit className="h-5 w-5" aria-hidden="true" />
+            <span aria-hidden="true">Q</span>
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -63,10 +67,13 @@ function PageHeader({
             )}
           </div>
         </div>
-        <div className={cn("flex flex-wrap items-center gap-2 lg:justify-end", compactOnMobile && "shrink-0")}>
-          <PlatformSwitcher />
-          <ThemeToggle compact />
+        <div className={cn("flex flex-wrap items-center gap-1.5 sm:gap-2 lg:justify-end", compactOnMobile && "shrink-0 flex-nowrap")}>
           {children}
+          <PlatformSwitcher />
+          <div className="max-[359px]:hidden">
+            <ThemeToggle compact />
+          </div>
+          {showAccount ? <AuthUserMenu variant="header" /> : null}
         </div>
       </div>
     </header>
