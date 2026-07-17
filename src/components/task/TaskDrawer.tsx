@@ -68,6 +68,7 @@ function TaskDrawer({
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              aria-label="搜索任务记录"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索对话标题..."
@@ -92,7 +93,7 @@ function TaskDrawer({
               return (
                 <div
                   key={project.id}
-                  className="group relative border-b border-border/55 px-4 py-3 transition-colors hover:bg-muted/45"
+                  className="task-drawer-row group relative border-b border-border/55 px-4 py-3 transition-colors hover:bg-muted/45 focus-within:bg-muted/45"
                 >
                   {isEditing ? (
                     <form
@@ -105,6 +106,7 @@ function TaskDrawer({
                       className="space-y-2"
                     >
                       <input
+                        aria-label={`重命名任务：${title}`}
                         name="name"
                         defaultValue={title}
                         autoFocus
@@ -136,7 +138,7 @@ function TaskDrawer({
                           onOpenChange(false);
                           onOpenProject(project);
                         }}
-                        className="block w-full min-w-0 text-left"
+                        className="block min-h-11 w-full min-w-0 pr-24 text-left"
                       >
                         <p className="truncate text-sm font-semibold text-foreground">
                           {title}
@@ -153,20 +155,20 @@ function TaskDrawer({
                           )}
                         </p>
                       </button>
-                      <div className="pointer-events-none absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="task-drawer-actions absolute right-3 top-2 z-10 flex gap-1 transition-opacity">
                         <button
                           type="button"
                           onClick={() => onEditProject(project)}
-                          className="pointer-events-auto rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-primary"
-                          aria-label="重命名任务"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-primary focus-visible:bg-background focus-visible:text-primary"
+                          aria-label={`重命名任务：${title}`}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button
                           type="button"
                           onClick={() => onDeleteProject(project)}
-                          className="pointer-events-auto rounded-md p-1.5 text-muted-foreground hover:bg-background hover:text-red-500"
-                          aria-label="删除任务"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-red-500 focus-visible:bg-background focus-visible:text-red-500"
+                          aria-label={`删除任务：${title}`}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>

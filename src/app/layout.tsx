@@ -1,5 +1,6 @@
 import './globals.css'
 import type { Metadata } from 'next'
+import { MotionConfig } from 'framer-motion'
 import GlobalSettingsProvider from '@/contexts/GlobalSettingsContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const authConfig = getProjectAuthConfig();
+  const includeStableCssFallback = process.env.QUANTPILOT_STABLE_CSS_FALLBACK === '1';
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
@@ -28,16 +30,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `try{var m=localStorage.getItem('quantpilot-color-mode')==='dark'?'dark':'light';document.documentElement.classList.toggle('dark',m==='dark');document.documentElement.style.colorScheme=m;}catch(e){}`,
           }}
         />
-        {/* 加载稳定生成的 Tailwind CSS 兜底样式，避免开发时样式退化。 */}
-        {/* eslint-disable-next-line @next/next/no-css-tags */}
-        <link rel="stylesheet" href="/generated/quantpilot-tailwind.css" />
+        {includeStableCssFallback ? (
+          <>
+            {/* Explicit diagnostics fallback only. Normal runtime already receives globals.css from Next. */}
+            {/* eslint-disable-next-line @next/next/no-css-tags */}
+            <link rel="stylesheet" href="/generated/quantpilot-tailwind.css" />
+          </>
+        ) : null}
       </head>
       <body className="min-h-screen bg-background text-foreground">
         <ThemeProvider>
           <AuthProvider enabled={authConfig.enabled}>
             <GlobalSettingsProvider>
-              {children}
-              <AuthUserMenu />
+              <MotionConfig reducedMotion="user">
+                {children}
+                <AuthUserMenu />
+              </MotionConfig>
             </GlobalSettingsProvider>
           </AuthProvider>
         </ThemeProvider>
