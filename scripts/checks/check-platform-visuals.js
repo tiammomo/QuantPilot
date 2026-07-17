@@ -8,6 +8,8 @@ const rootDir = path.join(__dirname, '..', '..');
 const baseUrl = (process.env.QUANTPILOT_WEB_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const outputDir = path.join(rootDir, 'tmp', 'visual-checks', 'platforms');
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const adminLogin = process.env.PLATFORM_ADMIN_LOGIN || 'admin';
+const adminPassword = process.env.PLATFORM_ADMIN_PASSWORD || 'admin';
 
 const routes = [
   { id: 'home', path: '/', expected: 'QuantPilot' },
@@ -17,6 +19,8 @@ const routes = [
   { id: 'eval', path: '/eval-platform', expected: '质量总览' },
   { id: 'ops', path: '/ops-platform', expected: '运行治理中心' },
   { id: 'skills', path: '/skills', expected: 'QUANTPILOT SKILLS MARKET' },
+  { id: 'account-usage', path: '/account/usage', expected: '用量与配额' },
+  { id: 'account-security', path: '/account/security', expected: '密码与登录设备' },
 ];
 
 const legacyRoutes = [
@@ -32,6 +36,45 @@ function cleanMessage(value) {
   return String(value).replace(/\s+/g, ' ').trim();
 }
 
+async function createAuthenticatedState(browser) {
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    colorScheme: 'light',
+  });
+  const page = await context.newPage();
+
+  try {
+    const response = await page.goto(`${baseUrl}/`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
+    });
+    if (!response?.ok()) {
+      throw new Error(`首页请求返回 ${response?.status() ?? '无响应'}`);
+    }
+
+    const identity = page.locator('#identity');
+    if (new URL(page.url()).pathname === '/login' || await identity.isVisible().catch(() => false)) {
+      await identity.fill(adminLogin);
+      await page.locator('#password').fill(adminPassword);
+      await page.locator('button[type="submit"]').click();
+      await page.waitForFunction(
+        () => window.location.pathname !== '/login',
+        null,
+        { timeout: 20_000 },
+      );
+    }
+
+    if (new URL(page.url()).pathname === '/login') {
+      const alert = await page.locator('[role="alert"]').textContent().catch(() => null);
+      throw new Error(alert?.trim() || '默认管理员登录失败');
+    }
+
+    return await context.storageState();
+  } finally {
+    await context.close();
+  }
+}
+
 async function discoverProjectRoute(request) {
   try {
     const response = await request.get(`${baseUrl}/api/projects`, { timeout: 15_000 });
@@ -45,8 +88,9 @@ async function discoverProjectRoute(request) {
   }
 }
 
-async function inspectRoute(browser, route, profile) {
+async function inspectRoute(browser, storageState, route, profile) {
   const context = await browser.newContext({
+    storageState,
     viewport: profile.viewport,
     deviceScaleFactor: 1,
     colorScheme: profile.theme,
@@ -118,7 +162,8 @@ async function main() {
   const problems = [];
 
   try {
-    const requestContext = await browser.newContext();
+    const storageState = await createAuthenticatedState(browser);
+    const requestContext = await browser.newContext({ storageState });
     const projectRoute = await discoverProjectRoute(requestContext.request);
     await requestContext.close();
     const allRoutes = projectRoute ? [...routes, projectRoute] : routes;
@@ -129,11 +174,11 @@ async function main() {
 
     for (const profile of profiles) {
       for (const route of allRoutes) {
-        problems.push(...await inspectRoute(browser, route, profile));
+        problems.push(...await inspectRoute(browser, storageState, route, profile));
       }
     }
 
-    const redirectContext = await browser.newContext();
+    const redirectContext = await browser.newContext({ storageState });
     const redirectPage = await redirectContext.newPage();
     for (const [source, target] of legacyRoutes) {
       await redirectPage.goto(`${baseUrl}${source}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
