@@ -9,7 +9,8 @@ import {
   updateQuantGenerationStep,
 } from "@/lib/quant/generation-state";
 import { startPersistentValidatedPreview } from "@/lib/quant/generation-preview";
-import { runQuantGenerationStageLocked } from "@/lib/quant/generation-queue";
+import { runQuantGenerationStage } from "@/lib/quant/generation-queue";
+import { MoAgentGenerationLeaseError } from "@/lib/services/moagent-generation-lease-store";
 import { streamManager } from "@/lib/services/stream";
 import {
   capturePlatformMissionCandidate,
@@ -202,6 +203,9 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 }
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
+  const verificationSessionHolder: {
+    current: MoAgentMissionContext["verificationSession"] | null;
+  } = { current: null };
   try {
     const { project_id } = await params;
     await requireAction({
@@ -262,8 +266,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         throw error;
       }
     }
-    return await runQuantGenerationStageLocked({
+    return await runQuantGenerationStage({
+      projectPath,
       projectId: project_id,
+      requestId: requestedRequestId ?? null,
+      stage: "manual_validation",
       task: async () => {
         const generationState = await readQuantGenerationState(projectPath);
         if (
@@ -300,9 +307,42 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         }
         if (
           activeMission &&
-          ["running", "repairing", "verifying"].includes(activeMission.status)
+          ["running", "repairing"].includes(activeMission.status)
         ) {
           return busyMissionResponse(activeMission);
+        }
+
+        if (activeMission?.status === "verifying") {
+          // beginMoAgentMissionVerification uses the database clock: a live
+          // owner still raises MISSION_VERIFICATION_BUSY, while an expired or
+          // legacy ownerless claim is fenced and taken over. Return the claim
+          // to candidate_complete before preparing and sealing a fresh subject
+          // hash, so recovery never validates a workspace that changed after
+          // the original candidate receipt.
+          activeMission =
+            await claimQuantMoAgentMissionVerification(activeMission);
+          verificationSessionHolder.current =
+            activeMission.verificationSession ?? null;
+          if (!verificationSessionHolder.current) {
+            throw new Error(
+              "Mission verification takeover did not return a live lease session.",
+            );
+          }
+          await verificationSessionHolder.current.dispose();
+          verificationSessionHolder.current = null;
+          const releasedMission = await readMoAgentMission(
+            activeMission.projectId,
+            activeMission.requestId,
+          );
+          if (
+            !releasedMission ||
+            releasedMission.status !== "candidate_complete"
+          ) {
+            throw new Error(
+              "Mission verification takeover did not return to candidate_complete.",
+            );
+          }
+          activeMission = missionContext(releasedMission, projectPath);
         }
 
         const quantValidation = await loadQuantValidation();
@@ -341,9 +381,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             candidate,
           });
           activeMission = sealed.mission;
-          activeMission = await claimQuantMoAgentMissionVerification(
-            activeMission,
-          );
+          activeMission =
+            await claimQuantMoAgentMissionVerification(activeMission);
+          verificationSessionHolder.current =
+            activeMission.verificationSession ?? null;
+          if (!verificationSessionHolder.current) {
+            throw new Error(
+              "Mission verification claim did not return a live lease session.",
+            );
+          }
           candidateReceipt = sealed.receipt;
         }
 
@@ -640,6 +686,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
+    if (error instanceof MoAgentGenerationLeaseError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Project generation is busy",
+          code: error.code,
+          message: error.message,
+          activeRequestId: error.activeRequestId,
+          activeStage: error.activeStage,
+        },
+        { status: 409 },
+      );
+    }
     if (error instanceof MoAgentMissionStateError) {
       return NextResponse.json(
         {
@@ -660,6 +719,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       },
       { status: 500 },
     );
+  } finally {
+    await verificationSessionHolder.current
+      ?.dispose()
+      .catch((error: unknown) => {
+        console.error(
+          "[API] Failed to release manual Mission verification lease:",
+          error,
+        );
+      });
   }
 }
 

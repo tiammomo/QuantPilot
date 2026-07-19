@@ -101,13 +101,13 @@
       "endpoint": {
         "protocol": "http",
         "env": ["QUANTPILOT_KNOWLEDGE_API_URL"],
-        "default": "http://localhost:8080",
+        "default": "http://localhost:33005",
         "healthPath": "/health/ready",
         "healthMethod": "GET"
       },
       "commands": {
-        "health": "curl http://localhost:8080/health/ready",
-        "discovery": "curl http://localhost:8080/.well-known/akep"
+        "health": "curl http://localhost:33005/health/ready",
+        "discovery": "curl http://localhost:33005/.well-known/akep"
       },
       "dependencies": [],
       "capabilities": [

@@ -3,6 +3,7 @@ import { ExternalKnowledgeHttpError } from './errors';
 import type {
   GovernedKnowledgePort,
   KnowledgeContextInput,
+  KnowledgeFeedbackInput,
   KnowledgeUsageInput,
 } from './port';
 import {
@@ -14,6 +15,7 @@ import {
   AKEP_PROTOCOL,
   type KnowledgeCitation,
   type KnowledgeContextPack,
+  type KnowledgeFeedbackReceipt,
   type KnowledgePassage,
   type KnowledgeServiceInfo,
   type KnowledgeUsageReceipt,
@@ -41,6 +43,13 @@ function text(value: unknown, label: string): string {
 
 function numberValue(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ExternalKnowledgeHttpError(`Invalid ${label} response.`, null, 'INVALID_RESPONSE', null);
+  }
+  return value;
+}
+
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') {
     throw new ExternalKnowledgeHttpError(`Invalid ${label} response.`, null, 'INVALID_RESPONSE', null);
   }
   return value;
@@ -317,6 +326,49 @@ export class AkepHttpAdapter implements GovernedKnowledgePort {
       policyEpoch: text(data.policyEpoch, 'policyEpoch'),
       createdAt: text(data.createdAt, 'createdAt'),
       feedbackUntil: text(data.feedbackUntil, 'feedbackUntil'),
+    };
+  }
+
+  async recordFeedback(
+    input: KnowledgeFeedbackInput,
+    idempotencyKey: string,
+    requestId?: string,
+  ): Promise<KnowledgeFeedbackReceipt> {
+    if (!this.protocolBaseUrl) await this.discover(requestId);
+    const data = record(await this.request(new URL(`${this.protocolBaseUrl}/feedback`), {
+      method: 'POST',
+      requestId,
+      idempotencyKey,
+      body: {
+        akepVersion: this.config.expectedVersion,
+        ...input,
+        critical: [],
+        extensions: {},
+      },
+    }), 'feedback receipt');
+    const evaluatorVersion = record(data.evaluatorVersion, 'evaluatorVersion');
+    const status = text(data.status, 'status');
+    if (status !== 'recorded') {
+      throw new ExternalKnowledgeHttpError(
+        'Invalid feedback status response.',
+        null,
+        'INVALID_RESPONSE',
+        null,
+      );
+    }
+    return {
+      feedbackId: text(data.feedbackId, 'feedbackId'),
+      usageId: text(data.usageId, 'usageId'),
+      evidenceId: text(data.evidenceId, 'evidenceId'),
+      policyEpoch: text(data.policyEpoch, 'policyEpoch'),
+      receivedAt: text(data.receivedAt, 'receivedAt'),
+      status,
+      correlationClass: text(data.correlationClass, 'correlationClass'),
+      eligibleForAggregation: booleanValue(data.eligibleForAggregation, 'eligibleForAggregation'),
+      evaluatorVersion: {
+        uri: text(evaluatorVersion.uri, 'evaluatorVersion.uri'),
+        digest: text(evaluatorVersion.digest, 'evaluatorVersion.digest'),
+      },
     };
   }
 }

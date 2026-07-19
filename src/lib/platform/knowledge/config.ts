@@ -6,6 +6,8 @@ export interface KnowledgeIntegrationConfig {
   apiUrl: string;
   purpose: string;
   spaces: string[];
+  projectSpacesEnabled: boolean;
+  projectSpaceBaseUrl: string;
   timeoutMs: number;
   maxContextCharacters: number;
   supportedObligations: readonly ['cite', 'no-train'];
@@ -85,6 +87,16 @@ function spaces(value: string | undefined): string[] {
   return [...new Set(items)];
 }
 
+function uriBase(value: string | undefined): string {
+  const normalized = value?.trim()
+    || 'https://knowledge.local/spaces/quantpilot/projects';
+  const parsed = new URL(normalized);
+  if (!parsed.protocol || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('QUANTPILOT_KNOWLEDGE_PROJECT_SPACE_BASE_URL contains an invalid URI.');
+  }
+  return parsed.toString().replace(/\/$/u, '');
+}
+
 function oauthConfig(
   environment: Environment,
   enabled: boolean,
@@ -136,7 +148,7 @@ export function getKnowledgeIntegrationConfig(
   );
   const required = enabled && flag(environment.QUANTPILOT_KNOWLEDGE_REQUIRED, false);
   const apiUrl = httpBaseUrl(
-    environment.QUANTPILOT_KNOWLEDGE_API_URL?.trim() || 'http://localhost:8080',
+    environment.QUANTPILOT_KNOWLEDGE_API_URL?.trim() || 'http://localhost:33005',
     'QUANTPILOT_KNOWLEDGE_API_URL',
   );
   if (environment.NODE_ENV === 'production' && !apiUrl.startsWith('https://')) {
@@ -153,6 +165,8 @@ export function getKnowledgeIntegrationConfig(
     apiUrl,
     purpose: purpose(environment.QUANTPILOT_KNOWLEDGE_PURPOSE),
     spaces: spaces(environment.QUANTPILOT_KNOWLEDGE_SPACES),
+    projectSpacesEnabled: flag(environment.QUANTPILOT_KNOWLEDGE_PROJECT_SPACES_ENABLED, true),
+    projectSpaceBaseUrl: uriBase(environment.QUANTPILOT_KNOWLEDGE_PROJECT_SPACE_BASE_URL),
     timeoutMs: boundedInteger(environment.QUANTPILOT_KNOWLEDGE_TIMEOUT_MS, 2_000, 100, 30_000),
     maxContextCharacters: boundedInteger(
       environment.QUANTPILOT_KNOWLEDGE_MAX_CONTEXT_CHARACTERS,

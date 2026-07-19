@@ -47,7 +47,7 @@ describe('MoAgent schema readiness', () => {
       issues: [],
     });
     expect(MOAGENT_SCHEMA_CONTRACT_VERSION).toBe(
-      '20260715000500_add_moagent_build_revision'
+      '20260719000600_add_generation_dispatch_outbox'
     );
   });
 
@@ -104,6 +104,9 @@ describe('MoAgent schema readiness', () => {
   });
 
   it.each([
+    'agent_generation_leases',
+    'agent_generation_jobs',
+    'agent_generation_outbox_events',
     'agent_missions',
     'agent_mission_nodes',
     'agent_evidence_receipts',
@@ -224,6 +227,9 @@ describe('MoAgent schema readiness', () => {
       expect(sql).toContain("'agent_missions'");
       expect(sql).toContain("'agent_mission_nodes'");
       expect(sql).toContain("'agent_evidence_receipts'");
+      expect(sql).toContain("'agent_generation_leases'");
+      expect(sql).toContain("'agent_generation_jobs'");
+      expect(sql).toContain("'agent_generation_outbox_events'");
     }
 
     try {
@@ -233,7 +239,7 @@ describe('MoAgent schema readiness', () => {
       throw new Error('Expected readiness assertion to throw.');
     } catch (error) {
       expect(error).toBeInstanceOf(MoAgentSchemaNotReadyError);
-      expect((error as MoAgentSchemaNotReadyError).issues).toHaveLength(10);
+      expect((error as MoAgentSchemaNotReadyError).issues).toHaveLength(13);
     }
   });
 });

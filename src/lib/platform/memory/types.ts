@@ -8,6 +8,7 @@ export const MEMORY_CAPABILITY = {
   recallTrace: 'recall.trace',
   recallBitemporal: 'recall.bitemporal',
   recallContextProjection: 'recall.context-projection',
+  experienceUsageReceipt: 'experience.usage-receipt',
   experienceOutcome: 'experience.outcome',
 } as const;
 export type MemoryCapability = (typeof MEMORY_CAPABILITY)[keyof typeof MEMORY_CAPABILITY];
@@ -18,6 +19,7 @@ export const MEMORY_CHAT_CAPABILITIES = Object.freeze([
   MEMORY_CAPABILITY.recallTrace,
   MEMORY_CAPABILITY.recallBitemporal,
   MEMORY_CAPABILITY.recallContextProjection,
+  MEMORY_CAPABILITY.experienceUsageReceipt,
 ]) as readonly MemoryCapability[];
 
 export type MemoryContext = Record<string, string>;
@@ -118,6 +120,7 @@ export interface PersonalizationCapsule {
   revisionIds: string[];
   sourceProjectionSha256: string;
   contentSha256: string;
+  usageId?: string;
 }
 
 export type PersonalizationRecallStatus =
@@ -135,9 +138,38 @@ export interface PreparedPersonalizationUse {
   policyVersion: number;
   validAt: string;
   knownAt: string;
+  algorithm: ProjectMemoryInput['algorithm'];
+  maxCharacters: number;
   sourceProjectionSha256: string;
   deliveredContextSha256: string;
   exposedRevisionIds: string[];
+}
+
+export interface RecordMemoryUsageInput {
+  tenantId: string;
+  subjectId: string;
+  traceId: string;
+  algorithm: ProjectMemoryInput['algorithm'];
+  maxCharacters: number;
+  sourceProjectionSha256: string;
+  deliveredContextSha256: string;
+  revisionIds: string[];
+  idempotencyKey: string;
+  purpose: string;
+  occurredAt?: string;
+}
+
+export interface MemoryUsageResult {
+  usageId: string;
+  traceId: string;
+  algorithm: ProjectMemoryInput['algorithm'];
+  maxCharacters: number;
+  sourceProjectionSha256: string;
+  deliveredContextSha256: string;
+  revisionIds: string[];
+  occurredAt: string;
+  recordedAt: string;
+  idempotentReplay: boolean;
 }
 
 export interface PersonalizationRecallResult {
@@ -198,6 +230,7 @@ export interface RecordMemoryOutcomeInput {
   subjectId: string;
   traceId: string;
   revisionId: string;
+  usageId?: string;
   kind: MemoryOutcomeKind;
   idempotencyKey: string;
   weight: number;

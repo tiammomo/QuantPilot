@@ -41,7 +41,7 @@ const vitestBin = path.join(path.dirname(vitestPackage), 'vitest.mjs');
 const testFile = 'src/lib/agent/runtime/prisma-repository.integration.test.ts';
 const result = spawnSync(process.execPath, [vitestBin, 'run', testFile], {
   cwd: process.cwd(),
-  env: process.env,
+  env: { ...process.env, DATABASE_URL: databaseUrl },
   stdio: 'inherit',
 });
 

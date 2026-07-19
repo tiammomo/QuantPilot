@@ -6,6 +6,24 @@ import { PrismaClient, type AgentMission } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaAgentRuntimeRepository } from './prisma-repository';
 import { withMoAgentWorkspaceResourceLock } from './workspace-resource-lock';
+import {
+  abandonMoAgentMissionVerification,
+  beginMoAgentMissionVerification,
+  heartbeatMoAgentMissionVerification,
+} from '@/lib/services/moagent-mission-store';
+import {
+  claimMoAgentGenerationLease,
+  heartbeatMoAgentGenerationLease,
+  releaseMoAgentGenerationLease,
+} from '@/lib/services/moagent-generation-lease-store';
+import {
+  cancelMoAgentGenerationJob,
+  claimMoAgentGenerationJob,
+  enqueueMoAgentGenerationJob,
+  finishMoAgentGenerationJob,
+  heartbeatMoAgentGenerationJob,
+  reconcileExpiredMoAgentGenerationJobs,
+} from '@/lib/services/moagent-generation-dispatch-store';
 import type { AgentRunRecord, AgentWriteFence, CreateAgentRunInput } from './types';
 
 const TEST_DATABASE_URL = process.env.MOAGENT_TEST_DATABASE_URL?.trim();
@@ -102,6 +120,8 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       if (ids.length > 0) {
         await clientA.agentMission.deleteMany({ where: { projectId: { in: ids } } });
         await clientA.agentRun.deleteMany({ where: { projectId: { in: ids } } });
+        await clientA.agentGenerationJob.deleteMany({ where: { projectId: { in: ids } } });
+        await clientA.agentGenerationLease.deleteMany({ where: { projectId: { in: ids } } });
         await clientA.agentWorkspaceLease.deleteMany({ where: { projectId: { in: ids } } });
         await clientA.userRequest.deleteMany({ where: { projectId: { in: ids } } });
         await clientA.project.deleteMany({ where: { id: { in: ids } } });
@@ -134,6 +154,314 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       status: 'held',
       activeRunId: fulfilled[0].value.id,
     });
+  });
+
+  it('serializes outer generation stages and fences an expired orchestrator', async () => {
+    const projectId = await createProject('generation-orchestration-fence');
+    const firstRequestId = uniqueId('request:generation-a');
+    const secondRequestId = uniqueId('request:generation-b');
+    await clientA.userRequest.createMany({
+      data: [
+        { id: firstRequestId, projectId, instruction: 'First generation orchestrator.' },
+        { id: secondRequestId, projectId, instruction: 'Take over an expired orchestrator.' },
+      ],
+    });
+    const inputs = [firstRequestId, secondRequestId].map((requestId, index) => ({
+      projectId,
+      operationId: requestId,
+      requestId,
+      stage: 'planning_data_prefetch' as const,
+      leaseOwner: uniqueId(`generation-owner:${index}`),
+      leaseTtlMs: 120_000,
+    }));
+    const outcomes = await Promise.allSettled(inputs.map(claimMoAgentGenerationLease));
+    const claimed = outcomes.filter((outcome): outcome is PromiseFulfilledResult<
+      Awaited<ReturnType<typeof claimMoAgentGenerationLease>>
+    > => outcome.status === 'fulfilled');
+    const rejected = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    expect(claimed).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    const first = claimed[0].value;
+    expect(rejected[0].reason).toMatchObject({
+      code: 'GENERATION_PROJECT_BUSY',
+      activeRequestId: first.requestId,
+      activeStage: 'planning_data_prefetch',
+    });
+    const takeoverInput = inputs.find((input) => input.requestId !== first.requestId)!;
+
+    await clientA.agentGenerationLease.update({
+      where: { projectId },
+      data: { leaseExpiresAt: new Date(0) },
+    });
+    const takeover = await claimMoAgentGenerationLease({
+      ...takeoverInput,
+      stage: 'agent_execution',
+    });
+    expect(takeover.fencingToken).toBe(first.fencingToken + 1);
+
+    await expect(heartbeatMoAgentGenerationLease({
+      fence: first,
+      leaseTtlMs: 120_000,
+    })).rejects.toMatchObject({ code: 'GENERATION_LEASE_LOST' });
+    await expect(releaseMoAgentGenerationLease({ fence: first }))
+      .rejects.toMatchObject({ code: 'GENERATION_LEASE_LOST' });
+    await expect(releaseMoAgentGenerationLease({ fence: takeover })).resolves.toBeUndefined();
+    await expect(clientA.agentGenerationLease.findUnique({ where: { projectId } }))
+      .resolves.toMatchObject({
+        status: 'free',
+        activeRequestId: null,
+        operationId: null,
+        fencingToken: takeover.fencingToken,
+      });
+  });
+
+  it('durably claims one dispatch job per project and writes a transactional outbox', async () => {
+    const projectId = await createProject('generation-dispatch-claim');
+    const requestIds = [
+      uniqueId('request:dispatch-a'),
+      uniqueId('request:dispatch-b'),
+    ];
+    await clientA.userRequest.createMany({
+      data: requestIds.map((id) => ({
+        id,
+        projectId,
+        instruction: `Durable dispatch ${id}`,
+      })),
+    });
+    const jobs = await Promise.all(requestIds.map((requestId) =>
+      enqueueMoAgentGenerationJob({
+        projectId,
+        requestId,
+        instruction: `Durable dispatch ${requestId}`,
+        executionEnvelope: {
+          schemaVersion: 1,
+          recoveryMode: 'replan_required',
+          instruction: `Durable dispatch ${requestId}`,
+        },
+      })));
+    expect(jobs).toHaveLength(2);
+    expect(await clientA.agentGenerationOutboxEvent.count({
+      where: { projectId, eventType: 'generation_queued' },
+    })).toBe(2);
+
+    const outcomes = await Promise.allSettled(requestIds.map((requestId, index) =>
+      claimMoAgentGenerationJob({
+        projectId,
+        requestId,
+        leaseOwner: uniqueId(`dispatch-worker:${index}`),
+        leaseTtlMs: 120_000,
+      })));
+    const claimed = outcomes.filter((outcome): outcome is PromiseFulfilledResult<
+      Awaited<ReturnType<typeof claimMoAgentGenerationJob>>
+    > => outcome.status === 'fulfilled');
+    const rejected = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    expect(claimed).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatchObject({ code: 'GENERATION_PROJECT_BUSY' });
+
+    const winner = claimed[0].value;
+    await expect(finishMoAgentGenerationJob({
+      projectId,
+      requestId: winner.requestId,
+      status: 'completed',
+      fence: winner,
+    })).resolves.toMatchObject({ status: 'completed' });
+    await expect(clientA.agentGenerationOutboxEvent.findMany({
+      where: { jobId: winner.jobId },
+      orderBy: { sequence: 'asc' },
+      select: { sequence: true, eventType: true },
+    })).resolves.toEqual([
+      { sequence: 1, eventType: 'generation_queued' },
+      { sequence: 2, eventType: 'generation_claimed' },
+      { sequence: 3, eventType: 'generation_completed' },
+    ]);
+  });
+
+  it('rejects credentials before a dispatch envelope can reach PostgreSQL', async () => {
+    await expect(enqueueMoAgentGenerationJob({
+      projectId: 'project-not-written',
+      requestId: 'request-not-written',
+      instruction: 'Do not persist credentials.',
+      executionEnvelope: {
+        schemaVersion: 1,
+        provider: { api_key: 'must-not-be-stored' },
+      },
+    })).rejects.toMatchObject({
+      code: 'GENERATION_DISPATCH_SENSITIVE_ENVELOPE',
+    });
+  });
+
+  it('lets durable cancellation fence a late generation worker', async () => {
+    const projectId = await createProject('generation-dispatch-cancel');
+    const requestId = uniqueId('request:dispatch-cancel');
+    await clientA.userRequest.create({
+      data: { id: requestId, projectId, instruction: 'Cancel the claimed dispatch.' },
+    });
+    await enqueueMoAgentGenerationJob({
+      projectId,
+      requestId,
+      instruction: 'Cancel the claimed dispatch.',
+    });
+    const claim = await claimMoAgentGenerationJob({
+      projectId,
+      requestId,
+      leaseOwner: uniqueId('dispatch-worker:cancelled'),
+      leaseTtlMs: 120_000,
+    });
+    await expect(cancelMoAgentGenerationJob({
+      projectId,
+      requestId,
+      reason: 'integration cancellation',
+    })).resolves.toMatchObject({
+      status: 'cancelled',
+      errorCode: 'USER_CANCELLED',
+    });
+    await expect(heartbeatMoAgentGenerationJob({
+      fence: claim,
+      leaseTtlMs: 120_000,
+    })).rejects.toMatchObject({ code: 'GENERATION_DISPATCH_LEASE_LOST' });
+    await expect(finishMoAgentGenerationJob({
+      projectId,
+      requestId,
+      status: 'completed',
+      fence: claim,
+    })).resolves.toMatchObject({ status: 'cancelled' });
+  });
+
+  it('closes an expired dispatch attempt with replan-required semantics', async () => {
+    const projectId = await createProject('generation-dispatch-reconcile');
+    const requestId = uniqueId('request:dispatch-expired');
+    await clientA.userRequest.create({
+      data: {
+        id: requestId,
+        projectId,
+        instruction: 'Expire and reconcile this dispatch.',
+        status: 'processing',
+      },
+    });
+    const missionId = uniqueId('mission:dispatch-expired');
+    await clientA.agentMission.create({
+      data: {
+        id: missionId,
+        generationId: randomUUID(),
+        projectId,
+        requestId,
+        spec: { schemaVersion: 1, testScope: TEST_SCOPE, requestId },
+        specHash: 'sha256:dispatch-expired-replan',
+      },
+    });
+    await enqueueMoAgentGenerationJob({
+      projectId,
+      requestId,
+      instruction: 'Expire and reconcile this dispatch.',
+    });
+    await claimMoAgentGenerationJob({
+      projectId,
+      requestId,
+      leaseOwner: uniqueId('dispatch-worker:expired'),
+      leaseTtlMs: 120_000,
+    });
+    await clientA.agentGenerationJob.update({
+      where: { requestId_projectId: { requestId, projectId } },
+      data: { leaseExpiresAt: new Date(0) },
+    });
+
+    await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+      expect.objectContaining({
+        requestId,
+        status: 'interrupted',
+        errorCode: 'DISPATCH_LEASE_EXPIRED_REPLAN_REQUIRED',
+      }),
+    ]);
+    await expect(clientA.userRequest.findUnique({ where: { id: requestId } }))
+      .resolves.toMatchObject({ status: 'failed' });
+    await expect(clientA.agentMission.findUnique({ where: { id: missionId } }))
+      .resolves.toMatchObject({
+        status: 'failed',
+        activeSlot: null,
+        errorCode: 'DISPATCH_LEASE_EXPIRED_REPLAN_REQUIRED',
+      });
+  });
+
+  it('closes a persisted-but-unclaimed orphan after the database-clock grace window', async () => {
+    const projectId = await createProject('generation-dispatch-pending-orphan');
+    const requestId = uniqueId('request:dispatch-pending-orphan');
+    await clientA.userRequest.create({
+      data: {
+        id: requestId,
+        projectId,
+        instruction: 'Persist this job, then simulate a crash before claim.',
+        status: 'processing',
+      },
+    });
+    await enqueueMoAgentGenerationJob({
+      projectId,
+      requestId,
+      instruction: 'Persist this job, then simulate a crash before claim.',
+    });
+    await clientA.agentGenerationJob.update({
+      where: { requestId_projectId: { requestId, projectId } },
+      data: { availableAt: new Date(0) },
+    });
+
+    await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+      expect.objectContaining({
+        requestId,
+        status: 'interrupted',
+        errorCode: 'DISPATCH_PENDING_ORPHAN_REPLAN_REQUIRED',
+      }),
+    ]);
+    await expect(clientA.userRequest.findUnique({ where: { id: requestId } }))
+      .resolves.toMatchObject({ status: 'failed' });
+  });
+
+  it('blocks a new generation before it can overwrite an active Mission plan', async () => {
+    const projectId = await createProject('generation-active-mission-guard');
+    const activeRequestId = uniqueId('request:active-mission');
+    const newRequestId = uniqueId('request:new-generation');
+    await clientA.userRequest.createMany({
+      data: [
+        { id: activeRequestId, projectId, instruction: 'Keep this Mission active.' },
+        { id: newRequestId, projectId, instruction: 'Must not overwrite the active plan.' },
+      ],
+    });
+    await clientA.agentMission.create({
+      data: {
+        id: uniqueId('mission:active-generation-guard'),
+        generationId: randomUUID(),
+        projectId,
+        requestId: activeRequestId,
+        spec: { schemaVersion: 1, testScope: TEST_SCOPE, requestId: activeRequestId },
+        specHash: 'sha256:generation-active-mission-guard',
+      },
+    });
+
+    await expect(claimMoAgentGenerationLease({
+      projectId,
+      operationId: newRequestId,
+      requestId: newRequestId,
+      stage: 'planning_data_prefetch',
+      leaseOwner: uniqueId('generation-owner:new-request'),
+      leaseTtlMs: 120_000,
+    })).rejects.toMatchObject({
+      code: 'GENERATION_MISSION_BUSY',
+      activeRequestId,
+      activeStage: 'mission',
+    });
+
+    const recovery = await claimMoAgentGenerationLease({
+      projectId,
+      operationId: uniqueId('manual-validation'),
+      requestId: null,
+      stage: 'manual_validation',
+      leaseOwner: uniqueId('generation-owner:manual-recovery'),
+      leaseTtlMs: 120_000,
+    });
+    await expect(releaseMoAgentGenerationLease({ fence: recovery })).resolves.toBeUndefined();
   });
 
   it('rejects the same canonical workspaceKey across different projects', async () => {
@@ -206,6 +534,102 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       projectId,
       activeSlot: 1,
     });
+  });
+
+  it('fences a stale Mission verifier after an expired lease is taken over', async () => {
+    const projectId = await createProject('mission-verification-fence');
+    const requestId = uniqueId('request:verification-fence');
+    const missionId = uniqueId('mission:verification-fence');
+    await clientA.userRequest.create({
+      data: {
+        id: requestId,
+        projectId,
+        instruction: 'Exercise Mission verification lease takeover.',
+      },
+    });
+    await clientA.agentMission.create({
+      data: {
+        id: missionId,
+        generationId: randomUUID(),
+        projectId,
+        requestId,
+        status: 'candidate_complete',
+        candidateVersion: 1,
+        spec: { schemaVersion: 1, testScope: TEST_SCOPE, requestId },
+        specHash: 'sha256:mission-verification-fence',
+        nodes: {
+          create: {
+            nodeKey: 'validation',
+            nodeType: 'validator',
+            effect: 'verification',
+            dependencies: [],
+            allowedTools: [],
+            requiredSkillSections: [],
+            inputArtifacts: [],
+            outputArtifacts: [],
+            budget: {
+              maxAttempts: 1,
+              maxToolCalls: 1,
+              maxInputTokens: 1,
+              maxOutputTokens: 1,
+              timeoutMs: 120_000,
+            },
+            acceptancePredicates: [],
+          },
+        },
+      },
+    });
+    const ref = { missionId, projectId, requestId };
+    const claims = await Promise.allSettled([
+      beginMoAgentMissionVerification({
+        ...ref,
+        leaseOwner: uniqueId('verifier:a'),
+        leaseTtlMs: 120_000,
+      }),
+      beginMoAgentMissionVerification({
+        ...ref,
+        leaseOwner: uniqueId('verifier:b'),
+        leaseTtlMs: 120_000,
+      }),
+    ]);
+    const claimed = claims.filter(
+      (claim): claim is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof beginMoAgentMissionVerification>>
+      > => claim.status === 'fulfilled',
+    );
+    const rejected = claims.filter(
+      (claim): claim is PromiseRejectedResult => claim.status === 'rejected',
+    );
+    expect(claimed).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(['MISSION_VERIFICATION_BUSY', 'MISSION_WRITE_CONFLICT']).toContain(
+      rejected[0].reason.code,
+    );
+
+    const staleClaim = claimed[0].value;
+    await clientA.agentMission.update({
+      where: { id: missionId },
+      data: { verificationLeaseExpiresAt: new Date(0) },
+    });
+    const takeover = await beginMoAgentMissionVerification({
+      ...ref,
+      leaseOwner: uniqueId('verifier:takeover'),
+      leaseTtlMs: 120_000,
+    });
+    expect(takeover.fencingToken).toBe(staleClaim.fencingToken + 1);
+
+    await expect(heartbeatMoAgentMissionVerification({
+      ...ref,
+      leaseOwner: staleClaim.leaseOwner,
+      fencingToken: staleClaim.fencingToken,
+      leaseTtlMs: 120_000,
+    })).rejects.toMatchObject({ code: 'MISSION_VERIFICATION_LEASE_LOST' });
+
+    await expect(abandonMoAgentMissionVerification({
+      ...ref,
+      leaseOwner: takeover.leaseOwner,
+      fencingToken: takeover.fencingToken,
+    })).resolves.toMatchObject({ status: 'candidate_complete' });
   });
 
   it('derives lease expiry from the PostgreSQL clock despite worker clock skew', async () => {

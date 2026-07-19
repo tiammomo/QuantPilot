@@ -84,6 +84,46 @@ describe('EvolvableMemoryHttpAdapter', () => {
     });
   });
 
+  it('records a server-verifiable usage receipt before outcome attribution', async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({
+      usage_id: '00000000-0000-0000-0000-000000000005',
+      trace_id: '00000000-0000-0000-0000-000000000001',
+      algorithm: 'exact-deduplicated-v1',
+      max_characters: 2_000,
+      source_projection_sha256: 'a'.repeat(64),
+      delivered_context_sha256: 'b'.repeat(64),
+      revision_ids: ['00000000-0000-0000-0000-000000000003'],
+      occurred_at: '2026-07-19T00:00:00Z',
+      recorded_at: '2026-07-19T00:00:00Z',
+      idempotent_replay: false,
+    }, 201));
+    const adapter = new EvolvableMemoryHttpAdapter(config, fetcher);
+
+    await expect(adapter.recordUsage({
+      tenantId: 'tenant-a',
+      subjectId: 'user-a',
+      traceId: '00000000-0000-0000-0000-000000000001',
+      algorithm: 'exact-deduplicated-v1',
+      maxCharacters: 2_000,
+      sourceProjectionSha256: 'a'.repeat(64),
+      deliveredContextSha256: 'b'.repeat(64),
+      revisionIds: ['00000000-0000-0000-0000-000000000003'],
+      idempotencyKey: 'quantpilot:request-a:memory-usage',
+      purpose: 'personalization',
+    }, 'request-a')).resolves.toMatchObject({
+      usageId: '00000000-0000-0000-0000-000000000005',
+      idempotentReplay: false,
+    });
+
+    const [url, init] = fetcher.mock.calls[0] as [URL, RequestInit];
+    expect(url.pathname).toBe('/v1/usages');
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      max_characters: 2_000,
+      source_projection_sha256: 'a'.repeat(64),
+      revision_ids: ['00000000-0000-0000-0000-000000000003'],
+    });
+  });
+
   it('rejects an incompatible discovery contract', async () => {
     const adapter = new EvolvableMemoryHttpAdapter(
       config,

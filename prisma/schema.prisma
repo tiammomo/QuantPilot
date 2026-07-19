@@ -60,12 +60,15 @@ model Project {
   agentRuns                      AgentRun[]
   agentMissions                  AgentMission[]
   agentWorkspaceLease            AgentWorkspaceLease?
+  agentGenerationLease           AgentGenerationLease?
+  agentGenerationJobs            AgentGenerationJob[]
   owner                          AuthUser?                       @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   memberships                    ProjectMembership[]
   usageEvents                    UsageEvent[]
   quotaReservations              QuotaReservation[]
   externalMemoryUses             ExternalMemoryUse[]
   personalMemoryFeedbackReceipts PersonalMemoryFeedbackReceipt[]
+  governedKnowledgeUses          GovernedKnowledgeUse[]
 
   @@index([ownerId])
   @@map("projects")
@@ -266,10 +269,12 @@ model UserRequest {
   completedAt DateTime? @map("completed_at")
 
   // Relations
-  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  actor        AuthUser?     @relation("UserRequestActor", fields: [actorUserId], references: [id], onDelete: SetNull)
-  agentRuns    AgentRun[]
-  agentMission AgentMission?
+  project          Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actor            AuthUser?              @relation("UserRequestActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  agentRuns        AgentRun[]
+  agentMission     AgentMission?
+  generationLeases AgentGenerationLease[]
+  generationJob    AgentGenerationJob?
 
   @@unique([id, projectId])
   @@index([projectId])
@@ -287,8 +292,10 @@ model ExternalMemoryUse {
   projectId              String    @map("project_id")
   requestId              String    @map("request_id")
   tenantId               String    @map("tenant_id")
+  integrationScopeSha256 String    @map("integration_scope_sha256")
   subjectId              String    @map("subject_id")
   traceId                String    @map("trace_id") @db.Uuid
+  providerUsageId        String?   @map("provider_usage_id") @db.Uuid
   policyId               String    @map("policy_id") @db.Uuid
   policyVersion          Int       @map("policy_version")
   validAt                DateTime  @map("valid_at")
@@ -307,7 +314,9 @@ model ExternalMemoryUse {
   @@index([projectId, createdAt])
   @@index([subjectId, createdAt])
   @@index([subjectId, status, createdAt])
+  @@index([tenantId, projectId, createdAt])
   @@index([traceId])
+  @@index([providerUsageId])
   @@map("external_memory_uses")
 }
 
@@ -336,6 +345,46 @@ model PersonalMemoryFeedbackReceipt {
   @@index([subjectId, status, createdAt])
   @@index([projectId, requestId])
   @@map("personal_memory_feedback_receipts")
+}
+
+/// Durable QuantPilot-side attribution for governed knowledge that was
+/// actually bound to an accepted Mission. AKEP identifiers remain opaque and
+/// no AKEP persistence entity or foreign key crosses this deployment boundary.
+model GovernedKnowledgeUse {
+  id                       String    @id @default(cuid())
+  provider                 String
+  projectId                String    @map("project_id")
+  requestId                String    @map("request_id")
+  consumerId               String    @map("consumer_id")
+  integrationScopeSha256   String    @map("integration_scope_sha256")
+  requestedSpaceIds        Json      @map("requested_space_ids")
+  projectSpaceId           String?   @map("project_space_id")
+  contextPackId            String    @map("context_pack_id")
+  exposureReceiptId        String    @map("exposure_receipt_id")
+  contextDigest            String    @map("context_digest")
+  policyEpoch              String    @map("policy_epoch")
+  taskCategory             String    @map("task_category")
+  citations                Json
+  usageReceipts            Json      @map("usage_receipts")
+  acceptedReceiptId        String    @map("accepted_receipt_id")
+  acceptedReceiptSha256    String    @map("accepted_receipt_sha256")
+  feedbackStatus           String    @default("awaiting_feedback") @map("feedback_status")
+  feedbackEventId          String?   @map("feedback_event_id")
+  feedbackOutcome          String?   @map("feedback_outcome")
+  feedbackActorUserId      String?   @map("feedback_actor_user_id")
+  providerFeedbackReceipts Json?     @map("provider_feedback_receipts")
+  lastErrorCode            String?   @map("last_error_code")
+  feedbackCompletedAt      DateTime? @map("feedback_completed_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, projectId, requestId])
+  @@index([projectId, createdAt])
+  @@index([consumerId, projectId, createdAt])
+  @@index([feedbackStatus, createdAt])
+  @@map("governed_knowledge_uses")
 }
 
 /// QuantPilot-owned user control for whether external memory may influence
@@ -441,6 +490,98 @@ model AgentWorkspaceLease {
   @@map("agent_workspace_leases")
 }
 
+/// One durable orchestration lease per project. This serializes the outer
+/// planning, data-prefetch, generation and manual-validation stages across
+/// application processes. AgentRun and Mission leases remain the authority for
+/// their own fine-grained writes and terminal commits.
+model AgentGenerationLease {
+  projectId       String    @id @map("project_id")
+  activeRequestId String?   @map("active_request_id")
+  operationId     String?   @map("operation_id")
+  stage           String?
+  status          String    @default("free")
+  leaseOwner      String?   @map("lease_owner")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+  fencingToken    Int       @default(0) @map("fencing_token")
+  version         Int       @default(0)
+  acquiredAt      DateTime? @map("acquired_at")
+  releasedAt      DateTime? @map("released_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activeRequest UserRequest? @relation(fields: [activeRequestId, projectId], references: [id, projectId], onDelete: Restrict)
+
+  @@index([status, leaseExpiresAt])
+  @@index([activeRequestId])
+  @@map("agent_generation_leases")
+}
+
+/// Durable outer-dispatch fact for one accepted generation request. The
+/// execution envelope is intentionally provider-neutral and supports safe
+/// re-planning; private provider session state is never serialized here.
+model AgentGenerationJob {
+  id                 String    @id @default(uuid()) @db.Uuid
+  projectId          String    @map("project_id")
+  requestId          String    @map("request_id")
+  status             String    @default("pending")
+  stage              String    @default("agent_execution")
+  executionEnvelope  Json      @map("execution_envelope")
+  instructionHash    String    @map("instruction_hash")
+  instructionPreview String    @map("instruction_preview")
+  cliPreference      String?   @map("cli_preference")
+  selectedModel      String?   @map("selected_model")
+  attemptCount       Int       @default(0) @map("attempt_count")
+  maxAttempts        Int       @default(1) @map("max_attempts")
+  availableAt        DateTime  @default(now()) @map("available_at")
+  leaseOwner         String?   @map("lease_owner")
+  leaseExpiresAt     DateTime? @map("lease_expires_at")
+  lastHeartbeatAt    DateTime? @map("last_heartbeat_at")
+  fencingToken       Int       @default(0) @map("fencing_token")
+  version            Int       @default(0)
+  eventSequence      Int       @default(0) @map("event_sequence")
+  errorCode          String?   @map("error_code")
+  errorMessage       String?   @map("error_message")
+  queuedAt           DateTime  @default(now()) @map("queued_at")
+  startedAt          DateTime? @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  project Project                      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request UserRequest                  @relation(fields: [requestId, projectId], references: [id, projectId], onDelete: Restrict)
+  events  AgentGenerationOutboxEvent[]
+
+  @@unique([requestId, projectId])
+  @@index([projectId, queuedAt])
+  @@index([status, availableAt])
+  @@index([status, leaseExpiresAt])
+  @@map("agent_generation_jobs")
+}
+
+/// Transactional lifecycle outbox for AgentGenerationJob. Consumers may be
+/// retried; event identity and per-job sequence make projection idempotent.
+model AgentGenerationOutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  jobId       String    @map("job_id") @db.Uuid
+  projectId   String    @map("project_id")
+  requestId   String    @map("request_id")
+  sequence    Int
+  eventType   String    @map("event_type")
+  payload     Json
+  occurredAt  DateTime  @map("occurred_at")
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  job AgentGenerationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, sequence])
+  @@index([projectId, createdAt])
+  @@index([publishedAt, createdAt])
+  @@map("agent_generation_outbox_events")
+}
+
 /// Append-only public lifecycle events. Application code must pass payloads
 /// through the MoAgent runtime safety policy; private reasoning is forbidden.
 model AgentEvent {
@@ -533,6 +674,11 @@ model AgentMission {
   currentCandidateRequestId String? @map("current_candidate_request_id")
   acceptedReceiptId         String? @unique @map("accepted_receipt_id")
 
+  verificationLeaseOwner      String?   @map("verification_lease_owner")
+  verificationLeaseExpiresAt  DateTime? @map("verification_lease_expires_at")
+  verificationLastHeartbeatAt DateTime? @map("verification_last_heartbeat_at")
+  verificationFencingToken    Int       @default(0) @map("verification_fencing_token")
+
   spec     Json
   specHash String @map("spec_hash")
 
@@ -555,6 +701,7 @@ model AgentMission {
   @@unique([projectId, activeSlot])
   @@index([projectId, status, updatedAt])
   @@index([status, updatedAt])
+  @@index([status, verificationLeaseExpiresAt])
   @@map("agent_missions")
 }
 

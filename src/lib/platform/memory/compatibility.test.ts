@@ -47,6 +47,7 @@ describe('memory service compatibility', () => {
     )).toEqual([
       'capability:recall.bitemporal',
       'capability:recall.context-projection',
+      'capability:experience.usage-receipt',
       'production:not-ready',
       'blocker:privacy.suppression-erasure',
     ]);

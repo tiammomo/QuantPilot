@@ -15,6 +15,7 @@ import {
 import { collapseToolReadActivities } from '@/lib/chat/tool-activity';
 import PersonalMemoryFeedback from './PersonalMemoryFeedback';
 import PersonalMemoryCandidateCard from './PersonalMemoryCandidateCard';
+import GovernedKnowledgeFeedback from './GovernedKnowledgeFeedback';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -3418,6 +3419,12 @@ const ToolResultMessage = ({
             && messageMetadata?.validationPassed === true
             && Boolean(message.requestId)
             && preparedPersonalizationRequests.has(message.requestId ?? '');
+          const canRateGovernedKnowledge =
+            message.role === 'assistant'
+            && message.messageType === 'chat'
+            && messageMetadata?.isMoAgentFinal === true
+            && messageMetadata?.validationPassed === true
+            && Boolean(message.requestId);
           const isToolMessage = message.messageType === 'tool_result' || isToolUsageMessage(message);
           const toolMessageKey = isToolMessage
             ? ensureStableMessageId(message)
@@ -3618,6 +3625,9 @@ const ToolResultMessage = ({
                         {turnMetrics ? <TurnMetricsFooter metrics={turnMetrics} /> : null}
                         {canRatePersonalMemory && message.requestId ? (
                           <PersonalMemoryFeedback projectId={projectId} requestId={message.requestId} />
+                        ) : null}
+                        {canRateGovernedKnowledge && message.requestId ? (
+                          <GovernedKnowledgeFeedback projectId={projectId} requestId={message.requestId} />
                         ) : null}
                       </div>
                     )}

@@ -7,8 +7,10 @@ export interface ExternalMemoryUseRecord {
   projectId: string;
   requestId: string;
   tenantId: string;
+  integrationScopeSha256: string;
   subjectId: string;
   traceId: string;
+  providerUsageId: string | null;
   policyId: string;
   policyVersion: number;
   validAt: Date;
@@ -43,8 +45,10 @@ function mapRecord(record: {
   projectId: string;
   requestId: string;
   tenantId: string;
+  integrationScopeSha256: string;
   subjectId: string;
   traceId: string;
+  providerUsageId: string | null;
   policyId: string;
   policyVersion: number;
   validAt: Date;
@@ -89,8 +93,10 @@ export class PrismaExternalMemoryUseRepository implements ExternalMemoryUseRepos
     const stored = mapRecord(row);
     if (
       stored.tenantId !== input.tenantId
+      || stored.integrationScopeSha256 !== input.integrationScopeSha256
       || stored.subjectId !== input.subjectId
       || stored.traceId !== input.traceId
+      || stored.providerUsageId !== input.providerUsageId
       || stored.policyId !== input.policyId
       || stored.policyVersion !== input.policyVersion
       || stored.sourceProjectionSha256 !== input.sourceProjectionSha256

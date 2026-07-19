@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { KnowledgeIntegrationConfig } from './config';
 import type { GovernedKnowledgePort } from './port';
-import { prepareGovernedKnowledge, recordGovernedKnowledgeUsage } from './service';
+import {
+  prepareGovernedKnowledge,
+  recordGovernedKnowledgeFeedback,
+  recordGovernedKnowledgeUsage,
+} from './service';
+import { createProjectIntegrationScope } from '@/lib/platform/context/integration-scope';
 
 const config: KnowledgeIntegrationConfig = {
   enabled: true,
@@ -10,6 +15,8 @@ const config: KnowledgeIntegrationConfig = {
   apiUrl: 'https://knowledge.example',
   purpose: 'quant-research',
   spaces: ['https://knowledge.example/spaces/research'],
+  projectSpacesEnabled: true,
+  projectSpaceBaseUrl: 'https://knowledge.example/spaces/projects',
   timeoutMs: 1_000,
   maxContextCharacters: 4_000,
   supportedObligations: ['cite', 'no-train'],
@@ -18,12 +25,18 @@ const config: KnowledgeIntegrationConfig = {
   expectedVersion: '0.1',
 };
 
+const scope = createProjectIntegrationScope({
+  projectId: 'project-1',
+  memory: { tenantId: 'tenant-quantpilot' },
+  knowledge: config,
+});
+
 function port(): GovernedKnowledgePort {
   return {
     discover: vi.fn(async () => ({
       protocol: 'akep' as const,
       versions: ['0.1'],
-      operations: ['query', 'receipt', 'usage'],
+      operations: ['query', 'receipt', 'usage', 'feedback'],
       profiles: ['reader'],
       supportedExtensions: ['https://knowledge.example/extensions/akep/context-pack/0.1'],
       baseUrl: 'https://knowledge.example/akep/0.1',
@@ -70,6 +83,17 @@ function port(): GovernedKnowledgePort {
       createdAt: '2026-07-19T00:00:01.000Z',
       feedbackUntil: '2026-08-18T00:00:01.000Z',
     })),
+    recordFeedback: vi.fn(async (input) => ({
+      feedbackId: input.feedbackId,
+      usageId: input.usageId,
+      evidenceId: 'urn:uuid:00000000-0000-4000-8000-000000000003',
+      policyEpoch: 'epoch-1',
+      receivedAt: '2026-07-19T00:00:02.000Z',
+      status: 'recorded' as const,
+      correlationClass: 'same_organization',
+      eligibleForAggregation: true,
+      evaluatorVersion: input.evaluatorVersion,
+    })),
   };
 }
 
@@ -77,17 +101,22 @@ describe('governed knowledge service', () => {
   it('prepares a bounded untrusted capsule and records accepted-run usage', async () => {
     const adapter = port();
     const preparation = await prepareGovernedKnowledge(
-      { task: 'Build a risk dashboard', requestId: 'request-1' },
+      { task: 'Build a risk dashboard', requestId: 'request-1', scope },
       { config, port: adapter },
     );
 
     expect(preparation.status).toBe('prepared');
     expect(preparation.capsule?.content).toContain('Disclose data freshness.');
+    expect(preparation.capsule).toMatchObject({
+      integrationScopeSha256: scope.scopeSha256,
+      requestedSpaceIds: scope.knowledge.requestedSpaceIds,
+    });
 
     const usage = await recordGovernedKnowledgeUsage({
       capsule: preparation.capsule,
       requestId: 'request-1',
       taskCategory: 'risk-dashboard',
+      occurredAt: '2026-07-19T00:00:00.000Z',
     }, { config, port: adapter });
 
     expect(usage.status).toBe('recorded');
@@ -95,9 +124,35 @@ describe('governed knowledge service', () => {
       expect.objectContaining({
         purpose: 'quant-research',
         taskCategory: 'risk-dashboard',
+        occurredAt: '2026-07-19T00:00:00.000Z',
         citations: [expect.objectContaining({ influence: 'seen' })],
       }),
       expect.stringContaining('quantpilot-knowledge-usage-request-1-'),
+      'request-1',
+    );
+
+    const attributed = await recordGovernedKnowledgeFeedback({
+      citations: preparation.capsule?.citations ?? [],
+      contextDigest: preparation.capsule?.contextDigest ?? '',
+      usage,
+      requestId: 'request-1',
+      taskCategory: 'risk-dashboard',
+      eventId: 'knowledge-feedback:request-1:helped',
+      outcome: 'helped',
+      acceptedReceiptId: 'accepted-receipt-1',
+      acceptedReceiptSha256: 'e'.repeat(64),
+      observedAt: '2026-07-19T00:00:02.000Z',
+    }, { config, port: adapter });
+
+    expect(attributed).toMatchObject({ status: 'recorded', outcome: 'helped' });
+    expect(adapter.recordFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'helped',
+        metrics: [{ name: 'business.user_outcome', value: 1, unit: 'score' }],
+        privacy: { rawTaskStored: false, aggregation: 'pseudonymized' },
+        observedAt: '2026-07-19T00:00:02.000Z',
+      }),
+      expect.stringContaining('quantpilot-knowledge-feedback-request-1-'),
       'request-1',
     );
   });
@@ -107,8 +162,26 @@ describe('governed knowledge service', () => {
     vi.mocked(adapter.discover).mockRejectedValue(new Error('secret endpoint'));
 
     await expect(prepareGovernedKnowledge(
-      { task: 'Build a dashboard', requestId: 'request-2' },
+      { task: 'Build a dashboard', requestId: 'request-2', scope },
       { config, port: adapter },
     )).resolves.toMatchObject({ status: 'unavailable', failureCode: 'INTEGRATION_ERROR' });
+  });
+
+  it('fails closed when AKEP returns a citation from another project space', async () => {
+    const adapter = port();
+    vi.mocked(adapter.createContextPack).mockImplementationOnce(async () => {
+      const base = await port().createContextPack({
+        task: 'x', purpose: 'quant-research', spaces: [], maxCharacters: 1, supportedObligations: [],
+      });
+      return {
+        ...base,
+        passages: base.passages.map((item) => ({ ...item, spaceId: 'https://knowledge.example/spaces/projects/project-2' })),
+      };
+    });
+
+    await expect(prepareGovernedKnowledge(
+      { task: 'Build a dashboard', requestId: 'request-scope', scope },
+      { config: { ...config, required: true }, port: adapter },
+    )).rejects.toMatchObject({ code: 'KNOWLEDGE_REQUIRED_UNAVAILABLE' });
   });
 });

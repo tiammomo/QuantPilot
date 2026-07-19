@@ -110,6 +110,19 @@ export interface MoAgentMissionHandle {
   acceptedReceiptId: string | null;
 }
 
+/** Capability required for every write performed by a verification owner. */
+export interface MoAgentMissionVerificationFence {
+  leaseOwner: string;
+  fencingToken: number;
+}
+
+/** Durable claim returned after a candidate's verification lease is acquired. */
+export interface MoAgentMissionVerificationClaim
+  extends MoAgentMissionVerificationFence {
+  mission: MoAgentMissionHandle;
+  leaseExpiresAt: string;
+}
+
 export type MoAgentCandidateSource =
   | 'moagent_submit_result'
   | 'platform_prefetch'

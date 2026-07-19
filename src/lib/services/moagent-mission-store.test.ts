@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const transactionClient = {
+    $queryRaw: vi.fn(),
     agentMission: {
       findFirst: vi.fn(),
       updateMany: vi.fn(),
@@ -56,6 +57,9 @@ const GENERATION_ID = '11111111-1111-4111-8111-111111111111';
 const CREATED_AT = '2026-07-15T05:00:00.000Z';
 const SPEC_HASH = `sha256:${'1'.repeat(64)}`;
 const SUBJECT_HASH = `sha256:${'2'.repeat(64)}`;
+const LEASE_OWNER = 'mission-verifier:test';
+const LEASE_EXPIRES_AT = new Date('2026-07-15T05:02:00.000Z');
+const VERIFICATION_FENCE = { leaseOwner: LEASE_OWNER, fencingToken: 1 };
 
 type MissionRow = {
   id: string;
@@ -69,6 +73,9 @@ type MissionRow = {
   acceptedReceiptId: string | null;
   currentCandidateRunId: string | null;
   currentCandidateRequestId: string | null;
+  verificationLeaseOwner: string | null;
+  verificationLeaseExpiresAt: Date | null;
+  verificationFencingToken: number;
 };
 
 function missionRow(overrides: Partial<MissionRow> = {}): MissionRow {
@@ -84,6 +91,9 @@ function missionRow(overrides: Partial<MissionRow> = {}): MissionRow {
     acceptedReceiptId: null,
     currentCandidateRunId: 'run-current',
     currentCandidateRequestId: REQUEST_ID,
+    verificationLeaseOwner: LEASE_OWNER,
+    verificationLeaseExpiresAt: LEASE_EXPIRES_AT,
+    verificationFencingToken: 1,
     ...overrides,
   };
 }
@@ -167,6 +177,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.transactionClient.agentMissionNode.updateMany.mockResolvedValue({ count: 1 });
   mocks.transactionClient.agentMission.updateMany.mockResolvedValue({ count: 1 });
+  mocks.transactionClient.$queryRaw.mockResolvedValue([{ databaseNow: new Date(CREATED_AT) }]);
   mockCreatedReceipt();
 });
 
@@ -223,11 +234,17 @@ describe('MoAgent Mission verification claim', () => {
       status: 'candidate_complete',
       version: 1,
       candidateVersion: 1,
+      verificationLeaseOwner: null,
+      verificationLeaseExpiresAt: null,
+      verificationFencingToken: 0,
     });
     const verifyingMission = missionRow({
       status: 'verifying',
       version: 2,
       candidateVersion: 1,
+      verificationLeaseOwner: LEASE_OWNER,
+      verificationLeaseExpiresAt: LEASE_EXPIRES_AT,
+      verificationFencingToken: 1,
     });
     mocks.transactionClient.agentMission.findFirst.mockResolvedValue(candidateMission);
     mocks.transactionClient.agentMission.findUniqueOrThrow.mockResolvedValue(verifyingMission);
@@ -236,7 +253,13 @@ describe('MoAgent Mission verification claim', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
-    })).resolves.toMatchObject({ status: 'verifying', version: 2 });
+      leaseOwner: LEASE_OWNER,
+      leaseTtlMs: 120_000,
+    })).resolves.toMatchObject({
+      mission: { status: 'verifying', version: 2 },
+      leaseOwner: LEASE_OWNER,
+      fencingToken: 1,
+    });
     expect(mocks.transactionClient.agentMission.updateMany).toHaveBeenCalledWith({
       where: { id: MISSION_ID, version: 1, status: 'candidate_complete' },
       data: expect.objectContaining({
@@ -255,12 +278,97 @@ describe('MoAgent Mission verification claim', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
+      leaseOwner: 'mission-verifier:second',
+      leaseTtlMs: 120_000,
     })).rejects.toMatchObject({ code: 'MISSION_VERIFICATION_BUSY' });
     expect(mocks.transactionClient.agentMission.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('takes over an expired verification lease with a higher fencing token', async () => {
+    const expired = missionRow({
+      status: 'verifying',
+      version: 2,
+      verificationLeaseOwner: 'mission-verifier:expired',
+      verificationLeaseExpiresAt: new Date('2026-07-15T04:59:59.000Z'),
+      verificationFencingToken: 1,
+    });
+    const takenOver = missionRow({
+      status: 'verifying',
+      version: 3,
+      verificationLeaseOwner: LEASE_OWNER,
+      verificationLeaseExpiresAt: LEASE_EXPIRES_AT,
+      verificationFencingToken: 2,
+    });
+    mocks.transactionClient.agentMission.findFirst.mockResolvedValue(expired);
+    mocks.transactionClient.agentMission.findUniqueOrThrow.mockResolvedValue(takenOver);
+
+    await expect(beginMoAgentMissionVerification({
+      missionId: MISSION_ID,
+      projectId: PROJECT_ID,
+      requestId: REQUEST_ID,
+      leaseOwner: LEASE_OWNER,
+      leaseTtlMs: 120_000,
+    })).resolves.toMatchObject({
+      mission: { status: 'verifying', version: 3 },
+      leaseOwner: LEASE_OWNER,
+      fencingToken: 2,
+    });
+    expect(mocks.transactionClient.agentMission.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: MISSION_ID,
+        version: 2,
+        status: 'verifying',
+        OR: expect.arrayContaining([
+          { verificationLeaseExpiresAt: { lte: new Date(CREATED_AT) } },
+        ]),
+      }),
+      data: expect.objectContaining({
+        verificationLeaseOwner: LEASE_OWNER,
+        verificationFencingToken: { increment: 1 },
+      }),
+    });
   });
 });
 
 describe('MoAgent Mission acceptance fence', () => {
+  it('rejects a late evidence write from the worker fenced by takeover', async () => {
+    mocks.transactionClient.agentMission.findFirst.mockResolvedValue(missionRow({
+      verificationLeaseOwner: 'mission-verifier:new-owner',
+      verificationFencingToken: 2,
+    }));
+
+    const error = await recordMoAgentMissionEvidenceDecision({
+      missionId: MISSION_ID,
+      projectId: PROJECT_ID,
+      requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
+      decision: evidenceDecision(),
+    }).catch((caught: unknown) => caught);
+
+    expectMissionError(error, 'MISSION_VERIFICATION_LEASE_LOST');
+    expect(mocks.transactionClient.agentEvidenceReceipt.create).not.toHaveBeenCalled();
+    expect(mocks.transactionClient.userRequest.updateMany).not.toHaveBeenCalled();
+    expect(mocks.transactionClient.agentMission.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects evidence when the current owner lets its lease expire', async () => {
+    mocks.transactionClient.agentMission.findFirst.mockResolvedValue(missionRow({
+      verificationLeaseExpiresAt: new Date(CREATED_AT),
+    }));
+
+    const error = await recordMoAgentMissionEvidenceDecision({
+      missionId: MISSION_ID,
+      projectId: PROJECT_ID,
+      requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
+      decision: evidenceDecision(),
+    }).catch((caught: unknown) => caught);
+
+    expectMissionError(error, 'MISSION_VERIFICATION_LEASE_EXPIRED');
+    expect(mocks.transactionClient.agentEvidenceReceipt.create).not.toHaveBeenCalled();
+    expect(mocks.transactionClient.userRequest.updateMany).not.toHaveBeenCalled();
+  });
+
   it('commits the acceptance receipt, Mission completion, and UserRequest completion in one transaction', async () => {
     const initial = missionRow();
     let receiptId: string | null = null;
@@ -281,6 +389,7 @@ describe('MoAgent Mission acceptance fence', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
       decision: evidenceDecision(),
     });
 
@@ -306,7 +415,13 @@ describe('MoAgent Mission acceptance fence', () => {
       },
     });
     expect(mocks.transactionClient.agentMission.updateMany).toHaveBeenCalledWith({
-      where: { id: MISSION_ID, version: 2, status: 'verifying' },
+      where: expect.objectContaining({
+        id: MISSION_ID,
+        version: 2,
+        status: 'verifying',
+        verificationLeaseOwner: LEASE_OWNER,
+        verificationFencingToken: 1,
+      }),
       data: expect.objectContaining({
         status: 'completed',
         acceptedReceiptId: receiptId,
@@ -327,6 +442,7 @@ describe('MoAgent Mission acceptance fence', () => {
         missionId: MISSION_ID,
         projectId: PROJECT_ID,
         requestId: REQUEST_ID,
+        verificationFence: VERIFICATION_FENCE,
         decision: evidenceDecision(),
       }).catch((caught: unknown) => caught);
 
@@ -352,6 +468,7 @@ describe('MoAgent Mission acceptance fence', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
       decision: evidenceDecision({ candidateVersion: 1 }),
     }).catch((caught: unknown) => caught);
 
@@ -369,6 +486,7 @@ describe('MoAgent Mission acceptance fence', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
       decision,
     }).catch((caught: unknown) => caught);
 
@@ -386,6 +504,7 @@ describe('MoAgent Mission acceptance fence', () => {
       missionId: MISSION_ID,
       projectId: PROJECT_ID,
       requestId: REQUEST_ID,
+      verificationFence: VERIFICATION_FENCE,
       decision,
     }).catch((caught: unknown) => caught);
 

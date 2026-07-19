@@ -15,6 +15,7 @@ import {
   MoAgentToolReplayBlockedError,
   type MoAgentRunStoreScheduler,
 } from './moagent-run-store';
+import { readMoAgentProgressOracleCheckpoint } from './moagent-checkpoint';
 
 const START = new Date('2026-07-15T02:00:00.000Z');
 const SECRET = 'durable-secret-must-not-survive';
@@ -170,6 +171,64 @@ function toolBase(sequence: number, toolCall = call()) {
 }
 
 describe('MoAgentDurableRunSession', () => {
+  it('persists a canonical ProgressOracle snapshot at the model-turn boundary', async () => {
+    const repository = new RecordingRepository({ now: () => new Date(START) });
+    const session = await createMoAgentDurableRunSession({
+      ...runOptions(repository),
+      heartbeatEnabled: false,
+    });
+
+    await session.record(runStarted());
+    await session.record({
+      ...eventBase(2),
+      type: 'progress_evaluated',
+      turn: 1,
+      progressOracle: {
+        version: 1,
+        turnsObserved: 1,
+        consecutiveNoProgressTurns: 1,
+        seenTrustedFactFingerprints: ['a'.repeat(64)],
+        seenWorkspaceFingerprints: ['b'.repeat(64)],
+        lastWorkspaceFingerprint: 'b'.repeat(64),
+        lastFailedCheckCount: null,
+        seenToolObservationFingerprints: ['c'.repeat(64)],
+      },
+      decision: {
+        progressed: false,
+        stalled: true,
+        consecutiveNoProgressTurns: 1,
+        progressSignals: [],
+        stallSignals: ['no_verifiable_progress'],
+      },
+    });
+
+    const checkpoint = await repository.getLatestCheckpoint(session.run.id);
+    expect(checkpoint).toMatchObject({
+      boundary: 'model_turn_completed',
+      stateVersion: 2,
+      publicState: {
+        recoveryMode: 'replan_required',
+        stage: 'model_turn_completed',
+        turn: 1,
+        sourceSequence: 2,
+        completedOperationIds: [],
+        progressOracle: {
+          version: 1,
+          turnsObserved: 1,
+          consecutiveNoProgressTurns: 1,
+        },
+      },
+    });
+    expect(readMoAgentProgressOracleCheckpoint(checkpoint!)).toMatchObject({
+      version: 1,
+      turnsObserved: 1,
+      consecutiveNoProgressTurns: 1,
+      lastWorkspaceFingerprint: 'b'.repeat(64),
+    });
+    expect(repository.calls).toContain('checkpoint:model_turn_completed');
+    await session.close();
+  });
+
   it('records deterministic pre-commit workspace rejections as failed, not uncertain', async () => {
     const repository = new RecordingRepository({ now: () => new Date(START) });
     const session = await createMoAgentDurableRunSession({

@@ -41,6 +41,7 @@ import {
   type PersonalizationCapsule,
   type PersonalizationRecallResult,
 } from './types';
+import { getProjectIntegrationScope } from '@/lib/platform/context/integration-scope';
 
 export class MemoryIntegrationError extends Error {
   constructor(
@@ -252,6 +253,8 @@ export async function recallPersonalization(input: {
         policyVersion: recall.policyVersion,
         validAt: recall.validAt,
         knownAt: recall.knownAt,
+        algorithm: 'exact-deduplicated-v1',
+        maxCharacters: runtime.config.maxProjectionCharacters,
         sourceProjectionSha256: projection.projectionSha256,
         deliveredContextSha256: contentSha256,
         exposedRevisionIds: selected.revisionIds,
@@ -313,13 +316,41 @@ export async function exposePersonalization(input: {
   try {
     const control = await runtime.controls.get(actor);
     if (!control.personalizationEnabled) return null;
+    const usage = await runtime.port.recordUsage({
+      tenantId: prepared.tenantId,
+      subjectId: prepared.subjectId,
+      traceId: prepared.traceId,
+      algorithm: prepared.algorithm,
+      maxCharacters: prepared.maxCharacters,
+      sourceProjectionSha256: prepared.sourceProjectionSha256,
+      deliveredContextSha256: prepared.deliveredContextSha256,
+      revisionIds: prepared.exposedRevisionIds,
+      idempotencyKey: `quantpilot:${requestId}:memory-usage`,
+      purpose: runtime.config.purpose,
+    }, requestId);
+    const usageMatchesCapsule =
+      usage.traceId === prepared.traceId
+      && usage.algorithm === prepared.algorithm
+      && usage.maxCharacters === prepared.maxCharacters
+      && usage.sourceProjectionSha256 === prepared.sourceProjectionSha256
+      && usage.deliveredContextSha256 === prepared.deliveredContextSha256
+      && JSON.stringify(usage.revisionIds) === JSON.stringify(prepared.exposedRevisionIds);
+    if (!usageMatchesCapsule) {
+      throw new MemoryIntegrationError(
+        'MEMORY_USAGE_MISMATCH',
+        502,
+        'Personal memory usage receipt does not match the delivered capsule.',
+      );
+    }
     await runtime.uses.save({
       provider: MEMORY_PROVIDER_ID,
       projectId: input.projectId,
       requestId,
       tenantId: prepared.tenantId,
+      integrationScopeSha256: getProjectIntegrationScope(input.projectId).scopeSha256,
       subjectId: prepared.subjectId,
       traceId: prepared.traceId,
+      providerUsageId: usage.usageId,
       policyId: prepared.policyId,
       policyVersion: prepared.policyVersion,
       validAt,
@@ -328,7 +359,7 @@ export async function exposePersonalization(input: {
       deliveredContextSha256: prepared.deliveredContextSha256,
       exposedRevisionIds: prepared.exposedRevisionIds,
     });
-    return capsule;
+    return { ...capsule, usageId: usage.usageId };
   } catch (error) {
     if (runtime.config.required) {
       throw new MemoryIntegrationError(
@@ -608,6 +639,7 @@ export async function recordPersonalMemoryFeedback(input: {
       subjectId: actor,
       traceId: use.traceId,
       revisionId: input.revisionId,
+      usageId: use.providerUsageId ?? undefined,
       kind: input.kind,
       idempotencyKey: `quantpilot:${stableEventId}:outcome`,
       weight,

@@ -9,6 +9,8 @@ const config: KnowledgeIntegrationConfig = {
   apiUrl: 'https://knowledge.example',
   purpose: 'quant-research',
   spaces: ['https://knowledge.example/spaces/research'],
+  projectSpacesEnabled: true,
+  projectSpaceBaseUrl: 'https://knowledge.example/spaces/projects',
   timeoutMs: 1_000,
   maxContextCharacters: 4_000,
   supportedObligations: ['cite', 'no-train'],
@@ -111,6 +113,60 @@ describe('AKEP HTTP adapter', () => {
       purpose: 'quant-research',
       mode: 'lexical',
       budget: { maxCharacters: 4000 },
+    });
+  });
+
+  it('submits privacy-bounded Mission outcome evidence against a real usage', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(discovery()))
+      .mockResolvedValueOnce(jsonResponse({
+        feedbackId: 'urn:quantpilot:knowledge-feedback:abc',
+        usageId: 'urn:uuid:00000000-0000-4000-8000-000000000002',
+        evidenceId: 'urn:uuid:00000000-0000-4000-8000-000000000003',
+        policyEpoch: 'epoch-1',
+        receivedAt: '2026-07-19T00:00:02.000Z',
+        status: 'recorded',
+        correlationClass: 'same_organization',
+        eligibleForAggregation: true,
+        evaluatorVersion: {
+          uri: 'urn:quantpilot:evaluator:mission-acceptance:v1',
+          digest: `sha256:${'e'.repeat(64)}`,
+        },
+      }, 202));
+    const adapter = new AkepHttpAdapter(config, fetcher);
+
+    await adapter.discover();
+    await expect(adapter.recordFeedback({
+      feedbackId: 'urn:quantpilot:knowledge-feedback:abc',
+      usageId: 'urn:uuid:00000000-0000-4000-8000-000000000002',
+      citations: [{
+        citationId: 'urn:akep:citation:one',
+        revisionId: `urn:akep:sha256:${'c'.repeat(64)}`,
+        payloadDigest: `sha256:${'d'.repeat(64)}`,
+        locator: { type: 'text-offset', start: 0, end: 31 },
+      }],
+      taskCategory: 'risk-dashboard',
+      outcome: 'unknown',
+      metrics: [{ name: 'mission.accepted', value: 1, unit: 'boolean' }],
+      evaluatorVersion: {
+        uri: 'urn:quantpilot:evaluator:mission-acceptance:v1',
+        digest: `sha256:${'e'.repeat(64)}`,
+      },
+      contextDigest: `sha256:${'b'.repeat(64)}`,
+      evidenceRefs: ['urn:quantpilot:mission-receipt:abc'],
+      observedAt: '2026-07-19T00:00:02.000Z',
+      privacy: { rawTaskStored: false, aggregation: 'pseudonymized' },
+    }, 'feedback-idempotency', 'request-1')).resolves.toMatchObject({
+      status: 'recorded',
+      eligibleForAggregation: true,
+    });
+
+    const [url, init] = fetcher.mock.calls[1] as [URL, RequestInit];
+    expect(url.pathname).toBe('/akep/0.1/feedback');
+    expect(new Headers(init.headers).get('idempotency-key')).toBe('feedback-idempotency');
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      outcome: 'unknown',
+      privacy: { rawTaskStored: false, aggregation: 'pseudonymized' },
     });
   });
 

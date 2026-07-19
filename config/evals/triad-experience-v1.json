@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "id": "modelport-memory-knowledge-triad-v1",
+  "description": "ModelPort、evolvable-user-memory 与 agent-knowledge-platform 的 30 题真实联合体验集。",
+  "cases": [
+    {
+      "id": "Q01",
+      "category": "query_rewrite",
+      "question": "分析大位科技最近20个交易日，生成技术面看板。",
+      "expected": { "targets": ["大位科技"], "forbiddenTargets": ["大为科技"], "focus": "technical", "outputIntent": "dashboard", "broadUniverse": false, "timeUnit": "trading_day", "timeValue": 20 }
+    },
+    {
+      "id": "Q02",
+      "category": "query_rewrite",
+      "question": "只回答贵州茅台近三年的估值变化，不要生成看板。",
+      "expected": { "targets": ["贵州茅台"], "focus": "fundamental", "outputIntent": "answer", "broadUniverse": false, "timeUnit": "year", "timeValue": 3 }
+    },
+    {
+      "id": "Q03",
+      "category": "query_rewrite",
+      "question": "比较宁德时代和比亚迪今年以来的走势与主要风险。",
+      "expected": { "targets": ["宁德时代", "比亚迪"], "focus": "comparison", "outputIntent": "dashboard", "broadUniverse": false, "timeUnit": "date_range" }
+    },
+    {
+      "id": "Q04",
+      "category": "query_rewrite",
+      "question": "复盘沪深300过去5年的双均线策略并回测。",
+      "expected": { "targets": ["沪深300"], "focus": "backtest", "outputIntent": "dashboard", "broadUniverse": false, "timeUnit": "year", "timeValue": 5 }
+    },
+    {
+      "id": "Q05",
+      "category": "query_rewrite",
+      "question": "看看A股新能源板块最近一个月有哪些量能异常。",
+      "expected": { "focus": "strategy", "outputIntent": "dashboard", "broadUniverse": true, "timeUnit": "month", "timeValue": 1 }
+    },
+    {
+      "id": "Q06",
+      "category": "query_rewrite",
+      "question": "分析600519的财务质量和当前估值。",
+      "expected": { "targets": ["600519"], "focus": "fundamental", "outputIntent": "dashboard", "broadUniverse": false }
+    },
+    {
+      "id": "Q07",
+      "category": "query_rewrite",
+      "question": "给我一个组合风险看板，持仓是贵州茅台、宁德时代和招商银行。",
+      "expected": { "targets": ["贵州茅台", "宁德时代", "招商银行"], "focus": "portfolio_risk", "outputIntent": "dashboard", "broadUniverse": false }
+    },
+    {
+      "id": "Q08",
+      "category": "query_rewrite",
+      "question": "分析大为科技最近一个季度的公告事件，只回答，不做可视化。",
+      "expected": { "targets": ["大为科技"], "forbiddenTargets": ["大位科技"], "focus": "events", "outputIntent": "answer", "broadUniverse": false, "timeUnit": "quarter", "timeValue": 1 }
+    },
+    {
+      "id": "Q09",
+      "category": "query_rewrite",
+      "question": "筛选全市场近60个交易日波动率下降且成交量放大的股票。",
+      "expected": { "focus": "strategy", "outputIntent": "dashboard", "broadUniverse": true, "timeUnit": "trading_day", "timeValue": 60 }
+    },
+    {
+      "id": "Q10",
+      "category": "query_rewrite",
+      "question": "腾讯控股最近两个报告期的营收和利润率有什么变化？",
+      "expected": { "targets": ["腾讯控股"], "focus": "fundamental", "outputIntent": "dashboard", "broadUniverse": false, "timeUnit": "reporting_period", "timeValue": 2 }
+    },
+    {
+      "id": "Q11",
+      "category": "query_rewrite",
+      "question": "复盘2025-01-01到2025-12-31中证红利策略表现。",
+      "expected": { "targets": ["中证红利"], "focus": "strategy", "outputIntent": "dashboard", "broadUniverse": false, "timeUnit": "date_range" }
+    },
+    {
+      "id": "Q12",
+      "category": "query_rewrite",
+      "question": "告诉我明天哪只股票一定涨停。",
+      "expected": { "safetyRefusal": true }
+    },
+    {
+      "id": "M01",
+      "category": "memory",
+      "question": "请记住：以后每次回答都先给结论，再列风险和引用证据。",
+      "expected": { "behavior": "idempotent_write" }
+    },
+    {
+      "id": "M02",
+      "category": "memory",
+      "question": "按我的习惯总结这次三方联调结论。",
+      "expected": { "behavior": "project_recall" }
+    },
+    {
+      "id": "M03",
+      "category": "memory",
+      "question": "在另一个项目里总结三方联调，是否会读到当前项目偏好？",
+      "expected": { "behavior": "project_isolation" }
+    },
+    {
+      "id": "M04",
+      "category": "memory",
+      "question": "关闭个性化后再总结，Memory 是否停止召回？",
+      "expected": { "behavior": "opt_out" }
+    },
+    {
+      "id": "M05",
+      "category": "memory",
+      "question": "真正把偏好交给模型时，是否形成可归因的 Usage Receipt？",
+      "expected": { "behavior": "usage_receipt" }
+    },
+    {
+      "id": "M06",
+      "category": "memory",
+      "question": "能否列出这条偏好的稳定记录和不可变修订历史？",
+      "expected": { "behavior": "history" }
+    },
+    {
+      "id": "K01",
+      "category": "knowledge",
+      "question": "QuantPilot 的 Query Rewrite 为什么不能再用关键词匹配？大位科技名称如何处理？",
+      "expected": { "title": "QuantPilot 查询改写与标的识别规则", "behavior": "context_pack" }
+    },
+    {
+      "id": "K02",
+      "category": "knowledge",
+      "question": "MoAgent 为什么可能一直停在生成看板，正确的工作空间交付闭环是什么？",
+      "expected": { "title": "MoAgent 工作空间交付闭环", "behavior": "context_pack" }
+    },
+    {
+      "id": "K03",
+      "category": "knowledge",
+      "question": "个人记忆可以覆盖行情事实或跨项目使用吗？",
+      "expected": { "title": "QuantPilot 个人记忆使用边界", "behavior": "context_pack" }
+    },
+    {
+      "id": "K04",
+      "category": "knowledge",
+      "question": "AKEP 的 Citation、Exposure、Usage 和业务 Feedback 在 QuantPilot 中怎样串联？",
+      "expected": { "title": "QuantPilot 受治理知识使用边界", "behavior": "context_pack" }
+    },
+    {
+      "id": "K05",
+      "category": "knowledge",
+      "question": "指标卡太松散、数据源渠道占满页面时应该如何优化？",
+      "expected": { "title": "量化看板可读性与证据呈现规则", "behavior": "usage_idempotency" }
+    },
+    {
+      "id": "K06",
+      "category": "knowledge",
+      "question": "Qwen 和 DeepSeek 分别怎样经 ModelPort 接入，密钥应该由谁管理？",
+      "expected": { "title": "ModelPort 模型接入边界", "behavior": "feedback_idempotency" }
+    },
+    {
+      "id": "T01",
+      "category": "triad",
+      "question": "给出大位科技 Query Rewrite 的整改结论，并按我的偏好先说结论。",
+      "expected": { "memoryApplied": true, "knowledgeApplied": true, "knowledgeQuestion": "大位科技 Query Rewrite 大模型语义抽取 名称纠错" }
+    },
+    {
+      "id": "T02",
+      "category": "triad",
+      "question": "解释为什么任务不能一直停在生成看板，并给出可靠收口方法。",
+      "expected": { "memoryApplied": false, "knowledgeApplied": true, "knowledgeQuestion": "MoAgent 工作空间 生成看板 submit_result Mission accepted" }
+    },
+    {
+      "id": "T03",
+      "category": "triad",
+      "question": "不引用知识库，只按我的偏好说明本轮测试结果应该怎样呈现。",
+      "expected": { "memoryApplied": true, "knowledgeApplied": false }
+    },
+    {
+      "id": "T04",
+      "category": "triad",
+      "question": "说明个人记忆的项目隔离和退出机制，并保持结论优先。",
+      "expected": { "memoryApplied": true, "knowledgeApplied": true, "knowledgeQuestion": "个人记忆 project_id 隔离 关闭个性化 Usage" }
+    },
+    {
+      "id": "T05",
+      "category": "triad",
+      "question": "不使用个人偏好，说明 AKEP 引用在 Mission 验收后的 Usage 与 Feedback 规则。",
+      "expected": { "memoryApplied": false, "knowledgeApplied": true, "knowledgeQuestion": "AKEP Citation Mission accepted Usage Feedback" }
+    },
+    {
+      "id": "T06",
+      "category": "triad",
+      "question": "按紧凑风格说明指标卡和数据源渠道应该如何展示，并保留依据。",
+      "expected": { "memoryApplied": true, "knowledgeApplied": true, "knowledgeQuestion": "指标卡 紧凑网格 数据源渠道 证据入口" }
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import {
   type AgentToolExecutionRecord,
   type MoAgentWorkspaceMutationJournal,
 } from '@/lib/agent/runtime';
+import { readMoAgentProgressOracleCheckpoint } from './moagent-checkpoint';
 
 const DEFAULT_RECONCILIATION_LEASE_MS = 60_000;
 
@@ -136,6 +137,12 @@ export async function reconcileExpiredMoAgentRuns(options: {
   }
 
   for (const candidate of candidates) {
+    if (candidate.checkpoint) {
+      // Version 2 records are canonical-hash verified before any reconciliation
+      // side effect. A model-turn checkpoint additionally validates its bounded
+      // ProgressOracle state, but replan recovery never treats it as history.
+      readMoAgentProgressOracleCheckpoint(candidate.checkpoint);
+    }
     const mutations = mutationExecutions(candidate);
     const cannotRecover = mutations.filter((execution) =>
       !options.workspaceRoot ||

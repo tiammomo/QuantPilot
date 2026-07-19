@@ -17,6 +17,7 @@ const MAX_AUDIT_DEPTH = 24;
 const MAX_AUDIT_NODES = 50_000;
 const SAFE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]*$/;
 const FRAMEWORK_OPERATION_ID_PATTERN = /^op_[a-f0-9]{64}$/;
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const TARGET_KEYS = [
   'path',
   'filePath',
@@ -317,6 +318,17 @@ function safeErrorCode(value: string): string {
   return safeName(value, 'error');
 }
 
+function safeProgressFingerprint(value: string): string {
+  return SHA256_HEX_PATTERN.test(value) ? value.toLowerCase() : sha256(value);
+}
+
+function safeProgressFingerprints(values: readonly string[]): string[] {
+  if (!Array.isArray(values)) {
+    throw new Error('MoAgent progress fingerprints must be an array.');
+  }
+  return [...new Set(values.map(safeProgressFingerprint))].sort();
+}
+
 function projectFailureResult(
   result: Extract<MoAgentToolResult, { ok: false }>
 ): RuntimeJsonObject {
@@ -469,6 +481,43 @@ export function projectMoAgentEvent(event: MoAgentEvent): RuntimeJsonObject | nu
         remainingToolCalls: event.remainingToolCalls,
         successfulWorkspaceWrites: event.successfulWorkspaceWrites,
         consecutiveReadOnlyTurns: event.consecutiveReadOnlyTurns,
+      };
+      break;
+    case 'progress_evaluated':
+      projected = {
+        schemaVersion: EVENT_PROJECTION_VERSION,
+        turn: event.turn,
+        progressOracle: {
+          version: event.progressOracle.version,
+          turnsObserved: event.progressOracle.turnsObserved,
+          consecutiveNoProgressTurns:
+            event.progressOracle.consecutiveNoProgressTurns,
+          seenTrustedFactFingerprints: safeProgressFingerprints(
+            event.progressOracle.seenTrustedFactFingerprints,
+          ),
+          seenWorkspaceFingerprints: safeProgressFingerprints(
+            event.progressOracle.seenWorkspaceFingerprints,
+          ),
+          lastWorkspaceFingerprint:
+            event.progressOracle.lastWorkspaceFingerprint === null
+              ? null
+              : safeProgressFingerprint(event.progressOracle.lastWorkspaceFingerprint),
+          lastFailedCheckCount: event.progressOracle.lastFailedCheckCount,
+          seenToolObservationFingerprints: safeProgressFingerprints(
+            event.progressOracle.seenToolObservationFingerprints,
+          ),
+        },
+        decision: {
+          progressed: event.decision.progressed,
+          stalled: event.decision.stalled,
+          consecutiveNoProgressTurns: event.decision.consecutiveNoProgressTurns,
+          progressSignals: event.decision.progressSignals.map((signal) =>
+            safeName(signal, 'progress_signal')
+          ),
+          stallSignals: event.decision.stallSignals.map((signal) =>
+            safeName(signal, 'stall_signal')
+          ),
+        },
       };
       break;
     case 'tool_started':

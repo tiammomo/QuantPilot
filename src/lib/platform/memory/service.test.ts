@@ -51,6 +51,7 @@ function port(overrides: Partial<PersonalMemoryPort> = {}): PersonalMemoryPort {
         'recall.trace',
         'recall.bitemporal',
         'recall.context-projection',
+        'experience.usage-receipt',
         'experience.outcome',
       ],
       authMode: 'development',
@@ -65,6 +66,18 @@ function port(overrides: Partial<PersonalMemoryPort> = {}): PersonalMemoryPort {
     getRevisions: unavailable,
     recall: unavailable,
     projectContext: unavailable,
+    recordUsage: vi.fn(async (input) => ({
+      usageId: '00000000-0000-0000-0000-000000000005',
+      traceId: input.traceId,
+      algorithm: input.algorithm,
+      maxCharacters: input.maxCharacters,
+      sourceProjectionSha256: input.sourceProjectionSha256,
+      deliveredContextSha256: input.deliveredContextSha256,
+      revisionIds: input.revisionIds,
+      occurredAt: '2026-07-18T00:00:00Z',
+      recordedAt: '2026-07-18T00:00:00Z',
+      idempotentReplay: false,
+    })),
     recordOutcome: unavailable,
     ...overrides,
   };
@@ -209,9 +222,18 @@ describe('personal memory application service', () => {
       recall: result,
     }, { config: runtimeConfig(), port: memoryPort, uses: repository, controls: controls() });
 
-    expect(exposed).toEqual(result.capsule);
+    expect(exposed).toEqual({
+      ...result.capsule,
+      usageId: '00000000-0000-0000-0000-000000000005',
+    });
+    expect(memoryPort.recordUsage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: 'quantpilot:request-a:memory-usage',
+      traceId: '00000000-0000-0000-0000-000000000001',
+      revisionIds: ['00000000-0000-0000-0000-000000000003'],
+    }), 'request-a');
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       provider: MEMORY_PROVIDER_ID,
+      providerUsageId: '00000000-0000-0000-0000-000000000005',
       projectId: 'project-a',
       subjectId: 'user-a',
       exposedRevisionIds: ['00000000-0000-0000-0000-000000000003'],
@@ -323,6 +345,7 @@ describe('personal memory application service', () => {
       tenantId: 'tenant-a',
       subjectId: 'user-a',
       traceId: '00000000-0000-0000-0000-000000000001',
+      providerUsageId: '00000000-0000-0000-0000-000000000005',
       policyId: '00000000-0000-0000-0000-000000000002',
       policyVersion: 1,
       validAt: new Date(),
@@ -351,6 +374,7 @@ describe('personal memory application service', () => {
 
     expect(outcome).toHaveBeenCalledWith(expect.objectContaining({
       traceId: '00000000-0000-0000-0000-000000000001',
+      usageId: '00000000-0000-0000-0000-000000000005',
       revisionId: '00000000-0000-0000-0000-000000000003',
       idempotencyKey: 'quantpilot:feedback-1:outcome',
     }), 'feedback-1');
@@ -382,6 +406,7 @@ describe('personal memory application service', () => {
       tenantId: 'tenant-a',
       subjectId: 'user-a',
       traceId: '00000000-0000-0000-0000-000000000001',
+      providerUsageId: '00000000-0000-0000-0000-000000000005',
       policyId: '00000000-0000-0000-0000-000000000002',
       policyVersion: 1,
       validAt: new Date(),
@@ -441,6 +466,7 @@ describe('personal memory application service', () => {
       tenantId: 'tenant-a',
       subjectId: 'user-a',
       traceId: '00000000-0000-0000-0000-000000000001',
+      providerUsageId: '00000000-0000-0000-0000-000000000005',
       policyId: '00000000-0000-0000-0000-000000000002',
       policyVersion: 1,
       validAt: new Date(),
@@ -479,6 +505,7 @@ describe('personal memory application service', () => {
       tenantId: 'tenant-a',
       subjectId: 'user-a',
       traceId: '00000000-0000-0000-0000-000000000001',
+      providerUsageId: '00000000-0000-0000-0000-000000000005',
       policyId: '00000000-0000-0000-0000-000000000002',
       policyVersion: 1,
       validAt: new Date(),
@@ -721,6 +748,8 @@ describe('personal memory application service', () => {
         policyVersion: 1,
         validAt: '2026-07-18T00:00:00Z',
         knownAt: '2026-07-18T00:00:00Z',
+        algorithm: 'exact-deduplicated-v1' as const,
+        maxCharacters: 2_000,
         sourceProjectionSha256: 'a'.repeat(64),
         deliveredContextSha256: 'b'.repeat(64),
         exposedRevisionIds: ['00000000-0000-0000-0000-000000000003'],

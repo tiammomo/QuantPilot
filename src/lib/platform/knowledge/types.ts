@@ -67,6 +67,10 @@ export interface GovernedKnowledgeCapsule {
   obligations: unknown[];
   qualityDecision: KnowledgeQualityDecision;
   warningCodes: string[];
+  integrationScopeSha256: string;
+  consumerId: string;
+  requestedSpaceIds: string[];
+  projectSpaceId: string | null;
 }
 
 export type GovernedKnowledgeStatus =
@@ -90,6 +94,35 @@ export interface KnowledgeUsageReceipt {
   policyEpoch: string;
   createdAt: string;
   feedbackUntil: string;
+}
+
+export interface KnowledgeFeedbackReceipt {
+  feedbackId: string;
+  usageId: string;
+  evidenceId: string;
+  policyEpoch: string;
+  receivedAt: string;
+  status: 'recorded';
+  correlationClass: string;
+  eligibleForAggregation: boolean;
+  evaluatorVersion: { uri: string; digest: string };
+}
+
+export interface KnowledgeFeedbackCitation {
+  citationId: string;
+  payloadDigest: string;
+  locator: Record<string, unknown>;
+  revisionId: string;
+  spaceId: string;
+}
+
+export type KnowledgeFeedbackOutcome = 'helped' | 'neutral' | 'harmed';
+
+export interface KnowledgeFeedbackResult {
+  status: 'not_applicable' | 'recorded' | 'unavailable';
+  outcome: KnowledgeFeedbackOutcome;
+  feedbackReceipts: KnowledgeFeedbackReceipt[];
+  failureCode?: string;
 }
 
 export interface KnowledgeUsageResult {

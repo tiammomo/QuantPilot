@@ -90,6 +90,39 @@ describe('MoAgent durable event projector', () => {
     expect(serialized(event)).not.toContain('arguments');
   });
 
+  it('hashes non-canonical progress fingerprints before they cross the durable boundary', () => {
+    const event: MoAgentEvent = {
+      ...base,
+      type: 'progress_evaluated',
+      turn: 1,
+      progressOracle: {
+        version: 1,
+        turnsObserved: 1,
+        consecutiveNoProgressTurns: 1,
+        seenTrustedFactFingerprints: [SECRET],
+        seenWorkspaceFingerprints: [SECRET],
+        lastWorkspaceFingerprint: SECRET,
+        lastFailedCheckCount: null,
+        seenToolObservationFingerprints: [SECRET],
+      },
+      decision: {
+        progressed: false,
+        stalled: true,
+        consecutiveNoProgressTurns: 1,
+        progressSignals: [],
+        stallSignals: ['no_verifiable_progress'],
+      },
+    };
+
+    expect(serialized(event)).not.toContain(SECRET);
+    expect(projectMoAgentEvent(event)).toMatchObject({
+      progressOracle: {
+        seenTrustedFactFingerprints: [sha256(SECRET)],
+        lastWorkspaceFingerprint: sha256(SECRET),
+      },
+    });
+  });
+
   it('projects tool input, target, result data and content as non-reversible audits', () => {
     const started: MoAgentEvent = {
       ...toolEventBase(),
@@ -290,6 +323,28 @@ describe('MoAgent durable event projector', () => {
         remainingToolCalls: 12,
         successfulWorkspaceWrites: 2,
         consecutiveReadOnlyTurns: 3,
+      },
+      {
+        ...base,
+        type: 'progress_evaluated',
+        turn: 2,
+        progressOracle: {
+          version: 1,
+          turnsObserved: 2,
+          consecutiveNoProgressTurns: 1,
+          seenTrustedFactFingerprints: ['a'.repeat(64)],
+          seenWorkspaceFingerprints: ['b'.repeat(64)],
+          lastWorkspaceFingerprint: 'b'.repeat(64),
+          lastFailedCheckCount: null,
+          seenToolObservationFingerprints: ['c'.repeat(64)],
+        },
+        decision: {
+          progressed: false,
+          stalled: true,
+          consecutiveNoProgressTurns: 1,
+          progressSignals: [],
+          stallSignals: ['no_verifiable_progress'],
+        },
       },
       { ...toolEventBase(toolCall('{}')), type: 'tool_started' },
       {

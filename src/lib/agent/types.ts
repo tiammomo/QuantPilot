@@ -295,6 +295,30 @@ export interface MoAgentRunEventResult {
   error?: Pick<MoAgentRunError, 'code' | 'message'>;
 }
 
+/**
+ * Serializable, provider-neutral ProgressOracle state exposed only at a safe
+ * end-of-turn boundary. Fingerprints are framework-generated content hashes;
+ * prompts, tool output and reasoning never belong in this state.
+ */
+export interface MoAgentProgressOracleEventState {
+  version: number;
+  turnsObserved: number;
+  consecutiveNoProgressTurns: number;
+  seenTrustedFactFingerprints: readonly string[];
+  seenWorkspaceFingerprints: readonly string[];
+  lastWorkspaceFingerprint: string | null;
+  lastFailedCheckCount: number | null;
+  seenToolObservationFingerprints: readonly string[];
+}
+
+export interface MoAgentProgressOracleEventDecision {
+  progressed: boolean;
+  stalled: boolean;
+  consecutiveNoProgressTurns: number;
+  progressSignals: readonly string[];
+  stallSignals: readonly string[];
+}
+
 /** Deterministic control-plane reasons for asking a long-running agent to converge. */
 export type MoAgentConvergenceReason =
   | 'repeated_read_observation'
@@ -432,6 +456,12 @@ export type MoAgentEvent =
       remainingToolCalls: number;
       successfulWorkspaceWrites: number;
       consecutiveReadOnlyTurns: number;
+    })
+  | (MoAgentTurnEventBase & {
+      /** Safe turn boundary emitted only after every tool outcome is durable. */
+      type: 'progress_evaluated';
+      progressOracle: MoAgentProgressOracleEventState;
+      decision: MoAgentProgressOracleEventDecision;
     })
   | (MoAgentTurnEventBase & {
       type: 'tool_started';

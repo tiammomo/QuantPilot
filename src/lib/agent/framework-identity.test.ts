@@ -7,7 +7,7 @@ import {
 } from './framework-identity';
 
 describe('MoAgent framework identity', () => {
-  it('uses the single 1.8 framework version and an explicit immutable build revision', () => {
+  it('uses the single 1.12 framework version and an explicit immutable build revision', () => {
     const readGitRevision = vi.fn(() => 'a'.repeat(40));
 
     expect(resolveMoAgentBuildIdentity({
@@ -18,11 +18,11 @@ describe('MoAgent framework identity', () => {
       readGitRevision,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.8.0',
+      frameworkVersion: 'moagent:1.12.0',
       buildRevision: 'image:sha256-deadbeef',
       gitRevision: 'a'.repeat(40),
     });
-    expect(MOAGENT_FRAMEWORK_VERSION).toBe('moagent:1.8.0');
+    expect(MOAGENT_FRAMEWORK_VERSION).toBe('moagent:1.12.0');
   });
 
   it('prefers deployment git provenance and rejects malformed revision input', () => {
@@ -37,7 +37,7 @@ describe('MoAgent framework identity', () => {
       readGitRevision,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.8.0',
+      frameworkVersion: 'moagent:1.12.0',
       buildRevision: 'c'.repeat(40),
       gitRevision: 'c'.repeat(40),
     });
@@ -50,8 +50,8 @@ describe('MoAgent framework identity', () => {
       readGitRevision: () => null,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.8.0',
-      buildRevision: 'unversioned:moagent:1.8.0',
+      frameworkVersion: 'moagent:1.12.0',
+      buildRevision: 'unversioned:moagent:1.12.0',
       gitRevision: null,
     });
   });
@@ -62,7 +62,7 @@ describe('MoAgent framework identity', () => {
       readGitRevision: () => 'd'.repeat(40),
       readWorkspaceFingerprint: () => 'diff0123456789',
     })).toEqual({
-      frameworkVersion: 'moagent:1.8.0',
+      frameworkVersion: 'moagent:1.12.0',
       buildRevision: `${'d'.repeat(40)}-dirty.diff0123456789`,
       gitRevision: 'd'.repeat(40),
     });

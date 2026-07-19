@@ -25,10 +25,13 @@ import type {
   MoAgentRunStatus,
   MoAgentTokenUsage,
 } from '@/lib/agent/types';
+import {
+  hashMoAgentCheckpointPublicState,
+  MOAGENT_CHECKPOINT_STATE_VERSION,
+} from './moagent-checkpoint';
 
 const DEFAULT_LEASE_TTL_MS = 60_000;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
-const CHECKPOINT_STATE_VERSION = 1;
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 const SAFE_ERROR_CODE_PATTERN = /^[A-Za-z][A-Za-z0-9_.:-]{0,95}$/;
 
@@ -233,10 +236,11 @@ function resultReceipt(projection: RuntimeJsonObject, uncertain: boolean): Runti
 }
 
 function checkpointState(input: {
-  stage: 'run_started' | 'tools_completed';
+  stage: 'run_started' | 'tools_completed' | 'model_turn_completed';
   turn: number;
   sourceSequence: number;
   completedOperationIds: readonly string[];
+  progressOracle?: RuntimeJsonObject;
 }): RuntimeJsonObject {
   return {
     recoveryMode: 'replan_required',
@@ -244,6 +248,7 @@ function checkpointState(input: {
     turn: input.turn,
     sourceSequence: input.sourceSequence,
     completedOperationIds: [...input.completedOperationIds],
+    ...(input.progressOracle ? { progressOracle: input.progressOracle } : {}),
   };
 }
 
@@ -375,6 +380,17 @@ export class MoAgentDurableRunSession {
         await this.saveCheckpoint('run_started', 0, event.sequence);
       } else if (event.type === 'tool_completed' || event.type === 'tool_failed') {
         await this.saveCheckpoint('tools_completed', event.turn, event.sequence);
+      } else if (event.type === 'progress_evaluated') {
+        const progressOracle = projection.progressOracle;
+        if (!isRuntimeJsonObject(progressOracle)) {
+          throw new Error('Durable progress event is missing its safe oracle projection.');
+        }
+        await this.saveCheckpoint(
+          'model_turn_completed',
+          event.turn,
+          event.sequence,
+          progressOracle,
+        );
       } else if (event.type === 'run_finished') {
         await this.completeRun(event, projection);
       }
@@ -586,9 +602,10 @@ export class MoAgentDurableRunSession {
   }
 
   private async saveCheckpoint(
-    stage: 'run_started' | 'tools_completed',
+    stage: 'run_started' | 'tools_completed' | 'model_turn_completed',
     turn: number,
-    sourceSequence: number
+    sourceSequence: number,
+    progressOracle?: RuntimeJsonObject,
   ): Promise<void> {
     // appendEvent and tool ledger writes are idempotent. A redelivered event
     // must not fail on the checkpoint's (runId, sequence) uniqueness boundary.
@@ -603,8 +620,9 @@ export class MoAgentDurableRunSession {
       turn,
       sourceSequence,
       completedOperationIds: this.completedOperationIds,
+      ...(progressOracle ? { progressOracle } : {}),
     });
-    const stateHash = `sha256:${sha256(JSON.stringify(publicState))}`;
+    const stateHash = hashMoAgentCheckpointPublicState(publicState);
     const saved = await this.repository.saveCheckpoint({
       ...this.fence(this.clock()),
       sequence: sourceSequence,
@@ -612,7 +630,7 @@ export class MoAgentDurableRunSession {
       boundary: stage,
       publicState,
       stateHash,
-      stateVersion: CHECKPOINT_STATE_VERSION,
+      stateVersion: MOAGENT_CHECKPOINT_STATE_VERSION,
     });
     this.currentRun = saved.run;
   }

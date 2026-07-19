@@ -466,6 +466,7 @@ export async function readQuantRunPlan(projectPath: string): Promise<QuantRunPla
 }
 
 export async function writeInitialRunPlan(params: {
+  projectId?: string;
   projectPath: string;
   instruction: string;
   requestId: string;
@@ -484,6 +485,7 @@ export async function writeInitialRunPlan(params: {
     requestedCapabilityId:
       params.capabilitySource === 'manual' ? params.capabilityId : null,
     requestedModel: params.llmModel,
+    projectId: params.projectId,
   });
   const explicitSymbols = Array.from(new Set(
     queryRewrite.resolvedSymbols.map((item) => item.symbol),

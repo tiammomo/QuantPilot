@@ -1,9 +1,37 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { QUANT_GENERATION_QUEUE_RELATIVE_PATH } from '@/lib/quant/artifacts';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import fs from "node:fs/promises";
+import path from "node:path";
 
-export type QuantGenerationQueueStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+import type { AgentGenerationJob } from "@prisma/client";
+
+import { withMoAgentWorkspaceResourceLock } from "@/lib/agent/runtime/workspace-resource-lock";
+import { QUANT_GENERATION_QUEUE_RELATIVE_PATH } from "@/lib/quant/artifacts";
+import {
+  appendQuantWorkspaceEvent,
+  ensureQuantWorkspace,
+} from "@/lib/quant/workspace";
+import {
+  currentMoAgentGenerationDispatchFence,
+  currentMoAgentGenerationDispatchSession,
+  MoAgentGenerationDispatchSession,
+} from "@/lib/services/moagent-generation-dispatch-session";
+import {
+  cancelMoAgentGenerationJob,
+  finishMoAgentGenerationJob,
+  listMoAgentGenerationJobs,
+  listPendingMoAgentGenerationOutboxEvents,
+  markMoAgentGenerationOutboxEventsPublished,
+  reconcileExpiredMoAgentGenerationJobs,
+  MoAgentGenerationDispatchError,
+} from "@/lib/services/moagent-generation-dispatch-store";
+import { withMoAgentGenerationLease } from "@/lib/services/moagent-generation-lease-session";
+import type { MoAgentGenerationStage } from "@/lib/services/moagent-generation-lease-store";
+
+export type QuantGenerationQueueStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface QuantGenerationQueueItem {
   id: string;
@@ -29,347 +57,328 @@ export interface QuantGenerationQueueState {
 
 type QueueTask<T> = () => Promise<T>;
 
-const MAX_QUEUE_ITEMS = Number.parseInt(process.env.QUANTPILOT_GENERATION_QUEUE_HISTORY_LIMIT ?? '', 10) || 50;
-const projectLocks = new Map<string, Promise<void>>();
-const queueStateLocks = new Map<string, Promise<void>>();
+const MAX_QUEUE_ITEMS =
+  Number.parseInt(
+    process.env.QUANTPILOT_GENERATION_QUEUE_HISTORY_LIMIT ?? "",
+    10,
+  ) || 50;
 
 export class QuantGenerationCancelledError extends Error {
-  constructor(message = '生成任务已取消。') {
+  constructor(message = "生成任务已取消。") {
     super(message);
-    this.name = 'QuantGenerationCancelledError';
+    this.name = "QuantGenerationCancelledError";
   }
-}
-
-function nowIso() {
-  return new Date().toISOString();
 }
 
 function queuePath(projectPath: string) {
   return path.join(projectPath, QUANT_GENERATION_QUEUE_RELATIVE_PATH);
 }
 
-function previewInstruction(value: string) {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  return normalized.length > 180 ? `${normalized.slice(0, 179)}…` : normalized;
+function projectionStatus(status: string): QuantGenerationQueueStatus {
+  if (status === "pending" || status === "retry_wait") return "queued";
+  if (status === "running") return "running";
+  if (status === "completed") return "completed";
+  if (status === "cancelled") return "cancelled";
+  return "failed";
 }
 
-async function readQueue(projectPath: string, projectId: string): Promise<QuantGenerationQueueState> {
-  const content = await fs.readFile(queuePath(projectPath), 'utf8').catch(() => null);
-  if (content) {
-    try {
-      const parsed = JSON.parse(content) as QuantGenerationQueueState;
-      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.items)) {
-        return {
-          schemaVersion: 1,
-          projectId: parsed.projectId || projectId,
-          activeRequestId: parsed.activeRequestId ?? null,
-          updatedAt: parsed.updatedAt || nowIso(),
-          items: parsed.items,
-        };
-      }
-    } catch {
-      // Regenerate malformed queue state below.
-    }
-  }
-
+function projectJob(job: AgentGenerationJob): QuantGenerationQueueItem {
   return {
-    schemaVersion: 1,
-    projectId,
-    activeRequestId: null,
-    updatedAt: nowIso(),
-    items: [],
+    id: job.id,
+    projectId: job.projectId,
+    requestId: job.requestId,
+    status: projectionStatus(job.status),
+    cliPreference: job.cliPreference,
+    selectedModel: job.selectedModel,
+    instructionPreview: job.instructionPreview,
+    queuedAt: job.queuedAt.toISOString(),
+    startedAt: job.startedAt?.toISOString() ?? null,
+    completedAt: job.completedAt?.toISOString() ?? null,
+    errorMessage: job.errorMessage,
   };
 }
 
-async function writeQueue(projectPath: string, state: QuantGenerationQueueState) {
+async function writeProjection(
+  projectPath: string,
+  state: QuantGenerationQueueState,
+): Promise<void> {
   await ensureQuantWorkspace(projectPath);
   const filePath = queuePath(projectPath);
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+  await fs.writeFile(
+    temporaryPath,
+    `${JSON.stringify(state, null, 2)}\n`,
+    "utf8",
+  );
   await fs.rename(temporaryPath, filePath);
 }
 
-async function withQueueStateLock<T>(projectPath: string, task: () => Promise<T>): Promise<T> {
-  const key = path.resolve(projectPath);
-  const previous = queueStateLocks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.then(() => current, () => current);
-  queueStateLocks.set(key, queued);
-
-  await previous.catch(() => undefined);
-  try {
-    return await task();
-  } finally {
-    release();
-    if (queueStateLocks.get(key) === queued) {
-      queueStateLocks.delete(key);
-    }
-  }
-}
-
-async function withProjectGenerationLock<T>(projectId: string, task: QueueTask<T>): Promise<T> {
-  const previous = projectLocks.get(projectId) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = previous.then(() => current, () => current);
-  projectLocks.set(projectId, queued);
-
-  await previous.catch(() => undefined);
-  try {
-    return await task();
-  } finally {
-    release();
-    if (projectLocks.get(projectId) === queued) {
-      projectLocks.delete(projectId);
-    }
-  }
-}
-
-function patchItem(
-  state: QuantGenerationQueueState,
-  requestId: string,
-  patch: Partial<QuantGenerationQueueItem>
-): QuantGenerationQueueState {
-  let found = false;
-  const items = state.items.map((item) => {
-    if (item.requestId !== requestId) return item;
-    found = true;
-    return { ...item, ...patch };
-  });
-  return {
-    ...state,
-    updatedAt: nowIso(),
-    items: (found ? items : state.items).slice(0, MAX_QUEUE_ITEMS),
-  };
-}
-
-async function updateQueueItem(
+/**
+ * Materialize the PostgreSQL dispatch ledger into the generated workspace.
+ * The JSON file is deliberately disposable: a failed or stale write is
+ * repaired from jobs/outbox on the next read or lifecycle transition.
+ */
+async function projectDurableQueue(
   projectPath: string,
   projectId: string,
-  requestId: string,
-  patch: Partial<QuantGenerationQueueItem>
-) {
-  return withQueueStateLock(projectPath, async () => {
-    const state = await readQueue(projectPath, projectId);
-    const nextState = patchItem(state, requestId, patch);
-    await writeQueue(projectPath, nextState);
-    return nextState;
-  });
-}
-
-async function enqueueItem(params: {
-  projectPath: string;
-  projectId: string;
-  requestId: string;
-  instruction: string;
-  cliPreference?: string | null;
-  selectedModel?: string | null;
-}) {
-  const timestamp = nowIso();
-  const item = await withQueueStateLock(params.projectPath, async () => {
-    const state = await readQueue(params.projectPath, params.projectId);
-    const existing = state.items.find((entry) => entry.requestId === params.requestId);
-    if (existing?.status === 'cancelled') {
-      return existing;
-    }
-    const nextItem: QuantGenerationQueueItem = {
-      id: existing?.id ?? `${params.projectId}:${params.requestId}`,
-      projectId: params.projectId,
-      requestId: params.requestId,
-      status: 'queued',
-      cliPreference: params.cliPreference ?? null,
-      selectedModel: params.selectedModel ?? null,
-      instructionPreview: previewInstruction(params.instruction),
-      queuedAt: existing?.queuedAt ?? timestamp,
-      startedAt: null,
-      completedAt: null,
-      errorMessage: null,
-    };
-    const items = [nextItem, ...state.items.filter((entry) => entry.requestId !== params.requestId)].slice(0, MAX_QUEUE_ITEMS);
-    await writeQueue(params.projectPath, {
-      ...state,
-      updatedAt: timestamp,
-      items,
-    });
-    return nextItem;
-  });
-  if (item.status === 'cancelled') {
-    return item;
+  options: { reconcileExpired?: boolean } = {},
+): Promise<QuantGenerationQueueState> {
+  if (options.reconcileExpired !== false) {
+    await reconcileExpiredMoAgentGenerationJobs({ projectId });
   }
+  const [jobs, pendingEvents] = await Promise.all([
+    listMoAgentGenerationJobs(projectId, MAX_QUEUE_ITEMS),
+    listPendingMoAgentGenerationOutboxEvents(projectId),
+  ]);
+  const items = jobs.map(projectJob);
+  const state: QuantGenerationQueueState = {
+    schemaVersion: 1,
+    projectId,
+    activeRequestId:
+      items.find((item) => item.status === "running")?.requestId ?? null,
+    updatedAt: jobs[0]?.updatedAt.toISOString() ?? new Date().toISOString(),
+    items,
+  };
+  await writeProjection(projectPath, state);
+  if (pendingEvents.length > 0) {
+    await markMoAgentGenerationOutboxEventsPublished(
+      pendingEvents.map((event) => event.id),
+    );
+  }
+  return state;
+}
+
+async function appendLifecycleEvent(params: {
+  projectPath: string;
+  requestId: string;
+  eventType: string;
+  status: "pending" | "success" | "warning" | "error";
+  summary: string;
+}): Promise<void> {
   await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: 'generation_queued',
-    stage: 'queue',
-    status: 'pending',
+    event_type: params.eventType,
+    stage: "queue",
+    status: params.status,
     run_id: params.requestId,
     artifact_path: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
-    summary: '生成任务已进入项目队列。',
-    created_at: timestamp,
+    summary: params.summary,
+    created_at: new Date().toISOString(),
   });
-  return item;
 }
 
-async function markRunning(projectPath: string, projectId: string, requestId: string) {
-  const timestamp = nowIso();
-  const started = await withQueueStateLock(projectPath, async () => {
-    const state = await readQueue(projectPath, projectId);
-    const item = state.items.find((entry) => entry.requestId === requestId);
-    if (!item || item.status === 'cancelled') return false;
-    const nextState = patchItem(
-      { ...state, activeRequestId: requestId },
-      requestId,
-      { status: 'running', startedAt: timestamp, completedAt: null, errorMessage: null }
-    );
-    await writeQueue(projectPath, nextState);
-    return true;
-  });
-  if (!started) return false;
-  await appendQuantWorkspaceEvent(projectPath, {
-    event_type: 'generation_queue_started',
-    stage: 'queue',
-    status: 'pending',
-    run_id: requestId,
-    artifact_path: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
-    summary: '生成任务开始执行。',
-    created_at: timestamp,
-  });
-  return true;
-}
-
-async function markFinished(params: {
+export async function runQuantGenerationStage<T>(params: {
   projectPath: string;
   projectId: string;
-  requestId: string;
-  status: Exclude<QuantGenerationQueueStatus, 'queued' | 'running'>;
-  errorMessage?: string | null;
-}) {
-  const timestamp = nowIso();
-  const changed = await withQueueStateLock(params.projectPath, async () => {
-    const state = await readQueue(params.projectPath, params.projectId);
-    const existing = state.items.find((item) => item.requestId === params.requestId);
-    if (existing?.status === 'cancelled' && params.status !== 'cancelled') {
-      return false;
-    }
-    const baseState = existing
-      ? state
-      : {
-          ...state,
-          items: [
-            {
-              id: `${params.projectId}:${params.requestId}`,
-              projectId: params.projectId,
-              requestId: params.requestId,
-              status: params.status,
-              cliPreference: null,
-              selectedModel: null,
-              instructionPreview: '',
-              queuedAt: timestamp,
-              startedAt: null,
-              completedAt: timestamp,
-              errorMessage: params.errorMessage ?? null,
-            },
-            ...state.items,
-          ].slice(0, MAX_QUEUE_ITEMS),
-        };
-    const nextState = patchItem(
-      {
-        ...baseState,
-        activeRequestId: baseState.activeRequestId === params.requestId ? null : baseState.activeRequestId,
-      },
-      params.requestId,
-      {
-        status: params.status,
-        completedAt: timestamp,
-        errorMessage: params.errorMessage ?? null,
-      }
-    );
-    await writeQueue(params.projectPath, nextState);
-    return true;
-  });
-  if (!changed) return false;
-  await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: 'generation_queue_finished',
-    stage: 'queue',
-    status: params.status === 'completed' ? 'success' : params.status === 'cancelled' ? 'warning' : 'error',
-    run_id: params.requestId,
-    artifact_path: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
-    summary: params.status === 'completed'
-      ? '生成任务执行完成。'
-      : params.status === 'cancelled'
-        ? '生成任务已取消。'
-        : `生成任务失败：${params.errorMessage ?? '未知错误'}`,
-    created_at: timestamp,
-  });
-  return true;
-}
-
-export async function runQuantGenerationStageLocked<T>(params: {
-  projectId: string;
+  requestId?: string | null;
+  stage: MoAgentGenerationStage;
+  lockWorkspace?: boolean;
   task: QueueTask<T>;
 }): Promise<T> {
-  return withProjectGenerationLock(params.projectId, params.task);
+  if (params.stage === "planning_data_prefetch") {
+    await reconcileExpiredMoAgentGenerationJobs({
+      projectId: params.projectId,
+    });
+  }
+  return withMoAgentGenerationLease({
+    projectId: params.projectId,
+    requestId: params.requestId,
+    stage: params.stage,
+    task: async () => {
+      if (!params.lockWorkspace) return params.task();
+      return withMoAgentWorkspaceResourceLock(params.projectPath, params.task, {
+        metadata: {
+          purpose: "platform_generation",
+          projectId: params.projectId,
+          requestId: params.requestId ?? "unbound",
+          operationId: params.stage,
+        },
+      });
+    },
+  });
 }
 
-export async function runQuantGenerationQueued<T>(params: {
+interface QuantGenerationQueuedParams<T> {
   projectPath: string;
   projectId: string;
   requestId: string;
   instruction: string;
   cliPreference?: string | null;
   selectedModel?: string | null;
+  executionEnvelope?: unknown;
   completeOnTaskSuccess?: boolean;
   completeOnTaskFailure?: boolean;
   task: QueueTask<T>;
-}): Promise<T> {
-  const enqueued = await enqueueItem(params);
-  return withProjectGenerationLock(params.projectId, async () => {
-    if (enqueued.status === 'cancelled' || !(await markRunning(params.projectPath, params.projectId, params.requestId))) {
-      throw new QuantGenerationCancelledError(enqueued.errorMessage ?? '生成任务已取消。');
+}
+
+async function prepareQuantGenerationDispatch<T>(
+  params: QuantGenerationQueuedParams<T>,
+): Promise<MoAgentGenerationDispatchSession> {
+  let dispatch: MoAgentGenerationDispatchSession;
+  try {
+    dispatch = await MoAgentGenerationDispatchSession.enqueueAndClaim({
+      projectId: params.projectId,
+      requestId: params.requestId,
+      instruction: params.instruction,
+      cliPreference: params.cliPreference,
+      selectedModel: params.selectedModel,
+      executionEnvelope: params.executionEnvelope,
+    });
+  } catch (error) {
+    if (
+      error instanceof MoAgentGenerationDispatchError &&
+      error.code === "GENERATION_DISPATCH_CANCELLED"
+    ) {
+      await projectDurableQueue(params.projectPath, params.projectId, {
+        reconcileExpired: false,
+      }).catch(() => undefined);
+      throw new QuantGenerationCancelledError(error.message);
     }
-    try {
-      const result = await params.task();
-      if (params.completeOnTaskSuccess !== false) {
-        await markFinished({
+    throw error;
+  }
+  try {
+    await projectDurableQueue(params.projectPath, params.projectId, {
+      reconcileExpired: false,
+    });
+    await appendLifecycleEvent({
+      projectPath: params.projectPath,
+      requestId: params.requestId,
+      eventType: "generation_queued",
+      status: "pending",
+      summary: "生成任务已进入 PostgreSQL durable dispatch。",
+    });
+    await appendLifecycleEvent({
+      projectPath: params.projectPath,
+      requestId: params.requestId,
+      eventType: "generation_queue_started",
+      status: "pending",
+      summary: `生成任务由 durable worker claim（attempt ${dispatch.claim.attemptCount}）。`,
+    });
+    return dispatch;
+  } catch (error) {
+    await finishMoAgentGenerationJob({
+      projectId: params.projectId,
+      requestId: params.requestId,
+      status: "failed",
+      errorCode: "GENERATION_DISPATCH_ACCEPTANCE_FAILED",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      fence: dispatch.fence,
+    }).catch(() => undefined);
+    dispatch.dispose();
+    throw error;
+  }
+}
+
+async function executeQuantGenerationDispatch<T>(
+  params: QuantGenerationQueuedParams<T>,
+  dispatch: MoAgentGenerationDispatchSession,
+): Promise<T> {
+  try {
+    const result = await withMoAgentGenerationLease({
+      projectId: params.projectId,
+      requestId: params.requestId,
+      stage: "agent_execution",
+      task: () => dispatch.run(params.task),
+    });
+    dispatch.assertHealthy();
+    if (params.completeOnTaskSuccess !== false) {
+      await dispatch.run(() =>
+        finishQuantGenerationQueueItem({
           projectPath: params.projectPath,
           projectId: params.projectId,
           requestId: params.requestId,
-          status: 'completed',
-        });
-      }
-      return result;
-    } catch (error) {
-      const current = await readQueue(params.projectPath, params.projectId);
-      const cancelled = current.items.find((item) => item.requestId === params.requestId)?.status === 'cancelled';
-      if (!cancelled && params.completeOnTaskFailure !== false) {
-        await markFinished({
+          status: "completed",
+        }),
+      );
+    }
+    return result;
+  } catch (error) {
+    await dispatch
+      .run(() =>
+        finishQuantGenerationQueueItem({
           projectPath: params.projectPath,
           projectId: params.projectId,
           requestId: params.requestId,
-          status: 'failed',
+          status: "failed",
           errorMessage: error instanceof Error ? error.message : String(error),
-        });
-      } else if (!cancelled) {
-        await updateQueueItem(params.projectPath, params.projectId, params.requestId, {
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-      }
-      throw error;
-    }
-  });
+        }),
+      )
+      .catch((finishError) => {
+        if (
+          params.completeOnTaskFailure !== false &&
+          process.env.NODE_ENV !== "test"
+        ) {
+          console.error(
+            "[GenerationDispatch] Failed to persist task failure:",
+            finishError,
+          );
+        }
+      });
+    throw error;
+  } finally {
+    dispatch.dispose();
+    await projectDurableQueue(params.projectPath, params.projectId).catch(
+      () => undefined,
+    );
+  }
+}
+
+/**
+ * Persist and claim before returning control to the HTTP request, then expose
+ * a separately awaitable completion for the background lifecycle.
+ */
+export async function startQuantGenerationQueued<T>(
+  params: QuantGenerationQueuedParams<T>,
+): Promise<{ completion: Promise<T> }> {
+  const dispatch = await prepareQuantGenerationDispatch(params);
+  return { completion: executeQuantGenerationDispatch(params, dispatch) };
+}
+
+export async function runQuantGenerationQueued<T>(
+  params: QuantGenerationQueuedParams<T>,
+): Promise<T> {
+  const started = await startQuantGenerationQueued(params);
+  return started.completion;
 }
 
 export async function finishQuantGenerationQueueItem(params: {
   projectPath: string;
   projectId: string;
   requestId: string;
-  status: Exclude<QuantGenerationQueueStatus, 'queued' | 'running'>;
+  status: Exclude<QuantGenerationQueueStatus, "queued" | "running">;
   errorMessage?: string | null;
 }) {
-  return markFinished(params);
+  if (params.status === "cancelled") {
+    return markQuantGenerationQueueCancelled({
+      projectPath: params.projectPath,
+      projectId: params.projectId,
+      requestId: params.requestId,
+      reason: params.errorMessage,
+    });
+  }
+  currentMoAgentGenerationDispatchSession()?.assertHealthy();
+  const job = await finishMoAgentGenerationJob({
+    projectId: params.projectId,
+    requestId: params.requestId,
+    status: params.status,
+    errorCode: params.status === "failed" ? "GENERATION_FAILED" : null,
+    errorMessage: params.errorMessage,
+    fence: currentMoAgentGenerationDispatchFence(),
+  });
+  await projectDurableQueue(params.projectPath, params.projectId, {
+    reconcileExpired: false,
+  });
+  await appendLifecycleEvent({
+    projectPath: params.projectPath,
+    requestId: params.requestId,
+    eventType: "generation_queue_finished",
+    status: params.status === "completed" ? "success" : "error",
+    summary:
+      params.status === "completed"
+        ? "生成任务执行完成。"
+        : `生成任务失败：${params.errorMessage ?? "未知错误"}`,
+  });
+  currentMoAgentGenerationDispatchSession()?.markTerminal();
+  return job;
 }
 
 export async function markQuantGenerationQueueCancelled(params: {
@@ -378,17 +387,31 @@ export async function markQuantGenerationQueueCancelled(params: {
   requestId: string;
   reason?: string | null;
 }) {
-  await markFinished({
-    projectPath: params.projectPath,
+  const job = await cancelMoAgentGenerationJob({
     projectId: params.projectId,
     requestId: params.requestId,
-    status: 'cancelled',
-    errorMessage: params.reason ?? '用户暂停了当前任务',
+    reason: params.reason,
   });
+  if (!job) return null;
+  await projectDurableQueue(params.projectPath, params.projectId, {
+    reconcileExpired: false,
+  });
+  await appendLifecycleEvent({
+    projectPath: params.projectPath,
+    requestId: params.requestId,
+    eventType: "generation_queue_finished",
+    status: "warning",
+    summary: "生成任务已取消。",
+  });
+  currentMoAgentGenerationDispatchSession()?.markTerminal();
+  return job;
 }
 
-export async function readQuantGenerationQueue(projectPath: string, projectId: string) {
-  return readQueue(projectPath, projectId);
+export async function readQuantGenerationQueue(
+  projectPath: string,
+  projectId: string,
+) {
+  return projectDurableQueue(projectPath, projectId);
 }
 
 export async function updateQuantGenerationQueueItem(params: {
@@ -397,5 +420,9 @@ export async function updateQuantGenerationQueueItem(params: {
   requestId: string;
   patch: Partial<QuantGenerationQueueItem>;
 }) {
-  return updateQueueItem(params.projectPath, params.projectId, params.requestId, params.patch);
+  // Compatibility surface: business state is no longer mutable through the
+  // workspace projection. Re-materialize the authoritative database state.
+  void params.requestId;
+  void params.patch;
+  return projectDurableQueue(params.projectPath, params.projectId);
 }

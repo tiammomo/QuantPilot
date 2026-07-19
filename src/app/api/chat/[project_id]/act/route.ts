@@ -76,11 +76,12 @@ import {
 } from "@/lib/quant/generation-state";
 import {
   finishQuantGenerationQueueItem,
-  runQuantGenerationQueued,
-  runQuantGenerationStageLocked,
+  runQuantGenerationStage,
+  startQuantGenerationQueued,
 } from "@/lib/quant/generation-queue";
 import { validateMoAgentIngressInput } from "@/lib/agent/input-policy";
 import { classifyMoAgentExecutionError } from "@/lib/services/moagent-execution-error";
+import { MoAgentGenerationLeaseError } from "@/lib/services/moagent-generation-lease-store";
 import { refreshMoAgentCandidateWorkspace } from "@/lib/services/moagent-candidate";
 import type { MoAgentCandidateSubmission } from "@/lib/agent/mission";
 import {
@@ -111,12 +112,18 @@ import {
 } from "@/lib/platform/memory";
 import { detectPersonalMemoryCandidate } from "@/lib/platform/memory/candidate";
 import {
+  persistAcceptedGovernedKnowledgeUse,
   prepareGovernedKnowledge,
   recordGovernedKnowledgeUsage,
   writeGovernedKnowledgeEvidence,
   type GovernedKnowledgeCapsule,
   type GovernedKnowledgePreparation,
 } from "@/lib/platform/knowledge";
+import {
+  recordContextAcceptance,
+  recordContextExposure,
+} from "@/lib/platform/context/use-manifest";
+import { getProjectIntegrationScope } from "@/lib/platform/context/integration-scope";
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -124,12 +131,14 @@ interface RouteContext {
 
 class QuantPreparationError extends Error {
   constructor(
-    readonly code: 'SYMBOL_RESOLVER_UNAVAILABLE' | 'QUANT_ARTIFACT_PREPARATION_FAILED',
+    readonly code:
+      | "SYMBOL_RESOLVER_UNAVAILABLE"
+      | "QUANT_ARTIFACT_PREPARATION_FAILED",
     message: string,
     readonly retryable: boolean,
   ) {
     super(message);
-    this.name = 'QuantPreparationError';
+    this.name = "QuantPreparationError";
   }
 }
 
@@ -182,18 +191,22 @@ const REQUIRED_AGENT_INPUT_ARTIFACTS = [
   "evidence/data_quality.json",
 ] as const;
 
-async function missingAgentInputArtifacts(projectPath: string): Promise<string[]> {
-  const checks = await Promise.all(REQUIRED_AGENT_INPUT_ARTIFACTS.map(async (relativePath) => {
-    try {
-      const stat = await fs.stat(
-        path.join(/* turbopackIgnore: true */ projectPath, relativePath),
-      );
-      return stat.isFile() && stat.size > 2 ? null : relativePath;
-    } catch {
-      return relativePath;
-    }
-  }));
-  return checks.flatMap((value) => value === null ? [] : [value]);
+async function missingAgentInputArtifacts(
+  projectPath: string,
+): Promise<string[]> {
+  const checks = await Promise.all(
+    REQUIRED_AGENT_INPUT_ARTIFACTS.map(async (relativePath) => {
+      try {
+        const stat = await fs.stat(
+          path.join(/* turbopackIgnore: true */ projectPath, relativePath),
+        );
+        return stat.isFile() && stat.size > 2 ? null : relativePath;
+      } catch {
+        return relativePath;
+      }
+    }),
+  );
+  return checks.flatMap((value) => (value === null ? [] : [value]));
 }
 
 function coerceString(value: unknown): string | null {
@@ -241,7 +254,9 @@ function canUsePrefetchedSelectionDashboard(params: {
     params.runPlan.visualization?.templateId === "stock-selection" &&
     params.runPlan.symbols.length === 0 &&
     /(?:股票|个股|A股|全A|股票池)/.test(normalized) &&
-    /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized)
+    /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(
+      normalized,
+    )
   );
 }
 
@@ -284,7 +299,9 @@ async function publishQuantPipelineToolStart(params: {
     resultStatus: "running",
     summary: params.summary,
     isTransientToolMessage: true,
-    ...(params.target ? { target: params.target, filePath: params.target } : {}),
+    ...(params.target
+      ? { target: params.target, filePath: params.target }
+      : {}),
     ...(params.input !== undefined
       ? {
           toolInput: params.input,
@@ -326,7 +343,8 @@ async function publishQuantPipelineToolMessage(params: {
   resultStatus?: "completed" | "failed" | "skipped";
 }) {
   const success = params.success !== false;
-  const resultStatus = params.resultStatus ?? (success ? "completed" : "failed");
+  const resultStatus =
+    params.resultStatus ?? (success ? "completed" : "failed");
   const metadata = {
     toolName: params.toolName,
     tool_name: params.toolName,
@@ -415,19 +433,39 @@ function runValidationAfterExecution(params: {
 }): Promise<void> {
   let activeRepairRequestId: string | null = null;
   let activeMission = params.mission;
+  let activeVerificationSession: NonNullable<
+    MoAgentMissionContext["verificationSession"]
+  > | null = null;
+
+  const disposeVerificationSession = async (): Promise<void> => {
+    const session = activeVerificationSession;
+    activeVerificationSession = null;
+    if (!session) return;
+    const releasedMission = await session.dispose();
+    if (releasedMission) {
+      activeMission = {
+        ...releasedMission,
+        projectPath: activeMission.projectPath,
+      };
+    }
+  };
 
   const cancelMission = async (message: string) => {
+    await disposeVerificationSession();
     activeMission = {
       ...(await cancelMoAgentMission({
         missionId: activeMission.id,
         projectId: activeMission.projectId,
         requestId: activeMission.requestId,
         message,
+        expectedVersion: activeMission.version,
+        expectedStatus: activeMission.status,
       })),
       projectPath: activeMission.projectPath,
     };
   };
   const failMission = async (code: string, message: string) => {
+    await disposeVerificationSession();
     activeMission = {
       ...(await failMoAgentMission({
         missionId: activeMission.id,
@@ -435,6 +473,8 @@ function runValidationAfterExecution(params: {
         requestId: activeMission.requestId,
         code,
         message,
+        expectedVersion: activeMission.version,
+        expectedStatus: activeMission.status,
       })),
       projectPath: activeMission.projectPath,
     };
@@ -525,6 +565,12 @@ function runValidationAfterExecution(params: {
     });
     activeMission = sealed.mission;
     activeMission = await claimQuantMoAgentMissionVerification(activeMission);
+    if (!activeMission.verificationSession) {
+      throw new Error(
+        "Mission verification claim did not return a live lease session.",
+      );
+    }
+    activeVerificationSession = activeMission.verificationSession;
     await updateQuantGenerationStep({
       projectPath: params.projectPath,
       projectId: params.projectId,
@@ -572,12 +618,27 @@ function runValidationAfterExecution(params: {
         },
       },
     });
-    const verified = await verifyAndRecordQuantMoAgentMission({
-      mission: activeMission,
-      preview: preview
-        ? { url: preview.url, port: preview.port }
-        : { url: "http://127.0.0.1:1", port: 1 },
-    });
+    let verified: Awaited<
+      ReturnType<typeof verifyAndRecordQuantMoAgentMission>
+    >;
+    const verificationSession = activeVerificationSession;
+    try {
+      verified = await verifyAndRecordQuantMoAgentMission({
+        mission: activeMission,
+        preview: preview
+          ? { url: preview.url, port: preview.port }
+          : { url: "http://127.0.0.1:1", port: 1 },
+      });
+    } finally {
+      const releasedMission = verificationSession?.release;
+      if (releasedMission) {
+        activeMission = {
+          ...releasedMission,
+          projectPath: activeMission.projectPath,
+        };
+      }
+      activeVerificationSession = null;
+    }
     activeMission = verified.mission;
     await updateQuantGenerationStep({
       projectPath: params.projectPath,
@@ -585,9 +646,10 @@ function runValidationAfterExecution(params: {
       requestId: params.requestId,
       stepId: "evidence_verification",
       status: verified.decision.verdict === "accepted" ? "success" : "failed",
-      summary: verified.decision.verdict === "accepted"
-        ? "当前候选的验证、产物哈希与持久预览证据已验收。"
-        : `证据验收未通过：${verified.decision.verdict}。`,
+      summary:
+        verified.decision.verdict === "accepted"
+          ? "当前候选的验证、产物哈希与持久预览证据已验收。"
+          : `证据验收未通过：${verified.decision.verdict}。`,
       metadata: {
         missionId: activeMission.id,
         generationId: activeMission.generationId,
@@ -638,7 +700,8 @@ function runValidationAfterExecution(params: {
     const classifiedExecutionError = executionError
       ? classifyMoAgentExecutionError(executionError)
       : null;
-    const executionFailureMessage = classifiedExecutionError?.message ??
+    const executionFailureMessage =
+      classifiedExecutionError?.message ??
       (executionError instanceof Error
         ? executionError.message
         : String(executionError || "Agent execution failed"));
@@ -650,11 +713,12 @@ function runValidationAfterExecution(params: {
       stepId: "agent_execution",
       status: executionError ? "failed" : "success",
       summary: executionError
-        ? classifiedExecutionError && !classifiedExecutionError.repairableByValidation
+        ? classifiedExecutionError &&
+          !classifiedExecutionError.repairableByValidation
           ? `Agent 执行失败：${executionFailureMessage}`
           : "Agent 执行异常结束，进入验证确认产物状态。"
-        : params.agentExecutionSuccessSummary ??
-          "Agent 执行完成，进入自动验证。",
+        : (params.agentExecutionSuccessSummary ??
+          "Agent 执行完成，进入自动验证。"),
       ...(executionError
         ? {
             errorMessage: executionFailureMessage,
@@ -665,11 +729,11 @@ function runValidationAfterExecution(params: {
         : {}),
     });
 
-    if (classifiedExecutionError && !classifiedExecutionError.repairableByValidation) {
-      await failMission(
-        classifiedExecutionError.code,
-        executionFailureMessage,
-      );
+    if (
+      classifiedExecutionError &&
+      !classifiedExecutionError.repairableByValidation
+    ) {
+      await failMission(classifiedExecutionError.code, executionFailureMessage);
       await updateQuantGenerationStep({
         projectPath: params.projectPath,
         projectId: params.projectId,
@@ -720,10 +784,12 @@ function runValidationAfterExecution(params: {
       projectPath: params.projectPath,
     });
     if (candidate) {
-      await sealCandidate(await refreshMoAgentCandidateWorkspace({
-        workspaceRoot: params.projectPath,
-        candidate,
-      }));
+      await sealCandidate(
+        await refreshMoAgentCandidateWorkspace({
+          workspaceRoot: params.projectPath,
+          candidate,
+        }),
+      );
     } else {
       await captureAndSeal(
         "workspace_recovery",
@@ -893,11 +959,31 @@ function runValidationAfterExecution(params: {
         status: "completed",
       });
       await markUserRequestAsCompleted(params.projectId, params.requestId);
+      let knowledgeUsage: Awaited<
+        ReturnType<typeof recordGovernedKnowledgeUsage>
+      > | null = null;
       if (params.governedKnowledge && params.governedKnowledgePreparation) {
-        const knowledgeUsage = await recordGovernedKnowledgeUsage({
+        knowledgeUsage = await recordGovernedKnowledgeUsage({
           capsule: params.governedKnowledge,
           requestId: params.requestId,
-          taskCategory: params.governedKnowledgeTaskCategory ?? 'quant-research',
+          taskCategory:
+            params.governedKnowledgeTaskCategory ?? "quant-research",
+          occurredAt: acceptance.receipt.createdAt,
+        });
+        await persistAcceptedGovernedKnowledgeUse({
+          projectId: params.projectId,
+          requestId: params.requestId,
+          taskCategory:
+            params.governedKnowledgeTaskCategory ?? "quant-research",
+          capsule: params.governedKnowledge,
+          usage: knowledgeUsage,
+          acceptedReceiptId: acceptance.receipt.id,
+          acceptedReceiptSha256: acceptance.receipt.receiptHash,
+        }).catch((error) => {
+          console.error(
+            "[GovernedKnowledge] Failed to persist accepted Usage attribution:",
+            error,
+          );
         });
         await writeGovernedKnowledgeEvidence({
           projectPath: params.projectPath,
@@ -905,9 +991,28 @@ function runValidationAfterExecution(params: {
           preparation: params.governedKnowledgePreparation,
           usage: knowledgeUsage,
         }).catch((error) => {
-          console.error('[GovernedKnowledge] Failed to persist Usage evidence projection:', error);
+          console.error(
+            "[GovernedKnowledge] Failed to persist Usage evidence projection:",
+            error,
+          );
         });
       }
+      await recordContextAcceptance({
+        projectPath: params.projectPath,
+        projectId: params.projectId,
+        requestId: params.requestId,
+        knowledgeUsage,
+        mission: {
+          missionId: acceptance.mission.id,
+          acceptedReceiptId: acceptance.receipt.id,
+          acceptedReceiptSha256: acceptance.receipt.receiptHash,
+        },
+      }).catch((error) => {
+        console.error(
+          "[ContextUse] Failed to persist accepted context projection:",
+          error,
+        );
+      });
       await params.publishWorkspaceProgress({
         stage: 5,
         validationCheckCount: report.checks.length,
@@ -994,14 +1099,17 @@ function runValidationAfterExecution(params: {
           ? baseRepairRequestId
           : `${baseRepairRequestId}-${repairAttempt}`;
       params.relatedAgentRequestIds.add(repairRequestId);
-      const failedCheckIdsBeforeRepair = latestFailedChecks.map((check) => check.id);
+      const failedCheckIdsBeforeRepair = latestFailedChecks.map(
+        (check) => check.id,
+      );
       await beginRepair();
-      const platformRepair = await quantValidation.repairQuantPlatformOwnedArtifacts({
-        projectPath: params.projectPath,
-        requestId: params.requestId,
-        originalInstruction: params.instruction,
-        report: latestReport,
-      });
+      const platformRepair =
+        await quantValidation.repairQuantPlatformOwnedArtifacts({
+          projectPath: params.projectPath,
+          requestId: params.requestId,
+          originalInstruction: params.instruction,
+          report: latestReport,
+        });
       if (platformRepair.runPlanRebuilt) {
         await quantValidation.prepareQuantProjectForValidation({
           projectId: params.projectId,
@@ -1045,12 +1153,10 @@ function runValidationAfterExecution(params: {
         }
         await beginRepair();
       }
-      const repairInstruction = quantValidation.buildQuantValidationRepairInstruction(
-        latestReport,
-        {
+      const repairInstruction =
+        quantValidation.buildQuantValidationRepairInstruction(latestReport, {
           originalInstruction: params.instruction,
-        },
-      );
+        });
 
       streamManager.publish(params.projectId, {
         type: "status",
@@ -1172,7 +1278,11 @@ function runValidationAfterExecution(params: {
           summary: `第 ${repairAttempt}/${maxRepairAttempts} 次自动修复执行失败。`,
           errorMessage: message,
         });
-        await markUserRequestAsFailed(params.projectId, repairRequestId, message);
+        await markUserRequestAsFailed(
+          params.projectId,
+          repairRequestId,
+          message,
+        );
         if (activeRepairRequestId === repairRequestId) {
           activeRepairRequestId = null;
         }
@@ -1227,10 +1337,12 @@ function runValidationAfterExecution(params: {
         projectPath: params.projectPath,
       });
       if (repairCandidate) {
-        await sealCandidate(await refreshMoAgentCandidateWorkspace({
-          workspaceRoot: params.projectPath,
-          candidate: repairCandidate,
-        }));
+        await sealCandidate(
+          await refreshMoAgentCandidateWorkspace({
+            workspaceRoot: params.projectPath,
+            candidate: repairCandidate,
+          }),
+        );
       } else {
         await captureAndSeal(
           "workspace_recovery",
@@ -1354,7 +1466,8 @@ function runValidationAfterExecution(params: {
         previousFailedCheckIds: failedCheckIdsBeforeRepair,
         currentFailedCheckIds: latestFailedChecks.map((check) => check.id),
       });
-      const earlyTemplateRecovery = stalledRepair &&
+      const earlyTemplateRecovery =
+        stalledRepair &&
         quantValidation.isQuantDashboardTemplateRecoveryEligible(latestReport);
       if (repairAttempt < maxRepairAttempts && !earlyTemplateRecovery) {
         await markUserRequestAsFailed(
@@ -1387,10 +1500,12 @@ function runValidationAfterExecution(params: {
 
       await beginRepair();
       const templateRecovery =
-        await quantValidation.restoreQuantDashboardTemplateAfterRepairExhaustion({
-          projectPath: params.projectPath,
-          report: latestReport,
-        });
+        await quantValidation.restoreQuantDashboardTemplateAfterRepairExhaustion(
+          {
+            projectPath: params.projectPath,
+            report: latestReport,
+          },
+        );
       if (templateRecovery.restored) {
         streamManager.publish(params.projectId, {
           type: "status",
@@ -1605,11 +1720,24 @@ function runValidationAfterExecution(params: {
         validationError instanceof Error
           ? validationError.message
           : String(validationError || "Automatic validation failed");
-      const previewFailure = validationError instanceof ValidatedPreviewStartError;
-      if (await recoverCommittedAcceptanceProjection().catch((error) => {
-        console.error("[API] Failed to inspect committed Mission acceptance:", error);
-        return false;
-      })) {
+      const previewFailure =
+        validationError instanceof ValidatedPreviewStartError;
+      if (
+        validationError instanceof MoAgentMissionStateError &&
+        validationError.code === "MISSION_VERIFICATION_LEASE_LOST"
+      ) {
+        await disposeVerificationSession().catch(() => undefined);
+        return;
+      }
+      if (
+        await recoverCommittedAcceptanceProjection().catch((error) => {
+          console.error(
+            "[API] Failed to inspect committed Mission acceptance:",
+            error,
+          );
+          return false;
+        })
+      ) {
         return;
       }
       await failMission(
@@ -1631,7 +1759,11 @@ function runValidationAfterExecution(params: {
         errorMessage: message,
       });
       if (activeRepairRequestId) {
-        await markUserRequestAsFailed(params.projectId, activeRepairRequestId, message);
+        await markUserRequestAsFailed(
+          params.projectId,
+          activeRepairRequestId,
+          message,
+        );
         activeRepairRequestId = null;
       }
       await markUserRequestAsFailed(
@@ -1662,17 +1794,30 @@ function runValidationAfterExecution(params: {
           },
         },
       });
+    } finally {
+      await disposeVerificationSession().catch((error) => {
+        console.error(
+          "[API] Failed to release Mission verification lease:",
+          error,
+        );
+      });
     }
   })();
 }
 
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = configuredMaxImageBytes();
-const MAX_TOTAL_IMAGE_BYTES = Math.min(25 * 1024 * 1024, MAX_IMAGE_ATTACHMENTS * MAX_IMAGE_BYTES);
+const MAX_TOTAL_IMAGE_BYTES = Math.min(
+  25 * 1024 * 1024,
+  MAX_IMAGE_ATTACHMENTS * MAX_IMAGE_BYTES,
+);
 
 function isPathInside(basePath: string, candidatePath: string): boolean {
   const relative = path.relative(basePath, candidatePath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 async function mirrorAssetToProjectPublic(
@@ -1685,7 +1830,9 @@ async function mirrorAssetToProjectPublic(
     fs.realpath(path.dirname(/* turbopackIgnore: true */ sourcePath)),
   ]);
   if (!isPathInside(canonicalProjectRoot, canonicalAssetsRoot)) {
-    throw new ImageAssetError("Project attachment storage is outside the project workspace");
+    throw new ImageAssetError(
+      "Project attachment storage is outside the project workspace",
+    );
   }
   const uploadsDir = path.join(
     /* turbopackIgnore: true */ canonicalProjectRoot,
@@ -1693,7 +1840,10 @@ async function mirrorAssetToProjectPublic(
     "uploads",
   );
   await fs.mkdir(/* turbopackIgnore: true */ uploadsDir, { recursive: true });
-  const destinationPath = path.join(/* turbopackIgnore: true */ uploadsDir, filename);
+  const destinationPath = path.join(
+    /* turbopackIgnore: true */ uploadsDir,
+    filename,
+  );
   await fs.copyFile(
     /* turbopackIgnore: true */ sourcePath,
     /* turbopackIgnore: true */ destinationPath,
@@ -1725,8 +1875,14 @@ async function materializeBase64Image(
   const assetsDir = resolveProjectAssetsPath(projectId);
   await fs.mkdir(/* turbopackIgnore: true */ assetsDir, { recursive: true });
   const absolutePath = resolveProjectAssetPath(projectId, filename);
-  await fs.writeFile(/* turbopackIgnore: true */ absolutePath, buffer, { flag: "wx" });
-  const publicUrl = await mirrorAssetToProjectPublic(projectRoot, filename, absolutePath);
+  await fs.writeFile(/* turbopackIgnore: true */ absolutePath, buffer, {
+    flag: "wx",
+  });
+  const publicUrl = await mirrorAssetToProjectPublic(
+    projectRoot,
+    filename,
+    absolutePath,
+  );
   return {
     path: `assets/${filename}`,
     filename,
@@ -1786,7 +1942,9 @@ async function normalizeImageAttachment(
         413,
       );
     }
-    const bytes = await fs.readFile(/* turbopackIgnore: true */ asset.absolutePath);
+    const bytes = await fs.readFile(
+      /* turbopackIgnore: true */ asset.absolutePath,
+    );
     const detected = validateImageBytes(bytes, {
       ...(mimeTypeCandidate ? { declaredMimeType: mimeTypeCandidate } : {}),
       maxBytes: MAX_IMAGE_BYTES,
@@ -1802,7 +1960,9 @@ async function normalizeImageAttachment(
       url: `/api/assets/${projectId}/${asset.filename}`,
       publicUrl,
       originalName:
-        typeof raw.original_name === "string" ? raw.original_name.slice(0, 256) : undefined,
+        typeof raw.original_name === "string"
+          ? raw.original_name.slice(0, 256)
+          : undefined,
       mimeType: detected.mimeType,
       size: bytes.byteLength,
     };
@@ -1826,7 +1986,9 @@ async function normalizeImageAttachment(
     };
   }
 
-  throw new ImageAssetError("Each image attachment must reference an uploaded project asset");
+  throw new ImageAssetError(
+    "Each image attachment must reference an uploaded project asset",
+  );
 }
 
 async function writeAttachmentContext(params: {
@@ -1839,7 +2001,10 @@ async function writeAttachmentContext(params: {
     return null;
   }
 
-  const quantDir = path.join(/* turbopackIgnore: true */ params.projectRoot, ".quantpilot");
+  const quantDir = path.join(
+    /* turbopackIgnore: true */ params.projectRoot,
+    ".quantpilot",
+  );
   const relativePath = ".quantpilot/attachments.json";
   const absolutePath = path.join(
     /* turbopackIgnore: true */ params.projectRoot,
@@ -1931,6 +2096,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   let concurrentQuotaHeartbeat: ReturnType<typeof setInterval> | null = null;
   let concurrentQuotaHandedOff = false;
   let claimedRequest: { projectId: string; requestId: string } | null = null;
+  let acceptedMission: MoAgentMissionContext | null = null;
   const releaseConcurrentQuota = async () => {
     if (concurrentQuotaHeartbeat) {
       clearInterval(concurrentQuotaHeartbeat);
@@ -1940,7 +2106,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     await releaseQuotaReservation({
       reservationId: concurrentQuotaReservationId,
     }).catch((error) => {
-      console.error("[Quota] Failed to release Agent concurrency reservation:", error);
+      console.error(
+        "[Quota] Failed to release Agent concurrency reservation:",
+        error,
+      );
     });
   };
   try {
@@ -1953,7 +2122,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const authSession = actionContext.session;
     const actorUserId = authSession?.user.id ?? null;
     const contentLength = Number(request.headers.get("content-length"));
-    const maxRequestBytes = Math.ceil((MAX_TOTAL_IMAGE_BYTES * 4) / 3) + 2 * 1024 * 1024;
+    const maxRequestBytes =
+      Math.ceil((MAX_TOTAL_IMAGE_BYTES * 4) / 3) + 2 * 1024 * 1024;
     if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
       return NextResponse.json(
         { success: false, error: "Request attachments are too large" },
@@ -2003,9 +2173,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
     if (
-      !rawInstruction.trim()
-      && !(rawDisplayInstruction ?? "").trim()
-      && rawImages.length === 0
+      !rawInstruction.trim() &&
+      !(rawDisplayInstruction ?? "").trim() &&
+      rawImages.length === 0
     ) {
       return NextResponse.json(
         { success: false, error: "instruction or images are required" },
@@ -2034,7 +2204,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         error instanceof UserRequestActorMismatchError
       ) {
         return NextResponse.json(
-          { success: false, error: "Request ID belongs to a different project or user" },
+          {
+            success: false,
+            error: "Request ID belongs to a different project or user",
+          },
           { status: 409 },
         );
       }
@@ -2045,7 +2218,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         {
           success: false,
           error: "REQUEST_ID_ALREADY_EXISTS",
-          message: "该 requestId 已被使用；请读取原请求状态，或为新的执行生成新 requestId。",
+          message:
+            "该 requestId 已被使用；请读取原请求状态，或为新的执行生成新 requestId。",
           requestId,
         },
         { status: 409 },
@@ -2059,9 +2233,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         projectId: project_id,
         actorUserId,
         instruction:
-          rawDisplayInstruction?.trim()
-          || rawInstruction.trim()
-          || "请分析用户上传的图片附件。",
+          rawDisplayInstruction?.trim() ||
+          rawInstruction.trim() ||
+          "请分析用户上传的图片附件。",
         cliPreference,
       });
       claimedRequest = { projectId: project_id, requestId };
@@ -2078,11 +2252,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         );
       }
       if (
-        error instanceof UserRequestProjectMismatchError
-        || error instanceof UserRequestActorMismatchError
+        error instanceof UserRequestProjectMismatchError ||
+        error instanceof UserRequestActorMismatchError
       ) {
         return NextResponse.json(
-          { success: false, error: "Request ID belongs to a different project or user" },
+          {
+            success: false,
+            error: "Request ID belongs to a different project or user",
+          },
           { status: 409 },
         );
       }
@@ -2132,10 +2309,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           reservationId: concurrentQuotaReservationId!,
           reservationTtlSeconds: 3_600,
         }).catch((error) => {
-          console.error("[Quota] Failed to renew Agent concurrency reservation:", error);
+          console.error(
+            "[Quota] Failed to renew Agent concurrency reservation:",
+            error,
+          );
         });
       }, heartbeatIntervalMs);
-      if (typeof concurrentQuotaHeartbeat === "object" && "unref" in concurrentQuotaHeartbeat) {
+      if (
+        typeof concurrentQuotaHeartbeat === "object" &&
+        "unref" in concurrentQuotaHeartbeat
+      ) {
         concurrentQuotaHeartbeat.unref();
       }
     }
@@ -2287,7 +2470,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const effectiveDisplayInstruction =
       clarificationContinuation?.displayInstruction ?? displayInstruction;
     const userVisibleInstructionForRepair =
-      effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+      effectiveDisplayInstruction &&
+      effectiveDisplayInstruction.trim().length > 0
         ? effectiveDisplayInstruction.trim()
         : finalInstruction;
 
@@ -2299,14 +2483,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       capabilityId: quantCapabilityId,
     });
     const personalizationCandidate = detectPersonalMemoryCandidate(
-      effectiveDisplayInstruction || instructionWithoutLegacyPaths || effectiveInstruction,
+      effectiveDisplayInstruction ||
+        instructionWithoutLegacyPaths ||
+        effectiveInstruction,
     );
 
     const metadata =
-      processedImages.length > 0
-      || clarificationContinuation
-      || memoryRecall.status !== "disabled"
-      || personalizationCandidate !== null
+      processedImages.length > 0 ||
+      clarificationContinuation ||
+      memoryRecall.status !== "disabled" ||
+      personalizationCandidate !== null
         ? {
             ...(processedImages.length > 0
               ? {
@@ -2339,14 +2525,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                   },
                 }
               : {}),
-            ...(personalizationCandidate
-              ? { personalizationCandidate }
-              : {}),
+            ...(personalizationCandidate ? { personalizationCandidate } : {}),
           }
         : undefined;
 
     const storedInstruction =
-      effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
+      effectiveDisplayInstruction &&
+      effectiveDisplayInstruction.trim().length > 0
         ? effectiveDisplayInstruction.trim()
         : instructionWithoutLegacyPaths || effectiveInstruction;
     try {
@@ -2357,10 +2542,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         instruction: storedInstruction || effectiveInstruction,
         cliPreference,
       });
-      const processing = await markUserRequestAsProcessing(project_id, requestId);
+      const processing = await markUserRequestAsProcessing(
+        project_id,
+        requestId,
+      );
       if (!processing) {
         return NextResponse.json(
-          { success: false, error: "Request is no longer active for this project" },
+          {
+            success: false,
+            error: "Request is no longer active for this project",
+          },
           { status: 409 },
         );
       }
@@ -2370,7 +2561,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         error instanceof UserRequestActorMismatchError
       ) {
         return NextResponse.json(
-          { success: false, error: "Request ID belongs to a different project or user" },
+          {
+            success: false,
+            error: "Request ID belongs to a different project or user",
+          },
           { status: 409 },
         );
       }
@@ -2428,11 +2622,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     );
     let usePrefetchedSelectionDashboard = false;
     let missionContext: MoAgentMissionContext | null = null;
-    let governedKnowledgePreparation: GovernedKnowledgePreparation | null = null;
-    let governedKnowledgeTaskCategory = 'quant-research';
+    const projectIntegrationScope = getProjectIntegrationScope(project_id);
+    let governedKnowledgePreparation: GovernedKnowledgePreparation | null =
+      null;
+    let governedKnowledgeTaskCategory = "quant-research";
 
-    const clarificationResponse = await runQuantGenerationStageLocked({
+    const clarificationResponse = await runQuantGenerationStage({
+      projectPath,
       projectId: project_id,
+      requestId,
+      stage: "planning_data_prefetch",
+      lockWorkspace: true,
       task: async () => {
         const generationState = await startQuantGenerationRun({
           projectPath,
@@ -2466,658 +2666,693 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         let dashboardVisualizationToolCallId: string | undefined;
         let queryRewriteQuotaReservationId: string | null = null;
         try {
-      await updateQuantGenerationStep({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        stepId: "planning",
-        status: "running",
-        summary: "开始生成 run plan。",
-      });
-      const planningInstruction =
-        effectiveDisplayInstruction && effectiveDisplayInstruction.trim().length > 0
-          ? effectiveDisplayInstruction.trim()
-          : effectiveInstruction;
-      queryRewriteToolCallId = await publishQuantPipelineToolStart({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "query-rewrite",
-        target: ".quantpilot/query_rewrite.json",
-        summary: "正在把用户问题整理为可执行的标的、周期和分析合同。",
-        input: {
-          question: planningInstruction,
-          requestedCapabilityId: quantCapabilityId,
-        },
-      });
-      runPlannerToolCallId = await publishQuantPipelineToolStart({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "run-planner",
-        target: ".quantpilot/run_plan.json",
-        summary: "正在核对分析对象、时间范围、数据需求和验收规则。",
-        input: {
-          question: planningInstruction,
-          requestedCapabilityId: quantCapabilityId,
-        },
-      });
-      if (authSession) {
-        const queryRewriteQuota = await reserveQuota({
-          actorUserId: authSession.user.id,
-          projectId: project_id,
-          metric: "query_rewrite.llm.daily",
-          quantity: 1,
-          idempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:reservation`,
-        });
-        queryRewriteQuotaReservationId = queryRewriteQuota.reservation?.id ?? null;
-      }
-      const runPlan = await writeInitialRunPlan({
-        projectPath,
-        instruction: planningInstruction,
-        requestId,
-        capabilityId: quantCapabilityId,
-        capabilitySource: quantCapabilitySource,
-        hasImageAttachments: processedImages.length > 0,
-        previousPlan: previousRunPlan,
-        llmModel: selectedModel,
-      });
-
-      const queryRewriteUsage = runPlan.queryRewrite?.execution.llm.usage;
-      if (authSession && queryRewriteQuotaReservationId) {
-        await settleQuotaReservation({
-          reservationId: queryRewriteQuotaReservationId,
-          actualQuantity: runPlan.queryRewrite?.execution.llm.attempted ? 1 : 0,
-          sourceType: "query_rewrite",
-          sourceId: requestId,
-          usageEventIdempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:request`,
-          metadata: {
-            status: runPlan.queryRewrite?.execution.llm.status ?? "not_attempted",
-            strategy: runPlan.queryRewrite?.execution.strategy ?? "deterministic",
-          },
-        });
-        queryRewriteQuotaReservationId = null;
-      }
-      if (
-        authSession
-        && runPlan.queryRewrite?.execution.llm.attempted
-        && queryRewriteUsage
-        && queryRewriteUsage.totalTokens > 0
-      ) {
-        const actorId = authSession.user.id;
-        await recordQuotaUsage({
-          actorUserId: actorId,
-          projectId: project_id,
-          metric: "llm.total_tokens.monthly",
-          quantity: queryRewriteUsage.totalTokens,
-          idempotencyKey: `chat-query-rewrite:${actorId}:${requestId}:tokens`,
-          sourceType: "query_rewrite",
-          sourceId: requestId,
-          metadata: {
-            provider: runPlan.queryRewrite.execution.llm.provider,
-            model: runPlan.queryRewrite.execution.llm.model,
-            inputTokens: queryRewriteUsage.inputTokens,
-            outputTokens: queryRewriteUsage.outputTokens,
-          },
-        }).catch((error) => {
-          console.error("[Quota] Failed to record chat Query Rewrite token usage:", error);
-        });
-      }
-
-      await publishQuantPipelineToolMessage({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "query-rewrite",
-        toolCallId: queryRewriteToolCallId,
-        target: ".quantpilot/query_rewrite.json",
-        summary: runPlan.queryRewrite?.status === "refused"
-          ? "问题改写完成，安全策略已阻止确定性收益承诺。"
-          : runPlan.queryRewrite?.status === "ready"
-            ? `问题改写完成，已解析 ${runPlan.queryRewrite.resolvedSymbols.length} 个标的${runPlan.queryRewrite.execution.llm.applied ? "，并完成 LLM 语义增强" : ""}。`
-            : "问题改写完成，存在需要确认的标的或输入。",
-        input: { question: planningInstruction },
-        output: runPlan.queryRewrite ?? {},
-      });
-      queryRewriteToolCallId = undefined;
-
-      await publishWorkspaceProgress({ stage: 1, runPlan });
-      await publishQuantPipelineToolMessage({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "run-planner",
-        toolCallId: runPlannerToolCallId,
-        target: ".quantpilot/run_plan.json",
-        summary: runPlan.status === "refused"
-          ? "请求触发确定性安全策略，停止进入取数和生成链路。"
-          : runPlan.status === "needs_clarification"
-            ? "已完成初步识别，发现关键输入仍需澄清。"
-            : `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
-        input: {
-          question: runPlan.question,
-          capabilityId: runPlan.capabilityId,
-        },
-        output: {
-          status: runPlan.status,
-          templateId: runPlan.visualization?.templateId,
-          symbols: runPlan.symbols,
-          dataRequirements: runPlan.dataRequirements,
-          analysisSteps: runPlan.analysisSteps,
-        },
-      });
-      runPlannerToolCallId = undefined;
-
-      if (runPlan.status === "refused" && runPlan.refusal) {
-        await updateQuantGenerationStep({
-          projectPath,
-          projectId: project_id,
-          requestId,
-          stepId: "planning",
-          status: "warning",
-          summary: "请求触发安全策略，未执行取数或生成。",
-          runStatus: "refused",
-          metadata: {
-            code: runPlan.refusal.code,
-          },
-        });
-        const assistantMessage = await createMessage({
-          projectId: project_id,
-          role: "assistant",
-          messageType: "chat",
-          content: runPlan.refusal.message,
-          conversationId: conversationId ?? undefined,
-          cliSource: cliPreference,
-          metadata: {
-            type: "intent_refusal",
-            refusal: runPlan.refusal,
-            runPlanPath: ".quantpilot/run_plan.json",
-            isMissionFinal: true,
-            progressStatus: "refused",
-          },
-          requestId,
-        });
-        await markUserRequestAsCompleted(project_id, requestId);
-        streamManager.publish(project_id, {
-          type: "message",
-          data: serializeMessage(assistantMessage, { requestId }),
-        });
-        streamManager.publish(project_id, {
-          type: "status",
-          data: {
-            status: "intent_refused",
-            message: runPlan.refusal.message,
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
             requestId,
-            metadata: { code: runPlan.refusal.code },
-          },
-        });
-        return NextResponse.json({
-          success: true,
-          status: "intent_refused",
-          message: runPlan.refusal.message,
-          requestId,
-          userMessageId: userMessage.id,
-          assistantMessageId: assistantMessage.id,
-          conversationId: conversationId ?? null,
-          refusal: runPlan.refusal,
-        });
-      }
-
-      if (
-        runPlan.status === "needs_clarification" &&
-        runPlan.clarification?.required
-      ) {
-        await updateQuantGenerationStep({
-          projectPath,
-          projectId: project_id,
-          requestId,
-          stepId: "planning",
-          status: "warning",
-          summary: "任务缺少关键输入，需要用户澄清。",
-          runStatus: "needs_clarification",
-          metadata: {
-            missing: runPlan.clarification.missing,
-            questions: runPlan.clarification.questions,
-          },
-        });
-        const clarificationContent = buildQuantClarificationMessage(
-          runPlan.clarification,
-        );
-        const turnMetrics = await collectMoAgentTurnMetrics({
-          projectId: project_id,
-          requestId,
-          relatedRequestIds: relatedAgentRequestIds,
-        }).catch((error) => {
-          console.error('[API] Failed to collect clarification turn metrics:', error);
-          return null;
-        });
-        const assistantMessage = await createMessage({
-          projectId: project_id,
-          role: "assistant",
-          messageType: "chat",
-          content: clarificationContent,
-          conversationId: conversationId ?? undefined,
-          cliSource: cliPreference,
-          metadata: {
-            type: "intent_clarification",
-            clarification: runPlan.clarification,
-            runPlanPath: ".quantpilot/run_plan.json",
-            isMissionFinal: true,
-            progressStatus: "clarification",
-            ...(turnMetrics ? { turnMetrics } : {}),
-          },
-          requestId,
-        });
-
-        await markUserRequestAsCompleted(project_id, requestId);
-        streamManager.publish(project_id, {
-          type: "message",
-          data: serializeMessage(assistantMessage, { requestId }),
-        });
-        streamManager.publish(project_id, {
-          type: "status",
-          data: {
-            status: "intent_clarification_required",
-            message: "需要补充关键信息后再开始取数和生成看板。",
-            requestId,
-            metadata: {
-              missing: runPlan.clarification.missing,
-              questions: runPlan.clarification.questions,
-            },
-          },
-        });
-
-        return NextResponse.json({
-          success: true,
-          status: "intent_clarification_required",
-          message: "Need clarification before agent execution",
-          requestId,
-          userMessageId: userMessage.id,
-          assistantMessageId: assistantMessage.id,
-          conversationId: conversationId ?? null,
-          clarification: runPlan.clarification,
-        });
-      }
-
-      governedKnowledgePreparation = await prepareGovernedKnowledge({
-        requestId,
-        task: [
-          runPlan.queryRewrite?.rewrittenQuery ?? runPlan.question,
-          `capability: ${runPlan.requestedCapabilityId ?? runPlan.capabilityId}`,
-          ...runPlan.analysisSteps.slice(0, 12),
-        ].join('\n'),
-      });
-      governedKnowledgeTaskCategory =
-        runPlan.requestedCapabilityId ?? runPlan.capabilityId ?? 'quant-research';
-      await writeGovernedKnowledgeEvidence({
-        projectPath,
-        requestId,
-        preparation: governedKnowledgePreparation,
-      });
-      streamManager.publish(project_id, {
-        type: "status",
-        data: {
-          status: "governed_knowledge_prepared",
-          message: governedKnowledgePreparation.status === 'prepared'
-            ? `已取得 ${governedKnowledgePreparation.citationCount} 条受治理知识引用。`
-            : governedKnowledgePreparation.status === 'empty'
-              ? "受治理知识检索无匹配结果，继续使用真实市场数据。"
-              : governedKnowledgePreparation.status === 'unavailable'
-                ? "受治理知识服务当前不可用，已按可选依赖降级。"
-                : "受治理知识集成未启用。",
-          requestId,
-          metadata: {
-            knowledgeStatus: governedKnowledgePreparation.status,
-            passageCount: governedKnowledgePreparation.passageCount,
-            citationCount: governedKnowledgePreparation.citationCount,
-          },
-        },
-      });
-
-      missionContext = await createQuantMoAgentMission({
-        projectId: project_id,
-        projectPath,
-        requestId,
-        objective:
-          runPlan.queryRewrite?.rewrittenQuery ?? planningInstruction,
-        runPlan,
-        maxRepairAttempts: generationState.maxRepairAttempts,
-      });
-
-      await updateQuantGenerationStep({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        stepId: "planning",
-        status: "success",
-        summary: `已生成 ${runPlan.capabilityId} 执行计划。`,
-        metadata: {
-          capabilityId: runPlan.capabilityId,
-          symbols: runPlan.symbols,
-          expectedArtifacts: runPlan.expectedArtifacts,
-          missionId: missionContext.id,
-          generationId: missionContext.generationId,
-          missionSpecSha256: missionContext.specHash,
-        },
-      });
-      missionContext = await markQuantMoAgentMissionNode({
-        mission: missionContext,
-        nodeKey: "planning",
-        status: "passed",
-      });
-      await publishWorkspaceProgress({
-        stage: 2,
-        runPlan,
-        skillIds: Array.from(new Set([
-          "quant-data-registry",
-          ...getQuantCapability(
-            runPlan.requestedCapabilityId ?? runPlan.capabilityId,
-          ).requiredSkills.filter((skillId) =>
-            skillId !== "run-planner" &&
-            skillId !== "dashboard-visualization" &&
-            (skillId !== "image-extraction" || processedImages.length > 0)
-          ),
-        ])),
-      });
-      dataRegistryToolCallId = await publishQuantPipelineToolStart({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "quant-data-registry",
-        target: "本地数据覆盖与标的解析",
-        summary: "正在核验本地数据覆盖、标的解析和可用信源。",
-        input: {
-          question: runPlan.question,
-          templateId: runPlan.visualization?.templateId,
-        },
-      });
-      marketDataToolCallId = await publishQuantPipelineToolStart({
-        projectId: project_id,
-        requestId,
-        conversationId,
-        cliSource: cliPreference,
-        toolName: "quant-market-data",
-        target: "data_file/final/dashboard-data.json",
-        summary: "正在获取真实行情、历史数据和任务所需指标。",
-        input: {
-          symbols: runPlan.symbols,
-          timeRange: runPlan.timeRange,
-        },
-      });
-      await updateQuantGenerationStep({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        stepId: "data_prefetch",
-        status: "running",
-        summary: "开始预取真实数据。",
-      });
-      missionContext = await markQuantMoAgentMissionNode({
-        mission: missionContext,
-        nodeKey: "data_prefetch",
-        status: "running",
-      });
-      const prefetch = await prefetchQuantDataForRunPlan({
-        projectPath,
-        plan: runPlan,
-      });
-      if (authSession && !prefetch.skipped) {
-        const dataUnits = Math.max(1, prefetch.rawFiles?.length ?? 0);
-        await recordQuotaUsage({
-          actorUserId: authSession.user.id,
-          projectId: project_id,
-          metric: "quant.data_units.daily",
-          quantity: dataUnits,
-          idempotencyKey: `chat-data-prefetch:${authSession.user.id}:${requestId}`,
-          sourceType: "quant_data_prefetch",
-          sourceId: requestId,
-          metadata: {
-            symbolCount: prefetch.symbols?.length ?? (prefetch.symbol ? 1 : 0),
-            rawFileCount: prefetch.rawFiles?.length ?? 0,
-          },
-        }).catch((error) => {
-          console.error("[Quota] Failed to record chat data-prefetch usage:", error);
-        });
-      }
-      const missingPreparedArtifacts = await missingAgentInputArtifacts(projectPath);
-      if (
-        processedImages.length === 0 &&
-        (missingPreparedArtifacts.length > 0 || (isInitialPrompt && prefetch.skipped))
-      ) {
-        const resolverUnavailable = runPlan.queryRewrite?.issues.find(
-          (issue) => issue.code === 'SYMBOL_RESOLVER_UNAVAILABLE',
-        );
-        if (resolverUnavailable) {
-          throw new QuantPreparationError(
-            'SYMBOL_RESOLVER_UNAVAILABLE',
-            `证券标的解析服务暂不可用，平台已停止后续取数：${resolverUnavailable.message}`,
-            true,
-          );
-        }
-        throw new QuantPreparationError(
-          'QUANT_ARTIFACT_PREPARATION_FAILED',
-          `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 MoAgent。${
-            missingPreparedArtifacts.length
-              ? ` 缺少：${missingPreparedArtifacts.join("、")}。`
-              : ""
-          } ${prefetch.summary}`.trim(),
-          false,
-        );
-      }
-      usePrefetchedSelectionDashboard = canUsePrefetchedSelectionDashboard({
-        instruction: effectiveInstruction,
-        runPlan,
-        prefetchSkipped: prefetch.skipped,
-      });
-      await updateQuantGenerationStep({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        stepId: "data_prefetch",
-        status: prefetch.skipped ? "skipped" : "success",
-        summary: prefetch.summary,
-        metadata: {
-          skipped: prefetch.skipped,
-          symbol: prefetch.skipped ? undefined : prefetch.symbol,
-          symbols: prefetch.skipped ? undefined : prefetch.symbols,
-          finalDataPath: prefetch.skipped ? undefined : prefetch.finalDataPath,
-          rawFiles: prefetch.skipped ? undefined : prefetch.rawFiles,
-          deterministicDashboard: usePrefetchedSelectionDashboard || undefined,
-        },
-      });
-      missionContext = await markQuantMoAgentMissionNode({
-        mission: missionContext,
-        nodeKey: "data_prefetch",
-        status: prefetch.skipped ? "skipped" : "passed",
-      });
-      missionContext = await markQuantMoAgentMissionNode({
-        mission: missionContext,
-        nodeKey: "workspace_generation",
-        status: "running",
-      });
-      if (prefetch.skipped) {
-        await publishQuantPipelineToolMessage({
-          projectId: project_id,
-          requestId,
-          conversationId,
-          cliSource: cliPreference,
-          toolName: "quant-data-registry",
-          toolCallId: dataRegistryToolCallId,
-          target: "本地数据预取",
-          summary: prefetch.summary,
-          output: {
-            skipped: true,
-            reason: prefetch.summary,
-          },
-        });
-        dataRegistryToolCallId = undefined;
-        await publishQuantPipelineToolMessage({
-          projectId: project_id,
-          requestId,
-          conversationId,
-          cliSource: cliPreference,
-          toolName: "quant-market-data",
-          toolCallId: marketDataToolCallId,
-          target: "data_file/final/dashboard-data.json",
-          summary: `本阶段未重复获取行情数据：${prefetch.summary}`,
-          resultStatus: "skipped",
-          output: {
-            skipped: true,
-            reason: prefetch.summary,
-          },
-        });
-        marketDataToolCallId = undefined;
-        await publishWorkspaceProgress({
-          stage: 3,
-          runPlan,
-          skillIds: ["dashboard-visualization"],
-        });
-      } else {
-        const symbols = prefetch.symbols?.length
-          ? prefetch.symbols
-          : prefetch.symbol
-            ? [prefetch.symbol]
-            : [];
-        const screenerRawFiles =
-          prefetch.rawFiles?.filter((file) => file.includes("a-share-screener")) ??
-          [];
-        const usedScreener = screenerRawFiles.length > 0;
-        await publishQuantPipelineToolMessage({
-          projectId: project_id,
-          requestId,
-          conversationId,
-          cliSource: cliPreference,
-          toolName: "quant-data-registry",
-          toolCallId: dataRegistryToolCallId,
-          target: usedScreener
-            ? "/api/v1/research/screeners/a-share/short-term-candidates"
-            : "/api/v1/symbols/resolve",
-          summary: usedScreener
-            ? symbols.length
-              ? `调用本地选股接口，得到候选标的：${symbols.join("、")}。`
-              : "调用本地选股接口并完成候选筛选。"
-            : symbols.length
-              ? `解析用户问题中的标的并确认代码：${symbols.join("、")}。`
-              : "完成标的解析与本地数据能力检查。",
-          input: {
-            question: runPlan.question,
-            templateId: runPlan.visualization?.templateId,
-          },
-          output: {
-            symbols,
-            rawFiles: usedScreener ? screenerRawFiles : prefetch.rawFiles,
-          },
-        });
-        dataRegistryToolCallId = undefined;
-        await publishQuantPipelineToolMessage({
-          projectId: project_id,
-          requestId,
-          conversationId,
-          cliSource: cliPreference,
-          toolName: "quant-market-data",
-          toolCallId: marketDataToolCallId,
-          target: "data_file/final/dashboard-data.json",
-          summary: prefetch.summary,
-          input: {
-            endpoints: [
-              "/api/v1/quotes/realtime",
-              "/api/v1/quotes/history/{symbol}",
-              "/api/v1/indicators/technical/{symbol}",
-              "/api/v1/fundamentals/financials/{symbol}",
-            ],
-            symbols,
-          },
-          output: {
-            finalDataPath: prefetch.finalDataPath,
-            rawFiles: prefetch.rawFiles,
-          },
-        });
-        marketDataToolCallId = undefined;
-        await publishWorkspaceProgress({
-          stage: 3,
-          runPlan,
-          skillIds: ["dashboard-visualization"],
-        });
-        if (usePrefetchedSelectionDashboard) {
-          dashboardVisualizationToolCallId = await publishQuantPipelineToolStart({
+            stepId: "planning",
+            status: "running",
+            summary: "开始生成 run plan。",
+          });
+          const planningInstruction =
+            effectiveDisplayInstruction &&
+            effectiveDisplayInstruction.trim().length > 0
+              ? effectiveDisplayInstruction.trim()
+              : effectiveInstruction;
+          queryRewriteToolCallId = await publishQuantPipelineToolStart({
             projectId: project_id,
             requestId,
             conversationId,
             cliSource: cliPreference,
-            toolName: "dashboard-visualization",
-            target: "app/page.tsx",
-            summary: "正在基于本地选股数据生成标准选股工作区。",
+            toolName: "query-rewrite",
+            target: ".quantpilot/query_rewrite.json",
+            summary: "正在把用户问题整理为可执行的标的、周期和分析合同。",
             input: {
-              templateId: "stock-selection",
-              variantId: runPlan.visualization?.variantId,
-              symbols,
+              question: planningInstruction,
+              requestedCapabilityId: quantCapabilityId,
             },
           });
-        }
-        await ensureQuantDashboardTemplateForAct(projectPath);
-        if (usePrefetchedSelectionDashboard) {
+          runPlannerToolCallId = await publishQuantPipelineToolStart({
+            projectId: project_id,
+            requestId,
+            conversationId,
+            cliSource: cliPreference,
+            toolName: "run-planner",
+            target: ".quantpilot/run_plan.json",
+            summary: "正在核对分析对象、时间范围、数据需求和验收规则。",
+            input: {
+              question: planningInstruction,
+              requestedCapabilityId: quantCapabilityId,
+            },
+          });
+          if (authSession) {
+            const queryRewriteQuota = await reserveQuota({
+              actorUserId: authSession.user.id,
+              projectId: project_id,
+              metric: "query_rewrite.llm.daily",
+              quantity: 1,
+              idempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:reservation`,
+            });
+            queryRewriteQuotaReservationId =
+              queryRewriteQuota.reservation?.id ?? null;
+          }
+          const runPlan = await writeInitialRunPlan({
+            projectId: project_id,
+            projectPath,
+            instruction: planningInstruction,
+            requestId,
+            capabilityId: quantCapabilityId,
+            capabilitySource: quantCapabilitySource,
+            hasImageAttachments: processedImages.length > 0,
+            previousPlan: previousRunPlan,
+            llmModel: selectedModel,
+          });
+
+          const queryRewriteUsage = runPlan.queryRewrite?.execution.llm.usage;
+          if (authSession && queryRewriteQuotaReservationId) {
+            await settleQuotaReservation({
+              reservationId: queryRewriteQuotaReservationId,
+              actualQuantity: runPlan.queryRewrite?.execution.llm.attempted
+                ? 1
+                : 0,
+              sourceType: "query_rewrite",
+              sourceId: requestId,
+              usageEventIdempotencyKey: `chat-query-rewrite:${authSession.user.id}:${requestId}:request`,
+              metadata: {
+                status:
+                  runPlan.queryRewrite?.execution.llm.status ?? "not_attempted",
+                strategy:
+                  runPlan.queryRewrite?.execution.strategy ?? "deterministic",
+              },
+            });
+            queryRewriteQuotaReservationId = null;
+          }
+          if (
+            authSession &&
+            runPlan.queryRewrite?.execution.llm.attempted &&
+            queryRewriteUsage &&
+            queryRewriteUsage.totalTokens > 0
+          ) {
+            const actorId = authSession.user.id;
+            await recordQuotaUsage({
+              actorUserId: actorId,
+              projectId: project_id,
+              metric: "llm.total_tokens.monthly",
+              quantity: queryRewriteUsage.totalTokens,
+              idempotencyKey: `chat-query-rewrite:${actorId}:${requestId}:tokens`,
+              sourceType: "query_rewrite",
+              sourceId: requestId,
+              metadata: {
+                provider: runPlan.queryRewrite.execution.llm.provider,
+                model: runPlan.queryRewrite.execution.llm.model,
+                inputTokens: queryRewriteUsage.inputTokens,
+                outputTokens: queryRewriteUsage.outputTokens,
+              },
+            }).catch((error) => {
+              console.error(
+                "[Quota] Failed to record chat Query Rewrite token usage:",
+                error,
+              );
+            });
+          }
+
           await publishQuantPipelineToolMessage({
             projectId: project_id,
             requestId,
             conversationId,
             cliSource: cliPreference,
-            toolName: "dashboard-visualization",
-            toolCallId: dashboardVisualizationToolCallId,
-            target: "app/page.tsx",
+            toolName: "query-rewrite",
+            toolCallId: queryRewriteToolCallId,
+            target: ".quantpilot/query_rewrite.json",
             summary:
-              "平台已基于本地选股数据生成标准选股看板，后续直接进入自动验证。",
+              runPlan.queryRewrite?.status === "refused"
+                ? "问题改写完成，安全策略已阻止确定性收益承诺。"
+                : runPlan.queryRewrite?.status === "ready"
+                  ? `问题改写完成，已解析 ${runPlan.queryRewrite.resolvedSymbols.length} 个标的${runPlan.queryRewrite.execution.llm.applied ? "，并完成 LLM 语义增强" : ""}。`
+                  : "问题改写完成，存在需要确认的标的或输入。",
+            input: { question: planningInstruction },
+            output: runPlan.queryRewrite ?? {},
+          });
+          queryRewriteToolCallId = undefined;
+
+          await publishWorkspaceProgress({ stage: 1, runPlan });
+          await publishQuantPipelineToolMessage({
+            projectId: project_id,
+            requestId,
+            conversationId,
+            cliSource: cliPreference,
+            toolName: "run-planner",
+            toolCallId: runPlannerToolCallId,
+            target: ".quantpilot/run_plan.json",
+            summary:
+              runPlan.status === "refused"
+                ? "请求触发确定性安全策略，停止进入取数和生成链路。"
+                : runPlan.status === "needs_clarification"
+                  ? "已完成初步识别，发现关键输入仍需澄清。"
+                  : `生成 ${runPlan.capabilityId} 执行计划，准备进入数据源选择和预取。`,
             input: {
-              templateId: "stock-selection",
-              variantId: runPlan.visualization?.variantId,
-              symbols,
+              question: runPlan.question,
+              capabilityId: runPlan.capabilityId,
             },
             output: {
-              finalDataPath: prefetch.finalDataPath,
-              deterministicDashboard: true,
+              status: runPlan.status,
+              templateId: runPlan.visualization?.templateId,
+              symbols: runPlan.symbols,
+              dataRequirements: runPlan.dataRequirements,
+              analysisSteps: runPlan.analysisSteps,
             },
           });
-          dashboardVisualizationToolCallId = undefined;
-        }
-      }
-      if (!prefetch.skipped) {
-        streamManager.publish(project_id, {
-          type: "status",
-          data: {
-            status: "quant_data_prefetched",
-            message: prefetch.summary,
+          runPlannerToolCallId = undefined;
+
+          if (runPlan.status === "refused" && runPlan.refusal) {
+            await updateQuantGenerationStep({
+              projectPath,
+              projectId: project_id,
+              requestId,
+              stepId: "planning",
+              status: "warning",
+              summary: "请求触发安全策略，未执行取数或生成。",
+              runStatus: "refused",
+              metadata: {
+                code: runPlan.refusal.code,
+              },
+            });
+            const assistantMessage = await createMessage({
+              projectId: project_id,
+              role: "assistant",
+              messageType: "chat",
+              content: runPlan.refusal.message,
+              conversationId: conversationId ?? undefined,
+              cliSource: cliPreference,
+              metadata: {
+                type: "intent_refusal",
+                refusal: runPlan.refusal,
+                runPlanPath: ".quantpilot/run_plan.json",
+                isMissionFinal: true,
+                progressStatus: "refused",
+              },
+              requestId,
+            });
+            await markUserRequestAsCompleted(project_id, requestId);
+            streamManager.publish(project_id, {
+              type: "message",
+              data: serializeMessage(assistantMessage, { requestId }),
+            });
+            streamManager.publish(project_id, {
+              type: "status",
+              data: {
+                status: "intent_refused",
+                message: runPlan.refusal.message,
+                requestId,
+                metadata: { code: runPlan.refusal.code },
+              },
+            });
+            return NextResponse.json({
+              success: true,
+              status: "intent_refused",
+              message: runPlan.refusal.message,
+              requestId,
+              userMessageId: userMessage.id,
+              assistantMessageId: assistantMessage.id,
+              conversationId: conversationId ?? null,
+              refusal: runPlan.refusal,
+            });
+          }
+
+          if (
+            runPlan.status === "needs_clarification" &&
+            runPlan.clarification?.required
+          ) {
+            await updateQuantGenerationStep({
+              projectPath,
+              projectId: project_id,
+              requestId,
+              stepId: "planning",
+              status: "warning",
+              summary: "任务缺少关键输入，需要用户澄清。",
+              runStatus: "needs_clarification",
+              metadata: {
+                missing: runPlan.clarification.missing,
+                questions: runPlan.clarification.questions,
+              },
+            });
+            const clarificationContent = buildQuantClarificationMessage(
+              runPlan.clarification,
+            );
+            const turnMetrics = await collectMoAgentTurnMetrics({
+              projectId: project_id,
+              requestId,
+              relatedRequestIds: relatedAgentRequestIds,
+            }).catch((error) => {
+              console.error(
+                "[API] Failed to collect clarification turn metrics:",
+                error,
+              );
+              return null;
+            });
+            const assistantMessage = await createMessage({
+              projectId: project_id,
+              role: "assistant",
+              messageType: "chat",
+              content: clarificationContent,
+              conversationId: conversationId ?? undefined,
+              cliSource: cliPreference,
+              metadata: {
+                type: "intent_clarification",
+                clarification: runPlan.clarification,
+                runPlanPath: ".quantpilot/run_plan.json",
+                isMissionFinal: true,
+                progressStatus: "clarification",
+                ...(turnMetrics ? { turnMetrics } : {}),
+              },
+              requestId,
+            });
+
+            await markUserRequestAsCompleted(project_id, requestId);
+            streamManager.publish(project_id, {
+              type: "message",
+              data: serializeMessage(assistantMessage, { requestId }),
+            });
+            streamManager.publish(project_id, {
+              type: "status",
+              data: {
+                status: "intent_clarification_required",
+                message: "需要补充关键信息后再开始取数和生成看板。",
+                requestId,
+                metadata: {
+                  missing: runPlan.clarification.missing,
+                  questions: runPlan.clarification.questions,
+                },
+              },
+            });
+
+            return NextResponse.json({
+              success: true,
+              status: "intent_clarification_required",
+              message: "Need clarification before agent execution",
+              requestId,
+              userMessageId: userMessage.id,
+              assistantMessageId: assistantMessage.id,
+              conversationId: conversationId ?? null,
+              clarification: runPlan.clarification,
+            });
+          }
+
+          governedKnowledgePreparation = await prepareGovernedKnowledge({
             requestId,
-            metadata: {
-              symbol: prefetch.symbol,
-              finalDataPath: prefetch.finalDataPath,
-              rawFiles: prefetch.rawFiles,
+            scope: projectIntegrationScope,
+            task: [
+              runPlan.queryRewrite?.rewrittenQuery ?? runPlan.question,
+              `capability: ${runPlan.requestedCapabilityId ?? runPlan.capabilityId}`,
+              ...runPlan.analysisSteps.slice(0, 12),
+            ].join("\n"),
+          });
+          governedKnowledgeTaskCategory =
+            runPlan.requestedCapabilityId ??
+            runPlan.capabilityId ??
+            "quant-research";
+          await writeGovernedKnowledgeEvidence({
+            projectPath,
+            requestId,
+            preparation: governedKnowledgePreparation,
+          });
+          streamManager.publish(project_id, {
+            type: "status",
+            data: {
+              status: "governed_knowledge_prepared",
+              message:
+                governedKnowledgePreparation.status === "prepared"
+                  ? `已取得 ${governedKnowledgePreparation.citationCount} 条受治理知识引用。`
+                  : governedKnowledgePreparation.status === "empty"
+                    ? "受治理知识检索无匹配结果，继续使用真实市场数据。"
+                    : governedKnowledgePreparation.status === "unavailable"
+                      ? "受治理知识服务当前不可用，已按可选依赖降级。"
+                      : "受治理知识集成未启用。",
+              requestId,
+              metadata: {
+                knowledgeStatus: governedKnowledgePreparation.status,
+                passageCount: governedKnowledgePreparation.passageCount,
+                citationCount: governedKnowledgePreparation.citationCount,
+              },
             },
-          },
-        });
-      }
+          });
+
+          missionContext = await createQuantMoAgentMission({
+            projectId: project_id,
+            projectPath,
+            requestId,
+            objective:
+              runPlan.queryRewrite?.rewrittenQuery ?? planningInstruction,
+            runPlan,
+            maxRepairAttempts: generationState.maxRepairAttempts,
+          });
+
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "planning",
+            status: "success",
+            summary: `已生成 ${runPlan.capabilityId} 执行计划。`,
+            metadata: {
+              capabilityId: runPlan.capabilityId,
+              symbols: runPlan.symbols,
+              expectedArtifacts: runPlan.expectedArtifacts,
+              missionId: missionContext.id,
+              generationId: missionContext.generationId,
+              missionSpecSha256: missionContext.specHash,
+            },
+          });
+          missionContext = await markQuantMoAgentMissionNode({
+            mission: missionContext,
+            nodeKey: "planning",
+            status: "passed",
+          });
+          await publishWorkspaceProgress({
+            stage: 2,
+            runPlan,
+            skillIds: Array.from(
+              new Set([
+                "quant-data-registry",
+                ...getQuantCapability(
+                  runPlan.requestedCapabilityId ?? runPlan.capabilityId,
+                ).requiredSkills.filter(
+                  (skillId) =>
+                    skillId !== "run-planner" &&
+                    skillId !== "dashboard-visualization" &&
+                    (skillId !== "image-extraction" ||
+                      processedImages.length > 0),
+                ),
+              ]),
+            ),
+          });
+          dataRegistryToolCallId = await publishQuantPipelineToolStart({
+            projectId: project_id,
+            requestId,
+            conversationId,
+            cliSource: cliPreference,
+            toolName: "quant-data-registry",
+            target: "本地数据覆盖与标的解析",
+            summary: "正在核验本地数据覆盖、标的解析和可用信源。",
+            input: {
+              question: runPlan.question,
+              templateId: runPlan.visualization?.templateId,
+            },
+          });
+          marketDataToolCallId = await publishQuantPipelineToolStart({
+            projectId: project_id,
+            requestId,
+            conversationId,
+            cliSource: cliPreference,
+            toolName: "quant-market-data",
+            target: "data_file/final/dashboard-data.json",
+            summary: "正在获取真实行情、历史数据和任务所需指标。",
+            input: {
+              symbols: runPlan.symbols,
+              timeRange: runPlan.timeRange,
+            },
+          });
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "data_prefetch",
+            status: "running",
+            summary: "开始预取真实数据。",
+          });
+          missionContext = await markQuantMoAgentMissionNode({
+            mission: missionContext,
+            nodeKey: "data_prefetch",
+            status: "running",
+          });
+          const prefetch = await prefetchQuantDataForRunPlan({
+            projectPath,
+            plan: runPlan,
+          });
+          if (authSession && !prefetch.skipped) {
+            const dataUnits = Math.max(1, prefetch.rawFiles?.length ?? 0);
+            await recordQuotaUsage({
+              actorUserId: authSession.user.id,
+              projectId: project_id,
+              metric: "quant.data_units.daily",
+              quantity: dataUnits,
+              idempotencyKey: `chat-data-prefetch:${authSession.user.id}:${requestId}`,
+              sourceType: "quant_data_prefetch",
+              sourceId: requestId,
+              metadata: {
+                symbolCount:
+                  prefetch.symbols?.length ?? (prefetch.symbol ? 1 : 0),
+                rawFileCount: prefetch.rawFiles?.length ?? 0,
+              },
+            }).catch((error) => {
+              console.error(
+                "[Quota] Failed to record chat data-prefetch usage:",
+                error,
+              );
+            });
+          }
+          const missingPreparedArtifacts =
+            await missingAgentInputArtifacts(projectPath);
+          if (
+            processedImages.length === 0 &&
+            (missingPreparedArtifacts.length > 0 ||
+              (isInitialPrompt && prefetch.skipped))
+          ) {
+            const resolverUnavailable = runPlan.queryRewrite?.issues.find(
+              (issue) => issue.code === "SYMBOL_RESOLVER_UNAVAILABLE",
+            );
+            if (resolverUnavailable) {
+              throw new QuantPreparationError(
+                "SYMBOL_RESOLVER_UNAVAILABLE",
+                `证券标的解析服务暂不可用，平台已停止后续取数：${resolverUnavailable.message}`,
+                true,
+              );
+            }
+            throw new QuantPreparationError(
+              "QUANT_ARTIFACT_PREPARATION_FAILED",
+              `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 MoAgent。${
+                missingPreparedArtifacts.length
+                  ? ` 缺少：${missingPreparedArtifacts.join("、")}。`
+                  : ""
+              } ${prefetch.summary}`.trim(),
+              false,
+            );
+          }
+          usePrefetchedSelectionDashboard = canUsePrefetchedSelectionDashboard({
+            instruction: effectiveInstruction,
+            runPlan,
+            prefetchSkipped: prefetch.skipped,
+          });
+          await updateQuantGenerationStep({
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "data_prefetch",
+            status: prefetch.skipped ? "skipped" : "success",
+            summary: prefetch.summary,
+            metadata: {
+              skipped: prefetch.skipped,
+              symbol: prefetch.skipped ? undefined : prefetch.symbol,
+              symbols: prefetch.skipped ? undefined : prefetch.symbols,
+              finalDataPath: prefetch.skipped
+                ? undefined
+                : prefetch.finalDataPath,
+              rawFiles: prefetch.skipped ? undefined : prefetch.rawFiles,
+              deterministicDashboard:
+                usePrefetchedSelectionDashboard || undefined,
+            },
+          });
+          missionContext = await markQuantMoAgentMissionNode({
+            mission: missionContext,
+            nodeKey: "data_prefetch",
+            status: prefetch.skipped ? "skipped" : "passed",
+          });
+          missionContext = await markQuantMoAgentMissionNode({
+            mission: missionContext,
+            nodeKey: "workspace_generation",
+            status: "running",
+          });
+          if (prefetch.skipped) {
+            await publishQuantPipelineToolMessage({
+              projectId: project_id,
+              requestId,
+              conversationId,
+              cliSource: cliPreference,
+              toolName: "quant-data-registry",
+              toolCallId: dataRegistryToolCallId,
+              target: "本地数据预取",
+              summary: prefetch.summary,
+              output: {
+                skipped: true,
+                reason: prefetch.summary,
+              },
+            });
+            dataRegistryToolCallId = undefined;
+            await publishQuantPipelineToolMessage({
+              projectId: project_id,
+              requestId,
+              conversationId,
+              cliSource: cliPreference,
+              toolName: "quant-market-data",
+              toolCallId: marketDataToolCallId,
+              target: "data_file/final/dashboard-data.json",
+              summary: `本阶段未重复获取行情数据：${prefetch.summary}`,
+              resultStatus: "skipped",
+              output: {
+                skipped: true,
+                reason: prefetch.summary,
+              },
+            });
+            marketDataToolCallId = undefined;
+            await publishWorkspaceProgress({
+              stage: 3,
+              runPlan,
+              skillIds: ["dashboard-visualization"],
+            });
+          } else {
+            const symbols = prefetch.symbols?.length
+              ? prefetch.symbols
+              : prefetch.symbol
+                ? [prefetch.symbol]
+                : [];
+            const screenerRawFiles =
+              prefetch.rawFiles?.filter((file) =>
+                file.includes("a-share-screener"),
+              ) ?? [];
+            const usedScreener = screenerRawFiles.length > 0;
+            await publishQuantPipelineToolMessage({
+              projectId: project_id,
+              requestId,
+              conversationId,
+              cliSource: cliPreference,
+              toolName: "quant-data-registry",
+              toolCallId: dataRegistryToolCallId,
+              target: usedScreener
+                ? "/api/v1/research/screeners/a-share/short-term-candidates"
+                : "/api/v1/symbols/resolve",
+              summary: usedScreener
+                ? symbols.length
+                  ? `调用本地选股接口，得到候选标的：${symbols.join("、")}。`
+                  : "调用本地选股接口并完成候选筛选。"
+                : symbols.length
+                  ? `解析用户问题中的标的并确认代码：${symbols.join("、")}。`
+                  : "完成标的解析与本地数据能力检查。",
+              input: {
+                question: runPlan.question,
+                templateId: runPlan.visualization?.templateId,
+              },
+              output: {
+                symbols,
+                rawFiles: usedScreener ? screenerRawFiles : prefetch.rawFiles,
+              },
+            });
+            dataRegistryToolCallId = undefined;
+            await publishQuantPipelineToolMessage({
+              projectId: project_id,
+              requestId,
+              conversationId,
+              cliSource: cliPreference,
+              toolName: "quant-market-data",
+              toolCallId: marketDataToolCallId,
+              target: "data_file/final/dashboard-data.json",
+              summary: prefetch.summary,
+              input: {
+                endpoints: [
+                  "/api/v1/quotes/realtime",
+                  "/api/v1/quotes/history/{symbol}",
+                  "/api/v1/indicators/technical/{symbol}",
+                  "/api/v1/fundamentals/financials/{symbol}",
+                ],
+                symbols,
+              },
+              output: {
+                finalDataPath: prefetch.finalDataPath,
+                rawFiles: prefetch.rawFiles,
+              },
+            });
+            marketDataToolCallId = undefined;
+            await publishWorkspaceProgress({
+              stage: 3,
+              runPlan,
+              skillIds: ["dashboard-visualization"],
+            });
+            if (usePrefetchedSelectionDashboard) {
+              dashboardVisualizationToolCallId =
+                await publishQuantPipelineToolStart({
+                  projectId: project_id,
+                  requestId,
+                  conversationId,
+                  cliSource: cliPreference,
+                  toolName: "dashboard-visualization",
+                  target: "app/page.tsx",
+                  summary: "正在基于本地选股数据生成标准选股工作区。",
+                  input: {
+                    templateId: "stock-selection",
+                    variantId: runPlan.visualization?.variantId,
+                    symbols,
+                  },
+                });
+            }
+            await ensureQuantDashboardTemplateForAct(projectPath);
+            if (usePrefetchedSelectionDashboard) {
+              await publishQuantPipelineToolMessage({
+                projectId: project_id,
+                requestId,
+                conversationId,
+                cliSource: cliPreference,
+                toolName: "dashboard-visualization",
+                toolCallId: dashboardVisualizationToolCallId,
+                target: "app/page.tsx",
+                summary:
+                  "平台已基于本地选股数据生成标准选股看板，后续直接进入自动验证。",
+                input: {
+                  templateId: "stock-selection",
+                  variantId: runPlan.visualization?.variantId,
+                  symbols,
+                },
+                output: {
+                  finalDataPath: prefetch.finalDataPath,
+                  deterministicDashboard: true,
+                },
+              });
+              dashboardVisualizationToolCallId = undefined;
+            }
+          }
+          if (!prefetch.skipped) {
+            streamManager.publish(project_id, {
+              type: "status",
+              data: {
+                status: "quant_data_prefetched",
+                message: prefetch.summary,
+                requestId,
+                metadata: {
+                  symbol: prefetch.symbol,
+                  finalDataPath: prefetch.finalDataPath,
+                  rawFiles: prefetch.rawFiles,
+                },
+              },
+            });
+          }
         } catch (error) {
           if (queryRewriteQuotaReservationId) {
             await releaseQuotaReservation({
               reservationId: queryRewriteQuotaReservationId,
             }).catch((releaseError) => {
-              console.error("[Quota] Failed to release Query Rewrite reservation:", releaseError);
+              console.error(
+                "[Quota] Failed to release Query Rewrite reservation:",
+                releaseError,
+              );
             });
             queryRewriteQuotaReservationId = null;
           }
-      console.error(
-        "[API] Failed to prepare QuantPilot run plan or data prefetch:",
-        error,
-      );
-          const preparationMessage = error instanceof Error
-            ? error.message
-            : String(error);
-          const typedPreparationError = error instanceof QuantPreparationError
-            ? error
-            : null;
+          console.error(
+            "[API] Failed to prepare QuantPilot run plan or data prefetch:",
+            error,
+          );
+          const preparationMessage =
+            error instanceof Error ? error.message : String(error);
+          const typedPreparationError =
+            error instanceof QuantPreparationError ? error : null;
           const pendingToolFailures = [
             queryRewriteToolCallId
               ? {
@@ -3154,25 +3389,29 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                   target: "app/page.tsx",
                 }
               : null,
-          ].filter((value): value is NonNullable<typeof value> => value !== null);
-          await Promise.all(pendingToolFailures.map((pending) =>
-            publishQuantPipelineToolMessage({
-              projectId: project_id,
-              requestId,
-              conversationId,
-              cliSource: cliPreference,
-              ...pending,
-              summary: `本阶段未完成：${preparationMessage}`,
-              success: false,
-              resultStatus: "failed",
-              output: { error: preparationMessage },
-            }).catch((projectionError) => {
-              console.error(
-                `[API] Failed to settle ${pending.toolName} projection:`,
-                projectionError,
-              );
-            })
-          ));
+          ].filter(
+            (value): value is NonNullable<typeof value> => value !== null,
+          );
+          await Promise.all(
+            pendingToolFailures.map((pending) =>
+              publishQuantPipelineToolMessage({
+                projectId: project_id,
+                requestId,
+                conversationId,
+                cliSource: cliPreference,
+                ...pending,
+                summary: `本阶段未完成：${preparationMessage}`,
+                success: false,
+                resultStatus: "failed",
+                output: { error: preparationMessage },
+              }).catch((projectionError) => {
+                console.error(
+                  `[API] Failed to settle ${pending.toolName} projection:`,
+                  projectionError,
+                );
+              }),
+            ),
+          );
           const missionProjectBusy =
             error instanceof MoAgentMissionStateError &&
             error.code === "MISSION_PROJECT_BUSY";
@@ -3186,16 +3425,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             });
           }
           await updateQuantGenerationStep({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        stepId: "data_prefetch",
-        status: "failed",
-        summary: "生成计划或数据预取失败。",
-        runStatus: "failed",
-        errorMessage: preparationMessage,
+            projectPath,
+            projectId: project_id,
+            requestId,
+            stepId: "data_prefetch",
+            status: "failed",
+            summary: "生成计划或数据预取失败。",
+            runStatus: "failed",
+            errorMessage: preparationMessage,
           });
-          await markUserRequestAsFailed(project_id, requestId, preparationMessage);
+          await markUserRequestAsFailed(
+            project_id,
+            requestId,
+            preparationMessage,
+          );
           await publishWorkspaceProgress({
             stage: 5,
             failureReason: preparationMessage,
@@ -3210,7 +3453,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 terminalFailure: true,
                 errorCode: missionProjectBusy
                   ? "MISSION_PROJECT_BUSY"
-                  : typedPreparationError?.code ?? "QUANT_DATA_PREPARATION_FAILED",
+                  : (typedPreparationError?.code ??
+                    "QUANT_DATA_PREPARATION_FAILED"),
                 retryable: typedPreparationError?.retryable ?? false,
                 agentExecutionSkipped: true,
               },
@@ -3221,7 +3465,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               success: false,
               error: missionProjectBusy
                 ? "MISSION_PROJECT_BUSY"
-                : typedPreparationError?.code ?? "QUANT_DATA_PREPARATION_FAILED",
+                : (typedPreparationError?.code ??
+                  "QUANT_DATA_PREPARATION_FAILED"),
               message: preparationMessage,
               retryable: typedPreparationError?.retryable ?? false,
               requestId,
@@ -3239,6 +3484,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (!queuedMission) {
       throw new Error("MoAgent Mission was not created after planning.");
     }
+    acceptedMission = queuedMission;
 
     if (
       project.preferredCli !== cliPreference ||
@@ -3259,14 +3505,29 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const cliRuntime = await loadCliRuntime();
 
-    concurrentQuotaHandedOff = true;
-    void runQuantGenerationQueued({
+    const queuedGeneration = await startQuantGenerationQueued({
       projectPath,
       projectId: project_id,
       requestId,
       instruction: effectiveInstruction,
       cliPreference,
       selectedModel,
+      executionEnvelope: {
+        schemaVersion: 1,
+        recoveryMode: "replan_required",
+        effectiveInstruction,
+        userVisibleInstructionForRepair,
+        selectedModel,
+        cliPreference,
+        isInitialPrompt,
+        conversationId: conversationId ?? null,
+        actorUserId,
+        processedImages,
+        usePrefetchedSelectionDashboard,
+        missionId: queuedMission.id,
+        generationId: queuedMission.generationId,
+        governedKnowledgeTaskCategory,
+      },
       completeOnTaskSuccess: false,
       completeOnTaskFailure: false,
       task: async () => {
@@ -3309,7 +3570,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             });
             const governedKnowledge = usePrefetchedSelectionDashboard
               ? null
-              : governedKnowledgePreparation?.capsule ?? null;
+              : (governedKnowledgePreparation?.capsule ?? null);
+            await recordContextExposure({
+              projectPath,
+              projectId: project_id,
+              requestId,
+              integrationScope: projectIntegrationScope,
+              memory: personalization,
+              knowledge: governedKnowledge,
+            });
             if (isInitialPrompt) {
               return cliRuntime.initializeNextJsProject(
                 project_id,
@@ -3347,14 +3616,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             : undefined,
           governedKnowledge: usePrefetchedSelectionDashboard
             ? null
-            : governedKnowledgePreparation?.capsule ?? null,
+            : (governedKnowledgePreparation?.capsule ?? null),
           governedKnowledgePreparation,
           governedKnowledgeTaskCategory,
           publishWorkspaceProgress,
           relatedAgentRequestIds,
         });
       },
-    })
+    });
+    concurrentQuotaHandedOff = true;
+    void queuedGeneration.completion
       .catch((error) => {
         console.error("[API] Queued generation task failed:", error);
       })
@@ -3371,18 +3642,51 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
   } catch (error) {
     console.error("[API] Failed to execute AI:", error);
+    if (acceptedMission && !concurrentQuotaHandedOff) {
+      await failMoAgentMission({
+        missionId: acceptedMission.id,
+        projectId: acceptedMission.projectId,
+        requestId: acceptedMission.requestId,
+        code: "GENERATION_DISPATCH_ACCEPTANCE_FAILED",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Durable generation dispatch acceptance failed.",
+      }).catch((missionError) => {
+        console.error(
+          "[API] Failed to close Mission after dispatch acceptance failure:",
+          missionError,
+        );
+      });
+    }
     if (claimedRequest) {
       await markUserRequestAsFailed(
         claimedRequest.projectId,
         claimedRequest.requestId,
         error instanceof Error ? error.message : "Request acceptance failed",
       ).catch((statusError) => {
-        console.error("[API] Failed to mark rejected request as failed:", statusError);
+        console.error(
+          "[API] Failed to mark rejected request as failed:",
+          statusError,
+        );
       });
     }
     const quotaResponse = quotaErrorResponse(error);
     if (quotaResponse) return quotaResponse;
     if (error instanceof AuthorizationError) return authErrorResponse(error);
+    if (error instanceof MoAgentGenerationLeaseError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Project generation is busy",
+          code: error.code,
+          message: error.message,
+          activeRequestId: error.activeRequestId,
+          activeStage: error.activeStage,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         success: false,

@@ -6,10 +6,12 @@ import type {
   MemoryRecallResult,
   MemoryRevision,
   MemoryServiceInfo,
+  MemoryUsageResult,
   MemoryWriteResult,
   ProjectMemoryInput,
   RecallMemoryInput,
   RecordMemoryOutcomeInput,
+  RecordMemoryUsageInput,
   RememberPreferenceInput,
 } from './types';
 
@@ -28,5 +30,6 @@ export interface PersonalMemoryPort {
   ): Promise<MemoryRevision[]>;
   recall(input: RecallMemoryInput, requestId?: string): Promise<MemoryRecallResult>;
   projectContext(input: ProjectMemoryInput, requestId?: string): Promise<MemoryProjectionResult>;
+  recordUsage(input: RecordMemoryUsageInput, requestId?: string): Promise<MemoryUsageResult>;
   recordOutcome(input: RecordMemoryOutcomeInput, requestId?: string): Promise<MemoryOutcomeResult>;
 }

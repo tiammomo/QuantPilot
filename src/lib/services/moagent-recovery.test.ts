@@ -11,6 +11,7 @@ import {
   setMoAgentWorkspaceMutationJournalState,
 } from '@/lib/agent/runtime';
 import { reconcileExpiredMoAgentRuns } from './moagent-recovery';
+import { MoAgentCheckpointIntegrityError } from './moagent-checkpoint';
 
 const START = new Date('2026-07-15T00:00:00.000Z');
 
@@ -43,6 +44,64 @@ async function expiredRun(
 }
 
 describe('MoAgent replan recovery audit', () => {
+  it('fails closed before reconciliation when a v2 checkpoint hash is invalid', async () => {
+    let now = START;
+    const repository = new InMemoryAgentRuntimeRepository({ now: () => now });
+    const run = await expiredRun(repository, 'moagent-expired-tampered-checkpoint');
+    const appended = await repository.appendEvent({
+      runId: run.id,
+      expectedVersion: run.version,
+      leaseOwner: run.leaseOwner!,
+      fencingToken: run.fencingToken,
+      workspaceFencingToken: run.workspaceFencingToken,
+      now,
+      eventId: `${run.id}:progress:1`,
+      sequence: 1,
+      eventType: 'progress_evaluated',
+      payload: { turn: 1 },
+      occurredAt: now,
+    });
+    await repository.saveCheckpoint({
+      runId: run.id,
+      expectedVersion: appended.run.version,
+      leaseOwner: run.leaseOwner!,
+      fencingToken: run.fencingToken,
+      workspaceFencingToken: run.workspaceFencingToken,
+      now,
+      sequence: 1,
+      turn: 1,
+      boundary: 'model_turn_completed',
+      publicState: {
+        recoveryMode: 'replan_required',
+        stage: 'model_turn_completed',
+        turn: 1,
+        sourceSequence: 1,
+        completedOperationIds: [],
+        progressOracle: {
+          version: 1,
+          turnsObserved: 1,
+          consecutiveNoProgressTurns: 1,
+          seenTrustedFactFingerprints: [],
+          seenWorkspaceFingerprints: ['a'.repeat(64)],
+          lastWorkspaceFingerprint: 'a'.repeat(64),
+          lastFailedCheckCount: null,
+          seenToolObservationFingerprints: [],
+        },
+      },
+      stateHash: `sha256:${'0'.repeat(64)}`,
+      stateVersion: 2,
+    });
+    now = new Date(START.getTime() + 2_000);
+
+    await expect(reconcileExpiredMoAgentRuns({
+      repository,
+      projectId: 'project-recovery',
+      now,
+      ownerId: 'reconciler:test',
+    })).rejects.toBeInstanceOf(MoAgentCheckpointIntegrityError);
+    expect((await repository.getRun(run.id))?.status).toBe('running');
+  });
+
   it('closes an expired attempt with no unresolved mutation as interrupted', async () => {
     let now = START;
     const repository = new InMemoryAgentRuntimeRepository({ now: () => now });

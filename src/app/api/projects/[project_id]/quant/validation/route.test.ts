@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   sealCandidate: vi.fn(),
   claimVerification: vi.fn(),
   verifyEvidence: vi.fn(),
+  disposeVerification: vi.fn(),
 }));
 
 vi.mock("@/lib/services/project", () => ({
@@ -28,6 +29,11 @@ vi.mock("@/lib/services/project", () => ({
 vi.mock("@/lib/quant/generation-state", () => ({
   readQuantGenerationState: mocks.readGenerationState,
   updateQuantGenerationStep: mocks.updateGenerationStep,
+}));
+
+vi.mock("@/lib/quant/generation-queue", () => ({
+  runQuantGenerationStage: async <T>(input: { task: () => Promise<T> }) =>
+    input.task(),
 }));
 
 vi.mock("@/lib/quant/generation-preview", () => ({
@@ -207,7 +213,9 @@ describe("Mission-backed manual quant validation", () => {
     mocks.claimVerification.mockResolvedValue({
       ...mission("verifying"),
       projectPath,
+      verificationSession: { dispose: mocks.disposeVerification },
     });
+    mocks.disposeVerification.mockResolvedValue(undefined);
     mocks.validateProject.mockResolvedValue(validationReport(true));
     mocks.readReport.mockResolvedValue(validationReport(true));
     mocks.readRepairPlan.mockResolvedValue(null);
@@ -259,6 +267,7 @@ describe("Mission-backed manual quant validation", () => {
         data: expect.objectContaining({ status: "preview_ready" }),
       }),
     );
+    expect(mocks.disposeVerification).toHaveBeenCalledTimes(1);
 
     const order = [
       mocks.prepareValidation,
@@ -378,7 +387,7 @@ describe("Mission-backed manual quant validation", () => {
     },
   );
 
-  it.each(["running", "repairing", "verifying"])(
+  it.each(["running", "repairing"])(
     "rejects a busy %s Mission before reading or sealing its workspace",
     async (status) => {
       mocks.readMission.mockResolvedValue(mission(status));
@@ -394,6 +403,50 @@ describe("Mission-backed manual quant validation", () => {
       expect(mocks.updateGenerationStep).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects a verifying Mission while its database lease is still active", async () => {
+    const { MoAgentMissionStateError } =
+      await import("@/lib/services/moagent-mission-store");
+    mocks.readMission.mockResolvedValue(mission("verifying"));
+    mocks.claimVerification.mockRejectedValue(
+      new MoAgentMissionStateError(
+        "MISSION_VERIFICATION_BUSY",
+        "Mission verification is already owned by another orchestrator.",
+      ),
+    );
+
+    const response = await POST(postRequest(), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.code).toBe("MISSION_VERIFICATION_BUSY");
+    expect(mocks.prepareValidation).not.toHaveBeenCalled();
+    expect(mocks.captureCandidate).not.toHaveBeenCalled();
+    expect(mocks.validateProject).not.toHaveBeenCalled();
+  });
+
+  it("takes over an expired verifying Mission and reseals the current workspace", async () => {
+    mocks.readMission
+      .mockResolvedValueOnce(mission("verifying"))
+      .mockResolvedValueOnce(mission("candidate_complete"));
+
+    const response = await POST(postRequest(), context);
+
+    expect(response.status).toBe(200);
+    expect(mocks.claimVerification).toHaveBeenCalledTimes(2);
+    expect(mocks.disposeVerification).toHaveBeenCalledTimes(2);
+    expect(mocks.prepareValidation).toHaveBeenCalledWith({
+      projectId,
+      projectPath,
+    });
+    expect(mocks.captureCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mission: expect.objectContaining({ status: "candidate_complete" }),
+        source: "workspace_recovery",
+      }),
+    );
+    expect(mocks.verifyEvidence).toHaveBeenCalledTimes(1);
+  });
 
   it("uses the current Mission when callers omit requestId instead of falling through legacy validation", async () => {
     const response = await POST(postRequest({}), context);

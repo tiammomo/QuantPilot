@@ -14,8 +14,8 @@ import {
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import type { QuantRunPlan } from '@/lib/quant/workspace';
 import { captureMoAgentCandidate } from '@/lib/services/moagent-candidate';
+import { MoAgentMissionVerificationSession } from '@/lib/services/moagent-mission-verification-session';
 import {
-  beginMoAgentMissionVerification,
   ensureMoAgentMission,
   markMoAgentMissionNode,
   readMoAgentMission,
@@ -26,6 +26,7 @@ import {
 
 export interface MoAgentMissionContext extends MoAgentMissionHandle {
   projectPath: string;
+  verificationSession?: MoAgentMissionVerificationSession;
 }
 
 function missionRef(mission: MoAgentMissionContext) {
@@ -126,8 +127,12 @@ export async function sealQuantMoAgentMissionCandidate(input: {
 export async function claimQuantMoAgentMissionVerification(
   mission: MoAgentMissionContext,
 ): Promise<MoAgentMissionContext> {
-  const claimed = await beginMoAgentMissionVerification(missionRef(mission));
-  return { ...claimed, projectPath: mission.projectPath };
+  const session = await MoAgentMissionVerificationSession.claim(missionRef(mission));
+  return {
+    ...session.mission,
+    projectPath: mission.projectPath,
+    verificationSession: session,
+  };
 }
 
 /**
@@ -145,6 +150,11 @@ export async function verifyAndRecordQuantMoAgentMission(input: {
   decision: MoAgentEvidenceDecision;
   receipt: MoAgentEvidenceReceiptHandle;
 }> {
+  const verificationSession = input.mission.verificationSession;
+  if (!verificationSession) {
+    throw new Error('Evidence verification requires a live Mission verification session.');
+  }
+  verificationSession.assertHealthy();
   const current = await readMoAgentMission(
     input.mission.projectId,
     input.mission.requestId,
@@ -161,35 +171,41 @@ export async function verifyAndRecordQuantMoAgentMission(input: {
   }
   const mission = { ...current, projectPath: input.mission.projectPath };
   const spec = await readMoAgentMissionSpec(missionRef(mission));
-  return withMoAgentWorkspaceResourceLock(mission.projectPath, async () => {
-    const decision = await verifyMoAgentMissionEvidence({
-      missionId: mission.id,
-      generationId: mission.generationId,
-      candidateVersion: mission.candidateVersion,
-      missionSpec: spec,
-      missionSpecSha256: mission.specHash,
-      workspaceRoot: mission.projectPath,
-      preview: input.preview,
-      ...(input.signal ? { signal: input.signal } : {}),
-      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+  try {
+    return await withMoAgentWorkspaceResourceLock(mission.projectPath, async () => {
+      const decision = await verifyMoAgentMissionEvidence({
+        missionId: mission.id,
+        generationId: mission.generationId,
+        candidateVersion: mission.candidateVersion,
+        missionSpec: spec,
+        missionSpecSha256: mission.specHash,
+        workspaceRoot: mission.projectPath,
+        preview: input.preview,
+        ...(input.signal ? { signal: input.signal } : {}),
+        ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+      });
+      const recorded = await verificationSession.commit((verificationFence) =>
+        recordMoAgentMissionEvidenceDecision({
+          ...missionRef(mission),
+          verificationFence,
+          decision,
+        }));
+      return {
+        mission: { ...recorded.mission, projectPath: mission.projectPath },
+        decision,
+        receipt: recorded.receipt,
+      };
+    }, {
+      ownerId: `mission-evidence:${mission.id}:${mission.candidateVersion}`,
+      metadata: {
+        purpose: 'mission_evidence_verification',
+        projectId: mission.projectId,
+        requestId: mission.requestId,
+        missionId: mission.id,
+        generationId: mission.generationId,
+      },
     });
-    const recorded = await recordMoAgentMissionEvidenceDecision({
-      ...missionRef(mission),
-      decision,
-    });
-    return {
-      mission: { ...recorded.mission, projectPath: mission.projectPath },
-      decision,
-      receipt: recorded.receipt,
-    };
-  }, {
-    ownerId: `mission-evidence:${mission.id}:${mission.candidateVersion}`,
-    metadata: {
-      purpose: 'mission_evidence_verification',
-      projectId: mission.projectId,
-      requestId: mission.requestId,
-      missionId: mission.id,
-      generationId: mission.generationId,
-    },
-  });
+  } finally {
+    await verificationSession.dispose();
+  }
 }

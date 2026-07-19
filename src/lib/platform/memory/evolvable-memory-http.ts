@@ -15,10 +15,12 @@ import {
   type MemoryRecallResult,
   type MemoryRevision,
   type MemoryServiceInfo,
+  type MemoryUsageResult,
   type MemoryWriteResult,
   type ProjectMemoryInput,
   type RecallMemoryInput,
   type RecordMemoryOutcomeInput,
+  type RecordMemoryUsageInput,
   type RememberPreferenceInput,
 } from './types';
 
@@ -82,6 +84,19 @@ function optionalText(value: unknown): string | null {
   return value === null || value === undefined ? null : text(value, 'optional text');
 }
 
+function projectionAlgorithm(value: unknown): ProjectMemoryInput['algorithm'] {
+  const algorithm = text(value, 'algorithm');
+  if (algorithm !== 'ranked-extractive-v1' && algorithm !== 'exact-deduplicated-v1') {
+    throw new ExternalMemoryHttpError(
+      'Invalid projection algorithm response.',
+      null,
+      'INVALID_RESPONSE',
+      null,
+    );
+  }
+  return algorithm;
+}
+
 function requestHeader(value: string | undefined): string | null {
   if (!value) return null;
   const normalized = value.replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 64);
@@ -130,6 +145,22 @@ function mapRevision(value: unknown): MemoryRevision {
     validFrom: text(data.valid_from, 'valid_from'),
     recordedAt: text(data.recorded_at, 'recorded_at'),
     supersedesRevisionId: optionalText(data.supersedes_revision_id),
+  };
+}
+
+function mapUsage(value: unknown): MemoryUsageResult {
+  const data = record(value, 'memory usage');
+  return {
+    usageId: text(data.usage_id, 'usage_id'),
+    traceId: text(data.trace_id, 'trace_id'),
+    algorithm: projectionAlgorithm(data.algorithm),
+    maxCharacters: integer(data.max_characters, 'max_characters'),
+    sourceProjectionSha256: text(data.source_projection_sha256, 'source_projection_sha256'),
+    deliveredContextSha256: text(data.delivered_context_sha256, 'delivered_context_sha256'),
+    revisionIds: stringArray(data.revision_ids, 'revision_ids'),
+    occurredAt: text(data.occurred_at, 'occurred_at'),
+    recordedAt: text(data.recorded_at, 'recorded_at'),
+    idempotentReplay: booleanValue(data.idempotent_replay, 'idempotent_replay'),
   };
 }
 
@@ -417,6 +448,28 @@ export class EvolvableMemoryHttpAdapter implements PersonalMemoryPort {
     };
   }
 
+  async recordUsage(input: RecordMemoryUsageInput, requestId?: string): Promise<MemoryUsageResult> {
+    const accessToken = await this.accessToken(input, requestId);
+    return mapUsage(await this.request('/v1/usages', {
+      method: 'POST',
+      requestId,
+      accessToken,
+      body: {
+        tenant_id: input.tenantId,
+        subject_id: input.subjectId,
+        trace_id: input.traceId,
+        algorithm: input.algorithm,
+        max_characters: input.maxCharacters,
+        source_projection_sha256: input.sourceProjectionSha256,
+        delivered_context_sha256: input.deliveredContextSha256,
+        revision_ids: input.revisionIds,
+        idempotency_key: input.idempotencyKey,
+        purpose: input.purpose,
+        ...(input.occurredAt ? { occurred_at: input.occurredAt } : {}),
+      },
+    }));
+  }
+
   async recordOutcome(input: RecordMemoryOutcomeInput, requestId?: string): Promise<MemoryOutcomeResult> {
     const accessToken = await this.accessToken(input, requestId);
     const data = record(await this.request('/v1/outcomes', {
@@ -428,6 +481,7 @@ export class EvolvableMemoryHttpAdapter implements PersonalMemoryPort {
         subject_id: input.subjectId,
         trace_id: input.traceId,
         revision_id: input.revisionId,
+        ...(input.usageId ? { usage_id: input.usageId } : {}),
         kind: input.kind,
         idempotency_key: input.idempotencyKey,
         weight: input.weight,

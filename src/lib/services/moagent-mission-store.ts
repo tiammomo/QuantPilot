@@ -10,12 +10,15 @@ import type {
   MoAgentMissionNodeStatus,
   MoAgentMissionSpec,
   MoAgentMissionStatus,
+  MoAgentMissionVerificationClaim,
+  MoAgentMissionVerificationFence,
   MoAgentAcceptedMissionSnapshot,
 } from '@/lib/agent/mission';
 import { MOAGENT_MISSION_STATUSES } from '@/lib/agent/mission';
 import { hashMoAgentProvenance } from '@/lib/services/moagent-provenance';
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const MAX_VERIFICATION_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 const TERMINAL_MISSION_STATUSES = new Set<MoAgentMissionStatus>([
   'completed',
   'failed',
@@ -36,6 +39,74 @@ export class MoAgentMissionStateError extends Error {
 
 function inputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function assertVerificationLeaseInput(input: {
+  leaseOwner: string;
+  leaseTtlMs: number;
+}): void {
+  if (
+    !input.leaseOwner ||
+    Buffer.byteLength(input.leaseOwner, 'utf8') > 256 ||
+    /[\r\n]/.test(input.leaseOwner)
+  ) {
+    throw new MoAgentMissionStateError(
+      'MISSION_VERIFICATION_LEASE_INVALID',
+      'Verification leaseOwner must be a bounded single-line identifier.',
+    );
+  }
+  if (
+    !Number.isSafeInteger(input.leaseTtlMs) ||
+    input.leaseTtlMs <= 0 ||
+    input.leaseTtlMs > MAX_VERIFICATION_LEASE_TTL_MS
+  ) {
+    throw new MoAgentMissionStateError(
+      'MISSION_VERIFICATION_LEASE_INVALID',
+      'Verification leaseTtlMs must be a positive safe integer no greater than one day.',
+    );
+  }
+}
+
+async function databaseNow(tx: MissionTransaction): Promise<Date> {
+  const rows = await tx.$queryRaw<Array<{ databaseNow: Date }>>(Prisma.sql`
+    SELECT clock_timestamp() AS "databaseNow"
+  `);
+  const value = rows[0]?.databaseNow;
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    throw new MoAgentMissionStateError(
+      'MISSION_DATABASE_CLOCK_UNAVAILABLE',
+      'Database clock is unavailable for Mission lease fencing.',
+    );
+  }
+  return value;
+}
+
+function assertVerificationFence(
+  mission: {
+    status: string;
+    verificationLeaseOwner: string | null;
+    verificationLeaseExpiresAt: Date | null;
+    verificationFencingToken: number;
+  },
+  fence: MoAgentMissionVerificationFence,
+  now: Date,
+): void {
+  if (
+    mission.status !== 'verifying' ||
+    mission.verificationLeaseOwner !== fence.leaseOwner ||
+    mission.verificationFencingToken !== fence.fencingToken
+  ) {
+    throw new MoAgentMissionStateError(
+      'MISSION_VERIFICATION_LEASE_LOST',
+      'Verification owner no longer holds the current Mission fencing token.',
+    );
+  }
+  if (!mission.verificationLeaseExpiresAt || mission.verificationLeaseExpiresAt <= now) {
+    throw new MoAgentMissionStateError(
+      'MISSION_VERIFICATION_LEASE_EXPIRED',
+      'Verification lease expired before the durable write.',
+    );
+  }
 }
 
 function isActiveMissionUniqueConflict(error: unknown): boolean {
@@ -383,6 +454,9 @@ export async function recordMoAgentMissionCandidate(input: {
         currentCandidateRequestId: input.candidate.sourceRequestId,
         candidateSubmittedAt: new Date(input.candidate.submittedAt),
         verificationStartedAt: null,
+        verificationLeaseOwner: null,
+        verificationLeaseExpiresAt: null,
+        verificationLastHeartbeatAt: null,
         errorCode: null,
         errorMessage: null,
       },
@@ -411,29 +485,55 @@ export async function beginMoAgentMissionVerification(input: {
   missionId: string;
   projectId: string;
   requestId: string;
-}): Promise<MoAgentMissionHandle> {
+  leaseOwner: string;
+  leaseTtlMs: number;
+}): Promise<MoAgentMissionVerificationClaim> {
+  assertVerificationLeaseInput(input);
   return prisma.$transaction(async (tx) => {
     const mission = await boundMission(tx, input);
     const status = missionStatus(mission.status);
-    if (status === 'verifying') {
+    const now = await databaseNow(tx);
+    const activeVerificationLease =
+      status === 'verifying' &&
+      mission.verificationLeaseOwner !== null &&
+      mission.verificationLeaseExpiresAt !== null &&
+      mission.verificationLeaseExpiresAt > now;
+    if (activeVerificationLease) {
       throw new MoAgentMissionStateError(
         'MISSION_VERIFICATION_BUSY',
         'Mission verification is already owned by another orchestrator.',
       );
     }
-    if (status !== 'candidate_complete') {
+    if (status !== 'candidate_complete' && status !== 'verifying') {
       throw new MoAgentMissionStateError(
         'MISSION_VERIFICATION_TRANSITION_INVALID',
         `Cannot begin verification while Mission is ${status}.`,
       );
     }
-    const now = new Date();
+    const leaseExpiresAt = new Date(now.getTime() + input.leaseTtlMs);
     const updated = await tx.agentMission.updateMany({
-      where: { id: mission.id, version: mission.version, status: 'candidate_complete' },
+      where: {
+        id: mission.id,
+        version: mission.version,
+        status,
+        ...(status === 'verifying'
+          ? {
+              OR: [
+                { verificationLeaseOwner: null },
+                { verificationLeaseExpiresAt: null },
+                { verificationLeaseExpiresAt: { lte: now } },
+              ],
+            }
+          : {}),
+      },
       data: {
         status: 'verifying',
         version: { increment: 1 },
         verificationStartedAt: now,
+        verificationLeaseOwner: input.leaseOwner,
+        verificationLeaseExpiresAt: leaseExpiresAt,
+        verificationLastHeartbeatAt: now,
+        verificationFencingToken: { increment: 1 },
         errorCode: null,
         errorMessage: null,
       },
@@ -447,6 +547,122 @@ export async function beginMoAgentMissionVerification(input: {
       status: 'running',
       now,
     });
+    const claimed = await tx.agentMission.findUniqueOrThrow({ where: { id: mission.id } });
+    if (
+      claimed.verificationLeaseOwner !== input.leaseOwner ||
+      claimed.verificationFencingToken <= mission.verificationFencingToken
+    ) {
+      throw new MoAgentMissionStateError(
+        'MISSION_VERIFICATION_LEASE_LOST',
+        'Mission verification claim did not return the acquired fence.',
+      );
+    }
+    return {
+      mission: handle(claimed),
+      leaseOwner: input.leaseOwner,
+      fencingToken: claimed.verificationFencingToken,
+      leaseExpiresAt: leaseExpiresAt.toISOString(),
+    };
+  });
+}
+
+export async function heartbeatMoAgentMissionVerification(input: {
+  missionId: string;
+  projectId: string;
+  requestId: string;
+  leaseOwner: string;
+  fencingToken: number;
+  leaseTtlMs: number;
+}): Promise<{ leaseExpiresAt: string }> {
+  assertVerificationLeaseInput(input);
+  return prisma.$transaction(async (tx) => {
+    const now = await databaseNow(tx);
+    const leaseExpiresAt = new Date(now.getTime() + input.leaseTtlMs);
+    const updated = await tx.agentMission.updateMany({
+      where: {
+        id: input.missionId,
+        projectId: input.projectId,
+        requestId: input.requestId,
+        status: 'verifying',
+        verificationLeaseOwner: input.leaseOwner,
+        verificationFencingToken: input.fencingToken,
+        verificationLeaseExpiresAt: { gt: now },
+      },
+      data: {
+        verificationLeaseExpiresAt: leaseExpiresAt,
+        verificationLastHeartbeatAt: now,
+      },
+    });
+    if (updated.count !== 1) {
+      const mission = await boundMission(tx, input);
+      assertVerificationFence(mission, input, now);
+      throw new MoAgentMissionStateError(
+        'MISSION_WRITE_CONFLICT',
+        'Mission verification heartbeat lost a concurrent write.',
+      );
+    }
+    return { leaseExpiresAt: leaseExpiresAt.toISOString() };
+  });
+}
+
+export async function abandonMoAgentMissionVerification(input: {
+  missionId: string;
+  projectId: string;
+  requestId: string;
+  leaseOwner: string;
+  fencingToken: number;
+}): Promise<MoAgentMissionHandle> {
+  return prisma.$transaction(async (tx) => {
+    const mission = await boundMission(tx, input);
+    if (mission.status === 'candidate_complete') return handle(mission);
+    if (
+      mission.status !== 'verifying' ||
+      mission.verificationLeaseOwner !== input.leaseOwner ||
+      mission.verificationFencingToken !== input.fencingToken
+    ) {
+      throw new MoAgentMissionStateError(
+        'MISSION_VERIFICATION_LEASE_LOST',
+        'Only the current verification owner may abandon its claim.',
+      );
+    }
+    const updated = await tx.agentMission.updateMany({
+      where: {
+        id: mission.id,
+        version: mission.version,
+        status: 'verifying',
+        verificationLeaseOwner: input.leaseOwner,
+        verificationFencingToken: input.fencingToken,
+      },
+      data: {
+        status: 'candidate_complete',
+        version: { increment: 1 },
+        verificationStartedAt: null,
+        verificationLeaseOwner: null,
+        verificationLeaseExpiresAt: null,
+        verificationLastHeartbeatAt: null,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new MoAgentMissionStateError(
+        'MISSION_VERIFICATION_LEASE_LOST',
+        'Mission verification abandon lost its fencing token.',
+      );
+    }
+    const resetNode = await tx.agentMissionNode.updateMany({
+      where: { missionId: mission.id, nodeKey: 'validation', status: 'running' },
+      data: {
+        status: 'pending',
+        version: { increment: 1 },
+        startedAt: null,
+        finishedAt: null,
+      },
+    });
+    if (resetNode.count !== 1) {
+      throw new MoAgentMissionStateError(
+        'MISSION_NODE_NOT_FOUND',
+        'Mission validation node could not be reset after lease release.',
+      );
+    }
     return handle(await tx.agentMission.findUniqueOrThrow({ where: { id: mission.id } }));
   });
 }
@@ -493,6 +709,7 @@ export async function recordMoAgentMissionEvidenceDecision(input: {
   missionId: string;
   projectId: string;
   requestId: string;
+  verificationFence: MoAgentMissionVerificationFence;
   decision: MoAgentEvidenceDecision;
 }): Promise<{ mission: MoAgentMissionHandle; receipt: MoAgentEvidenceReceiptHandle }> {
   const expectedReceiptHash = `sha256:${hashMoAgentProvenance(input.decision.payload)}`;
@@ -526,6 +743,7 @@ export async function recordMoAgentMissionEvidenceDecision(input: {
         `Cannot record verification evidence while Mission is ${status}.`,
       );
     }
+    assertVerificationFence(mission, input.verificationFence, await databaseNow(tx));
     if (input.decision.candidateVersion !== mission.candidateVersion) {
       throw new MoAgentMissionStateError(
         'EVIDENCE_CANDIDATE_STALE',
@@ -610,11 +828,22 @@ export async function recordMoAgentMissionEvidenceDecision(input: {
         : input.decision.verdict === 'retry_infrastructure'
           ? 'candidate_complete'
         : 'failed';
+    const commitNow = await databaseNow(tx);
     const updated = await tx.agentMission.updateMany({
-      where: { id: mission.id, version: mission.version, status: 'verifying' },
+      where: {
+        id: mission.id,
+        version: mission.version,
+        status: 'verifying',
+        verificationLeaseOwner: input.verificationFence.leaseOwner,
+        verificationFencingToken: input.verificationFence.fencingToken,
+        verificationLeaseExpiresAt: { gt: commitNow },
+      },
       data: {
         status: nextStatus,
         version: { increment: 1 },
+        verificationLeaseOwner: null,
+        verificationLeaseExpiresAt: null,
+        verificationLastHeartbeatAt: null,
         ...(accepted
           ? {
               acceptedReceiptId: receipt.id,
@@ -684,11 +913,22 @@ async function terminalMission(input: {
   status: 'failed' | 'cancelled';
   code: string;
   message: string;
+  expectedVersion?: number;
+  expectedStatus?: MoAgentMissionStatus;
 }): Promise<MoAgentMissionHandle> {
   return prisma.$transaction(async (tx) => {
     const mission = await boundMission(tx, input);
     const status = missionStatus(mission.status);
     if (TERMINAL_MISSION_STATUSES.has(status)) return handle(mission);
+    if (
+      (input.expectedVersion !== undefined && mission.version !== input.expectedVersion) ||
+      (input.expectedStatus !== undefined && status !== input.expectedStatus)
+    ) {
+      throw new MoAgentMissionStateError(
+        'MISSION_WRITE_CONFLICT',
+        'Mission changed before the terminal projection could be committed.',
+      );
+    }
     const now = new Date();
     const updated = await tx.agentMission.updateMany({
       where: { id: mission.id, version: mission.version, status: mission.status },
@@ -699,6 +939,9 @@ async function terminalMission(input: {
         errorCode: input.code,
         errorMessage: input.message.slice(0, 2_000),
         completedAt: now,
+        verificationLeaseOwner: null,
+        verificationLeaseExpiresAt: null,
+        verificationLastHeartbeatAt: null,
       },
     });
     if (updated.count !== 1) {
@@ -725,6 +968,8 @@ export function failMoAgentMission(input: {
   requestId: string;
   code: string;
   message: string;
+  expectedVersion?: number;
+  expectedStatus?: MoAgentMissionStatus;
 }): Promise<MoAgentMissionHandle> {
   return terminalMission({ ...input, status: 'failed' });
 }
@@ -734,6 +979,8 @@ export function cancelMoAgentMission(input: {
   projectId: string;
   requestId: string;
   message?: string;
+  expectedVersion?: number;
+  expectedStatus?: MoAgentMissionStatus;
 }): Promise<MoAgentMissionHandle> {
   return terminalMission({
     ...input,
@@ -771,6 +1018,9 @@ export async function cancelActiveMoAgentMissions(input: {
         errorCode: 'MISSION_CANCELLED',
         errorMessage: (input.message ?? 'Mission was cancelled by the user.').slice(0, 2_000),
         completedAt: now,
+        verificationLeaseOwner: null,
+        verificationLeaseExpiresAt: null,
+        verificationLastHeartbeatAt: null,
       },
     });
     const cancelledRows = await tx.agentMission.findMany({
