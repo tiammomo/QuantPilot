@@ -271,7 +271,9 @@ jobs:
           exit 1
 
       - name: Run deterministic contract suite
-        run: npm run benchmark:quant:contract
+        run: |
+          set -o pipefail
+          npm run benchmark:quant:contract 2>&1 | tee tmp/contract-benchmark.log
 
       - name: MoAgent PostgreSQL fencing integration
         env:
@@ -293,3 +295,4 @@ jobs:
             tmp/quantpilot-benchmark-screenshots/
             tmp/quantpilot-eval-mutations/
             tmp/contract-market.log
+            tmp/contract-benchmark.log

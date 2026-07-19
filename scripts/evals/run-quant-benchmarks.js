@@ -92,6 +92,21 @@ const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
 const DEFAULT_MODEL = getDefaultModelForCli('moagent');
 const QUERY_REWRITE_FIXTURES = require(QUERY_REWRITE_FIXTURES_PATH);
 
+function githubWorkflowCommandValue(value) {
+  return String(value)
+    .replaceAll('%', '%25')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A');
+}
+
+function emitGithubError(title, message) {
+  if (process.env.GITHUB_ACTIONS !== 'true') return;
+  console.error(
+    `::error title=${githubWorkflowCommandValue(title)}::` +
+    githubWorkflowCommandValue(String(message).slice(0, 6_000)),
+  );
+}
+
 async function replayContractQueryRewrite({ testCase, instruction, phase = 'primary', projectId }) {
   const fixture = QUERY_REWRITE_FIXTURES?.cases?.[testCase.id]?.[phase];
   if (!fixture) {
@@ -2524,6 +2539,10 @@ async function runBenchmarkCase(testCase, options) {
   console.log(`[QuantBenchmark] ${testCase.id} ${result.passed ? 'PASS' : 'FAIL'}`);
   if (!result.passed) {
     result.failures.forEach((failure) => console.log(`  - ${failure}`));
+    emitGithubError(
+      `Quant contract failed: ${testCase.id}`,
+      result.failures.join('\n'),
+    );
   }
   return result;
 }
@@ -2877,6 +2896,7 @@ async function main() {
   }
   for (const problem of inProcessAttestation.problems) {
     console.log(`[QuantBenchmark] evidence attestation: ${problem}`);
+    emitGithubError('Quant evidence attestation failed', problem);
   }
 
   if (!report.passed || (formalSuiteRun && report.releasePassed !== true)) {
@@ -2887,6 +2907,7 @@ async function main() {
 main()
   .catch((error) => {
     console.error('[QuantBenchmark] failed:', error);
+    emitGithubError('Quant benchmark runner failed', formatError(error));
     process.exitCode = 1;
   })
   .finally(async () => {
