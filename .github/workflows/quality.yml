@@ -250,23 +250,17 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
-
       - name: Install dependencies
         run: |
           npm ci
           npx playwright install --with-deps chromium
-          uv sync --project services/market-data --locked --all-groups
           npm run prisma:generate
 
-      - name: Start local data services
+      - name: Start versioned contract data service
         run: |
           npm run db:init
           mkdir -p tmp
-          npm run dev:market > tmp/contract-market.log 2>&1 &
+          node scripts/evals/run-contract-market-fixture.js > tmp/contract-market.log 2>&1 &
           for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
               exit 0

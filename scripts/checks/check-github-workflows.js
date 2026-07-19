@@ -15,6 +15,10 @@ const expectedActions = new Map([
 ]);
 const failures = [];
 
+if (!fs.existsSync(path.join(root, 'scripts', 'evals', 'run-contract-market-fixture.js'))) {
+  failures.push('missing scripts/evals/run-contract-market-fixture.js');
+}
+
 for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name)).sort()) {
   const relativePath = path.posix.join('.github', 'workflows', filename);
   const source = fs.readFileSync(path.join(workflowDir, filename), 'utf8');
@@ -45,6 +49,12 @@ if ((quality.match(/35433:5432/g) ?? []).length !== 2 || (quality.match(/36380:6
 }
 if (!/QUANTPILOT_AUTH_ADMIN_EMAIL:\s*auth-smoke-admin@quantpilot\.local/.test(quality)) {
   failures.push('.github/workflows/quality.yml: authenticated smoke must use an explicit CI administrator');
+}
+if (!/node scripts\/evals\/run-contract-market-fixture\.js/.test(quality)) {
+  failures.push('.github/workflows/quality.yml: contract evaluation must use the versioned market fixture');
+}
+if (/npm run dev:market/.test(quality)) {
+  failures.push('.github/workflows/quality.yml: deterministic contract evaluation must not depend on public market APIs');
 }
 
 const nightlyPath = path.join(workflowDir, 'eval-nightly.yml');
