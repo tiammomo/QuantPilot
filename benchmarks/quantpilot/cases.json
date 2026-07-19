@@ -374,9 +374,9 @@
   },
   {
     "id": "runtime-registry-deepseek-v4-flash",
-    "name": "DeepSeek V4 Flash 单模型运行时注册表",
+    "name": "DeepSeek 默认与本地 Qwen 双模型运行时注册表",
     "type": "runtime_registry",
-    "question": "验证平台只暴露 DeepSeek V4 Flash，并拒绝其他模型与中转配置。",
+    "question": "验证平台保留 DeepSeek 默认模型并暴露受控的本地 Qwen profile，同时拒绝未注册模型与中转配置。",
     "capabilityId": "technical_analysis"
   },
   {
@@ -416,7 +416,7 @@
       { "templateId": "single-stock-diagnosis", "variantId": "single-stock-fundamental-snapshot", "supported": false },
       { "templateId": "technical-timing", "variantId": "technical-kline-trader", "supported": false },
       { "templateId": "technical-timing", "variantId": "technical-breakout-watch", "supported": false },
-      { "templateId": "fundamental-research", "variantId": "fundamental-quality-scorecard", "supported": false },
+      { "templateId": "fundamental-research", "variantId": "fundamental-quality-scorecard", "supported": true },
       { "templateId": "fundamental-research", "variantId": "fundamental-report-trend", "supported": false },
       { "templateId": "stock-selection", "variantId": "selection-ranking-matrix", "supported": true },
       { "templateId": "stock-selection", "variantId": "selection-correlation-risk-map", "supported": false },

@@ -39,7 +39,7 @@ const {
   getDefaultModelForCli,
   getModelDefinitionsForCli,
   normalizeModelId,
-} = jiti('../../src/lib/constants/cliModels.ts');
+} = jiti('../../src/lib/constants/models.ts');
 const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/moagent.ts');
 const {
   failBenchmarkGenerationRun,
@@ -87,6 +87,14 @@ const DATASET_REGISTRY_PATH = path.resolve('benchmarks/quantpilot/datasets.json'
 const SNAPSHOT_MANIFEST_PATH = path.resolve('benchmarks/quantpilot/snapshot-manifest.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
+const DEFAULT_MODEL = getDefaultModelForCli('moagent');
+
+function modelRuntime(model) {
+  const definition = getModelDefinitionsForCli('moagent')
+    .find((candidate) => candidate.id === model);
+  if (!definition) throw new Error(`未注册的 MoAgent 模型：${model || '(empty)'}`);
+  return { model: definition.id, provider: definition.provider };
+}
 
 function parseArgs(argv) {
   const selected = new Set();
@@ -100,7 +108,7 @@ function parseArgs(argv) {
   let datasetVisibility = process.env.QUANTPILOT_EVAL_DATASET_VISIBILITY || 'public';
   let casesFile = process.env.QUANTPILOT_EVAL_CASES_PATH || null;
   let cli = 'moagent';
-  let model = 'deepseek-v4-flash';
+  let model = process.env.QUANTPILOT_EVAL_MODEL || DEFAULT_MODEL;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -258,11 +266,12 @@ function parseArgs(argv) {
   if (cli !== 'moagent') {
     throw new Error(`benchmark 只接受 --cli=moagent，收到：${cli || '(empty)'}`);
   }
-  if (model !== 'deepseek-v4-flash') {
-    throw new Error(
-      `MoAgent 1.7 真实 E2E 固定使用 deepseek-v4-flash，收到：${model || '(empty)'}`,
-    );
-  }
+  const requestedModel = model.trim().toLowerCase();
+  const modelDefinition = getModelDefinitionsForCli('moagent').find((definition) =>
+    definition.id.toLowerCase() === requestedModel ||
+    definition.aliases.some((alias) => alias.toLowerCase() === requestedModel));
+  if (!modelDefinition) throw new Error(`benchmark 收到未注册的 MoAgent 模型：${model || '(empty)'}`);
+  model = modelDefinition.id;
   if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 5) {
     throw new Error(`--repeat 必须是 1 到 5 的整数，收到：${repeat}`);
   }
@@ -543,13 +552,12 @@ function buildCoverageSummary(cases, results) {
   };
 }
 
-async function ensureBenchmarkProject({ projectId, projectPath, testCase }) {
+async function ensureBenchmarkProject({ projectId, projectPath, testCase, selectedModel = DEFAULT_MODEL }) {
   await fs.rm(projectPath, { recursive: true, force: true });
   await fs.mkdir(projectPath, { recursive: true });
   await prisma.project.deleteMany({ where: { id: projectId } });
 
   await scaffoldBasicNextApp(projectPath, projectId);
-  const selectedModel = 'deepseek-v4-flash';
   await prisma.project.create({
     data: {
       id: projectId,
@@ -710,10 +718,10 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   assertCondition(
-    page.includes('data_quality') ||
+      page.includes('data_quality') ||
       page.includes('DataQualityPanel') ||
       page.includes('数据质量') ||
-      page.includes('数据信源渠道') ||
+      page.includes('更新时间') ||
       page.includes('数据缺口'),
     'app/page.tsx 应展示数据质量或限制信息。',
     failures
@@ -1001,7 +1009,7 @@ async function runClarificationContinuationCase(testCase) {
     requestId,
     instruction: testCase.question,
     cliPreference: 'benchmark',
-    selectedModel: 'deepseek-v4-flash',
+    selectedModel: DEFAULT_MODEL,
   });
   const firstPlan = await writeInitialRunPlan({
     projectPath,
@@ -1041,7 +1049,7 @@ async function runClarificationContinuationCase(testCase) {
       requestId: followupRequestId,
       instruction: continuation.resolvedInstruction,
       cliPreference: 'benchmark',
-      selectedModel: 'deepseek-v4-flash',
+      selectedModel: DEFAULT_MODEL,
     });
     plan = await writeInitialRunPlan({
       projectPath,
@@ -1164,12 +1172,15 @@ function runRuntimeRegistryCase(testCase) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
-  const deepSeekModels = getModelDefinitionsForCli('moagent');
+  const registeredModels = getModelDefinitionsForCli('moagent');
 
-  assertCondition(deepSeekModels.length === 1, `平台应只暴露 1 个模型，实际 ${deepSeekModels.length} 个。`, failures);
-  assertCondition(deepSeekModels[0]?.id === 'deepseek-v4-flash', `唯一模型应为 deepseek-v4-flash，实际 ${deepSeekModels[0]?.id}`, failures);
-  assertCondition(getDefaultModelForCli('moagent') === 'deepseek-v4-flash', `默认模型应为 deepseek-v4-flash，实际 ${getDefaultModelForCli('moagent')}`, failures);
-  assertCondition(normalizeModelId('codex', 'gpt-5.5') === 'deepseek-v4-flash', '任何旧供应商或模型输入都应收敛到 DeepSeek V4 Flash。', failures);
+  assertCondition(registeredModels.length === 3, `平台应暴露 3 个受控模型，实际 ${registeredModels.length} 个。`, failures);
+  assertCondition(registeredModels[0]?.id === DEFAULT_MODEL, `首个模型应为 ${DEFAULT_MODEL}，实际 ${registeredModels[0]?.id}`, failures);
+  assertCondition(registeredModels[1]?.id === 'deepseek:deepseek-v4-flash', `第二个模型应为 ModelPort DeepSeek，实际 ${registeredModels[1]?.id}`, failures);
+  assertCondition(registeredModels[2]?.id === 'deepseek-v4-flash', `第三个模型应为可选官方直连，实际 ${registeredModels[2]?.id}`, failures);
+  assertCondition(getDefaultModelForCli('moagent') === DEFAULT_MODEL, `默认模型应为 ${DEFAULT_MODEL}，实际 ${getDefaultModelForCli('moagent')}`, failures);
+  assertCondition(normalizeModelId('moagent', 'local_qwen:qwen3.5-9b-q5km') === 'local_qwen:qwen3.5-9b-q5km', '已注册的本地 Qwen 输入应被保留。', failures);
+  assertCondition(normalizeModelId('codex', 'gpt-5.5') === DEFAULT_MODEL, '任何未注册供应商或模型输入都应安全回退到本地 Qwen。', failures);
 
   return {
     id: testCase.id,
@@ -1183,12 +1194,12 @@ function runRuntimeRegistryCase(testCase) {
     symbols: [],
     prefetch: { skipped: true, summary: '运行时注册表用例不创建生成项目。' },
     artifacts: {
-      deepSeekModels,
+      registeredModels,
       defaultModel: getDefaultModelForCli('moagent'),
     },
     validation: {
       status: failures.length === 0 ? 'passed' : 'failed',
-      checks: [{ id: 'runtime_registry', status: failures.length === 0 ? 'passed' : 'failed', summary: 'DeepSeek 单模型与官方直连边界检查。' }],
+      checks: [{ id: 'runtime_registry', status: failures.length === 0 ? 'passed' : 'failed', summary: '本地 Qwen、ModelPort DeepSeek 与官方直连接入边界检查。' }],
     },
   };
 }
@@ -1342,7 +1353,7 @@ async function runSourceDegradationCase(testCase) {
     requestId,
     instruction: testCase.question,
     cliPreference: 'benchmark',
-    selectedModel: 'deepseek-v4-flash',
+    selectedModel: DEFAULT_MODEL,
   });
   const plan = await writeInitialRunPlan({
     projectPath,
@@ -1801,7 +1812,7 @@ function toolExecutionSummary(executions) {
   };
 }
 
-function expectedExecutionLaneFailures(testCase, execution) {
+function expectedExecutionLaneFailures(testCase, execution, expectedRuntime) {
   if (!testCase.expectedExecutionLane) return [];
   const rootRun = execution?.runs?.find((run) => run.requestId === execution.requestId);
   const rootToolNames = rootRun?.tools?.succeededToolNames || [];
@@ -1823,8 +1834,8 @@ function expectedExecutionLaneFailures(testCase, execution) {
       : ['期望 deterministic_standard 零模型 Token 路径，但实际运行身份不匹配。'];
   }
   if (testCase.expectedExecutionLane === 'model_custom') {
-    return execution?.provider === 'deepseek' &&
-      execution?.model === 'deepseek-v4-flash' &&
+    return execution?.provider === expectedRuntime.provider &&
+      execution?.model === expectedRuntime.model &&
       Number.isSafeInteger(rootRun?.turns) &&
       rootRun.turns > 0 &&
       rootRun.turns <= 3 &&
@@ -1977,7 +1988,13 @@ async function runLiveProductE2eCase(testCase, options) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const requestId = `${projectId}-run`;
-  await ensureBenchmarkProject({ projectId, projectPath, testCase });
+  const expectedRuntime = modelRuntime(options.model);
+  await ensureBenchmarkProject({
+    projectId,
+    projectPath,
+    testCase,
+    selectedModel: expectedRuntime.model,
+  });
 
   const { POST } = loadChatActRoute();
   const response = await POST(new NextRequest(
@@ -2030,7 +2047,7 @@ async function runLiveProductE2eCase(testCase, options) {
     ...artifactInspection.failures,
     ...(visualCheck?.failures || []),
     ...eventAudit.failures,
-    ...expectedExecutionLaneFailures(testCase, agentExecution),
+    ...expectedExecutionLaneFailures(testCase, agentExecution, expectedRuntime),
     ...(validation.passed
       ? []
       : validation.checks
@@ -2112,8 +2129,8 @@ async function runCase(testCase, options) {
   const requestId = `${projectId}-run`;
   const agentExecution = {
     executed: false,
-    provider: options.mode === 'e2e' ? 'deepseek' : null,
-    model: options.mode === 'e2e' ? 'deepseek-v4-flash' : null,
+    provider: options.mode === 'e2e' ? modelRuntime(options.model).provider : null,
+    model: options.mode === 'e2e' ? DEFAULT_MODEL : null,
     requestId,
     startedAt: null,
     completedAt: null,
@@ -2126,7 +2143,7 @@ async function runCase(testCase, options) {
     requestId,
     instruction: testCase.question,
     cliPreference: 'benchmark',
-    selectedModel: 'deepseek-v4-flash',
+    selectedModel: DEFAULT_MODEL,
   });
   if (testCase.imageAttachment) {
     await writeBenchmarkImageAttachment({
@@ -2179,10 +2196,10 @@ async function runCase(testCase, options) {
       requestId,
       stepId: 'agent_execution',
       status: 'running',
-      summary: '真实 E2E benchmark 正在调用 DeepSeek V4 Flash 生成看板。',
+      summary: '真实 E2E benchmark 正在调用本地 Qwen 生成看板。',
       metadata: {
         deterministicDashboard: false,
-        model: 'deepseek-v4-flash',
+        model: DEFAULT_MODEL,
       },
     });
     agentExecution.startedAt = new Date().toISOString();
@@ -2190,7 +2207,7 @@ async function runCase(testCase, options) {
       projectId,
       projectPath,
       testCase.question,
-      'deepseek-v4-flash',
+      DEFAULT_MODEL,
       requestId,
     );
     agentExecution.executed = true;
@@ -2201,10 +2218,10 @@ async function runCase(testCase, options) {
       requestId,
       stepId: 'agent_execution',
       status: 'success',
-      summary: 'DeepSeek V4 Flash 真实生成执行完成。',
+      summary: '本地 Qwen 真实生成执行完成。',
       metadata: {
         deterministicDashboard: false,
-        model: 'deepseek-v4-flash',
+        model: DEFAULT_MODEL,
       },
     });
   } else {
@@ -2251,7 +2268,7 @@ async function runCase(testCase, options) {
           projectId,
           projectPath,
           instruction,
-          'deepseek-v4-flash',
+          DEFAULT_MODEL,
           repairRequestId,
         );
       },
@@ -2365,6 +2382,7 @@ async function applySelectedEvaluator(testCase, result, options) {
           visualCheck: result.visualCheck,
           traceDiagnostics: result.traceDiagnostics,
         },
+        model: options.model,
       });
     } catch (error) {
       reviewError = `语义审阅失败：${formatError(error)}`;
@@ -2400,6 +2418,7 @@ async function runBenchmarkCase(testCase, options) {
   try {
     result = await runCase(testCase, options);
   } catch (error) {
+    const expectedRuntime = modelRuntime(options.model);
     const projectId = `benchmark-${testCase.id}`;
     const projectPath = path.join(PROJECTS_DIR, projectId);
     const parentRequestId = `${projectId}-run`;
@@ -2430,8 +2449,8 @@ async function runBenchmarkCase(testCase, options) {
       agentExecuted: false,
       agentExecution: {
         executed: false,
-        provider: options.mode === 'e2e' ? 'deepseek' : null,
-        model: options.mode === 'e2e' ? 'deepseek-v4-flash' : null,
+        provider: options.mode === 'e2e' ? expectedRuntime.provider : null,
+        model: options.mode === 'e2e' ? expectedRuntime.model : null,
         requestId: parentRequestId,
         startedAt: null,
         completedAt: null,
@@ -2441,7 +2460,8 @@ async function runBenchmarkCase(testCase, options) {
   }
   result.executionMode = options.mode;
   result.agentExecuted = result.agentExecution?.executed === true;
-  if (options.mode === 'e2e' && !isE2eAgentExecutionAttested(result)) {
+  const expectedRuntime = modelRuntime(options.model);
+  if (options.mode === 'e2e' && !isE2eAgentExecutionAttested(result, expectedRuntime)) {
     result.passed = false;
     result.failures = Array.from(new Set([
       ...(result.failures || []),
@@ -2489,7 +2509,7 @@ async function runBenchmarkCaseWithRepeats(testCase, options) {
       requestId: result.requestId || null,
       failures: result.failures || [],
       agentAttested: options.mode === 'e2e'
-        ? isE2eAgentExecutionAttested(result)
+        ? isE2eAgentExecutionAttested(result, modelRuntime(options.model))
         : null,
       evidence: options.mode === 'e2e' ? { ...result } : undefined,
     })),
@@ -2593,7 +2613,8 @@ async function main() {
         }
         return redacted;
       });
-  const agentExecutionSummary = summarizeE2eAgentExecution(results);
+  const expectedRuntime = modelRuntime(args.model);
+  const agentExecutionSummary = summarizeE2eAgentExecution(results, expectedRuntime);
   const e2eQuality = args.mode === 'e2e'
     ? evaluateMoAgentE2eQuality(results, DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS)
     : null;
@@ -2643,6 +2664,7 @@ async function main() {
       },
       runtime: {
         cli: args.cli,
+        provider: args.mode === 'e2e' ? expectedRuntime.provider : null,
         model: args.mode === 'e2e' ? args.model : null,
         configuredModel: args.model,
         agentExecuted: args.mode === 'e2e' && agentExecutionSummary.agentExecuted,
@@ -2654,7 +2676,7 @@ async function main() {
       },
       suite: {
         mode: args.mode,
-        label: args.mode === 'e2e' ? 'DeepSeek 真实生成 E2E' : '确定性产物契约',
+        label: args.mode === 'e2e' ? `${args.model} 真实生成 E2E` : '确定性产物契约',
         executionClass: args.mode === 'e2e'
           ? 'live_mission_e2e'
           : 'deterministic_contract',
@@ -2728,6 +2750,8 @@ async function main() {
     expectedSnapshotManifestSha256: report.metadata.provenance.snapshotManifestSha256,
     expectedDataSnapshots: selectedDataSnapshots,
     expectedDatasetVisibility: args.datasetVisibility,
+    expectedRuntimeProvider: expectedRuntime.provider,
+    expectedRuntimeModel: expectedRuntime.model,
     expectedResultQuestions: Object.fromEntries(cases.map((testCase) => [
       testCase.id,
       args.datasetVisibility === 'public'

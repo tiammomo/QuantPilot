@@ -1,4 +1,8 @@
 import type { QuantEvalRuntimeOption } from './types';
+import {
+  LOCAL_QWEN_MODEL_ID,
+  MOAGENT_MODEL_DEFINITIONS,
+} from '@/lib/constants/models';
 
 export const DEFAULT_EVALUATOR_ID = 'rule-strict';
 export const DEFAULT_EVAL_CONCURRENCY = 1;
@@ -8,15 +12,9 @@ export const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
   {
     cli: 'moagent',
     label: 'MoAgent',
-    defaultModel: 'deepseek-v4-flash',
+    defaultModel: LOCAL_QWEN_MODEL_ID,
     supportsReasoningEffort: false,
-    models: [
-      {
-        id: 'deepseek-v4-flash',
-        name: 'DeepSeek V4 Flash',
-        description: '通过 DeepSeek 官方 API 直连的唯一评测模型',
-      },
-    ],
+    models: MOAGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
   },
 ];
 

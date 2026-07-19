@@ -32,7 +32,6 @@ const config = [
       'coverage/**',
       'data/**',
       'dist/**',
-      'external_Claudable/**',
       'node_modules/**',
       'out/**',
       'tmp/**',

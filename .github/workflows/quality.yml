@@ -13,10 +13,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -44,6 +44,9 @@ jobs:
 
       - name: Documentation links
         run: npm run check:docs
+
+      - name: GitHub workflow contracts
+        run: npm run check:github-workflows
 
       - name: Generated artifact policy
         run: npm run check:generated-artifacts
@@ -89,10 +92,10 @@ jobs:
         working-directory: services/market-data
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
 
@@ -135,10 +138,10 @@ jobs:
       QUANTPILOT_OBSERVABILITY_ENABLED: 0
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -171,7 +174,7 @@ jobs:
 
       - name: Upload auth smoke logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: auth-smoke-${{ github.run_id }}
           if-no-files-found: warn
@@ -195,16 +198,16 @@ jobs:
       QUANTPILOT_EVAL_TRIGGER: ci
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
 
@@ -243,7 +246,7 @@ jobs:
 
       - name: Upload contract evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: quant-contract-evidence-${{ github.run_id }}
           if-no-files-found: warn

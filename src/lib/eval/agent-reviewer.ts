@@ -2,7 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { DeepSeekProvider } from '@/lib/agent/providers/deepseek';
+import { OpenAICompatibleProvider } from '@/lib/agent/providers/openai-compatible';
 import type { MoAgentTokenUsage } from '@/lib/agent/types';
+import { MOAGENT_DEFAULT_MODEL } from '@/lib/constants/models';
+import { getProjectLlmConfig } from '@/lib/config/llm';
 import type {
   EvalSemanticReview,
   EvalSemanticReviewDimension,
@@ -39,6 +42,10 @@ function stripMarkdownFence(value: string): string {
 export function parseAgentSemanticReview(
   value: string,
   usage: MoAgentTokenUsage | null = null,
+  reviewer: { provider: 'deepseek' | 'openai'; model: string } = {
+    provider: 'openai',
+    model: MOAGENT_DEFAULT_MODEL,
+  },
 ): EvalSemanticReview {
   const parsed = record(JSON.parse(stripMarkdownFence(value)));
   const rawDimensions = Array.isArray(parsed.dimensions) ? parsed.dimensions.map(record) : [];
@@ -67,8 +74,8 @@ export function parseAgentSemanticReview(
   return {
     schemaVersion: 1,
     reviewer: {
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      provider: reviewer.provider,
+      model: reviewer.model,
       promptVersion: AGENT_REVIEW_PROMPT_VERSION,
       independentFromGenerator: false,
     },
@@ -101,9 +108,11 @@ export async function reviewAgentWorkspace(input: {
   testCase: UnknownRecord;
   deterministicResult: unknown;
   apiKey?: string;
+  model?: string;
 }): Promise<EvalSemanticReview> {
-  const apiKey = input.apiKey?.trim() || process.env.DEEPSEEK_API_KEY?.trim();
-  if (!apiKey) throw new Error('Agent 语义审阅需要 DEEPSEEK_API_KEY。');
+  const llmConfig = getProjectLlmConfig(input.model ?? MOAGENT_DEFAULT_MODEL);
+  const apiKey = input.apiKey?.trim() || process.env[llmConfig.credentialEnv]?.trim();
+  if (!apiKey) throw new Error(`Agent 语义审阅需要 ${llmConfig.credentialEnv}。`);
 
   const [finalData, sources, quality, runPlan] = await Promise.all([
     boundedFile(input.projectPath, 'data_file/final/dashboard-data.json'),
@@ -111,7 +120,20 @@ export async function reviewAgentWorkspace(input: {
     boundedFile(input.projectPath, 'evidence/data_quality.json'),
     boundedFile(input.projectPath, '.quantpilot/run_plan.json'),
   ]);
-  const provider = new DeepSeekProvider({ apiKey, maxRetries: 1, maxTextChars: 20_000 });
+  const provider = llmConfig.provider === 'deepseek'
+    ? new DeepSeekProvider({
+        apiKey,
+        baseUrl: llmConfig.baseUrl,
+        maxRetries: 1,
+        maxTextChars: 20_000,
+      })
+    : new OpenAICompatibleProvider({
+        apiKey,
+        baseUrl: llmConfig.baseUrl,
+        providerName: 'openai',
+        maxRetries: 1,
+        maxTextChars: 20_000,
+      });
   const evidence = {
     question: input.question,
     expectedContract: input.testCase,
@@ -137,7 +159,7 @@ export async function reviewAgentWorkspace(input: {
   let text = '';
   let usage: MoAgentTokenUsage | null = null;
   for await (const event of provider.complete({
-    model: 'deepseek-v4-flash',
+    model: llmConfig.model,
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: JSON.stringify(evidence) },
@@ -152,5 +174,8 @@ export async function reviewAgentWorkspace(input: {
     if (event.type === 'usage') usage = event.usage;
   }
   if (!text.trim()) throw new Error('Agent 语义审阅没有返回 JSON。');
-  return parseAgentSemanticReview(text, usage);
+  return parseAgentSemanticReview(text, usage, {
+    provider: llmConfig.provider,
+    model: llmConfig.model,
+  });
 }

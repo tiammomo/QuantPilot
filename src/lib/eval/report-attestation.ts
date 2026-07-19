@@ -3,8 +3,10 @@ import {
   isE2eAgentExecutionAttested,
   summarizeE2eAgentExecution,
   type AgentExecutionResultLike,
+  type E2eAgentExpectedRuntime,
   type MoAgentE2eQualityThresholds,
 } from './e2e-attestation';
+import { LOCAL_QWEN_MODEL_ID } from '@/lib/constants/models';
 import { isCurrentEvaluation } from './evaluators';
 import { buildEvalQualitySummary } from './scoring';
 import { buildEvalTraceDiagnostics } from './trace-diagnostics';
@@ -29,6 +31,8 @@ export interface EvalReportAttestationOptions {
     payloadSha256: string;
   }>;
   expectedDatasetVisibility: 'public' | 'hidden' | 'production_replay';
+  expectedRuntimeProvider?: E2eAgentExpectedRuntime['provider'];
+  expectedRuntimeModel?: string;
   expectedResultQuestions: Record<string, string>;
   frameworkVersion: string;
   buildRevision: string;
@@ -97,6 +101,10 @@ export function attestEvalReport(
   const expectedExecutionClass = options.mode === 'e2e'
     ? 'live_mission_e2e'
     : 'deterministic_contract';
+  const expectedRuntime: E2eAgentExpectedRuntime = {
+    provider: options.expectedRuntimeProvider ?? 'openai',
+    model: options.expectedRuntimeModel ?? LOCAL_QWEN_MODEL_ID,
+  };
 
   const schemaVersion = number(report.schemaVersion);
   if (!Number.isSafeInteger(schemaVersion) || schemaVersion !== EVAL_REPORT_SCHEMA_VERSION) {
@@ -142,8 +150,11 @@ export function attestEvalReport(
   if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 5) {
     problems.push('报告 selection.repeat 必须为 1 到 5 的整数');
   }
-  if (options.mode === 'e2e' && runtime.model !== 'deepseek-v4-flash') {
-    problems.push('E2E 报告 runtime.model 必须为 deepseek-v4-flash');
+  if (options.mode === 'e2e' && runtime.model !== expectedRuntime.model) {
+    problems.push(`E2E 报告 runtime.model 必须为 ${expectedRuntime.model}`);
+  }
+  if (options.mode === 'e2e' && runtime.provider !== expectedRuntime.provider) {
+    problems.push(`E2E 报告 runtime.provider 必须为 ${expectedRuntime.provider}`);
   }
   if (runtime.frameworkVersion !== options.frameworkVersion) {
     problems.push('报告 frameworkVersion 与当前 MoAgent 不一致');
@@ -310,7 +321,10 @@ export function attestEvalReport(
     if (options.mode === 'e2e') {
       for (const attempt of attempts) {
         const evidence = record(attempt.evidence);
-        if (!isE2eAgentExecutionAttested(evidence as AgentExecutionResultLike)) {
+        if (!isE2eAgentExecutionAttested(
+          evidence as AgentExecutionResultLike,
+          expectedRuntime,
+        )) {
           problems.push(`${caseId} 第 ${number(attempt.attempt)} 次运行缺少可验真的 E2E 证据`);
         }
         if (attempt.agentAttested !== true) {
@@ -401,6 +415,7 @@ export function attestEvalReport(
     }
     const executionSummary = summarizeE2eAgentExecution(
       results as AgentExecutionResultLike[],
+      expectedRuntime,
     );
     if (executionSummary.unattestedCaseIds.length > 0) {
       problems.push(

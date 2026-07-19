@@ -10,8 +10,9 @@ const rootDir = path.join(__dirname, '..', '..');
 const marketDataDir = path.join(rootDir, 'services', 'market-data');
 const isWindows = os.platform() === 'win32';
 
-dotenv.config({ path: path.join(rootDir, '.env') });
-dotenv.config({ path: path.join(rootDir, '.env.local') });
+dotenv.config({
+  path: [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')],
+});
 
 function envFlag(name, fallback) {
   const value = process.env[name]?.trim().toLowerCase();

@@ -23,6 +23,7 @@ import {
 import type { QuantEvalFlowSimulation } from '@/lib/eval';
 import type { EvalEvaluatorId, QuantEvalExecutionMode } from '@/lib/eval';
 import { cn } from '@/lib/utils';
+import { MOAGENT_DEFAULT_MODEL } from '@/lib/constants/models';
 
 export type { EvalEvaluatorId } from '@/lib/eval';
 
@@ -52,7 +53,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     modeLabel: '规则优先',
     strategyLabel: '快速、稳定、适合批量回归',
     cli: 'moagent',
-    model: 'deepseek-v4-flash',
+    model: MOAGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'contract',
@@ -67,7 +68,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     modeLabel: 'Agent 复核',
     strategyLabel: '适合复杂 Query 和主观质量判断',
     cli: 'moagent',
-    model: 'deepseek-v4-flash',
+    model: MOAGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'e2e',
@@ -82,7 +83,7 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     modeLabel: '视觉合同',
     strategyLabel: '适合看板类项目和截图用例',
     cli: 'moagent',
-    model: 'deepseek-v4-flash',
+    model: MOAGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'contract',

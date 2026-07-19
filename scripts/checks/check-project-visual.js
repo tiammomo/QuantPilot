@@ -11,7 +11,7 @@ const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const projectId = process.env.PROJECT_ID || process.argv[2] || '';
 const baseUrl = (process.env.QUANTPILOT_WEB_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const cli = 'moagent';
-const model = 'deepseek-v4-flash';
+const model = 'local_qwen:qwen3.5-9b-q5km';
 
 function fail(message, details = []) {
   console.error(`\n❌ 项目可视化截图检查失败：${message}`);
@@ -133,8 +133,8 @@ async function main() {
       if (frameInfo.svgCount + frameInfo.canvasCount === 0 && frameInfo.rectCount < 20) {
         problems.push('预览页面缺少可识别图表元素');
       }
-      if (!/dashboard-data\.json|数据来源|数据信源|信源渠道|source/i.test(frameInfo.text)) {
-        problems.push('预览页面缺少数据信源渠道或最终数据文件说明');
+      if (!/更新时间|更新：|数据截至|行情时间|报告期|样本/i.test(frameInfo.text)) {
+        problems.push('预览页面缺少数据更新时间、报告期或样本口径说明');
       }
     }
     problems.push(...failedResources.map((item) => `静态资源失败：${item}`));

@@ -22,6 +22,10 @@ const {
   MOAGENT_FRAMEWORK_VERSION,
 } = jiti('../../src/lib/agent/framework-identity.ts');
 const {
+  getDefaultModelForCli,
+  getModelDefinitionsForCli,
+} = jiti('../../src/lib/constants/models.ts');
+const {
   attestProductControlEvidence,
   loadQuantE2eSuite,
 } = require('./quant-e2e-suite');
@@ -56,6 +60,7 @@ function parseArgs(argv) {
     mode: process.env.QUANTPILOT_EVAL_MODE || 'contract',
     datasetVisibility: process.env.QUANTPILOT_EVAL_DATASET_VISIBILITY || 'public',
     casesFile: process.env.QUANTPILOT_EVAL_CASES_PATH || null,
+    model: process.env.QUANTPILOT_EVAL_MODEL || getDefaultModelForCli('moagent'),
     maxAgeHours: Number.parseInt(process.env.QUANTPILOT_EVAL_MAX_AGE_HOURS || '168', 10),
     maxTurnsPerCase: Number.parseInt(
       process.env.MOAGENT_E2E_MAX_TURNS_PER_CASE ||
@@ -105,6 +110,15 @@ function parseArgs(argv) {
     }
     if (arg.startsWith('--cases-file=')) {
       args.casesFile = arg.slice('--cases-file='.length);
+      continue;
+    }
+    if (arg === '--model' && argv[index + 1]) {
+      args.model = argv[index + 1];
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--model=')) {
+      args.model = arg.slice('--model='.length);
       continue;
     }
     if (arg === '--max-age-hours' && argv[index + 1]) {
@@ -274,6 +288,12 @@ function parseArgs(argv) {
     throw new Error('public 门禁固定使用仓库 cases.json，不能替换 cases file');
   }
   args.casesFile = path.resolve(args.casesFile || CASES_PATH);
+  const requestedModel = args.model.trim().toLowerCase();
+  const modelDefinition = getModelDefinitionsForCli('moagent').find((definition) =>
+    definition.id.toLowerCase() === requestedModel ||
+    definition.aliases.some((alias) => alias.toLowerCase() === requestedModel));
+  if (!modelDefinition) throw new Error(`评测门收到未注册的 MoAgent 模型：${args.model || '(empty)'}`);
+  args.model = modelDefinition.id;
   for (const [label, value] of [
     ['maxTurnsPerCase', args.maxTurnsPerCase],
     ['maxCacheMissInputTokensPerCase', args.maxCacheMissInputTokensPerCase],
@@ -384,10 +404,11 @@ function averageScore(results) {
   return Math.round(scores.reduce((total, score) => total + score, 0) / scores.length);
 }
 
-function runBenchmark(caseIds, mode, datasetVisibility, casesFile) {
+function runBenchmark(caseIds, mode, datasetVisibility, casesFile, model) {
   const args = ['run', mode === 'e2e' ? 'benchmark:quant:e2e' : 'benchmark:quant:contract'];
   args.push('--');
   args.push('--dataset-visibility', datasetVisibility);
+  args.push('--model', model);
   if (datasetVisibility !== 'public') args.push('--cases-file', casesFile);
   caseIds.forEach((caseId) => {
     args.push('--case', caseId);
@@ -411,11 +432,11 @@ function main() {
     process.exit(1);
   }
   if (!reportPath && args.runIfMissing) {
-    runBenchmark(args.caseIds, args.mode, args.datasetVisibility, args.casesFile);
+    runBenchmark(args.caseIds, args.mode, args.datasetVisibility, args.casesFile, args.model);
     reportPath = latestReportPath(args.mode, args.datasetVisibility);
   }
   if (!reportPath) {
-    console.error('[eval-ci] 没有找到评测报告。先运行 npm run benchmark:quant，或使用 --run-if-missing。');
+    console.error('[eval-ci] 没有找到评测报告。先运行 npm run benchmark:quant:contract，或使用 --run-if-missing。');
     process.exit(1);
   }
 
@@ -456,6 +477,9 @@ function main() {
     expectedSnapshotManifestSha256: evalSnapshotPayloadSha256(snapshotManifest),
     expectedDataSnapshots,
     expectedDatasetVisibility: args.datasetVisibility,
+    expectedRuntimeProvider: getModelDefinitionsForCli('moagent')
+      .find((definition) => definition.id === args.model).provider,
+    expectedRuntimeModel: args.model,
     expectedResultQuestions: Object.fromEntries(cases.map((testCase) => [
       testCase.id,
       args.datasetVisibility === 'public'

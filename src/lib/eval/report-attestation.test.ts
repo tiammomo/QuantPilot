@@ -40,7 +40,8 @@ function baseReport(mode: 'contract' | 'e2e') {
     metadata: {
       runtime: {
         cli: 'moagent',
-        model: mode === 'e2e' ? 'deepseek-v4-flash' : null,
+        provider: mode === 'e2e' ? 'openai' : null,
+        model: mode === 'e2e' ? 'local_qwen:qwen3.5-9b-q5km' : null,
         frameworkVersion: 'moagent:1.8.0',
         buildRevision: 'build-current',
         agentExecuted: false,
@@ -175,8 +176,8 @@ function execution(id: string) {
     agentExecution: {
       executed: true,
       cli: 'moagent',
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      provider: 'openai',
+      model: 'local_qwen:qwen3.5-9b-q5km',
       requestId,
       runIds: [runId],
       runs: [{
@@ -184,8 +185,8 @@ function execution(id: string) {
         runInstanceId: `instance-${id}`,
         requestId,
         status: 'candidate_complete',
-        provider: 'deepseek',
-        model: 'deepseek-v4-flash',
+        provider: 'openai',
+        model: 'local_qwen:qwen3.5-9b-q5km',
         frameworkVersion: 'moagent:1.8.0',
         buildRevision: 'build-current',
         startedAt: '2026-07-15T00:00:00.000Z',
@@ -321,6 +322,35 @@ describe('eval report attestation', () => {
       'b turns=21 超过阈值 20',
       'unexpected tool failures=1 超过阈值 0',
     ]));
+  });
+
+  it('accepts a registered non-default runtime only when the gate expects it', () => {
+    const report = baseReport('e2e');
+    report.metadata.runtime.provider = 'deepseek';
+    report.metadata.runtime.model = 'deepseek-v4-flash';
+    report.metadata.runtime.agentExecuted = true;
+    report.metadata.runtime.executedCaseCount = 2;
+    const executions = [execution('a'), execution('b')];
+    for (const result of executions) {
+      result.agentExecution.provider = 'deepseek';
+      result.agentExecution.model = 'deepseek-v4-flash';
+      result.agentExecution.runs[0].provider = 'deepseek';
+      result.agentExecution.runs[0].model = 'deepseek-v4-flash';
+    }
+    replaceResults(report, executions);
+
+    expect(attestEvalReport(report, {
+      ...options,
+      mode: 'e2e',
+      expectedRuntimeProvider: 'deepseek',
+      expectedRuntimeModel: 'deepseek-v4-flash',
+    })).toMatchObject({ passed: true, problems: [] });
+    expect(attestEvalReport(report, { ...options, mode: 'e2e' }).problems).toEqual(
+      expect.arrayContaining([
+        'E2E 报告 runtime.model 必须为 local_qwen:qwen3.5-9b-q5km',
+        'E2E 报告 runtime.provider 必须为 openai',
+      ]),
+    );
   });
 
   it.each([

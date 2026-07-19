@@ -34,7 +34,10 @@ function run(command, args, env = {}) {
 async function main() {
   await withNextArtifactLock(rootDir, 'type-check', async () => {
     await run('npx', ['next', 'typegen']);
-    await run('npx', ['tsc', '--noEmit']);
+    // Next dev owns .next/dev/types and may rewrite those files while tsc is
+    // reading them. Typegen emits the stable route contract under .next/types,
+    // so the deterministic check deliberately excludes the live dev tree.
+    await run('npx', ['tsc', '--noEmit', '--project', 'tsconfig.typecheck.json']);
   });
 }
 

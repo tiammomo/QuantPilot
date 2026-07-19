@@ -10,6 +10,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import {
+  LOCAL_QWEN_MODEL_ID,
+  MOAGENT_MODEL_DEFINITIONS,
+} from '@/lib/constants/models';
 import type {
   QuantEvalDashboardData,
   QuantEvalFlowSimulation,
@@ -37,9 +41,9 @@ export const CLI_LABELS: Record<string, string> = {
 export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
   cli: 'moagent',
   label: 'MoAgent',
-  defaultModel: 'deepseek-v4-flash',
+  defaultModel: LOCAL_QWEN_MODEL_ID,
   supportsReasoningEffort: false,
-  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', description: 'DeepSeek 官方 API 直连' }],
+  models: MOAGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
 };
 
 export const selectClassName =

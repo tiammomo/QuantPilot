@@ -93,6 +93,7 @@
       ],
       "publicSurface": [
         "@/lib/platform/service-catalog",
+        "@/lib/platform/memory",
         "@/lib/services/project",
         "@/lib/services/settings"
       ],
@@ -103,7 +104,7 @@
     {
       "id": "agent-runtime",
       "name": "Agent 运行时",
-      "summary": "MoAgent 自研运行内核、DeepSeek 官方直连、类型化工具、流式消息和技能编译。",
+      "summary": "MoAgent 自研运行内核、多 Provider 模型接入、类型化工具、流式消息和技能编译。",
       "owner": "agent-platform",
       "paths": [
         "src/lib/services/agent-runtime.ts",
@@ -128,6 +129,7 @@
         "@/lib/services/cli/moagent",
         "@/lib/agent/core",
         "@/lib/agent/providers/deepseek",
+        "@/lib/agent/providers/openai-compatible",
         "@/lib/agent/tools",
         "@/lib/agent/skills"
       ]

@@ -13,6 +13,7 @@ const adminLogin = process.env.HOMEPAGE_ADMIN_LOGIN || 'admin';
 const adminPassword = process.env.HOMEPAGE_ADMIN_PASSWORD || 'admin';
 
 const profiles = [
+  { id: 'wide-light', viewport: { width: 2048, height: 1152 }, theme: 'light', touch: false },
   { id: 'desktop-light', viewport: { width: 1440, height: 900 }, theme: 'light', touch: false },
   { id: 'desktop-dark', viewport: { width: 1440, height: 900 }, theme: 'dark', touch: false },
   { id: 'tablet-light', viewport: { width: 768, height: 1024 }, theme: 'light', touch: true },
@@ -138,6 +139,7 @@ async function inspectProfile(browser, storageState, profile) {
     viewport: profile.viewport,
     colorScheme: profile.theme,
     hasTouch: profile.touch,
+    isMobile: profile.touch,
     reducedMotion: 'no-preference',
     deviceScaleFactor: 1,
   });
@@ -209,6 +211,7 @@ async function inspectProfile(browser, storageState, profile) {
       }
 
       const form = document.querySelector('#task-input form');
+      const content = document.querySelector('main.platform-content > div');
       const header = document.querySelector('header');
       const submit = document.querySelector('button[aria-label="提交任务"]');
       const mobileNav = document.querySelector('nav[aria-label="移动端首页导航"]');
@@ -250,6 +253,7 @@ async function inspectProfile(browser, storageState, profile) {
           decodedBodySize: entry.decodedBodySize || 0,
         }));
       const formBox = form ? box(form) : null;
+      const contentBox = content ? box(content) : null;
 
       return {
         expectedTheme,
@@ -258,6 +262,10 @@ async function inspectProfile(browser, storageState, profile) {
         viewport: { width: innerWidth, height: innerHeight },
         documentWidth: document.documentElement.scrollWidth,
         form: formBox,
+        content: contentBox,
+        contentSideGutter: contentBox
+          ? Number(((innerWidth - contentBox.width) / 2).toFixed(1))
+          : null,
         formCenterOffset: formBox ? Number((((formBox.left + formBox.right) / 2) - innerWidth / 2).toFixed(1)) : null,
         headerOverlaps,
         keyTargets,
@@ -266,14 +274,17 @@ async function inspectProfile(browser, storageState, profile) {
       };
     }, { expectedTheme: profile.theme, touch: profile.touch });
 
-    const drawer = await inspectDrawer(page, profile);
     const screenshotPath = path.join(outputDir, `${profile.id}-${timestamp}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
+    const drawer = await inspectDrawer(page, profile);
 
     const problems = [];
     if (!metrics.form) problems.push(`${profile.id}: 未找到主任务表单`);
     if (Math.abs(metrics.formCenterOffset ?? 999) > 2) {
       problems.push(`${profile.id}: 主任务表单未居中，偏移 ${metrics.formCenterOffset}px`);
+    }
+    if (metrics.viewport.width >= 1800 && (metrics.contentSideGutter ?? Infinity) > 112) {
+      problems.push(`${profile.id}: 宽屏内容两侧留白过大，单侧 ${metrics.contentSideGutter}px`);
     }
     if (metrics.documentWidth > metrics.viewport.width + 2) {
       problems.push(`${profile.id}: 整页横向溢出 ${metrics.documentWidth}px > ${metrics.viewport.width}px`);

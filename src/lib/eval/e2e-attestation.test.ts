@@ -34,8 +34,8 @@ const executed = {
   agentExecution: {
     executed: true,
     cli: 'moagent',
-    provider: 'deepseek',
-    model: 'deepseek-v4-flash',
+    provider: 'openai',
+    model: 'local_qwen:qwen3.5-9b-q5km',
     requestId: 'parent-request',
     runIds: ['run-generated-dashboard'],
     runs: [{
@@ -43,8 +43,8 @@ const executed = {
       runInstanceId: '10000000-0000-4000-8000-000000000002',
       requestId: 'parent-request',
       status: 'candidate_complete',
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      provider: 'openai',
+      model: 'local_qwen:qwen3.5-9b-q5km',
       frameworkVersion: 'moagent:1.8.0',
       buildRevision: 'build-a',
       startedAt: '2026-07-14T00:00:00.000Z',
@@ -116,6 +116,20 @@ describe('E2E Agent execution attestation', () => {
     expect(isE2eAgentExecutionAttested({ id: 'legacy', agentExecuted: true })).toBe(false);
   });
 
+  it('attests DeepSeek only when it is the independently expected runtime', () => {
+    const deepseek = structuredClone(executed);
+    deepseek.agentExecution.provider = 'deepseek';
+    deepseek.agentExecution.model = 'deepseek-v4-flash';
+    deepseek.agentExecution.runs[0].provider = 'deepseek';
+    deepseek.agentExecution.runs[0].model = 'deepseek-v4-flash';
+
+    expect(isE2eAgentExecutionAttested(deepseek)).toBe(false);
+    expect(isE2eAgentExecutionAttested(deepseek, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+    })).toBe(true);
+  });
+
   it('rejects contract/legacy provenance even when agentExecuted is forged true', () => {
     expect(isE2eAgentExecutionAttested({
       ...executed,
@@ -147,7 +161,7 @@ describe('E2E Agent execution attestation', () => {
     })).toBe(false);
     expect(isE2eAgentExecutionAttested({
       ...executed,
-      agentExecution: { ...executed.agentExecution, provider: 'openai' },
+      agentExecution: { ...executed.agentExecution, provider: 'deepseek' },
     })).toBe(false);
     expect(isE2eAgentExecutionAttested({
       ...executed,

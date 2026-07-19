@@ -119,7 +119,7 @@ requireFlag('QUANTPILOT_REQUIRE_INDEPENDENT_JUDGE');
 secureSecret('QUANTPILOT_AUTH_SECRET');
 secureSecret('QUANTPILOT_ADMIN_TOKEN');
 secureSecret('QUANTPILOT_MARKET_ADMIN_TOKEN');
-secureSecret('DEEPSEEK_API_KEY', 16);
+secureSecret('MODELPORT_API_KEY', 16);
 requireValue('ENCRYPTION_KEY', (configured) => /^[0-9a-f]{64}$/i.test(configured), 'ENCRYPTION_KEY 必须是 64 位十六进制随机值。');
 
 requireValue('DATABASE_URL', (configured) => {

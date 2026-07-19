@@ -46,7 +46,7 @@ function researchPlan(question) {
     visualization: {
       templateId: 'stock-selection',
       variantId: 'selection-ranking-matrix',
-      panels: ['标的覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排序依据', '信源追踪'],
+      panels: ['标的覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排序依据', '数据口径'],
     },
   };
 }
@@ -144,7 +144,7 @@ function finalData() {
     visualization: {
       template_id: 'stock-selection',
       name: '多标的对比模板',
-      required_components: ['标的覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排序依据', '信源追踪'],
+      required_components: ['标的覆盖摘要', '多标的指标矩阵', '收益对比主图', '回撤/波动主图', '排序依据', '数据口径'],
     },
     conclusion: {
       summary: ['排序仅用于横向研究，不构成交易指令。'],

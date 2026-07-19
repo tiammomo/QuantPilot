@@ -48,12 +48,24 @@ function validateCatalog() {
     return;
   }
 
-  const validRuntimes = new Set(['node', 'python', 'postgresql', 'redis', 'clickhouse', 'loki', 'grafana', 'alloy']);
+  const validRuntimes = new Set(['node', 'python', 'rust', 'postgresql', 'redis', 'clickhouse', 'loki', 'grafana', 'alloy']);
   const validKinds = new Set(['application', 'api', 'database', 'cache', 'analytics', 'observability']);
   const validProtocols = new Set(['http', 'postgresql', 'redis']);
   const ids = new Set();
   const dockerCompose = exists('docker-compose.yml') ? read('docker-compose.yml') : '';
-  const expectedServices = ['web', 'market-data', 'timescaledb', 'redis', 'clickhouse', 'loki', 'grafana', 'alloy'];
+  const expectedServices = [
+    'web',
+    'market-data',
+    'memory',
+    'knowledge',
+    'modelport',
+    'timescaledb',
+    'redis',
+    'clickhouse',
+    'loki',
+    'grafana',
+    'alloy',
+  ];
 
   for (const serviceId of expectedServices) {
     if (!catalog.services.some((service) => service.id === serviceId)) {

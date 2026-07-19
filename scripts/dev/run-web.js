@@ -30,8 +30,9 @@ import "./.next/types/routes.d.ts";
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
 `;
 
-dotenv.config({ path: path.join(rootDir, '.env') });
-dotenv.config({ path: path.join(rootDir, '.env.local') });
+dotenv.config({
+  path: [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')],
+});
 
 function parseCliArgs(argv) {
   const passthrough = [];
@@ -270,7 +271,7 @@ async function restoreRecoveredDegradationComponents() {
 
   const lokiReadyUrl = process.env.LOKI_URL
     ? `${process.env.LOKI_URL.replace(/\/$/, '')}/ready`
-    : 'http://127.0.0.1:3100/ready';
+    : 'http://127.0.0.1:33100/ready';
   if (await probeUrl(lokiReadyUrl)) {
     process.env.QUANTPILOT_OBSERVABILITY_ENABLED = '1';
     recovered.push('observability');

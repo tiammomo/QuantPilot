@@ -1,4 +1,15 @@
 import { MOAGENT_FRAMEWORK_VERSION } from '@/lib/agent/framework-identity';
+import { LOCAL_QWEN_MODEL_ID } from '@/lib/constants/models';
+
+export interface E2eAgentExpectedRuntime {
+  provider: 'deepseek' | 'openai';
+  model: string;
+}
+
+const DEFAULT_EXPECTED_RUNTIME: E2eAgentExpectedRuntime = {
+  provider: 'openai',
+  model: LOCAL_QWEN_MODEL_ID,
+};
 
 export interface AgentExecutionUsageLike {
   inputTokens?: number;
@@ -297,14 +308,17 @@ function executionMetricsPresent(result: AgentExecutionResultLike): boolean {
   );
 }
 
-export function isE2eAgentExecutionAttested(result: AgentExecutionResultLike): boolean {
+export function isE2eAgentExecutionAttested(
+  result: AgentExecutionResultLike,
+  expectedRuntime: E2eAgentExpectedRuntime = DEFAULT_EXPECTED_RUNTIME,
+): boolean {
   const execution = result.agentExecution;
   return Boolean(
     result.agentExecuted === true &&
     execution?.executed === true &&
     execution.cli === 'moagent' &&
-    execution.provider === 'deepseek' &&
-    execution.model === 'deepseek-v4-flash' &&
+    execution.provider === expectedRuntime.provider &&
+    execution.model === expectedRuntime.model &&
     nonEmptyString(execution.requestId) &&
     result.requestId === execution.requestId &&
     Array.isArray(execution.runIds) &&
@@ -331,9 +345,12 @@ export function isE2eAgentExecutionAttested(result: AgentExecutionResultLike): b
   );
 }
 
-export function summarizeE2eAgentExecution(results: AgentExecutionResultLike[]) {
+export function summarizeE2eAgentExecution(
+  results: AgentExecutionResultLike[],
+  expectedRuntime: E2eAgentExpectedRuntime = DEFAULT_EXPECTED_RUNTIME,
+) {
   const unattestedCaseIds = results
-    .filter((result) => !isE2eAgentExecutionAttested(result))
+    .filter((result) => !isE2eAgentExecutionAttested(result, expectedRuntime))
     .map((result) => result.id || 'unknown');
   return {
     agentExecuted: results.length > 0 && unattestedCaseIds.length === 0,

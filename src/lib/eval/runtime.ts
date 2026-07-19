@@ -60,6 +60,7 @@ import {
   type JsonRecord,
 } from './runtime-utils';
 import { defaultScheduleConfig } from './schedule-defaults';
+import { MOAGENT_DEFAULT_MODEL } from '@/lib/constants/models';
 import {
   normalizeQueueStatus,
   mapDbEvalRun,
@@ -79,7 +80,7 @@ export {
 let queueKickoffInProgress = false;
 const runningChildren = new Map<string, ChildProcess>();
 const EVAL_CLI = 'moagent';
-const EVAL_MODEL = 'deepseek-v4-flash';
+const EVAL_MODEL = MOAGENT_DEFAULT_MODEL;
 
 function normalizeExecutionMode(value: unknown): QuantEvalQueueItem['mode'] {
   return value === 'e2e' ? 'e2e' : 'contract';
