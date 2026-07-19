@@ -15,13 +15,6 @@ const expectedActions = new Map([
 ]);
 const failures = [];
 
-if (!fs.existsSync(path.join(root, 'scripts', 'ci', 'start-local-infrastructure.sh'))) {
-  failures.push('missing scripts/ci/start-local-infrastructure.sh');
-}
-if (!fs.existsSync(path.join(root, 'docker-compose.ci.yml'))) {
-  failures.push('missing docker-compose.ci.yml');
-}
-
 for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name)).sort()) {
   const relativePath = path.posix.join('.github', 'workflows', filename);
   const source = fs.readFileSync(path.join(workflowDir, filename), 'utf8');
@@ -35,17 +28,20 @@ for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.t
 }
 
 const quality = fs.readFileSync(path.join(workflowDir, 'quality.yml'), 'utf8');
-const infrastructureStartUses = quality.match(/bash scripts\/ci\/start-local-infrastructure\.sh/g) ?? [];
-if (infrastructureStartUses.length !== 2) {
+const nativeTimescaleServices = quality.match(/^\s{6}timescaledb:\s*$/gm) ?? [];
+if (nativeTimescaleServices.length !== 2) {
   failures.push(
-    `.github/workflows/quality.yml: stable local infrastructure gate must be used twice, found ${infrastructureStartUses.length}`,
+    `.github/workflows/quality.yml: native TimescaleDB service must be declared twice, found ${nativeTimescaleServices.length}`,
   );
 }
-const infrastructureStopUses = quality.match(/docker compose -f docker-compose\.ci\.yml down -v/g) ?? [];
-if (infrastructureStopUses.length !== 2) {
+const nativeRedisServices = quality.match(/^\s{6}redis:\s*$/gm) ?? [];
+if (nativeRedisServices.length !== 2) {
   failures.push(
-    `.github/workflows/quality.yml: isolated CI infrastructure cleanup must be used twice, found ${infrastructureStopUses.length}`,
+    `.github/workflows/quality.yml: native Redis service must be declared twice, found ${nativeRedisServices.length}`,
   );
+}
+if ((quality.match(/35433:5432/g) ?? []).length !== 2 || (quality.match(/36380:6379/g) ?? []).length !== 2) {
+  failures.push('.github/workflows/quality.yml: native service ports must match DATABASE_URL and REDIS_URL');
 }
 if (!/QUANTPILOT_AUTH_ADMIN_EMAIL:\s*auth-smoke-admin@quantpilot\.local/.test(quality)) {
   failures.push('.github/workflows/quality.yml: authenticated smoke must use an explicit CI administrator');

@@ -53,16 +53,8 @@ function validateCatalog() {
   const validProtocols = new Set(['http', 'postgresql', 'redis']);
   const ids = new Set();
   const dockerCompose = exists('docker-compose.yml') ? read('docker-compose.yml') : '';
-  const ciDockerCompose = exists('docker-compose.ci.yml') ? read('docker-compose.ci.yml') : '';
   if (!dockerCompose.includes('pg_isready -h 127.0.0.1')) {
     fail('timescaledb healthcheck must require TCP readiness before dependent services start');
-  }
-  if (
-    !ciDockerCompose.includes('quantpilot-ci') ||
-    !ciDockerCompose.includes('${POSTGRES_PORT:-35433}:5432') ||
-    ciDockerCompose.includes('/docker-entrypoint-initdb.d')
-  ) {
-    fail('docker-compose.ci.yml must expose isolated CI data services without loopback-only or entrypoint SQL mounts');
   }
   const expectedServices = [
     'web',

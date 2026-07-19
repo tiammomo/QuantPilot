@@ -139,6 +139,29 @@ jobs:
       QUANTPILOT_REDIS_CACHE_ENABLED: 1
       QUANTPILOT_REDIS_REQUIRED: 0
       QUANTPILOT_OBSERVABILITY_ENABLED: 0
+    services:
+      timescaledb:
+        image: timescale/timescaledb:2.27.1-pg18
+        env:
+          POSTGRES_DB: quantpilot
+          POSTGRES_USER: quantpilot
+          POSTGRES_PASSWORD: quantpilot_dev_password
+        ports:
+          - 35433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U quantpilot -d quantpilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 36380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -157,7 +180,6 @@ jobs:
 
       - name: Prepare database and local administrator
         run: |
-          bash scripts/ci/start-local-infrastructure.sh
           npm run prisma:deploy
           npm run auth:bootstrap
 
@@ -182,13 +204,7 @@ jobs:
           name: auth-smoke-${{ github.run_id }}
           if-no-files-found: warn
           retention-days: 14
-          path: |
-            tmp/auth-web.log
-            tmp/local-infrastructure.log
-
-      - name: Stop infrastructure
-        if: always()
-        run: docker compose -f docker-compose.ci.yml down -v
+          path: tmp/auth-web.log
 
   contract-evaluation:
     name: Quant contract evaluation
@@ -201,6 +217,29 @@ jobs:
       PROJECTS_DIR: ./tmp/contract-projects
       QUANTPILOT_EVAL_MODE: contract
       QUANTPILOT_EVAL_TRIGGER: ci
+    services:
+      timescaledb:
+        image: timescale/timescaledb:2.27.1-pg18
+        env:
+          POSTGRES_DB: quantpilot
+          POSTGRES_USER: quantpilot
+          POSTGRES_PASSWORD: quantpilot_dev_password
+        ports:
+          - 35433:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U quantpilot -d quantpilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 36380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -225,7 +264,6 @@ jobs:
 
       - name: Start local data services
         run: |
-          bash scripts/ci/start-local-infrastructure.sh
           npm run db:init
           mkdir -p tmp
           npm run dev:market > tmp/contract-market.log 2>&1 &
@@ -261,8 +299,3 @@ jobs:
             tmp/quantpilot-benchmark-screenshots/
             tmp/quantpilot-eval-mutations/
             tmp/contract-market.log
-            tmp/local-infrastructure.log
-
-      - name: Stop infrastructure
-        if: always()
-        run: docker compose -f docker-compose.ci.yml down -v
