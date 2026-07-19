@@ -1,0 +1,42 @@
+name: quantpilot-ci
+
+services:
+  timescaledb:
+    image: ${TIMESCALEDB_IMAGE:-timescale/timescaledb:2.27.1-pg18}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quantpilot}
+      POSTGRES_USER: ${POSTGRES_USER:-quantpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantpilot_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-35433}:5432"
+    volumes:
+      - quantpilot_ci_timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:8-alpine}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1000"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-36380}:6379"
+    volumes:
+      - quantpilot_ci_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  quantpilot_ci_timescaledb_data:
+  quantpilot_ci_redis_data:

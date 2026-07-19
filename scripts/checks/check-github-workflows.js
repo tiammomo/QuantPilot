@@ -18,6 +18,9 @@ const failures = [];
 if (!fs.existsSync(path.join(root, 'scripts', 'ci', 'start-local-infrastructure.sh'))) {
   failures.push('missing scripts/ci/start-local-infrastructure.sh');
 }
+if (!fs.existsSync(path.join(root, 'docker-compose.ci.yml'))) {
+  failures.push('missing docker-compose.ci.yml');
+}
 
 for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name)).sort()) {
   const relativePath = path.posix.join('.github', 'workflows', filename);
@@ -36,6 +39,12 @@ const infrastructureStartUses = quality.match(/bash scripts\/ci\/start-local-inf
 if (infrastructureStartUses.length !== 2) {
   failures.push(
     `.github/workflows/quality.yml: stable local infrastructure gate must be used twice, found ${infrastructureStartUses.length}`,
+  );
+}
+const infrastructureStopUses = quality.match(/docker compose -f docker-compose\.ci\.yml down -v/g) ?? [];
+if (infrastructureStopUses.length !== 2) {
+  failures.push(
+    `.github/workflows/quality.yml: isolated CI infrastructure cleanup must be used twice, found ${infrastructureStopUses.length}`,
   );
 }
 if (!/QUANTPILOT_AUTH_ADMIN_EMAIL:\s*auth-smoke-admin@quantpilot\.local/.test(quality)) {

@@ -3,8 +3,10 @@
 set -euo pipefail
 
 log_file="${QUANTPILOT_CI_INFRA_LOG:-tmp/local-infrastructure.log}"
+compose_file="${QUANTPILOT_CI_COMPOSE_FILE:-docker-compose.ci.yml}"
 max_attempts="${QUANTPILOT_CI_INFRA_MAX_ATTEMPTS:-90}"
 required_stable_checks="${QUANTPILOT_CI_INFRA_STABLE_CHECKS:-3}"
+compose=(docker compose -f "$compose_file")
 
 mkdir -p "$(dirname "$log_file")"
 : > "$log_file"
@@ -15,13 +17,13 @@ log() {
 
 diagnostics() {
   log 'Docker Compose status:'
-  docker compose ps -a 2>&1 | tee -a "$log_file" || true
+  "${compose[@]}" ps -a 2>&1 | tee -a "$log_file" || true
   log 'Recent TimescaleDB and Redis logs:'
-  docker compose logs --no-color --tail=200 timescaledb redis 2>&1 | tee -a "$log_file" || true
+  "${compose[@]}" logs --no-color --tail=200 timescaledb redis 2>&1 | tee -a "$log_file" || true
 }
 
 log 'Starting TimescaleDB and Redis without relying on a single Compose health transition.'
-if ! docker compose up -d timescaledb redis >> "$log_file" 2>&1; then
+if ! "${compose[@]}" up -d timescaledb redis >> "$log_file" 2>&1; then
   diagnostics
   printf '::error title=Local infrastructure failed::docker compose up could not start TimescaleDB and Redis.\n'
   exit 1
@@ -33,13 +35,13 @@ for attempt in $(seq 1 "$max_attempts"); do
   redis_ready=0
   prisma_ready=0
 
-  if docker compose exec -T timescaledb sh -ec \
+  if "${compose[@]}" exec -T timescaledb sh -ec \
     'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
     >> "$log_file" 2>&1; then
     postgres_ready=1
   fi
 
-  if docker compose exec -T redis redis-cli ping >> "$log_file" 2>&1; then
+  if "${compose[@]}" exec -T redis redis-cli ping >> "$log_file" 2>&1; then
     redis_ready=1
   fi
 

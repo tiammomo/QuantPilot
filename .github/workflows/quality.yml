@@ -188,7 +188,7 @@ jobs:
 
       - name: Stop infrastructure
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.ci.yml down -v
 
   contract-evaluation:
     name: Quant contract evaluation
@@ -265,4 +265,4 @@ jobs:
 
       - name: Stop infrastructure
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.ci.yml down -v
