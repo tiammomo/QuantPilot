@@ -21,7 +21,7 @@ describe('project LLM config', () => {
       agent: { enabled: true },
       queryRewrite: expect.objectContaining({
         enabled: true,
-        timeoutMs: 12_000,
+        timeoutMs: 15_000,
         maxRetries: 0,
       }),
     }));
@@ -79,7 +79,7 @@ describe('project LLM config', () => {
       agent: { enabled: true },
       queryRewrite: {
         enabled: true,
-        timeoutMs: 12_000,
+        timeoutMs: 15_000,
         maxRetries: 0,
       },
     });

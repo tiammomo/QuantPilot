@@ -140,7 +140,11 @@ vi.mock('@/lib/services/agent-runtime', () => ({
   isAgentRunCancelled: mocks.isRunCancelled,
 }));
 
-import { applyRepairChanges, executeMoAgent } from './moagent';
+import {
+  applyRepairChanges,
+  classifyMoAgentPreparedIntent,
+  executeMoAgent,
+} from './moagent';
 
 let workspace = '';
 
@@ -165,6 +169,18 @@ function statusEvents() {
 }
 
 describe('MoAgent terminal ownership', () => {
+  it('does not mistake a company name for a visual movement instruction', () => {
+    expect(classifyMoAgentPreparedIntent(
+      '分析中国移动最近四个报告期的营收、利润、现金流、股息与估值，生成基本面看板。',
+    )).toBe('standard');
+    expect(classifyMoAgentPreparedIntent(
+      '将风险图表移动到首屏，并折叠内部数据源渠道。',
+    )).toBe('custom');
+    expect(classifyMoAgentPreparedIntent(
+      '指标卡避免松散空白，内部数据源渠道默认折叠。',
+    )).toBe('custom');
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-terminal-'));
@@ -335,6 +351,59 @@ describe('MoAgent terminal ownership', () => {
         isTransientToolMessage: false,
         resultStatus: 'completed',
         summary: expect.stringContaining('已读取'),
+      }),
+    }));
+  });
+
+  it('publishes a bounded status when the progress oracle stalls', async () => {
+    mocks.run.mockImplementation(async (
+      _input: unknown,
+      runtime: { observers?: Array<(event: unknown) => Promise<void>> },
+    ) => {
+      await runtime.observers?.[0]?.({
+        type: 'progress_evaluated',
+        runId: 'run-test',
+        eventId: 'event-progress-stalled',
+        sequence: 3,
+        timestamp: 3,
+        turn: 2,
+        progressOracle: {
+          version: 1,
+          turnsObserved: 2,
+          consecutiveNoProgressTurns: 1,
+          seenTrustedFactFingerprints: [],
+          seenWorkspaceFingerprints: [],
+          lastWorkspaceFingerprint: null,
+          lastFailedCheckCount: null,
+          seenToolObservationFingerprints: [],
+        },
+        decision: {
+          progressed: false,
+          stalled: true,
+          consecutiveNoProgressTurns: 1,
+          progressSignals: [],
+          stallSignals: ['no_verifiable_progress'],
+        },
+      });
+      return result('completed');
+    });
+
+    await executeMoAgent(
+      'project-test',
+      workspace,
+      '生成量化看板',
+      'deepseek-v4-flash',
+      'request-progress-stalled',
+    );
+
+    expect(statusEvents()).toContainEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'progress_stalled',
+        metadata: expect.objectContaining({
+          turn: 2,
+          consecutiveNoProgressTurns: 1,
+          stallSignals: ['no_verifiable_progress'],
+        }),
       }),
     }));
   });

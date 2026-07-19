@@ -69,6 +69,23 @@ export function assessMetricStripBalance(params: {
   ];
 }
 
+export function assessCoreVisualPresence(params: {
+  svgCount: number;
+  canvasCount: number;
+  rectCount: number;
+  visibleGraphicCount: number;
+  firstViewportTableCount: number;
+}): string[] {
+  const hasRecognizableGraphic =
+    params.svgCount + params.canvasCount > 0 ||
+    params.rectCount >= 12 ||
+    params.visibleGraphicCount >= 12;
+  if (hasRecognizableGraphic || params.firstViewportTableCount > 0) {
+    return [];
+  }
+  return ['页面缺少可识别的图表元素。'];
+}
+
 export function assessFinancialWorkbenchSurface(metrics: QuantSurfaceCompositionMetrics): {
   failures: string[];
   warnings: string[];
@@ -382,7 +399,7 @@ async function validateViewport(params: {
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
         blankLike: bodyText.trim().length < 80 && rects.length < 8,
         hasMarketLanguage: /最新价|实时|价格|price|K\s*线|成交量|均线|财务|回撤|波动|净值|持仓|收益|风险/i.test(bodyText),
-        hasDataFreshnessLanguage: /更新时间|更新：|数据截至|行情时间|报告期|样本区间|样本窗口/i.test(bodyText),
+        hasDataFreshnessLanguage: /更新时间|更新：|数据截至|数据时间|行情时间|报告期|样本区间|样本窗口/i.test(bodyText),
       };
     });
 
@@ -426,9 +443,7 @@ async function validateViewport(params: {
     if (!metrics.hasDataFreshnessLanguage) {
       warnings.push('页面缺少数据更新时间、报告期或样本口径说明。');
     }
-    if (metrics.svgCount + metrics.canvasCount === 0 && metrics.rectCount < 12 && metrics.visibleGraphicCount < 12) {
-      failures.push('页面缺少可识别的图表元素。');
-    }
+    failures.push(...assessCoreVisualPresence(metrics));
     if (metrics.textBlockCount < 6) {
       warnings.push('页面可读文本块较少，可能缺少摘要、指标或说明。');
     }

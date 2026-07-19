@@ -39,6 +39,7 @@ for (const key of [
   'QUANTPILOT_LLM_QUERY_REWRITE_ENABLED',
   'QUANTPILOT_QUERY_REWRITE_LLM_TIMEOUT_MS',
   'QUANTPILOT_QUERY_REWRITE_LLM_MAX_RETRIES',
+  'QUANTPILOT_QUERY_REWRITE_LLM_INVALID_OUTPUT_RETRIES',
 ]) {
   if (!new RegExp(`^${key}=`, 'm').test(envExample)) {
     fail(`.env.example 必须声明 LLM 配置：${key}`);
@@ -70,9 +71,9 @@ if (
   deepSeekProfile?.queryRewrite?.enabled !== true ||
   modelPortDeepSeekProfile?.queryRewrite?.enabled !== true ||
   localProfile?.queryRewrite?.enabled !== true ||
-  deepSeekProfile?.queryRewrite?.timeoutMs !== 12_000 ||
-  modelPortDeepSeekProfile?.queryRewrite?.timeoutMs !== 12_000 ||
-  localProfile?.queryRewrite?.timeoutMs !== 12_000
+  deepSeekProfile?.queryRewrite?.timeoutMs !== 15_000 ||
+  modelPortDeepSeekProfile?.queryRewrite?.timeoutMs !== 15_000 ||
+  localProfile?.queryRewrite?.timeoutMs !== 15_000
 ) {
   fail('config/llm.json 必须提供 Qwen、ModelPort DeepSeek 与官方直连三个锁定 profiles');
 } else {

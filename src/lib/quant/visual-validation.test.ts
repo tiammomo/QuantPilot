@@ -1,9 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assessCoreVisualPresence,
   assessFinancialWorkbenchSurface,
   assessMetricStripBalance,
   isVisualValidationInfrastructureError,
 } from './visual-validation';
+
+describe('core visual presence', () => {
+  it('accepts a real first-viewport data matrix without decorative SVGs', () => {
+    expect(assessCoreVisualPresence({
+      svgCount: 0,
+      canvasCount: 0,
+      rectCount: 0,
+      visibleGraphicCount: 0,
+      firstViewportTableCount: 1,
+    })).toEqual([]);
+  });
+
+  it('rejects a text-only page', () => {
+    expect(assessCoreVisualPresence({
+      svgCount: 0,
+      canvasCount: 0,
+      rectCount: 0,
+      visibleGraphicCount: 0,
+      firstViewportTableCount: 0,
+    })).toEqual([expect.stringContaining('缺少可识别的图表元素')]);
+  });
+});
 
 describe('visual validation infrastructure errors', () => {
   it.each([

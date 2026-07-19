@@ -31,6 +31,15 @@ const SINGLE_STOCK_FUNDAMENTAL_COMPONENTS = [
   '缺失字段说明',
 ];
 
+const TECHNICAL_KLINE_COMPONENTS = [
+  'K 线主图',
+  '成交量副图',
+  'MA5/MA10/MA20/MA60',
+  '触发条件',
+  '失效条件',
+  '风险指标',
+];
+
 const STOCK_SELECTION_COMPONENTS = [
   '标的覆盖摘要',
   '多标的指标矩阵',
@@ -57,18 +66,31 @@ const FUNDAMENTAL_COMPONENTS = [
   '报告期表',
 ];
 
+const STRATEGY_COMPONENTS = [
+  '策略假设',
+  '信号规则',
+  '样本参数',
+  '待验证清单',
+  '数据限制',
+];
+
+const PORTFOLIO_RISK_COMPONENTS = [
+  '组合摘要',
+  '持仓矩阵',
+  '仓位集中度',
+  '相关性/流动性风险',
+  '数据缺口',
+];
+
 const REJECTED_VARIANTS = [
-  ['technical-timing', 'technical-kline-trader'],
   ['technical-timing', 'technical-breakout-watch'],
   ['fundamental-research', 'fundamental-report-trend'],
   ['stock-selection', 'selection-correlation-risk-map'],
   ['stock-selection', 'selection-liquidity-trend-board'],
   ['sector-rotation', 'sector-rotation-radar'],
   ['sector-rotation', 'sector-capital-flow-board'],
-  ['strategy-research', 'strategy-hypothesis-canvas'],
   ['strategy-research', 'strategy-signal-lab'],
   ['backtest-review', 'backtest-trade-forensics'],
-  ['holding-analysis', 'portfolio-risk-console'],
   ['holding-analysis', 'portfolio-rebalance-plan'],
 ] as const;
 
@@ -98,7 +120,7 @@ function runPlan(
   return {
     runId: 'run-plan',
     status: 'planned',
-    symbols: templateId === 'stock-selection'
+    symbols: ['stock-selection', 'strategy-research', 'holding-analysis'].includes(templateId)
       ? ['600519', '600589']
       : [templateId === 'backtest-review' ? '510300' : '600589'],
     visualization: {
@@ -154,6 +176,80 @@ function stockSelectionData(): JsonRecord {
   };
 }
 
+function strategyResearchData(): JsonRecord {
+  const data = stockSelectionData();
+  data.screener = {
+    universe_id: 'a-share-research-pool',
+    mode: 'short_term',
+    trade_date: '2026-07-17',
+    scanned_symbols: 298,
+    total_candidates: 2,
+    candidates: [
+      { code: '600519', signals: ['收盘价站上 MA20', '量能改善'] },
+      { code: '600589', signals: ['低波动代理'] },
+    ],
+  };
+  data.conclusion = {
+    summary: ['排序仅用于横向研究。'],
+    risk_disclaimer: '尚未完成样本外回测，不构成投资建议。',
+  };
+  data.warnings = ['未建模交易成本。'];
+  data.visualization = visualization(
+    'strategy-research',
+    'strategy-hypothesis-canvas',
+    STRATEGY_COMPONENTS,
+  );
+  return data;
+}
+
+function portfolioRiskData(): JsonRecord {
+  const assets = [
+    { symbol: '600519', name: '贵州茅台', source: 'eastmoney', quote: { symbol: '600519', price: 1512, source: 'eastmoney' } },
+    { symbol: '600589', name: '大位科技', source: 'eastmoney', quote: { symbol: '600589', price: 8.31, source: 'eastmoney' } },
+  ];
+  return {
+    runId: 'run-plan',
+    symbol: '600519',
+    requestedSymbols: ['600519', '600589'],
+    symbols: ['600519', '600589'],
+    assets,
+    holdings: [
+      { symbol: '600519', name: '贵州茅台', weight: 50, current_price: 1512 },
+      { symbol: '600589', name: '大位科技', weight: 50, current_price: 8.31 },
+    ],
+    portfolio: {
+      concentration: { max_weight_pct: 50, top3_weight_pct: 100 },
+      data_gaps: ['shares', 'cost_price'],
+      warnings: ['当前使用等权代理。'],
+    },
+    comparison: {
+      rows: [
+        { symbol: '600519', period_return: 8.2, max_drawdown: -6.1, volatility20d: 17.3 },
+        { symbol: '600589', period_return: -2.4, max_drawdown: -12.8, volatility20d: 31.4 },
+      ],
+    },
+    correlation: {
+      symbols: ['600519', '600589'],
+      matrix: [
+        { symbol: '600519', '600519': 1, '600589': 0.32 },
+        { symbol: '600589', '600519': 0.32, '600589': 1 },
+      ],
+      top_pairs: [{ left: '600519', right: '600589', correlation: 0.32, overlap: 119 }],
+    },
+    liquidity: {
+      rows: [
+        { symbol: '600519', avg_amount_20d: 1_000_000, liquidity_score: 'high' },
+        { symbol: '600589', avg_amount_20d: 500_000, liquidity_score: 'medium' },
+      ],
+    },
+    visualization: visualization(
+      'holding-analysis',
+      'portfolio-risk-console',
+      PORTFOLIO_RISK_COMPONENTS,
+    ),
+  };
+}
+
 function singleStockData(): JsonRecord {
   return {
     runId: 'run-plan',
@@ -181,6 +277,21 @@ function singleStockData(): JsonRecord {
       SINGLE_STOCK_COMPONENTS,
     ),
   };
+}
+
+function technicalKlineData(): JsonRecord {
+  const data = singleStockData();
+  data.computedMetrics = {
+    ...(data.computedMetrics as JsonRecord),
+    ma10: 8.14,
+    ma60: 7.92,
+  };
+  data.visualization = visualization(
+    'technical-timing',
+    'technical-kline-trader',
+    TECHNICAL_KLINE_COMPONENTS,
+  );
+  return data;
 }
 
 function backtestData(): JsonRecord {
@@ -352,7 +463,7 @@ describe('apply_dashboard_spec tool', () => {
       fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'),
       fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8'),
     ]);
-    expect(page).toContain('data-template="stock-selection"');
+    expect(page).toContain("data-template={isStrategyResearch ? 'strategy-research' : 'stock-selection'}");
     expect(page).toContain('data_file/final/dashboard-data.json');
     expect(styles).toContain('.selection-shell');
     expect(styles).toContain('.comparison-panel');
@@ -440,6 +551,108 @@ describe('apply_dashboard_spec tool', () => {
     expect(page).toContain("['max_drawdown', 'max_drawdown_pct']");
     expect(page).toContain("['volatility20d', 'volatility_20d_annualized_pct', 'volatility20d_pct']");
     expect(page).toContain(".sort((left, right) => (numeric(left.rank)");
+  });
+
+  it('compiles the standard technical K-line contract with explicit condition boundaries', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan('technical-timing', 'technical-kline-trader', TECHNICAL_KLINE_COMPONENTS),
+      technicalKlineData(),
+      {},
+    );
+    expect(spec).toMatchObject({
+      renderer: 'base',
+      templateId: 'technical-timing',
+      variantId: 'technical-kline-trader',
+      requiredComponents: TECHNICAL_KLINE_COMPONENTS,
+      dataPrerequisites: [
+        'single_stock_quote',
+        'kline_20_with_volume',
+        'technical_moving_averages',
+        'derived_volume_signals',
+        'derived_risk_signals',
+      ],
+    });
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).toContain('function TechnicalConditionsPanel');
+    expect(page).toContain('触发、失效与风险边界');
+    expect(page).toContain("=== 'technical-timing'");
+  });
+
+  it('refuses the technical renderer when MA60 is absent', () => {
+    const data = technicalKlineData();
+    delete (data.computedMetrics as JsonRecord).ma60;
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('technical-timing', 'technical-kline-trader', TECHNICAL_KLINE_COMPONENTS),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining([
+        expect.objectContaining({ id: 'technical_moving_averages' }),
+      ]),
+    });
+  });
+
+  it('compiles strategy research as an explicitly unvalidated hypothesis surface', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan('strategy-research', 'strategy-hypothesis-canvas', STRATEGY_COMPONENTS),
+      strategyResearchData(),
+      {},
+    );
+    expect(spec).toMatchObject({
+      renderer: 'stock-selection',
+      requiredComponents: STRATEGY_COMPONENTS,
+      dataPrerequisites: expect.arrayContaining([
+        'strategy_research_contract',
+        'selection_ranking',
+      ]),
+    });
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).toContain('function StrategyResearchProtocol');
+    expect(page).toContain('尚未完成独立样本外回测');
+    expect(page).toContain("'strategy-research'");
+  });
+
+  it('compiles portfolio risk only with holdings, correlation, liquidity, and explicit gaps', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan('holding-analysis', 'portfolio-risk-console', PORTFOLIO_RISK_COMPONENTS),
+      portfolioRiskData(),
+      {},
+    );
+    expect(spec).toMatchObject({
+      renderer: 'holding-analysis',
+      requiredComponents: PORTFOLIO_RISK_COMPONENTS,
+      dataPrerequisites: [
+        'portfolio_holding_coverage',
+        'comparison_chart_metrics',
+        'portfolio_risk_evidence',
+        'asset_source_evidence',
+      ],
+    });
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).toContain('function CorrelationLiquidityRiskPanel');
+    expect(page).toContain('function PortfolioDataGapsPanel');
+  });
+
+  it('rejects portfolio risk when position-data gaps are not disclosed', () => {
+    const data = portfolioRiskData();
+    (data.portfolio as JsonRecord).data_gaps = [];
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan('holding-analysis', 'portfolio-risk-console', PORTFOLIO_RISK_COMPONENTS),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining([
+        expect.objectContaining({ id: 'portfolio_risk_evidence' }),
+      ]),
+    });
   });
 
   it.each([
@@ -601,6 +814,18 @@ describe('dashboard renderer capability registry', () => {
       'fundamental-research',
       'fundamental-quality-scorecard',
     )).toBe(true);
+    expect(isDashboardSpecCapabilitySupported(
+      'technical-timing',
+      'technical-kline-trader',
+    )).toBe(true);
+    expect(isDashboardSpecCapabilitySupported(
+      'strategy-research',
+      'strategy-hypothesis-canvas',
+    )).toBe(true);
+    expect(isDashboardSpecCapabilitySupported(
+      'holding-analysis',
+      'portfolio-risk-console',
+    )).toBe(true);
     expect(isDashboardSpecCapabilitySupported('unknown', 'unknown')).toBe(false);
     expect(isDashboardSpecCapabilitySupported('stock-selection', null)).toBe(false);
   });
@@ -614,13 +839,18 @@ describe('dashboard renderer capability registry', () => {
     expect(matrix).toEqual([
       { templateId: 'single-stock-diagnosis', variantId: 'single-stock-command-center', supported: true },
       { templateId: 'single-stock-diagnosis', variantId: 'single-stock-fundamental-snapshot', supported: true },
-      ...REJECTED_VARIANTS.slice(0, 2).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'technical-timing', variantId: 'technical-kline-trader', supported: true },
+      ...REJECTED_VARIANTS.slice(0, 1).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'fundamental-research', variantId: 'fundamental-quality-scorecard', supported: true },
-      ...REJECTED_VARIANTS.slice(2, 3).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(1, 2).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'stock-selection', variantId: 'selection-ranking-matrix', supported: true },
-      ...REJECTED_VARIANTS.slice(3, 9).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(2, 6).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'strategy-research', variantId: 'strategy-hypothesis-canvas', supported: true },
+      ...REJECTED_VARIANTS.slice(6, 7).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'backtest-review', variantId: 'backtest-performance-review', supported: true },
-      ...REJECTED_VARIANTS.slice(9).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(7, 8).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'holding-analysis', variantId: 'portfolio-risk-console', supported: true },
+      ...REJECTED_VARIANTS.slice(8).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
     ]);
     const catalogIdentities = KNOWN_TEMPLATE_IDS.flatMap((templateId) => (
       serializeQuantVisualizationTemplate(templateId).alternatives.map((variant) => ({

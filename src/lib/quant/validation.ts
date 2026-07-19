@@ -1380,7 +1380,7 @@ function hasComparisonAnalysisIntent(taskText: string, plannedSymbols: string[])
   );
 }
 
-function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null): string | null {
+export function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null): string | null {
   if (!runPlan) {
     return null;
   }
@@ -1396,11 +1396,13 @@ function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null):
   const holdingIntent = hasHoldingAnalysisIntent(taskText);
   const comparisonIntent = hasComparisonAnalysisIntent(taskText, plannedSymbols);
 
-  if (comparisonIntent && !holdingIntent) {
-    return 'stock-selection';
-  }
-  if (holdingIntent) {
-    return 'holding-analysis';
+  // The selected capability is the authoritative task contract. Keywords and
+  // symbol counts are only a fallback for legacy plans that predate capability
+  // routing. In particular, strategy research naturally mentions candidates,
+  // while portfolio risk naturally contains multiple symbols; neither should
+  // be silently rewritten to the stock-selection template.
+  if (capabilityId === 'strategy_research') {
+    return 'strategy-research';
   }
   if (capabilityId === 'portfolio_risk') {
     return 'holding-analysis';
@@ -1419,6 +1421,12 @@ function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> | null):
   }
   if (capabilityId === 'fundamental_analysis') {
     return 'fundamental-research';
+  }
+  if (holdingIntent) {
+    return 'holding-analysis';
+  }
+  if (comparisonIntent) {
+    return 'stock-selection';
   }
 
   return null;
@@ -1916,10 +1924,17 @@ async function checkDashboardBinding(
   }
 
   if (expectedTemplateId && plannedTemplateId !== expectedTemplateId) {
+    const expectedTemplateGuidance: Record<string, string> = {
+      'holding-analysis': '组合、持仓、调仓或账户类任务必须走持仓分析模板。',
+      'stock-selection': '多标的比较或选股任务必须走候选对比模板。',
+      'strategy-research': '策略假设与筛选研究必须走策略研究模板。',
+      'technical-timing': '技术分析任务必须走技术择时模板。',
+      'fundamental-research': '基本面分析任务必须走基本面研究模板。',
+    };
     return {
       status: 'failed',
       summary: `执行计划模板与任务语义不一致，应使用 ${expectedTemplateId}。`,
-      details: `当前 run_plan.visualization.templateId=${plannedTemplateId ?? '未设置'}。持仓、调仓、截图账户类任务必须走持仓分析模板，不能复用个股诊断模板。`,
+      details: `当前 run_plan.visualization.templateId=${plannedTemplateId ?? '未设置'}。${expectedTemplateGuidance[expectedTemplateId] ?? '请按 capability 任务合同选择场景模板。'}`,
       metadata: {
         expectedTemplateId,
         plannedTemplateId,
@@ -1989,7 +2004,7 @@ async function checkDashboardBinding(
         label: '持仓分析模板',
         patterns: [/持仓|holding|portfolio|仓位|集中度/, /调仓|风险|相关性|流动性|回撤/],
       },
-	      'stock-selection': {
+      'stock-selection': {
 	        label: '选股分析模板',
 	        patterns: [
 	          /stock-selection|选股|候选|多标的|comparison|assets/,
@@ -1997,6 +2012,14 @@ async function checkDashboardBinding(
 	          /收益对比|波动对比|回撤对比|财务质量|数据口径|更新时间/,
 	        ],
 	      },
+      'strategy-research': {
+        label: '策略研究模板',
+        patterns: [
+          /策略假设|可证伪|hypothesis|未回测/,
+          /信号规则|筛选规则|候选|comparison|assets/,
+          /数据限制|失效风险|风险声明|样本参数/,
+        ],
+      },
       'single-stock-diagnosis': {
         label: '个股诊断模板',
         patterns: [/个股|行情|最新价|quote|k\s*线|k线/, /财务|公告|质量|更新时间|报告期/],

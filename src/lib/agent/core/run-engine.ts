@@ -52,10 +52,11 @@ const POST_WRITE_READ_ONLY_TURN_THRESHOLD = 3;
 const TURN_LIMIT_CONVERGENCE_WINDOW = 4;
 const TOOL_LIMIT_CONVERGENCE_WINDOW = 8;
 const MAX_CONVERGENCE_TOOL_POLICY_VIOLATION_TURNS = 2;
-const WORKSPACE_WRITE_REQUIRED_MESSAGE =
-  'This run must complete at least one successful workspace_write before using a terminal tool. Use an available workspace-write tool to make the smallest necessary change.';
+const MAX_WORKSPACE_WRITE_NO_TOOL_CORRECTION_TURNS = 1;
 const CONVERGENCE_DIRECTIVE_PREFIX =
   '[MoAgent Runtime Convergence Directive - HIGH PRIORITY]';
+const WORKSPACE_WRITE_CORRECTION_DIRECTIVE_PREFIX =
+  '[MoAgent Runtime Workspace-Write Correction - HIGHEST PRIORITY]';
 const TRUSTED_CONTEXT_PROTOCOL_PREFIX =
   '[MoAgent Trusted Context Request Protocol v1]';
 const REQUEST_LOCAL_CONTROL_ENVELOPE_PREFIX =
@@ -340,6 +341,25 @@ File existence and successful writes alone are not validation. Submit only when 
 ${hardToolPolicy}
 ${repairReserve}
 ${finishInstruction}`;
+}
+
+function workspaceWriteRequiredMessage(
+  workspaceWriteToolNames: readonly string[],
+): string {
+  const available = workspaceWriteToolNames.length > 0
+    ? ` Available workspace_write tools: ${workspaceWriteToolNames.join(', ')}.`
+    : '';
+  return `This run must complete at least one successful workspace_write before using a terminal tool.${available} Use exactly one of those tools to make the smallest necessary change before trying a terminal tool again.`;
+}
+
+function workspaceWriteCorrectionDirective(
+  workspaceWriteToolNames: readonly string[],
+): string {
+  return `${WORKSPACE_WRITE_CORRECTION_DIRECTIVE_PREFIX}
+The previous terminal or non-write tool call was rejected because this run has not completed a successful workspace_write.
+Your next action must be exactly one registered workspace_write tool call: ${workspaceWriteToolNames.join(', ')}.
+Do not answer with text only. Do not call a read-only, external-write, or terminal tool on this turn. If the selected workspace-write tool needs no input, call it with {}.
+After that write succeeds, inspect its tool result and use a separate turn to call the terminal tool.`;
 }
 
 function canonicalJson(value: unknown): string {
@@ -1503,6 +1523,7 @@ export class MoAgentRunEngine {
     let readToolsDisabled = false;
     let convergenceToolPolicyViolationTurns = 0;
     let workspaceWriteCorrectionPending = false;
+    let workspaceWriteNoToolCorrectionTurns = 0;
     let repeatedReadObservationPending = false;
     let progressStalledPending = false;
     let progressHardGatePending = false;
@@ -1526,6 +1547,12 @@ export class MoAgentRunEngine {
     const terminalToolNames = this.tools
       .filter((tool) => tool.terminal === true)
       .map((tool) => tool.name);
+    const workspaceWriteToolNames = this.tools
+      .filter((tool) => toolExecutionPolicy(tool).effect === 'workspace_write')
+      .map((tool) => tool.name);
+    const workspaceWriteRequiredMessageForRun = workspaceWriteRequiredMessage(
+      workspaceWriteToolNames,
+    );
 
     const event = <T extends MoAgentEventDetails>(
       details: T
@@ -1748,6 +1775,11 @@ export class MoAgentRunEngine {
         if (phaseCheckpoint) requestLocalControls.push(phaseCheckpoint.content);
         if (ephemeralConvergenceDirective !== undefined) {
           requestLocalControls.push(ephemeralConvergenceDirective);
+        }
+        if (workspaceWriteCorrectionPending) {
+          requestLocalControls.push(
+            workspaceWriteCorrectionDirective(workspaceWriteToolNames),
+          );
         }
         const requestLocalMessages: MoAgentMessage[] = [];
         if (requestLocalControls.length > 0) {
@@ -2150,19 +2182,33 @@ export class MoAgentRunEngine {
           finishReason,
         });
 
+        if (toolCalls.length === 0 && workspaceWriteCorrectionPending) {
+          if (
+            workspaceWriteNoToolCorrectionTurns <
+              MAX_WORKSPACE_WRITE_NO_TOOL_CORRECTION_TURNS
+          ) {
+            workspaceWriteNoToolCorrectionTurns += 1;
+            continue;
+          }
+          return yield* finish(
+            result(
+              'failed',
+              runError(
+                'WORKSPACE_WRITE_REQUIRED',
+                workspaceWriteRequiredMessageForRun,
+              ),
+            ),
+          );
+        }
+
         if (finishReason === 'tool_calls' && toolCalls.length === 0) {
           return yield* finish(
             result(
               'failed',
-              workspaceWriteCorrectionPending
-                ? runError(
-                    'WORKSPACE_WRITE_REQUIRED',
-                    WORKSPACE_WRITE_REQUIRED_MESSAGE
-                  )
-                : runError(
-                    'MISSING_TOOL_CALLS',
-                    'The model reported a tool-call finish without providing a tool call.'
-                  )
+              runError(
+                'MISSING_TOOL_CALLS',
+                'The model reported a tool-call finish without providing a tool call.'
+              )
             )
           );
         }
@@ -2262,7 +2308,7 @@ export class MoAgentRunEngine {
                 ? {
                     result: toolFailure(
                       'WORKSPACE_WRITE_REQUIRED',
-                      WORKSPACE_WRITE_REQUIRED_MESSAGE
+                      workspaceWriteRequiredMessageForRun,
                     ),
                     terminal: false,
                     durationMs: 0,
@@ -2439,6 +2485,7 @@ export class MoAgentRunEngine {
             readToolsDisabled = false;
             convergenceToolPolicyViolationTurns = 0;
             workspaceWriteCorrectionPending = false;
+            workspaceWriteNoToolCorrectionTurns = 0;
             repeatedReadObservationPending = false;
             activeConvergenceReasons.delete('repeated_read_observation');
           } else if (readOnlyToolTurn) {
@@ -2460,6 +2507,19 @@ export class MoAgentRunEngine {
             toolObservationFingerprints: toolObservationFingerprintsThisTurn,
             successfulWorkspaceWrites: successfulWorkspaceWritesThisTurn,
           });
+          yield event({
+            type: 'progress_evaluated',
+            turn,
+            progressOracle: progressOracle.snapshot(),
+            decision: {
+              progressed: progressDecision.progressed,
+              stalled: progressDecision.stalled,
+              consecutiveNoProgressTurns:
+                progressDecision.consecutiveNoProgressTurns,
+              progressSignals: [...progressDecision.progressSignals],
+              stallSignals: [...progressDecision.stallSignals],
+            },
+          });
           progressStalledPending = progressDecision.stalled;
           progressHardGatePending = progressDecision.stalled &&
             progressDecision.consecutiveNoProgressTurns >= 2;
@@ -2478,7 +2538,7 @@ export class MoAgentRunEngine {
                   'failed',
                   runError(
                     'WORKSPACE_WRITE_REQUIRED',
-                    WORKSPACE_WRITE_REQUIRED_MESSAGE
+                    workspaceWriteRequiredMessageForRun,
                   )
                 )
               );
@@ -2512,7 +2572,7 @@ export class MoAgentRunEngine {
               'failed',
               runError(
                 'WORKSPACE_WRITE_REQUIRED',
-                WORKSPACE_WRITE_REQUIRED_MESSAGE
+                workspaceWriteRequiredMessageForRun,
               )
             )
           );

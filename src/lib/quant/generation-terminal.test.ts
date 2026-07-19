@@ -216,6 +216,27 @@ describe('generation terminal snapshot', () => {
     });
   });
 
+  it.each(['pending', 'running', 'repairing'] as const)(
+    'keeps an intermediate failed validation non-terminal while generation is %s',
+    (status) => {
+      const snapshot = deriveQuantGenerationTerminalSnapshot({
+        generation: {
+          requestId: 'request-repairing',
+          status,
+          error: { message: 'intermediate validation failed' },
+        },
+        validation: validation('request-repairing', false),
+        preview: preview('stopped', null),
+      });
+
+      expect(snapshot).toMatchObject({
+        status: 'running',
+        terminal: false,
+        validationStatus: 'failed',
+      });
+    },
+  );
+
   it('keeps a validated run recoverable when its persistent preview is absent', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {

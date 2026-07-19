@@ -87,6 +87,10 @@ import { validateMoAgentProjectPath } from './moagent-workspace';
 import type { MoAgentCandidateSubmission } from '@/lib/agent/mission';
 import { candidateFromMoAgentRun } from '@/lib/services/moagent-candidate';
 import { getProjectLlmConfig } from '@/lib/config/llm';
+import {
+  getProjectIntegrationScope,
+  modelPortScopeHeaders,
+} from '@/lib/platform/context/integration-scope';
 import type { PersonalizationCapsule } from '@/lib/platform/memory';
 import type { GovernedKnowledgeCapsule } from '@/lib/platform/knowledge';
 
@@ -126,7 +130,14 @@ const DASHBOARD_REPAIR_CHECK_IDS = new Set([
 
 export type MoAgentPreparedIntent = 'standard' | 'custom';
 
-const PREPARED_CUSTOMIZATION_SIGNAL = /(?:修改|调整|重构|优化|美化|定制|自定义|替换|改为|改成|不要|去掉|取消|新增|增加|添加|删除|移动|配色|颜色|字体|字号|布局|样式|视觉|界面|交互|动效|响应式|卡片|首屏|导航|侧栏|暗色|主题|customi[sz]e|restyle|redesign|refactor|layout|theme|color|font|sidebar|navigation|responsive|remove|replace|without\s+cards?)/iu;
+const PREPARED_CUSTOMIZATION_ACTION =
+  '(?:修改|调整|重构|优化|美化|定制|自定义|替换|改为|改成|不要|去掉|取消|新增|增加|添加|删除|移动|移到|重排|折叠|展开|隐藏|避免)';
+const PREPARED_CUSTOMIZATION_TARGET =
+  '(?:页面|看板|布局|样式|视觉|界面|交互|动效|响应式|配色|颜色|字体|字号|指标卡|卡片|首屏|导航|侧栏|模块|图表|区域|主题|数据源渠道)';
+const PREPARED_CUSTOMIZATION_SIGNAL = new RegExp(
+  `(?:${PREPARED_CUSTOMIZATION_ACTION}.{0,20}${PREPARED_CUSTOMIZATION_TARGET}|${PREPARED_CUSTOMIZATION_TARGET}.{0,20}${PREPARED_CUSTOMIZATION_ACTION}|customi[sz]e|restyle|redesign|refactor|layout|theme|color|font|sidebar|navigation|responsive|remove|replace|without\\s+cards?)`,
+  'iu',
+);
 
 /**
  * Conservative, platform-owned routing for an already prepared workspace.
@@ -564,6 +575,7 @@ async function executeMoAgentPhase(
   } = options;
   const resolvedModel = normalizeMoAgentModelId(model);
   const llmConfig = getProjectLlmConfig(resolvedModel);
+  const integrationScope = getProjectIntegrationScope(projectId);
   const apiKey = process.env[llmConfig.credentialEnv]?.trim();
   const providerLabel = llmConfig.provider === 'deepseek'
     ? 'DeepSeek 官方 API'
@@ -971,7 +983,10 @@ async function executeMoAgentPhase(
             providerName: 'openai',
             apiKey: apiKey!,
             baseUrl: llmConfig.baseUrl,
-            headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
+            headers: {
+              'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}`,
+              ...modelPortScopeHeaders(integrationScope),
+            },
             maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
             maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
             initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
@@ -1200,6 +1215,23 @@ async function executeMoAgentPhase(
               ...(event.status === undefined ? {} : { status: event.status }),
             },
           );
+          break;
+        case 'progress_evaluated':
+          if (event.decision.stalled) {
+            publishStatus(
+              'progress_stalled',
+              'MoAgent 检测到本轮没有可验证进展，正在收紧读取并推动写入或提交。',
+              {
+                runtime: 'moagent',
+                eventId: event.eventId,
+                sequence: event.sequence,
+                turn: event.turn,
+                consecutiveNoProgressTurns:
+                  event.decision.consecutiveNoProgressTurns,
+                stallSignals: [...event.decision.stallSignals],
+              },
+            );
+          }
           break;
         case 'text_delta': {
           const state = assistantStreams.get(event.turn) ?? { id: randomUUID(), content: '' };

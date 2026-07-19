@@ -208,13 +208,16 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
     (validationStale || !validationMatchesCurrentRun)
   ) {
     status = 'running';
-  } else if (params.generation?.status === 'failed' || validationFailed) {
-    status = 'failed';
   } else if (
     params.generation &&
     ['pending', 'running', 'repairing'].includes(params.generation.status)
   ) {
+    // A failed validation report is an intermediate result while the bounded
+    // auto-repair loop is still active. Do not publish a terminal failure and
+    // race the repair that can still produce an accepted candidate.
     status = 'running';
+  } else if (params.generation?.status === 'failed' || validationFailed) {
+    status = 'failed';
   }
 
   return {

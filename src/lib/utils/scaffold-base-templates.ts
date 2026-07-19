@@ -640,6 +640,98 @@ function LiquidityPanel({ rows }: { rows: JsonRecord[] }) {
   );
 }
 
+function TechnicalConditionsPanel({
+  bars,
+  summary,
+  computedMetrics,
+}: {
+  bars: JsonRecord[];
+  summary: JsonRecord | null;
+  computedMetrics: JsonRecord | null;
+}) {
+  const latest = bars.at(-1);
+  if (!latest) {
+    return null;
+  }
+  const latestClose = numeric(latest.close);
+  const latestVolume = numeric(latest.volume);
+  const ma5 = numeric(summary?.ma5 ?? computedMetrics?.ma5);
+  const ma10 = numeric(summary?.ma10 ?? computedMetrics?.ma10);
+  const ma20 = numeric(summary?.ma20 ?? computedMetrics?.ma20);
+  const ma60 = numeric(summary?.ma60 ?? computedMetrics?.ma60);
+  const averageVolume20 = numeric(
+    summary?.avg_volume20 ??
+    summary?.avg_volume_20d ??
+    computedMetrics?.avgVolume20d
+  );
+  const recentBars = bars.slice(-20);
+  const recentHighs = recentBars
+    .map((bar) => numeric(bar.high) ?? numeric(bar.close))
+    .filter((value): value is number => value !== null);
+  const recentLows = recentBars
+    .map((bar) => numeric(bar.low) ?? numeric(bar.close))
+    .filter((value): value is number => value !== null);
+  const resistance = recentHighs.length > 0 ? Math.max(...recentHighs) : null;
+  const support = recentLows.length > 0 ? Math.min(...recentLows) : null;
+  const volumeRatio = latestVolume !== null && averageVolume20 !== null && averageVolume20 > 0
+    ? latestVolume / averageVolume20
+    : null;
+  const trendTriggered = latestClose !== null && ma20 !== null && latestClose >= ma20;
+  const volumeConfirmed = volumeRatio !== null && volumeRatio >= 1;
+  const invalidated = latestClose !== null && ma60 !== null && latestClose < ma60;
+  const riskDrawdown = summary?.max_drawdown_pct ?? computedMetrics?.maxDrawdown;
+  const riskVolatility = summary?.volatility_20d_annualized_pct ?? computedMetrics?.volatility20d;
+
+  const conditions = [
+    {
+      label: '趋势触发',
+      state: trendTriggered ? '已满足' : '未满足',
+      tone: trendTriggered ? 'condition-positive' : 'condition-neutral',
+      detail: '最新收盘 ' + displayNumber(latestClose) + ' / MA20 ' + displayNumber(ma20),
+    },
+    {
+      label: '量能确认',
+      state: volumeConfirmed ? '已确认' : '待确认',
+      tone: volumeConfirmed ? 'condition-positive' : 'condition-neutral',
+      detail: '最新量 / 20 日均量 ' + (volumeRatio === null ? '-' : volumeRatio.toFixed(2) + 'x'),
+    },
+    {
+      label: '失效条件',
+      state: invalidated ? '已触发' : '未触发',
+      tone: invalidated ? 'condition-negative' : 'condition-positive',
+      detail: '最新收盘 ' + displayNumber(latestClose) + ' / MA60 ' + displayNumber(ma60),
+    },
+  ];
+
+  return (
+    <article className="data-panel technical-condition-panel">
+      <div className="panel-heading compact">
+        <div>
+          <h2>触发、失效与风险边界</h2>
+          <p>条件由当前 K 线与已计算指标确定性生成，只用于观察，不构成交易指令</p>
+        </div>
+        <span>样本 {recentBars.length} 日</span>
+      </div>
+      <div className="technical-condition-grid">
+        {conditions.map((condition) => (
+          <div className="technical-condition-row" key={condition.label}>
+            <span>{condition.label}</span>
+            <strong className={condition.tone}>{condition.state}</strong>
+            <small>{condition.detail}</small>
+          </div>
+        ))}
+      </div>
+      <div className="technical-boundary-strip">
+        <span>20 日支撑 <strong>{displayNumber(support)}</strong></span>
+        <span>20 日压力 <strong>{displayNumber(resistance)}</strong></span>
+        <span>MA5 / MA10 <strong>{displayNumber(ma5)} / {displayNumber(ma10)}</strong></span>
+        <span>最大回撤 <strong>{displayPercent(riskDrawdown)}</strong></span>
+        <span>年化波动 <strong>{displayPercent(riskVolatility)}</strong></span>
+      </div>
+    </article>
+  );
+}
+
 function CorrelationPanel({ pairs }: { pairs: JsonRecord[] }) {
   if (pairs.length === 0) {
     return null;
@@ -869,6 +961,7 @@ export default async function Home() {
   const trendTemplateRows = getTrendTemplateRows(data);
   const visualization = getVisualization(data);
   const isFundamentalSnapshot = String(visualization?.variant_id ?? visualization?.variantId ?? '') === 'single-stock-fundamental-snapshot';
+  const isTechnicalTiming = String(visualization?.template_id ?? visualization?.templateId ?? '') === 'technical-timing';
   const latestBar = bars.at(-1);
   const name = String(primaryAsset?.name ?? quote?.name ?? primaryAsset?.symbol ?? data?.name ?? 'QuantPilot');
   const symbol = String(primaryAsset?.symbol ?? quote?.symbol ?? data?.symbol ?? '-');
@@ -958,6 +1051,14 @@ export default async function Home() {
           data={data}
         />
       </section>
+
+      {isTechnicalTiming ? (
+        <TechnicalConditionsPanel
+          bars={bars}
+          summary={summary}
+          computedMetrics={computedMetrics}
+        />
+      ) : null}
 
       <div className="metric-strip metrics-7">
         <div className="metric-cell">
@@ -1679,6 +1780,106 @@ textarea {
   font-size: 13px;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ==================== TECHNICAL CONDITIONS ==================== */
+
+.technical-condition-panel {
+  border-top: 0;
+}
+
+.technical-condition-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line-light);
+}
+
+.technical-condition-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-right: 1px solid var(--line-light);
+}
+
+.technical-condition-row:last-child {
+  border-right: 0;
+}
+
+.technical-condition-row > span,
+.technical-condition-row > small {
+  color: var(--muted);
+}
+
+.technical-condition-row > span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.technical-condition-row > strong {
+  font-size: 14px;
+}
+
+.technical-condition-row > small {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.condition-positive { color: var(--green); }
+.condition-negative { color: var(--red); }
+.condition-neutral { color: var(--gold); }
+
+.technical-boundary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--line-light);
+  border-top: 0;
+}
+
+.technical-boundary-strip > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-right: 1px solid var(--line-light);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.technical-boundary-strip > span:last-child {
+  border-right: 0;
+}
+
+.technical-boundary-strip strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+  .technical-condition-grid,
+  .technical-boundary-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .technical-condition-row,
+  .technical-boundary-strip > span {
+    border-right: 0;
+    border-bottom: 1px solid var(--line-light);
+  }
+
+  .technical-condition-row:last-child,
+  .technical-boundary-strip > span:last-child {
+    border-bottom: 0;
+  }
 }
 
 /* ==================== WARNING LIST ==================== */

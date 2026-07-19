@@ -218,9 +218,24 @@ describe('MoAgentRunEngine', () => {
         'tool_call_delta',
         'tool_started',
         'tool_completed',
+        'progress_evaluated',
         'run_finished',
       ])
     );
+    expect(events.find((event) => event.type === 'progress_evaluated')).toMatchObject({
+      type: 'progress_evaluated',
+      turn: 1,
+      progressOracle: {
+        version: 1,
+        turnsObserved: 1,
+        consecutiveNoProgressTurns: 1,
+      },
+      decision: {
+        progressed: false,
+        stalled: false,
+        consecutiveNoProgressTurns: 1,
+      },
+    });
     expect(events.map((event) => event.type)).not.toContain('reasoning_delta');
     const assistantEvents = events.filter((event) => event.type === 'assistant_message');
     expect(assistantEvents).toHaveLength(2);
@@ -2239,7 +2254,9 @@ describe('MoAgentRunEngine', () => {
       'edit_file',
       'submit_result',
     ]);
-    const correctionToolMessage = provider.requests[1].messages.at(-1);
+    const correctionToolMessage = [...provider.requests[1].messages]
+      .reverse()
+      .find((message) => message.role === 'tool');
     expect(
       correctionToolMessage?.role === 'tool'
         ? JSON.parse(correctionToolMessage.content)
@@ -2255,6 +2272,109 @@ describe('MoAgentRunEngine', () => {
       event.type === 'tool_failed' &&
       event.result.error.code === 'WORKSPACE_WRITE_REQUIRED'
     )).toHaveLength(1);
+  });
+
+  it('gives a text-only correction turn one bounded retry with explicit write-tool guidance', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn({
+        name: 'submit_result',
+        id: 'call-submit-before-write',
+        arguments: ['{}'],
+      }),
+      [
+        { type: 'text_delta', delta: 'I am done.' },
+        { type: 'finish', reason: 'stop', rawReason: 'stop' },
+      ],
+      toolTurn({
+        name: 'apply_dashboard_spec',
+        id: 'call-corrective-write',
+        arguments: ['{}'],
+      }),
+      toolTurn({
+        name: 'submit_result',
+        id: 'call-submit-after-write',
+        arguments: ['{}'],
+      }),
+    ]);
+    const write = vi.fn(async () => ({
+      ok: true as const,
+      data: { path: 'app/page.tsx' },
+    }));
+    const submit = vi.fn(async () => ({
+      ok: true as const,
+      data: { accepted: true },
+    }));
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireWorkspaceWriteBeforeTerminal: true,
+      tools: [
+        {
+          name: 'apply_dashboard_spec',
+          description: 'Render the prepared dashboard',
+          inputSchema: {},
+          effect: 'workspace_write',
+          execute: write,
+        },
+        terminalTool(submit),
+      ],
+    });
+
+    const result = await engine.run({ messages: initialMessages });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      turns: 4,
+      terminalToolCall: { id: 'call-submit-after-write', name: 'submit_result' },
+    });
+    expect(provider.requests).toHaveLength(4);
+    for (const requestIndex of [1, 2]) {
+      const controls = requestLocalControls(
+        provider.requests[requestIndex].messages.at(-1),
+      ).controls.join('\n');
+      expect(controls).toContain(
+        '[MoAgent Runtime Workspace-Write Correction - HIGHEST PRIORITY]',
+      );
+      expect(controls).toContain('apply_dashboard_spec');
+      expect(controls).toContain('Do not answer with text only.');
+    }
+    expect(write).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledOnce();
+  });
+
+  it('fails after the bounded text-only workspace-write correction retry is exhausted', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+      [{ type: 'finish', reason: 'stop', rawReason: 'stop' }],
+      [{ type: 'finish', reason: 'stop', rawReason: 'stop' }],
+    ]);
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireWorkspaceWriteBeforeTerminal: true,
+      tools: [
+        {
+          name: 'edit_file',
+          description: 'Edit the workspace',
+          inputSchema: {},
+          effect: 'workspace_write',
+          execute: async () => ({ ok: true, data: { path: 'app/page.tsx' } }),
+        },
+        terminalTool(),
+      ],
+    });
+
+    const result = await engine.run({ messages: initialMessages });
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      turns: 3,
+      error: {
+        code: 'WORKSPACE_WRITE_REQUIRED',
+        message: expect.stringContaining('edit_file'),
+      },
+    });
+    expect(provider.requests).toHaveLength(3);
   });
 
   it('fails with WORKSPACE_WRITE_REQUIRED after a second terminal attempt without a write', async () => {

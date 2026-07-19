@@ -257,6 +257,15 @@ function hasDerivedTrendSignals(finalData: JsonRecord): boolean {
   return ma5 !== null && ma5 > 0 && ma20 !== null && ma20 > 0;
 }
 
+function hasTechnicalMovingAverages(finalData: JsonRecord): boolean {
+  return [
+    signalMetric(finalData, ['ma5'], ['ma5']),
+    signalMetric(finalData, ['ma10'], ['ma10']),
+    signalMetric(finalData, ['ma20'], ['ma20']),
+    signalMetric(finalData, ['ma60'], ['ma60']),
+  ].every((value) => value !== null && value > 0);
+}
+
 function hasDerivedVolumeSignals(finalData: JsonRecord): boolean {
   const bars = recordArray(dataRecord(finalData, 'kline')?.bars);
   const latestVolume = finiteNumber(bars.at(-1)?.volume);
@@ -342,6 +351,66 @@ function hasAssetSourceEvidence(finalData: JsonRecord): boolean {
   return assets.length >= 2 && assets.every((asset) => (
     contractString(asset.source ?? dataRecord(asset, 'quote')?.source) !== null
   ));
+}
+
+function hasStrategyResearchContract(finalData: JsonRecord): boolean {
+  const screener = dataRecord(finalData, 'screener');
+  const warnings = recordArray(finalData.warnings);
+  const conclusion = dataRecord(finalData, 'conclusion');
+  return Boolean(
+    screener &&
+    contractString(screener.mode) &&
+    finiteNumber(screener.scanned_symbols) !== null &&
+    Array.isArray(screener.candidates) &&
+    (Array.isArray(finalData.warnings) || warnings.length === 0) &&
+    conclusion &&
+    contractString(conclusion.risk_disclaimer)
+  );
+}
+
+function hasPortfolioRiskCoverage(finalData: JsonRecord): boolean {
+  const holdings = recordArray(finalData.holdings);
+  const assets = recordArray(finalData.assets);
+  const holdingSymbols = distinctSymbols(holdings);
+  const assetSymbols = distinctSymbols(assets);
+  const weights = holdings.map((holding) => finiteNumber(
+    holding.weight ?? holding.position_pct,
+  ));
+  return (
+    holdings.length >= 2 &&
+    assets.length === holdings.length &&
+    holdingSymbols.size === holdings.length &&
+    assetSymbols.size === assets.length &&
+    [...holdingSymbols].every((symbol) => assetSymbols.has(symbol)) &&
+    weights.every((weight): weight is number => weight !== null && weight > 0) &&
+    Math.abs(weights.reduce((sum, weight) => sum + weight, 0) - 100) <= 1
+  );
+}
+
+function hasPortfolioRiskEvidence(finalData: JsonRecord): boolean {
+  const portfolio = dataRecord(finalData, 'portfolio');
+  const correlation = dataRecord(finalData, 'correlation');
+  const liquidityRows = rowsFromRecord(finalData, 'liquidity');
+  const holdings = recordArray(finalData.holdings);
+  const symbols = distinctSymbols(holdings);
+  const correlationSymbols = new Set(
+    Array.isArray(correlation?.symbols)
+      ? correlation.symbols.filter((value): value is string => contractString(value) !== null)
+      : [],
+  );
+  const liquiditySymbols = distinctSymbols(liquidityRows);
+  return Boolean(
+    portfolio &&
+    dataRecord(portfolio, 'concentration') &&
+    Array.isArray(portfolio.data_gaps) &&
+    portfolio.data_gaps.length > 0 &&
+    correlation &&
+    Array.isArray(correlation.matrix) &&
+    correlationSymbols.size === symbols.size &&
+    [...symbols].every((symbol) => correlationSymbols.has(symbol)) &&
+    liquidityRows.length === symbols.size &&
+    [...symbols].every((symbol) => liquiditySymbols.has(symbol))
+  );
 }
 
 function hasFundamentalReports(finalData: JsonRecord): boolean {
@@ -473,6 +542,15 @@ const SINGLE_STOCK_FUNDAMENTAL_COMPONENTS = [
   '缺失字段说明',
 ] as const;
 
+const TECHNICAL_KLINE_TRADER_COMPONENTS = [
+  'K 线主图',
+  '成交量副图',
+  'MA5/MA10/MA20/MA60',
+  '触发条件',
+  '失效条件',
+  '风险指标',
+] as const;
+
 const STOCK_SELECTION_RANKING_COMPONENTS = [
   '标的覆盖摘要',
   '多标的指标矩阵',
@@ -497,6 +575,22 @@ const FUNDAMENTAL_QUALITY_COMPONENTS = [
   'ROE/利润率',
   '现金流或缺失说明',
   '报告期表',
+] as const;
+
+const STRATEGY_HYPOTHESIS_COMPONENTS = [
+  '策略假设',
+  '信号规则',
+  '样本参数',
+  '待验证清单',
+  '数据限制',
+] as const;
+
+const PORTFOLIO_RISK_COMPONENTS = [
+  '组合摘要',
+  '持仓矩阵',
+  '仓位集中度',
+  '相关性/流动性风险',
+  '数据缺口',
 ] as const;
 
 const prerequisite = (
@@ -558,7 +652,19 @@ const DASHBOARD_CAPABILITIES: readonly DashboardCapability[] = [
       prerequisite('announcement_contract', 'announcements declares an explicit announcements array, including an empty array when no events are available', hasAnnouncementContract),
     ],
   ),
-  unsupportedCapability('technical-timing', 'technical-kline-trader', 'The base renderer does not implement explicit trigger and invalidation conditions.'),
+  supportedCapability(
+    'technical-timing',
+    'technical-kline-trader',
+    'base',
+    TECHNICAL_KLINE_TRADER_COMPONENTS,
+    [
+      prerequisite('single_stock_quote', 'quote contains an identified symbol and finite price', hasSingleStockQuote),
+      prerequisite('kline_20_with_volume', 'the latest 20 kline bars contain finite closes and the latest bar contains volume', hasUsableKline),
+      prerequisite('technical_moving_averages', 'computed or technical data contains positive MA5, MA10, MA20, and MA60 values used by the chart and trigger rail', hasTechnicalMovingAverages),
+      prerequisite('derived_volume_signals', 'latest and average volume are available for confirmation conditions', hasDerivedVolumeSignals),
+      prerequisite('derived_risk_signals', 'bounded drawdown and non-negative volatility are available for the risk boundary', hasDerivedRiskSignals),
+    ],
+  ),
   unsupportedCapability('technical-timing', 'technical-breakout-watch', 'The base renderer does not implement breakout price bands and invalidation workflow.'),
   supportedCapability(
     'fundamental-research',
@@ -588,7 +694,19 @@ const DASHBOARD_CAPABILITIES: readonly DashboardCapability[] = [
   unsupportedCapability('stock-selection', 'selection-liquidity-trend-board', 'The stock-selection renderer does not implement the full liquidity/trend exclusion workflow.'),
   unsupportedCapability('sector-rotation', 'sector-rotation-radar', 'The generic comparison renderer does not implement sector proxy semantics or stage-ranking changes.'),
   unsupportedCapability('sector-rotation', 'sector-capital-flow-board', 'No trusted capital-flow renderer is implemented.'),
-  unsupportedCapability('strategy-research', 'strategy-hypothesis-canvas', 'The base renderer does not implement a strategy hypothesis canvas.'),
+  supportedCapability(
+    'strategy-research',
+    'strategy-hypothesis-canvas',
+    'stock-selection',
+    STRATEGY_HYPOTHESIS_COMPONENTS,
+    [
+      prerequisite('comparison_symbol_coverage', 'assets and comparison.rows cover the same two or more research candidates', hasComparisonCoverage),
+      prerequisite('comparison_chart_metrics', 'every candidate contains return, drawdown, and volatility metrics', hasComparisonChartMetrics),
+      prerequisite('selection_ranking', 'selectionRanking ranks every research candidate with an auditable score', hasSelectionRanking),
+      prerequisite('strategy_research_contract', 'screener parameters and an explicit risk limitation are present', hasStrategyResearchContract),
+      prerequisite('asset_source_evidence', 'every candidate declares its real data source', hasAssetSourceEvidence),
+    ],
+  ),
   unsupportedCapability('strategy-research', 'strategy-signal-lab', 'The base renderer does not implement auditable signal-rule editing and overlays.'),
   supportedCapability(
     'backtest-review',
@@ -602,7 +720,18 @@ const DASHBOARD_CAPABILITIES: readonly DashboardCapability[] = [
     ],
   ),
   unsupportedCapability('backtest-review', 'backtest-trade-forensics', 'The base renderer does not implement return distribution or maximum-loss forensics.'),
-  unsupportedCapability('holding-analysis', 'portfolio-risk-console', 'The holding renderer does not yet bind authoritative correlation and liquidity risk inputs.'),
+  supportedCapability(
+    'holding-analysis',
+    'portfolio-risk-console',
+    'holding-analysis',
+    PORTFOLIO_RISK_COMPONENTS,
+    [
+      prerequisite('portfolio_holding_coverage', 'holdings and assets cover the same two or more symbols with weights summing to 100%', hasPortfolioRiskCoverage),
+      prerequisite('comparison_chart_metrics', 'every holding contains return, drawdown, and volatility metrics', hasComparisonChartMetrics),
+      prerequisite('portfolio_risk_evidence', 'concentration, correlation, liquidity, and explicit position-data gaps cover the portfolio', hasPortfolioRiskEvidence),
+      prerequisite('asset_source_evidence', 'every holding asset declares its real data source', hasAssetSourceEvidence),
+    ],
+  ),
   unsupportedCapability('holding-analysis', 'portfolio-rebalance-plan', 'The holding renderer does not implement constrained rebalance scenarios.'),
 ] as const;
 

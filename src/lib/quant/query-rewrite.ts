@@ -162,6 +162,7 @@ export interface QuantQuerySemanticRewriteInput {
   normalizedQuery: string;
   trigger: QuantQueryRewriteLlmTrigger;
   requestedModel?: string | null;
+  projectId?: string;
   signal: AbortSignal;
 }
 
@@ -183,6 +184,8 @@ export type QuantQuerySemanticRewriteOutcome =
       provider?: string;
       model?: string;
       retryable: boolean;
+      /** Bounded, payload-free feedback used only to repair a subsequent LLM tool call. */
+      repairInstruction?: string;
     };
 
 export type QuantQuerySemanticRewriter = (
@@ -196,6 +199,7 @@ export interface RewriteQuantQueryOptions {
   llmTimeoutMs?: number;
   requestedModel?: string | null;
   semanticRewriter?: QuantQuerySemanticRewriter;
+  projectId?: string;
 }
 
 const SYMBOL_CODE_PATTERN = /^(?:6|0|3|5)\d{5}$/;
@@ -678,6 +682,7 @@ export async function rewriteQuantQuery(
       normalizedQuery,
       trigger: 'primary',
       requestedModel: options.requestedModel,
+      projectId: options.projectId,
     },
     rewriter: semanticRewriter,
     timeoutMs: configuredLlmTimeoutMs(options.llmTimeoutMs, options.requestedModel),

@@ -452,6 +452,50 @@ function getConclusion(data: JsonRecord | null): string[] {
   return asArray(conclusion?.summary).map(String).filter(Boolean);
 }
 
+function StrategyResearchProtocol({ data }: { data: JsonRecord | null }) {
+  const screener = asRecord(data?.screener);
+  const candidates = asArray(screener?.candidates)
+    .map(asRecord)
+    .filter((item): item is JsonRecord => Boolean(item));
+  const signalRules = Array.from(new Set(
+    candidates.flatMap((candidate) => asArray(candidate.signals).map(String)),
+  )).slice(0, 8);
+  const warnings = asArray(data?.warnings).map(String).filter(Boolean);
+  const conclusion = asRecord(data?.conclusion);
+  const hypothesis = candidates.length > 0
+    ? '在真实股票池中观察量价、趋势、回撤与流动性共同改善的候选；当前结果只形成待验证假设。'
+    : '当前筛选未形成候选，保留原始规则与空结果，不降低安全门槛。';
+  return (
+    <section className="strategy-protocol" aria-label="策略假设与验证协议">
+      <article className="selection-panel">
+        <div className="panel-heading"><div><h2>策略假设</h2><p>先定义可证伪假设，再展示候选</p></div><span>未回测</span></div>
+        <p>{hypothesis}</p>
+      </article>
+      <article className="selection-panel">
+        <div className="panel-heading"><div><h2>信号规则</h2><p>来自本次真实筛选结果的可审计信号</p></div><span>{signalRules.length} 条</span></div>
+        <ul>{(signalRules.length ? signalRules : ['没有候选信号通过当前规则']).map((rule, index) => <li key={index}>{rule}</li>)}</ul>
+      </article>
+      <article className="selection-panel">
+        <div className="panel-heading"><div><h2>样本参数</h2><p>保持筛选口径和覆盖范围可复核</p></div></div>
+        <dl className="strategy-parameter-list">
+          <div><dt>股票池</dt><dd>{String(screener?.universe_id ?? '待确认')}</dd></div>
+          <div><dt>模式</dt><dd>{String(screener?.mode ?? '待确认')}</dd></div>
+          <div><dt>交易日</dt><dd>{String(screener?.trade_date ?? data?.as_of ?? '-')}</dd></div>
+          <div><dt>扫描/入选</dt><dd>{formatNumber(screener?.scanned_symbols, 0)} / {formatNumber(screener?.total_candidates ?? candidates.length, 0)}</dd></div>
+        </dl>
+      </article>
+      <article className="selection-panel">
+        <div className="panel-heading"><div><h2>待验证清单与数据限制</h2><p>没有回测或缺失的数据不会包装成结论</p></div></div>
+        <ul>
+          <li>尚未完成独立样本外回测、交易成本和参数敏感性检验。</li>
+          <li>{String(conclusion?.risk_disclaimer ?? '当前结果不构成投资建议、收益承诺或即时交易指令。')}</li>
+          {warnings.slice(0, 4).map((warning, index) => <li key={'warning-' + index}>{warning}</li>)}
+        </ul>
+      </article>
+    </section>
+  );
+}
+
 function pickMetric(row: JsonRecord, fields: string[]): number | null {
   for (const field of fields) {
     const value = numeric(row[field]);
@@ -640,20 +684,22 @@ export default async function Home() {
   const leaders = asRecord(asRecord(data?.comparison)?.leaders);
   const screener = asRecord(data?.screener);
   const warnings = asArray(data?.warnings).map(String).filter(Boolean);
+  const visualization = asRecord(data?.visualization);
+  const isStrategyResearch = String(visualization?.template_id ?? visualization?.templateId ?? '') === 'strategy-research';
   const noCandidates = data?.status === 'no_candidates' && assets.length === 0 && rows.length === 0;
   const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
   const topRanking = rankingRows[0] ?? rows.slice().sort((left, right) => (numeric(right.composite_score) ?? -1) - (numeric(left.composite_score) ?? -1))[0];
 
   return (
-    <main className="selection-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template="stock-selection">
+    <main className="selection-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE} data-template={isStrategyResearch ? 'strategy-research' : 'stock-selection'}>
       <header className="selection-header">
         <div>
-          <p className="eyebrow">QuantPilot 多标的对比</p>
-          <h1>{topRanking ? String(topRanking.name ?? topRanking.symbol) + ' 暂列研究优先级第一' : '多标的研究看板'}</h1>
+          <p className="eyebrow">{isStrategyResearch ? 'QuantPilot 策略研究' : 'QuantPilot 多标的对比'}</p>
+          <h1>{isStrategyResearch ? '可证伪的候选筛选研究' : topRanking ? String(topRanking.name ?? topRanking.symbol) + ' 暂列研究优先级第一' : '多标的研究看板'}</h1>
           <p>覆盖 {requestedSymbols.length || rows.length} 个标的：{requestedSymbols.join('、') || rows.map((row) => String(row.symbol)).join('、')}。以下排序仅用于研究，不构成交易指令。</p>
         </div>
         <div className="header-meta">
-          <span>研究用途：多标的对比</span>
+          <span>研究用途：{isStrategyResearch ? '假设与候选验证' : '多标的对比'}</span>
           <span>数据口径：真实数据与信源证据</span>
         </div>
       </header>
@@ -684,6 +730,8 @@ export default async function Home() {
       </dl>
 
       <ComparisonTable rows={rows} />
+
+      {isStrategyResearch ? <StrategyResearchProtocol data={data} /> : null}
 
       <section className="chart-grid core-chart-grid">
         <BarCompare rows={rows} fields={['period_return', 'period_return_pct', 'return_120d_pct', 'return_120d']} title="收益对比主图" subtitle="统一样本窗口下的累计收益" />
@@ -1034,6 +1082,51 @@ ${comparisonWorkbenchCss()}
 export function stockSelectionCss() {
   return `
 
+.strategy-protocol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.strategy-protocol > *:nth-child(even) {
+  border-left: 1px solid var(--line);
+}
+
+.strategy-protocol p,
+.strategy-protocol li {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.strategy-protocol ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.strategy-parameter-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--line-light);
+}
+
+.strategy-parameter-list > div {
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.strategy-parameter-list dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.strategy-parameter-list dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
 .selection-empty-result {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
@@ -1069,6 +1162,17 @@ export function stockSelectionCss() {
   background: var(--bg);
   color: var(--ink);
   padding: 28px;
+}
+
+@media (max-width: 800px) {
+  .strategy-protocol,
+  .strategy-parameter-list {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-protocol > *:nth-child(even) {
+    border-left: 0;
+  }
 }
 
 .selection-header {
@@ -1836,6 +1940,76 @@ function ComparisonMetricsPanel({ rows }: { rows: JsonRecord[] }) {
   );
 }
 
+function CorrelationLiquidityRiskPanel({ data }: { data: JsonRecord | null }) {
+  const correlation = asRecord(data?.correlation);
+  const pairs = asArray(correlation?.top_pairs)
+    .map(asRecord)
+    .filter((item): item is JsonRecord => Boolean(item));
+  const liquidity = asRecord(data?.liquidity);
+  const liquidityRows = asArray(liquidity?.rows)
+    .map(asRecord)
+    .filter((item): item is JsonRecord => Boolean(item));
+  if (pairs.length === 0 && liquidityRows.length === 0) return null;
+  return (
+    <section className="holding-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>相关性与流动性风险</h2>
+          <p>相关性基于对齐收益率；流动性为成交额和 Amihud 代理，不等同极端行情可成交性。</p>
+        </div>
+        <span>风险证据</span>
+      </div>
+      <div className="holding-risk-evidence-grid">
+        <div className="correlation-list">
+          {pairs.slice(0, 6).map((pair, index) => {
+            const value = numeric(pair.correlation);
+            return (
+              <div className="correlation-row" key={String(pair.left ?? index) + String(pair.right ?? '')}>
+                <div><strong>{String(pair.left ?? '-')} / {String(pair.right ?? '-')}</strong><small>重合样本 {formatNumber(pair.overlap, 0)}</small></div>
+                <div className="correlation-meter"><span style={{ width: Math.max(4, Math.abs(value ?? 0) * 100) + '%' }} className={(value ?? 0) >= 0 ? 'corr-positive' : 'corr-negative'} /></div>
+                <em>{formatNumber(value, 4)}</em>
+              </div>
+            );
+          })}
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>标的</th><th>20 日均额</th><th>换手代理</th><th>流动性</th></tr></thead>
+            <tbody>
+              {liquidityRows.map((row, index) => (
+                <tr key={String(row.symbol ?? index)}>
+                  <td><strong>{String(row.name ?? row.symbol ?? '-')}</strong><small>{String(row.symbol ?? '-')}</small></td>
+                  <td>{formatMoney(row.avg_amount_20d)}</td>
+                  <td>{formatPercent(row.turnover_proxy_pct)}</td>
+                  <td>{String(row.liquidity_score ?? '-')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PortfolioDataGapsPanel({ portfolio }: { portfolio: JsonRecord | null }) {
+  const gaps = asArray(portfolio?.data_gaps).map(String).filter(Boolean);
+  const warnings = asArray(portfolio?.warnings).map(String).filter(Boolean);
+  if (gaps.length === 0 && warnings.length === 0) return null;
+  return (
+    <section className="holding-panel portfolio-gap-panel">
+      <div className="panel-heading">
+        <div><h2>数据缺口与能力边界</h2><p>缺失的真实持仓字段不会用行情代理伪装为已确认数据</p></div>
+        <span>{gaps.length} 项缺口</span>
+      </div>
+      <div className="portfolio-gap-grid">
+        {gaps.map((gap) => <span key={gap}>{gap}</span>)}
+      </div>
+      <ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+    </section>
+  );
+}
+
 function RiskPanel({ risk }: { risk: JsonRecord | null }) {
   if (!risk) return null;
   const var95 = numeric(risk?.var_95_pct ?? risk?.VaR_95);
@@ -1897,7 +2071,7 @@ export default async function Home() {
         <div className="header-meta">
           <span>持仓 {String(portfolio?.holdings_count ?? holdings.length)} 只</span>
           <span>覆盖 {requestedSymbols.length || assets.length} 个标的</span>
-          <span>数据时间 {String(portfolio?.as_of ?? holdings[0]?.as_of ?? '-')}</span>
+          <span>数据截至 {String(portfolio?.as_of ?? holdings[0]?.as_of ?? '-')}</span>
         </div>
       </header>
 
@@ -1917,6 +2091,10 @@ export default async function Home() {
 
       <ComparisonMetricsPanel rows={comparisonRows} />
 
+      <CorrelationLiquidityRiskPanel data={data} />
+
+      <PortfolioDataGapsPanel portfolio={asRecord(data?.portfolio)} />
+
       <RiskPanel risk={risk} />
     </main>
   );
@@ -1926,6 +2104,36 @@ export default async function Home() {
 
 export function holdingAnalysisCss() {
   return `
+
+.holding-risk-evidence-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.portfolio-gap-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.portfolio-gap-grid span {
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--gold) 36%, var(--line));
+  border-radius: 999px;
+  color: #805600;
+  background: var(--amber-bg);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.portfolio-gap-panel ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
 
 .holding-shell {
   min-height: 100vh;
@@ -1941,6 +2149,12 @@ export function holdingAnalysisCss() {
   gap: 24px;
   padding: 20px 0 16px;
   border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 800px) {
+  .holding-risk-evidence-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .holding-header h1 {
