@@ -40,4 +40,18 @@ describe('generated project sandbox', () => {
       'build',
     ]));
   });
+
+  it('requires the paired explicit override before running a trusted command directly', async () => {
+    const projectPath = path.resolve('data/projects');
+    process.env.QUANTPILOT_GENERATED_SANDBOX = '0';
+
+    await expect(
+      wrapGeneratedProjectCommand(projectPath, 'npm', ['run', 'build']),
+    ).rejects.toThrow('explicit unsafe override');
+
+    process.env.QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE = '1';
+    await expect(
+      wrapGeneratedProjectCommand(projectPath, 'npm', ['run', 'build']),
+    ).resolves.toEqual({ command: 'npm', args: ['run', 'build'] });
+  });
 });

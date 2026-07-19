@@ -209,6 +209,12 @@ fixture 缺失或结构不合法会由
 `check:eval-datasets` 直接阻断；真实模型的语义理解、工具调用和失败关闭仍只由
 `benchmark:quant:e2e` 与集成体验集验真。
 
+GitHub 托管 Runner 不允许 `unshare --map-root-user` 写入 `uid_map`。因此仅该
+确定性 contract job 同时设置 `QUANTPILOT_GENERATED_SANDBOX=0` 与
+`QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE=1`，执行通过产物策略检查的仓库内
+标准模板。单独设置任一变量都会失败；生产生成和真实 E2E 不设置这两个变量，
+继续要求 Linux user/mount/PID namespace，不能把 CI 兼容配置带入部署环境。
+
 相关检查：
 
 ```bash

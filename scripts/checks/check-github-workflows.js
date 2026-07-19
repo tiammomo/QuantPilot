@@ -56,6 +56,12 @@ if (!/node scripts\/evals\/run-contract-market-fixture\.js/.test(quality)) {
 if (/npm run dev:market/.test(quality)) {
   failures.push('.github/workflows/quality.yml: deterministic contract evaluation must not depend on public market APIs');
 }
+if (
+  !/QUANTPILOT_GENERATED_SANDBOX:\s*0/.test(quality) ||
+  !/QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE:\s*1/.test(quality)
+) {
+  failures.push('.github/workflows/quality.yml: trusted contract templates must explicitly opt out of unavailable runner namespaces');
+}
 
 const nightlyPath = path.join(workflowDir, 'eval-nightly.yml');
 const nightly = fs.readFileSync(nightlyPath, 'utf8');
