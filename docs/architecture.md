@@ -1,16 +1,21 @@
 # 架构总览
 
-QuantPilot 的核心链路是：用户提出量化研究问题，主工作台调度 Agent Runtime，Agent 通过核心 skills 规划任务、获取真实数据、生成工作空间，再由平台执行验证、视觉检查、产物契约检查和评测回归。
+QuantPilot 的核心链路是：用户提出量化研究问题，平台先用所选 LLM 生成 Query Rewrite schema v4 合同并通过独立 Resolver 核验标的，再形成 run plan、获取真实数据和证据；MoAgent 根据受控合同生成工作空间，最后由平台执行验证、视觉检查、产物契约检查和评测回归。
 
 ```mermaid
 flowchart LR
   U[用户问题/图片] --> W[Next.js 工作台 :3000]
+  W --> Q[LLM-first Query Rewrite v4]
+  Q --> MP[ModelPort / Qwen 或受控直连]
+  Q --> M[证券 Resolver / 市场数据 :8000]
+  Q --> G[MoAgent Mission Graph]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
-  W --> G[MoAgent Mission Graph]
   G --> R[MoAgent Runtime]
   G --> DB
   R --> S[QuantPilot Skills]
-  W --> M[市场数据后端 :8000]
+  W --> K[Agent Knowledge Platform / AKEP]
+  R --> MP
+  W --> M
   W --> SC[服务目录 config/service-catalog.json]
   SC --> W
   SC --> M
@@ -43,27 +48,30 @@ flowchart LR
 ## 主链路
 
 1. 用户输入问题，必要时上传截图。
-2. Agent 使用 `run-planner` 判断意图是否清晰。
-3. 信息不足时进入澄清，用户补充后自动承接上一轮问题。
-4. 信息完整后生成 `.quantpilot/run_plan.json`。
-5. 平台根据 run plan 调用 `8000` 后端获取真实数据。
-6. 数据、来源和质量报告写入工作空间。
-7. Agent 使用可视化 skill 生成 Next.js 候选看板，并以 `candidate_complete` 结束本次物理执行。
-8. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
-9. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
-10. 只有 accepted receipt 在数据库事务中关联到 Mission 后，请求才进入 `completed`；工作空间健康、生成观测和评测平台继续提供运行后的治理入口。
+2. 平台使用项目当前模型生成 `.quantpilot/query_rewrite.json`；模型只负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
+3. 模型未配置、超时、失败或输出缺少原文字面证据时返回 `llm_unavailable` 并停止；不执行关键词降级。
+4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后生成 `.quantpilot/run_plan.json`。
+5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据。
+6. 平台根据 run plan 调用 `8000` 后端获取真实数据。
+7. 数据、来源和质量报告写入工作空间。
+8. Agent 通过 ModelPort 使用默认 Qwen，并结合 Skills、真实数据和有界知识 capsule 生成 Next.js 候选看板，以 `candidate_complete` 结束本次物理执行。
+9. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
+10. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
+11. 只有 accepted receipt 在数据库事务中关联到 Mission 后，请求才进入 `completed`；此后才为实际进入 Agent 的 Citation 记录 AKEP Usage。
 
 ## 运行时
 
 | 内部执行器 | 模型 | 接口边界 | 用途 |
 | --- | --- | --- | --- |
-| `moagent` | `deepseek-v4-flash` | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 分析、生成与评测 |
+| `moagent` | `local_qwen:qwen3.5-9b-q5km`（默认） | 本机 `http://127.0.0.1:38082/v1/chat/completions` | 分析、生成与评测 |
+| `moagent` | `deepseek:deepseek-v4-flash`（日常可选） | QuantPilot 调 ModelPort OpenAI-compatible `/chat/completions`；ModelPort 调 DeepSeek Anthropic `/v1/messages` | 分析与生成 |
+| `moagent` | `deepseek-v4-flash`（备用直连） | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 绕过 ModelPort 的部署/CI 备用链路 |
 
-MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。平台不接受自定义 Base URL、备用模型或第三方中转配置。运行前由 Context Manager 控制输入预算；物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。数据库唯一 active Mission slot 保证同一项目不会被两个合规入口同时创建非终态 generation。
+MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。数据库唯一 active Mission slot 保证同一项目不会被两个合规入口同时创建非终态 generation。
 
 模型和 CLI 的注册入口：
 
-- `src/lib/constants/cliModels.ts`
+- `src/lib/constants/models.ts`
 - `src/lib/agent/`
 - `src/lib/services/cli/moagent.ts`
 
@@ -221,7 +229,7 @@ Go/Rust 的合理引入场景：
 npm run dev
 ```
 
-启动器默认优先使用 `3000`，占用时扫描 `3000-3099`；生成工作空间预览使用 `4100-4999`；Loki 使用 `3100`，Grafana 使用 `3001`。这几个端口池分别服务不同组件，不要混用。
+启动器默认优先使用 `3000`，占用时扫描 `3000-3099`；生成工作空间预览使用 `4100-4999`；Loki/Grafana 容器端口分别为 `3100`/`3000`，本地默认映射到宿主机 `33100`/`33012`。这些端口池分别服务不同组件，不要混用。
 
 `npm run build` 默认跳过服务端 route 的 per-route output tracing，避免在 `.git`、`.next`、`data/projects` 等目录上做耗时追踪。需要完整 standalone 输出时使用：
 

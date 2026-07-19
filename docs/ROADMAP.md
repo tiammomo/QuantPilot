@@ -14,6 +14,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 - 数据能力已经有 K 线、覆盖率、ClickHouse 短线筛选，但财报质量、真实资金流、行业中性化和日频因子批处理仍需补齐。
 - 投研日报已经有观察池、报告契约、本地证据采样和企业微信/飞书/钉钉/Discord webhook adapter，后续要接新闻舆情源、LLM 摘要和定时 worker。
 - 后台队列和长任务目前还没有完全 worker 化，长期运行、暂停恢复和失败重试仍需要继续收敛。
+- 本地 Qwen 与 DeepSeek Anthropic 上游已通过 ModelPort 的限定模型发现、鉴权、流式工具调用和续写验收；Query Rewrite 已升级为 schema v4 LLM-first 合同，保持“大位科技”等原文实体，并在模型不可用时停止规划/预取，不再走关键词语义降级。DeepSeek 上游 Key 已收口到 ModelPort，管理台可只读查询官方余额，QuantPilot 仅持有受限客户端 Key。Evolvable User Memory 已通过隔离 subject 的写入、召回、项目隔离、提示注入和 Outcome 闭环。当前本地长期使用链路已打通，但 Memory 的 processing grant、抑制/删除、持久审计和可信 JWT 仍是生产阻塞项。
 
 ## 精炼优先级快照
 
@@ -21,20 +22,20 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 
 | 类型 | 优先对象 | 当前问题 | 精炼方式 |
 | --- | --- | --- | --- |
-| 文档入口 | `README.md`、`docs/README.md`、`docs/START_HERE.md` | 容易重复导航 | 根 README 保留少量入口，docs README 做完整索引，START_HERE 做角色化导读 |
+| 文档入口 | `README.md`、`docs/README.md` | 容易重复导航 | 根 README 保留启动入口，docs README 同时承担角色导读和完整索引 |
 | 文档路线 | 各专题文档里的“后续建议” | 后续事项散落，读者不知道优先级 | 集中到本文，专题文档只保留本主题强相关下一步 |
 | 生成脚手架 | `scaffold.ts`、`scaffold-base-templates.ts`、`scaffold-dashboard-templates.ts` | 基础模板和三类专用看板模板均已迁出并加入真实 Next build 门禁，writer 主文件从 5715 行降至约 685 行 | 继续拆 workspace writer、dependency planner、repair adapter，并压缩模板内部重复 helper |
 | 聊天页面 | `src/app/[project_id]/chat/page.tsx`、`src/components/chat/ChatLog.tsx` | 页面状态、消息渲染、运行时控制和附件交互耦合 | 拆 hooks、message timeline、runtime controls、files panel |
 | 验证链路 | `src/lib/quant/validation.ts` | build、HTTP、数据、证据、截图和 stale report 检查混杂 | 拆 validators、report writer、repair summary |
 | 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | response mappers 已迁出并有单测，API client、dashboard 编排和部分页面交互仍集中 | 继续拆 market client、dashboard service、hooks、dialogs |
-| 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
+| 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，当前约 1071 行，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
 | 市场数据后端 | `models.py`、`api.py`、`repositories/universes.py` | 模型和兼容入口偏大，universe repository 同时处理读取、写入、清洗 | 按 contract domains、legacy routes、membership hygiene 拆小 |
 
 ## P0：先让项目更容易被理解和发布
 
 | 工作 | 为什么重要 | 验收标准 |
 | --- | --- | --- |
-| 文档入口收敛 | `docs/` 文档很多，缺少角色化导读会让人迷路 | `README.md` 指向 `docs/START_HERE.md`；`docs/README.md` 和 learning 路径能回答“我该读哪篇” |
+| 文档入口收敛 | `docs/` 文档很多，重复导读会让规则分叉 | `README.md` 指向 `docs/README.md`；同一页和 learning 路径能回答“我该读哪篇” |
 | 发布前检查脚本 | 已新增确定性 `release:check` 与包含依赖审计/运行态诊断的 `release:check:full` | 后续继续把关键 API、页面 smoke 和 workspace 健康摘要纳入运行态 profile |
 | 文档路径检查 | 已新增 `check:docs`，当前覆盖根 README、docs、market-data 与 SQL 文档 | 继续扩展锚点校验和已知旧路径规则 |
 | 工作空间健康分层 | 历史 workspace 失败不应和主平台故障混在一起 | 已在运行治理中心增加可演示/有风险/待修复/归档候选分层，后续接归档动作和批量修复 |
@@ -42,10 +43,12 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 生成生命周期准确性 | `needs_clarification`、排队、运行、修复不能被统计成失败 | 健康度按生命周期分层，仅终态任务进入交付成功率；等待输入给出明确下一步 |
 | 生成任务持久化 | 规划和预取也可能并发覆盖，长任务不能依赖请求进程 | 从请求入队开始串行执行，支持 request/run 级取消、幂等、恢复和终态 CAS |
 | 评测真实性分层 | 模板契约通过不等于模型生成通过 | contract 与 DeepSeek E2E 报告明确分开，夜间 E2E 绑定 commit、prompt、Skills 和数据证据 |
+| 三方集成契约门禁 | Qwen、ModelPort、Memory 独立升级后不能靠人工聊天猜兼容性 | `npm run check:integrations` 只读验收稳定通过；契约升级后显式运行隔离合成闭环；不共享源码或数据库 |
+| Query Rewrite 单一语义入口 | 关键词旁路会让模型配置正确时仍执行错误标的/周期 | schema v4、Provider 边界检查和单测共同保证 LLM-first；Resolver 只核验身份；模型失败时不进入 run plan/预取 |
 
 对应文档：
 
-- [文档导读](START_HERE.md)
+- [文档总览与角色路径](README.md)
 - [文档写作风格指南](documentation-style-guide.md)
 - [运行手册](operations-runbook.md)
 - [运行治理中心使用与评分指南](ops-platform-guide.md)
@@ -72,7 +75,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | --- | --- | --- |
 | 策略平台 hooks 和 dialogs 拆分 | 主 client 仍承载部分弹窗和扫描编排 | `StrategyPlatformClient` 只负责顶层状态和视图切换，补数、K 线详情、扫描任务各有 hook/service |
 | 策略数据 service 拆分 | `strategy-mappers.ts` 已迁出并补齐纯函数单测，`strategies.ts` 仍是稳定 public surface | 继续拆出 market client、dashboard service，保留现有导出兼容 |
-| eval runtime 拆分 | report/database mappers 已迁入 `runtime-mappers.ts` 并补单测，runtime 已降至约 955 行 | 继续拆出 `runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
+| eval runtime 拆分 | report/database mappers 已迁入 `runtime-mappers.ts` 并补单测，runtime 当前约 1071 行 | 继续拆出 `runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
 | 模块边界预算收紧 | 当前大文件预算允许过渡，但不能长期放宽 | `npm run check:module-boundaries` 保持通过，大文件目标线逐步下降 |
 
 对应文档：

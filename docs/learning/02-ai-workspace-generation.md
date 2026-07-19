@@ -15,7 +15,8 @@ QuantPilot 生成的不是一张静态截图，而是一个独立 Next.js 工作
 | 概念 | 含义 |
 | --- | --- |
 | 工作空间 | `data/projects/project-*` 下的一份生成项目源码和产物 |
-| run plan | Agent 对用户问题的结构化理解，包括目标、页面类型、需要哪些数据和验证重点 |
+| query rewrite | 所选 LLM 生成的 schema v4 语义合同；标的由 Resolver 复核，失败时停止下游执行 |
+| run plan | 平台基于 query rewrite 形成的任务计划，包括标准代码、页面类型、需要哪些数据和验证重点 |
 | data file | 最终页面消费的数据文件，通常是 `data_file/final/dashboard-data.json` |
 | evidence | 数据来源、质量、限制和可追溯材料，避免页面只展示结果却没有依据 |
 | validation | 自动检查构建、HTTP 预览、数据文件、证据文件和契约是否满足要求 |
@@ -28,8 +29,11 @@ QuantPilot 生成的不是一张静态截图，而是一个独立 Next.js 工作
 ```mermaid
 flowchart LR
   A[用户问题 / 图片] --> B[金融分析入口与模型选择]
-  B --> C[Agent 生成 run_plan]
-  C --> D[平台预取真实数据]
+  B --> Q[LLM 生成 query_rewrite v4]
+  Q -->|模型/证据无效| X[停止并提示重试]
+  Q --> R[Resolver 核验证券标的]
+  R --> C[平台生成 run_plan]
+  C --> D[平台按 run_plan 预取真实数据]
   D --> E[写入 data_file 与 evidence]
   E --> F[Skills 生成 Next.js 看板]
   F --> G[自动验证 / 视觉检查 / 产物契约]
@@ -47,6 +51,7 @@ flowchart LR
 
 | 文件 | 用途 |
 | --- | --- |
+| `.quantpilot/query_rewrite.json` | LLM-first 语义、Resolver 结果、执行策略、安全状态和问题码 |
 | `.quantpilot/run_plan.json` | 任务计划、数据需求、预期页面类型 |
 | `.quantpilot/events.jsonl` | 生成过程事件流 |
 | `.quantpilot/generation-state.json` | 当前生成状态 |
@@ -66,6 +71,8 @@ flowchart LR
 - `data_file/final/dashboard-data.json`：页面要画什么、表格展示什么、指标怎么算。
 - `evidence/*.json`：这些数据从哪里来、什么时候获取、缺哪些字段、哪些结论不能过度解释。
 
+信源端点、技术文件路径和逐渠道明细属于后台审计信息，默认不在用户看板中单独渲染。看板只呈现研究所需的数据更新时间、报告期、样本口径和质量/缺失提示；验证器仍必须检查 `evidence/sources.json` 与 `evidence/data_quality.json`，因此隐藏展示不会削弱可追溯性。
+
 例如一个股票诊断页可以展示 MA5、MA20、换手率和成交额，但 evidence 需要说明这些字段来自本地 `quant.stock_bars`、Baostock 补数或东方财富实时接口。如果换手率缺失，页面应该提示“该字段缺失”，而不是用 `0` 或 `-` 伪装成真实值。
 
 ## 生成页面的核心原则
@@ -74,7 +81,8 @@ flowchart LR
 - 数据不足时要展示质量说明，不要伪造指标。
 - 可视化应根据数据形态选择模板，不应所有任务套同一个页面。
 - 移动端和桌面端都要可读，不能横向溢出。
-- 验证失败后只修复当前生成工作空间，不改平台代码和数据源。
+- 指标带应按实际指标数量均衡分栏；桌面端不能出现固定列数造成的孤立末项和大面积空白，移动端奇数末项应跨满整行。
+- 单次任务的自动修复只修改当前生成工作空间，不越权改平台代码和数据源；若同类缺陷能在多个工作空间复现，则应由平台工程把规则修到生成模板、`dashboard-visualization` skill 和视觉验证器，让后续工作空间共同受益。
 
 ## 验证到底在保护什么
 
@@ -104,12 +112,13 @@ flowchart LR
 
 排查一个真实工作空间时，建议按这个顺序看：
 
-1. `.quantpilot/run_plan.json`：确认 Agent 有没有理解错问题。
-2. `evidence/sources.json`：确认数据源是否真实、是否走了降级。
-3. `data_file/final/dashboard-data.json`：确认页面能用的数据是否完整。
-4. `.quantpilot/validation.json`：确认失败项是代码、数据还是契约。
-5. `.quantpilot/visual-validation.json`：确认截图是否有错误页、空白或布局问题。
-6. `/ops-platform`：查看生成链路事件、日志和当前工作空间健康。
+1. `.quantpilot/query_rewrite.json`：确认模型是否应用、标的是否由 Resolver 核验、是否需要重试或澄清。
+2. `.quantpilot/run_plan.json`：确认平台是否忠实消费标的、周期、能力和输出意图。
+3. `evidence/sources.json`：确认数据源是否真实、是否走了降级。
+4. `data_file/final/dashboard-data.json`：确认页面能用的数据是否完整。
+5. `.quantpilot/validation.json`：确认失败项是代码、数据还是契约。
+6. `.quantpilot/visual-validation.json`：确认截图是否有错误页、空白或布局问题。
+7. `/ops-platform`：查看生成链路事件、日志和当前工作空间健康。
 
 ## 可选：用 gpt-image2 辅助流程图
 

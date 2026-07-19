@@ -12,8 +12,8 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `ui-kit` | 无领域知识的基础 UI | `src/components/ui/**` |
 | `product-shell` | 首页、导航、布局、主题和平台入口 | `src/app/page.tsx`、`src/components/layout/**` |
 | `platform-core` | 项目、设置、Token、服务目录和外部集成 | `src/lib/platform/**`、核心 `src/lib/services/**` |
-| `agent-runtime` | DeepSeek V4 Flash 官方直连、流式消息、预览和技能注入 | `src/lib/services/cli/**`、`src/app/api/chat/**` |
-| `quant-core` | 量化能力、策略、证据、验证、数据预取和技能治理 | `src/lib/quant/**`、策略平台/业务知识中心 |
+| `agent-runtime` | ModelPort Qwen 默认运行时、ModelPort DeepSeek 日常运行时、DeepSeek 可选官方直连、流式消息、预览和技能注入 | `src/lib/services/cli/**`、`src/app/api/chat/**` |
+| `quant-core` | LLM-first Query Rewrite、Resolver 身份核验、运行规划、量化能力、策略、证据、验证、数据预取和技能治理 | `src/lib/quant/**`、策略平台/业务知识中心 |
 | `eval-core` | 评测集、用例、运行、报告和 CI 质量门 | `src/lib/eval/**`、评测页面、评测脚本 |
 | `ops-core` | Docker、服务健康、日志和运维面板 | `src/lib/ops/**`、运行治理中心、观测配置 |
 | `market-data-backend` | FastAPI、行情、回测、TimescaleDB、Redis、ClickHouse | `services/market-data/**` |
@@ -34,7 +34,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `services/market-data/src/quantpilot_market_data/database.py` | 已收敛为兼容门面，只导出旧 public surface | 新增 SQL 禁止写入该文件，继续由 repositories 承接 |
 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | 已拆出 helpers、金融知识、股票池、K 线详情、板块资金、因子目录和基础组件视图；主 client 仍承载弹窗和部分扫描编排 | 继续拆成 dialogs、hooks、tables |
 | `src/lib/quant/strategies.ts` | 已拆出 `strategy-types`、`strategy-catalog`、`strategy-scan-repository`、`strategy-readiness` 和 `strategy-mappers`，公共入口从 1787 行降至约 1140 行 | 继续拆出 `strategy-market-client.ts` 和 `strategy-dashboard-service.ts` |
-| `src/lib/eval/runtime.ts` | cases/sets、paths、runtime-utils 和 report/database mappers 已拆出，runtime 从约 1367 行降至约 955 行 | 继续拆成 `src/lib/eval/runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
+| `src/lib/eval/runtime.ts` | cases/sets、paths、runtime-utils 和 report/database mappers 已拆出，runtime 当前约 1071 行 | 继续拆成 `src/lib/eval/runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
 
 这些债务暂时以 `largeFileBudgets` 形式进入质量门。超过硬上限会失败，超过目标线会警告。
 

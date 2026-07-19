@@ -32,11 +32,10 @@ QuantPilot 支持降级模式：没有启动市场数据后端或 Loki 时，页
 
 ```bash
 npm install
-cp .env.example .env
-cp .env.example .env.local
+npm run ensure:env
 ```
 
-需要把 `.env` 或 `.env.local` 里的模型 token 替换成自己的值。真实密钥只放本地，不提交到 Git。
+`ensure:env` 会创建或维护忽略的 `.env` 与 `.env.local`。不要把完整 `.env.example` 复制到 `.env.local`；只在后者添加当前模式所需的 `MODELPORT_API_KEY`，或者官方直连的 `DEEPSEEK_API_KEY`。不启用 Memory 时再添加 `QUANTPILOT_MEMORY_ENABLED=0`。完整组合与文件优先级见[配置、模型接入与可选组件指南](../configuration.md)。真实密钥只放本地或 Secret Manager，不提交到 Git。
 
 ## 2. 启动基础设施
 
@@ -108,7 +107,7 @@ npm run dev
 http://localhost:3000
 ```
 
-如果 `3000` 被占用，启动器会临时选择 `3000-3099` 中的可用端口。主前端仍应优先保持在 `3000`：生成项目预览从 `4100` 往后分配端口，`3100` 留给 Loki，`3001` 留给 Grafana。
+如果 `3000` 被占用，启动器会临时选择 `3000-3099` 中的可用端口。主前端仍应优先保持在 `3000`：生成项目预览从 `4100` 往后分配端口；Loki/Grafana 容器端口 `3100`/`3000` 默认映射到宿主机 `33100`/`33012`。
 
 后台启动时建议把日志放到 `tmp/runtime/`，这样 Alloy 和运行治理中心都能采集：
 
@@ -158,7 +157,7 @@ uv run pytest
 ## 常见误区
 
 - `docker compose up` 成功不代表数据库 schema 已经齐全，仍需要 `npm run db:init`。
-- `localhost:3000` 是主前端，生成工作空间预览端口从 `4100` 开始，`3100` 留给 Loki。
+- `localhost:3000` 是主前端，生成工作空间预览端口从 `4100` 开始，宿主机 Loki 默认为 `33100`。
 - 前端启动模式已经收敛为 Next.js 默认链路，不要再设置 `QUANTPILOT_BUNDLER` 或排查 `next-rspack`。
 - Redis 缓存可以删除重建，不能把它当作唯一数据来源。
 - 离线演示可以用 `QUANTPILOT_DEGRADATION_MODE=offline`，但正式检查应回到 `auto` 或 `strict`。

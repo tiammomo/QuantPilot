@@ -4,7 +4,7 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 
 生成内容仅用于研究、复盘和辅助决策，不构成投资建议、收益承诺或即时交易指令。
 
-如果你是第一次打开这个项目，不必急着把所有模块都看完。先把本地环境跑起来，再按下面的学习路径一层一层读。QuantPilot 的能力比较多，但核心脉络其实很清楚：真实数据进入本地库，Agent 基于 skills 生成工作空间，平台再用验证和评测把结果收紧。
+如果你是第一次打开这个项目，先选择模型与 Memory 运行方式，再把本地环境跑起来。核心链路是：真实数据进入本地库，Agent 基于 skills 生成工作空间，平台再用验证和评测把结果收紧。
 
 ## 核心能力
 
@@ -13,21 +13,37 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
 - 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
-- MoAgent 自研执行层：直接连接 DeepSeek，负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
+- LLM-first Query Rewrite：`preview` 与正式执行都由项目选中的模型生成 schema v4 语义合同，时间范围、宽域范围和 answer-only 意图必须有原文字面证据；证券 Resolver 独立确认代码。模型不可用时停止规划和预取，不以关键词结果冒充成功。
+- MoAgent 自研执行层：默认通过 ModelPort 使用本地 Qwen，日常 DeepSeek 经 ModelPort 的 Anthropic 上游 provider，也可为项目显式选择官方 OpenAI-compatible 直连并完全绕过 ModelPort；执行层负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
 - Skills 能力层：通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 `.moagent/skills`，当前 Agent 执行仍从仓库兼容源按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力。
 - 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
+- 受治理知识接入：通过独立 AKEP HTTP 契约预取带 Revision/Citation 的有界 ContextPack，Mission 验收后记录 Usage；不共享数据库或源码。
 
 ## 快速启动
 
-第一次启动按下面顺序来：依赖、数据库、可选观测组件、市场数据后端、主前端。主前端现在使用 Next.js 默认开发链路；`npm run dev` 会调用 `scripts/dev/run-web.js`，负责端口选择、环境文件同步、稳定 CSS 生成、数据库 schema 检查和 Next dev 缓存清理。
+第一次启动按下面顺序来。`npm install` 的 `postinstall` 会创建缺失的 `.env` 和 `.env.local`；也可以显式执行 `ensure:env`。不要把整份 `.env.example` 复制到 `.env.local`，后者只应保存本机凭据与少量覆盖。
 
 ```bash
 npm install
-cp .env.example .env
-cp .env.example .env.local
+npm run ensure:env
 ```
 
-在 `.env.local` 中填写 `DEEPSEEK_API_KEY`，真实密钥不要提交到 Git。当前只启用 `DeepSeek V4 Flash`，服务端固定直连 DeepSeek 官方 API，不读取自定义 Base URL 或第三方中转配置。
+推荐模式只需在 `.env.local` 添加 ModelPort 签发的受限客户端凭据：
+
+```dotenv
+MODELPORT_API_KEY="replace-with-scoped-modelport-client-key"
+```
+
+本地 Qwen 是默认模型，日常 DeepSeek 也经 ModelPort 使用。DeepSeek 上游 Anthropic Key 只配置在 ModelPort；如果明确要绕过 ModelPort，则在 QuantPilot 注入 `DEEPSEEK_API_KEY`，并显式选择 `deepseek-v4-flash`。Memory 是独立可选组件，可用 `QUANTPILOT_MEMORY_ENABLED=0` 完全关闭。
+
+| 运行方式 | `.env.local` 最小配置 | 额外动作 |
+| --- | --- | --- |
+| 推荐：Qwen + ModelPort DeepSeek | `MODELPORT_API_KEY=...` | ModelPort 配置 Qwen 与 DeepSeek provider |
+| 只使用 Qwen | `MODELPORT_API_KEY=...` | 客户端 Key 只授权 `local_qwen` 即可 |
+| DeepSeek 官方直连 | `DEEPSEEK_API_KEY=...` | 项目/全局设置选择 `deepseek-v4-flash` |
+| 不启用 Memory | `QUANTPILOT_MEMORY_ENABLED=0` | 无需启动或配置 Memory 服务 |
+
+完整的文件优先级、可复制组合、生产 secret 边界和验证命令见 [配置、模型接入与可选组件指南](docs/configuration.md)。
 
 ```bash
 npm run db:up
@@ -40,14 +56,13 @@ npm run db:init
 npm run obs:up
 ```
 
-在项目根目录启动完整开发栈；命令会自动启用 Baostock / AKShare 数据扩展，
-并启动或复用 market-data：
+在项目根目录启动完整开发栈。`npm run dev` 调用 `scripts/dev/run-full.js`，先启动或复用 market-data，再由 `run-web.js` 完成端口选择、环境文件同步、稳定 CSS 生成、数据库 schema 检查、Next dev 缓存清理和 Web 启动：
 
 ```bash
 npm run dev
 ```
 
-默认访问 `http://localhost:3000`。如果 `3000` 被占用，启动器会在 `3000-3099` 内选择可用端口并同步 `.env` / `.env.local` 中的 `PORT`、`WEB_PORT` 和 `NEXT_PUBLIC_APP_URL`。生成项目预览端口池从 `4100` 开始，Loki 使用 `3100`，不要把主前端长期放到这些端口上。
+默认访问 `http://localhost:3000`。如果 `3000` 被占用，启动器会在 `3000-3099` 内选择可用端口并同步 `.env` / `.env.local` 中的 `PORT`、`WEB_PORT` 和 `NEXT_PUBLIC_APP_URL`。生成项目预览端口池从 `4100` 开始；本地 Loki 默认映射到宿主机 `33100`，不要把主前端长期放到这些端口上。
 
 不启动 Loki/Grafana 时，运行治理中心会自动降级到本地文件日志；不启动市场数据后端时，策略平台和业务知识中心只能展示有限兜底信息。
 
@@ -90,6 +105,9 @@ npm run dev
 | 后端质量门 | `cd services/market-data && uv run ruff check . && uv run pytest` |
 | 文档本地链接检查 | `npm run check:docs` |
 | 四类生成模板真实构建 | `npm run check:scaffold-templates` |
+| 模型配置边界检查 | `npm run check:ai-provider-boundary` |
+| 模型目录与凭据连通性检查 | `npm run check:models` |
+| Qwen、ModelPort DeepSeek、Memory 完整联调 | `npm run check:integrations` |
 
 ## 文档导航
 
@@ -97,7 +115,8 @@ npm run dev
 
 | 你要做什么 | 入口 |
 | --- | --- |
-| 不知道从哪篇开始 | [文档导读](docs/START_HERE.md) |
+| 不知道从哪篇开始 | [文档总览与角色路径](docs/README.md) |
+| 想选择模型、关闭 Memory 或理解 `.env` | [配置、模型接入与可选组件指南](docs/configuration.md) |
 | 想系统学习项目 | [教学路径](docs/learning/README.md) |
 | 想参与开发或判断代码放哪 | [项目结构与分层边界](docs/project-structure.md) / [模块边界](docs/module-boundaries.md) |
 | 想理解或扩展 Agent 框架 | [MoAgent 架构](docs/moagent.md) |
@@ -105,6 +124,7 @@ npm run dev
 | 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](docs/research-automation-guide.md) |
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |
 | 想启用登录或配置权限/用量配额 | [用户、权限、配额与会话管理](docs/authentication.md) |
+| 想接入、使用或排查用户记忆 | [用户记忆服务接入、使用与效果验证](docs/user-memory-integration.md) |
 | 想看后续优先级 | [持续完善路线图](docs/ROADMAP.md) |
 
 ## 推荐学习路径
@@ -113,7 +133,8 @@ npm run dev
 
 | 阶段 | 文档 | 目标 |
 | --- | --- | --- |
-| 先找阅读路径 | [文档导读](docs/START_HERE.md) | 按启动、开发、排障、策略、评测、skills 等目标选择阅读顺序 |
+| 先找阅读路径 | [文档总览与角色路径](docs/README.md) | 按启动、开发、排障、策略、评测、skills 等目标选择阅读顺序 |
+| 选择运行拓扑 | [配置、模型接入与可选组件指南](docs/configuration.md) | 选择 ModelPort、官方直连和 Memory 开关 |
 | 先建立全局图 | [项目学习地图](docs/learning/00-project-study-map.md) | 知道产品、数据、生成和质量四条主线 |
 | 再跑通本地环境 | [本地启动与健康检查](docs/learning/01-quick-start.md) | 拉起数据库、后端、前端和可选观测组件 |
 | 理解内部组件 | [内部组件学习指南](docs/internal-components.md) | 把页面、服务、数据、Skills、验证和运维串起来 |
@@ -133,7 +154,7 @@ npm run dev
 
 ## 本地可观测性
 
-`npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 默认宿主机端口是 `3100`，生成项目预览端口池从 `4100` 开始；Grafana 默认入口是 `http://localhost:3001`，默认账号密码来自 `.env`；运行治理中心的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
+`npm run obs:up` 会拉起 Loki、Grafana 和 Grafana Alloy。Alloy 会采集 Docker 容器日志，并读取 `tmp/runtime/*.log`、评测队列日志和 Next.js dev 日志写入 Loki。Loki 容器端口 `3100` 默认映射到宿主机 `33100`；Grafana 容器端口 `3000` 默认映射到 `http://localhost:33012`，账号密码来自 `.env`。运行治理中心的“日志”页会优先展示 Loki 集中日志，同时保留本地文件日志兜底。
 
 ## 前端启动模式
 
@@ -145,4 +166,4 @@ npm run dev
 
 ## 降级模式
 
-`.env` 中的 `QUANTPILOT_DEGRADATION_MODE` 控制组件缺失时的行为：`auto` 适合本地开发，可选组件缺失时自动降级；`strict` 适合 CI/生产，必需组件缺失会失败；`offline` 会跳过可选外部组件探测，优先使用文件日志、内置数据源注册表和本地兜底数据。可通过 `QUANTPILOT_DATABASE_ENABLED`、`QUANTPILOT_MARKET_API_ENABLED`、`QUANTPILOT_OBSERVABILITY_ENABLED`、`QUANTPILOT_REDIS_CACHE_ENABLED` 等开关精确控制。
+`.env` 中的 `QUANTPILOT_DEGRADATION_MODE` 控制组件缺失时的行为：`auto` 适合本地开发，可选组件缺失时自动降级；`strict` 适合 CI/生产，必需组件缺失会失败；`offline` 会跳过多项可选外部组件探测，优先使用本地兜底。只关闭一个组件应使用其 `ENABLED=0`，例如不启用 Memory 使用 `QUANTPILOT_MEMORY_ENABLED=0`，不要为了关闭单一组件切到 `offline`。完整开关见 [配置指南](docs/configuration.md)。

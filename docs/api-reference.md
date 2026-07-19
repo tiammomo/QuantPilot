@@ -8,6 +8,7 @@
 | --- | --- | --- | --- |
 | Next.js 主应用 API | `http://localhost:3000/api/*` | `src/app/api/` | 项目、聊天、设置、评测、skills、运维和页面聚合数据 |
 | 市场数据服务 | `http://127.0.0.1:8000/api/v1/*` | `services/market-data/src/quantpilot_market_data/api.py` | 行情、K 线、财务、公告、补数、基础组件、股票池和回测 |
+| 用户记忆服务 | `http://127.0.0.1:38089/*` | 独立 `evolvable-user-memory` 仓库 | 偏好证据、不可变修订、召回 Trace、上下文投影和可归因 Outcome |
 | 预览工作空间 | `http://localhost:4100+` | `data/projects/project-*` | AI 生成项目的 Next.js 预览，不承载平台状态 |
 
 页面原则：
@@ -56,7 +57,7 @@
 | 路由 | 方法 | 调用方 | 责任 |
 | --- | --- | --- | --- |
 | `/api/quant/strategies` | `GET/POST` | 策略平台 | 策略平台聚合数据、扫描、补数和因子目录 |
-| `/api/quant/query/rewrite` | `POST` | 聊天页、运行规划器 | schema v3 问题改写；preview 仅规则解析，execution 对复杂或低置信度输入按需使用 LLM，并在取数前执行安全决策 |
+| `/api/quant/query/rewrite` | `POST` | 聊天页、运行规划器 | schema v4 LLM-first 问题改写；所有 purpose 均由所选 LLM 解析语义，并在取数前执行安全决策 |
 | `/api/quant/capabilities` | `GET` | 业务知识中心 | 业务能力和执行依赖摘要 |
 | `/api/quant/capability-center` | `GET` | 业务知识中心 | 业务能力、场景知识、交付契约和支撑资源 |
 | `/api/research/reports` | `GET/POST` | 投研情报中心 | 观察池、证据型日报、主题洞察、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
@@ -67,11 +68,11 @@
 | `/api/infrastructure/service-catalog` | `GET` | 设置/运维 | 服务目录、Python/Node runtime、endpoint、依赖边和配置校验结果 |
 
 `POST /api/quant/query/rewrite` 接收 `query`、可选 `requestedCapabilityId`、`model` 和
-`purpose=preview|execution`，未传时默认安全的 `preview`。简单问题始终走确定性解析；只有 execution 的复杂语义、指代、
-非标准时间范围或 Resolver miss 才进入 DeepSeek Tool Schema。模型只允许返回用户原文中的
-候选标的文本，标准代码仍由 `/api/v1/symbols/resolve` 确认。LLM 超时、未配置、网络失败或
-Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失败丢弃可用的规则结果。
-部分标的解析失败同样会进入语义清理并重新执行 Resolver。确定性涨停、必赚或保证收益请求返回
+`purpose=preview|execution`，未传时默认 `execution`；两种 purpose 都会调用用户选定的 LLM，
+因此 `preview` 不再是无模型的关键词预判。聊天输入框不会在用户输入期间频繁调用 preview，正式提交后才执行改写。
+LLM 通过 Tool Schema 解析标的原文、时间范围、分析重点和输出意图；时间、宽域范围和 answer-only 意图必须携带原文字面证据。模型只允许返回用户原文中的候选标的文本，
+标准代码仍由 `/api/v1/symbols/resolve` 确认。LLM 超时、未配置、网络失败或 Schema/证据不合法时返回
+`llm_unavailable` 与 `QUERY_REWRITE_LLM_UNAVAILABLE`，规划和预取随即停止，不会改用关键词或正则结果继续执行。确定性涨停、必赚或保证收益请求返回
 `status=refused` 与 `safety.code=GUARANTEED_RETURN_REQUEST`，不会进入取数或 Agent 执行。
 
 ### Skills、设置和集成
@@ -86,6 +87,18 @@ Schema 不合法时返回 `deterministic_fallback`，不会因为语义增强失
 | `/api/env/[project_id]/*` | `GET/POST/DELETE` | 项目设置 | 项目环境变量读取、upsert、冲突检查 |
 | `/api/tokens`、`/api/tokens/[...segments]` | `GET/POST/DELETE` | 设置弹窗 | 服务 token 管理 |
 | `/api/github/*`、`/api/vercel/*`、`/api/supabase/*` | `GET/POST` | 集成弹窗 | 外部平台连接和项目创建 |
+
+### 用户记忆
+
+| 路由 | 方法 | 调用方 | 责任 |
+| --- | --- | --- | --- |
+| `/api/projects/[project_id]/memory/preferences` | `GET/POST` | 偏好管理客户端 | 列出或显式新增当前用户的 QuantPilot 偏好 |
+| `/api/projects/[project_id]/memory/preferences/[record_id]/corrections` | `POST` | 偏好管理客户端 | 追加不可变纠正 revision |
+| `/api/projects/[project_id]/memory/preferences/[record_id]/revisions` | `GET` | 偏好管理客户端 | 查看 revision 历史 |
+| `/api/projects/[project_id]/memory/uses/[request_id]` | `GET` | 审计/反馈入口 | 查询本轮实际暴露的 revision 与内容哈希 |
+| `/api/projects/[project_id]/memory/outcomes` | `POST` | 显式用户反馈 | 对本轮真实使用过的 revision 记录可归因结果 |
+
+聊天 `/api/chat/[project_id]/act` 会在 Agent 执行前自动调用 Memory 的 `/v1/recall` 和 `/v1/recall-contexts`。浏览器不直接提交 tenant/subject；QuantPilot 在项目授权后使用可信 `actorUserId` 构造 Scope，并再次执行产品、项目、键和长度过滤。完整配置、请求示例、效果状态与安全边界见[用户记忆服务接入、使用与效果验证](user-memory-integration.md)。
 
 ### 认证、权限、配额与用户治理
 

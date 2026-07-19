@@ -22,6 +22,7 @@ app/api/market/[...path]/route.ts
 
 ```text
 .quantpilot/run_plan.json
+.quantpilot/query_rewrite.json
 .quantpilot/events.jsonl
 .quantpilot/generation-state.json
 .quantpilot/generation-queue.json
@@ -39,7 +40,8 @@ evidence/data_quality.json
 
 | 文件 | 作用 |
 | --- | --- |
-| `.quantpilot/run_plan.json` | 任务规划、标的、能力域、预期数据和可视化模板 |
+| `.quantpilot/query_rewrite.json` | schema v4 LLM 语义、Resolver 标的、安全决策与失败关闭状态 |
+| `.quantpilot/run_plan.json` | 消费 Query Rewrite 后形成的任务规划、标准代码、能力域、预期数据和可视化模板 |
 | `.quantpilot/events.jsonl` | 生成链路事件审计 |
 | `.quantpilot/generation-state.json` | 当前请求的阶段状态、错误、修复次数和元信息 |
 | `.quantpilot/generation-queue.json` | 当前 workspace 的生成队列、active request 和运行历史 |
@@ -57,6 +59,7 @@ evidence/data_quality.json
 
 | 层 | 文件 | 作用 |
 | --- | --- | --- |
+| 语义层 | `query_rewrite.json` | 说明模型如何理解问题、标的是否核验、是否允许进入规划 |
 | 规划层 | `run_plan.json` | 说明这次要解决什么问题、用什么数据、做什么页面 |
 | 数据层 | `dashboard-data.json`、`sources.json`、`data_quality.json` | 页面绑定数据和证据来源 |
 | 运行层 | `events.jsonl`、`generation-state.json`、`generation-queue.json` | 记录生成过程、队列和当前状态 |

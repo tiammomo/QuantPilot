@@ -35,7 +35,7 @@
 npm run check:benchmark-coverage
 npm run check:eval-schedule
 npm run eval:ci
-npm run benchmark:quant
+npm run benchmark:quant:contract
 ```
 
 ## 运行治理中心

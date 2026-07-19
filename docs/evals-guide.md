@@ -13,7 +13,7 @@ http://localhost:3000/eval-platform
 默认评测运行时：
 
 - 执行器：`MoAgent`
-- 模型：`DeepSeek V4 Flash`
+- 模型：`Qwen 3.5 9B (Local Q5_K_M)`
 - Reasoning：由服务端 `MOAGENT_REASONING` 控制；thinking 内容只在当前 tool-call 循环内回放，不展示、不持久化
 
 评测不提供其他生成运行时、模型对比或自定义 Base URL，确保生成链路和回归链路使用同一个官方模型边界。`agent-review` 会在确定性硬门之后再次调用固定模型执行版本化语义 rubric；报告会显式记录 reviewer 与 generator 是否独立，不能把同源 reviewer 当作独立事实 oracle。
@@ -97,7 +97,7 @@ npm run check:eval-judge-calibration
 | 仪表盘 | 总体通过率、失败用例、运行队列和最新报告 |
 | 测试用例 | 搜索固定用例，运行单用例或当前筛选范围 |
 | 评测集 | 按能力、输入类型和专项场景组织批量回归，支持分页 |
-| 评测器 | 选择评测策略、数据集、范围和并发，执行 dry-run；运行器固定为 MoAgent，模型固定为 DeepSeek V4 Flash |
+| 评测器 | 选择评测策略、数据集、范围和并发，执行 dry-run；运行器固定为 MoAgent，默认模型为本地 Qwen |
 | 运行队列 | 查看排队、运行中、已完成和可取消任务 |
 | 运行记录 | 浏览历史报告、模型表现和 Skill 版本影响 |
 | 失败修复 | 汇总失败用例、修复单和 warning 用例 |
@@ -179,16 +179,17 @@ action=simulate-flow
 | 模式 | 命令 | 含义 |
 | --- | --- | --- |
 | 确定性契约 | `benchmark:quant:contract` | 使用平台标准模板验证规划、数据、证据、构建、视觉和产物契约；不计作模型生成成绩 |
-| 真实 E2E | `benchmark:quant:e2e` | 真实调用 DeepSeek V4 Flash，验证从用户问题到最终看板的完整生成链路 |
+| 真实 E2E | `benchmark:quant:e2e` | 默认调用本地 Qwen，也可显式选择已注册模型，验证从用户问题到最终看板的完整生成链路 |
 
 ```bash
-npm run benchmark:quant
+npm run benchmark:quant:contract
 npm run benchmark:quant:contract -- --case stock-fundamental-maotai
 npm run benchmark:quant:e2e -- --case stock-diagnosis-citic-no-false-clarification
 npm run benchmark:quant:e2e -- --case stock-fundamental-maotai --repeat 3
+npm run benchmark:quant:e2e -- --model deepseek-v4-flash --case stock-fundamental-maotai
 ```
 
-`benchmark:quant` 是确定性契约模式的兼容别名。即使契约套件全部
+`benchmark:quant:contract` 是确定性契约模式。即使契约套件全部
 通过，也只证明平台产物契约，不能充当真实 Agent 成绩。真实 E2E 必须走
 `/act -> Mission -> EvidenceVerifier -> accepted receipt` 产品链路，并逐 case
 记录 `cli=moagent`、AgentRun IDs、MoAgent 版本、build/git revision、turns、
@@ -289,6 +290,10 @@ CI 固定保留：
 - 全量确定性契约 benchmark 与 100% 通过率 gate。
 - lint 和 type-check。
 
-仓库的 Quality workflow 会启动本地 TimescaleDB、Redis 和 market-data，运行全量确定性契约并上传 14 天证据；夜间 workflow 在配置 `DEEPSEEK_API_KEY` 后运行真实 DeepSeek 回归集，并保留 30 天报告、截图和市场数据日志。真实失败问题应先加入固定用例，再修 Skills 或平台代码。
+仓库的 Quality workflow 会启动本地 TimescaleDB、Redis 和 market-data，运行全量确定性契约并上传 14 天证据；夜间 workflow 在配置 GitHub Actions secret `DEEPSEEK_API_KEY` 后，通过 `QUANTPILOT_EVAL_MODEL=deepseek-v4-flash` 和显式 `--model deepseek-v4-flash` 运行真实 DeepSeek 回归集，并保留 30 天报告、截图和市场数据日志。生成器、语义评审器、逐 case AgentRun 证明和独立 CI gate 都校验该外部预期的 provider/model，报告不能通过修改自身 runtime 字段绕过门禁。真实失败问题应先加入固定用例，再修 Skills 或平台代码。
+
+定时触发时如果仓库尚未配置 `DEEPSEEK_API_KEY`，configuration job 会写出 notice，并把真实 DeepSeek job 标记为 skipped；确定性评测仍由 Quality workflow 强制执行。手动触发夜间真实评测和 release evidence 仍然 fail-closed，缺少 secret 会直接失败，避免把“未运行模型”误报为真实 E2E 通过。
+
+本地 `.env.local` 不会同步到 GitHub。启用夜间真实评测时，需要在仓库 `Settings → Secrets and variables → Actions` 中新增 repository secret `DEEPSEEK_API_KEY`。默认 Qwen 通过 `127.0.0.1:38082` 访问本机 ModelPort，GitHub hosted runner 无法访问该回环地址，因此不能用本地 Qwen key 替代夜间 workflow 的远程 DeepSeek secret。
 
 如果某次改动涉及 skills、生成契约、验证逻辑或数据后端，应优先补跑相关 benchmark。
