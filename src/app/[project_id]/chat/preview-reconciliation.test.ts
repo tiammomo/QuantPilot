@@ -42,7 +42,7 @@ describe('planPreviewReconciliation', () => {
     ).toEqual({ action: 'withhold_until_acceptance' });
   });
 
-  it.each(['failed', 'cancelled', 'needs_clarification', 'refused'] as const)(
+  it.each(['failed', 'needs_revalidation', 'cancelled', 'needs_clarification', 'refused'] as const)(
     'does not turn an unaccepted %s Mission into an acceptance wait loop',
     (status) => {
       expect(

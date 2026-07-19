@@ -1,4 +1,8 @@
 import { baseDashboardWorkbenchCss } from './scaffold-visual-language';
+import {
+  financialSnapshotCss,
+  financialSnapshotPageFragment,
+} from './scaffold-fundamental-snapshot-template';
 
 export function baseDashboardPageTemplate(): string {
   return `import fs from 'fs/promises';
@@ -7,7 +11,6 @@ import path from 'path';
 type JsonRecord = Record<string, unknown>;
 
 const DATA_FILE = 'data_file/final/dashboard-data.json';
-const SOURCES_FILE = 'evidence/sources.json';
 
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -84,21 +87,6 @@ async function readDashboardData(): Promise<JsonRecord | null> {
   }
 }
 
-async function readSourcesEvidence(): Promise<JsonRecord[]> {
-  try {
-    const content = await fs.readFile(
-      path.join(/*turbopackIgnore: true*/ process.cwd(), SOURCES_FILE),
-      'utf8'
-    );
-    const parsed = asRecord(JSON.parse(content));
-    return asArray(parsed?.sources)
-      .map(asRecord)
-      .filter((item): item is JsonRecord => Boolean(item));
-  } catch {
-    return [];
-  }
-}
-
 function getBars(data: JsonRecord | null): JsonRecord[] {
   const kline = asRecord(data?.kline) ?? asRecord(data?.history);
   const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -133,47 +121,12 @@ function getIndicatorSummary(data: JsonRecord | null): JsonRecord | null {
   return asRecord(technical?.summary) ?? asRecord(data?.summary);
 }
 
-function getFundamentalSummary(data: JsonRecord | null): JsonRecord | null {
-  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (assets.length > 0) {
-    return getFundamentalSummary(assets[0]);
-  }
-  const fundamental = asRecord(data?.fundamentalIndicators) ?? asRecord(data?.fundamentals) ?? asRecord(data?.financials);
-  return asRecord(fundamental?.summary);
-}
-
-function getFundamentalMetricComparison(data: JsonRecord | null): JsonRecord | null {
-  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (assets.length > 0) {
-    return getFundamentalMetricComparison(assets[0]);
-  }
-  return asRecord(data?.fundamentalMetricComparison);
-}
-
 function getBacktest(data: JsonRecord | null): JsonRecord | null {
   const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
   if (assets.length > 0) {
     return getBacktest(assets[0]);
   }
   return asRecord(data?.backtest);
-}
-
-function getReports(data: JsonRecord | null): JsonRecord[] {
-  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (assets.length > 0) {
-    return getReports(assets[0]);
-  }
-  const financials = asRecord(data?.financials) ?? asRecord(data?.fundamentals);
-  return asArray(financials?.reports ?? data?.reports).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-}
-
-function getAnnouncements(data: JsonRecord | null): JsonRecord[] {
-  const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (assets.length > 0) {
-    return getAnnouncements(assets[0]);
-  }
-  const announcements = asRecord(data?.announcements) ?? asRecord(data?.events);
-  return asArray(announcements?.announcements ?? announcements?.items ?? data?.announcement_events).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
 function formatMoney(value: unknown): string {
@@ -249,25 +202,6 @@ function getCorrelationPairs(data: JsonRecord | null): JsonRecord[] {
   return asArray(correlation?.top_pairs).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
-function getValuationRows(data: JsonRecord | null): JsonRecord[] {
-  const valuation = asRecord(data?.valuation);
-  const rows = asArray(valuation?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (rows.length > 0) {
-    return rows;
-  }
-  const scenarios = asArray(valuation?.scenarios).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-  if (scenarios.length === 0) {
-    return [];
-  }
-  return [{
-    symbol: data?.symbol,
-    name: data?.name,
-    base_metrics: valuation?.base_metrics ?? valuation?.baseMetrics,
-    scenarios,
-    warnings: valuation?.warnings,
-  }];
-}
-
 function getTrendTemplateRows(data: JsonRecord | null): JsonRecord[] {
   const trendTemplate = asRecord(data?.trendTemplate) ?? asRecord(data?.trend_template);
   return asArray(trendTemplate?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -275,115 +209,6 @@ function getTrendTemplateRows(data: JsonRecord | null): JsonRecord[] {
 
 function getVisualization(data: JsonRecord | null): JsonRecord | null {
   return asRecord(data?.visualization);
-}
-
-function getVisualizationRows(visualization: JsonRecord | null): JsonRecord[] {
-  const required = asArray(visualization?.required_components).map(String);
-  const rendered = new Set(asArray(visualization?.rendered_components).map(String));
-  const missing = new Set(asArray(visualization?.missing_components).map(String));
-  return required.map((name) => ({
-    name,
-    status: missing.has(name) ? '待补充' : rendered.has(name) ? '已渲染' : '按模板渲染',
-  }));
-}
-
-function sourceDisplayName(source: unknown, datasetType?: unknown): string {
-  const normalized = String(source ?? '').toLowerCase();
-  const type = String(datasetType ?? '').toLowerCase();
-  if (normalized.includes('eastmoney')) {
-    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
-    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
-    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
-    return '东方财富实时行情接口';
-  }
-  if (normalized.includes('uploaded_image')) return '用户上传持仓截图';
-  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端行情预取';
-  if (normalized.includes('tencent')) return '腾讯证券行情接口';
-  if (normalized.includes('sina')) return '新浪财经行情接口';
-  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
-  if (normalized.includes('local')) return '本地计算结果';
-  return String(source ?? '未知信源');
-}
-
-function endpointLabel(endpoint: unknown): string {
-  const value = String(endpoint ?? '');
-  if (!value) return '-';
-  if (value.includes('/quotes/realtime')) return '实时行情';
-  if (value.includes('/quotes/history')) return '历史 K 线';
-  if (value.includes('/fundamentals/financials')) return '财务报表';
-  if (value.includes('/announcements')) return '公告事件';
-  if (value.includes('/indicators')) return '指标计算';
-  if (value.includes('/symbols/resolve')) return '标的解析';
-  return value.replace(/^https?:\\/\\/127\\.0\\.0\\.1:8000\\/api\\/v1\\//, '/api/market/');
-}
-
-function inferSourceChannels(data: JsonRecord | null, sourceEvidence: JsonRecord[]): JsonRecord[] {
-  if (sourceEvidence.length > 0) {
-    const unique = new Map<string, JsonRecord>();
-    for (const source of sourceEvidence) {
-      const datasetType = source.dataset_type ?? source.type ?? source.dataset ?? source.name;
-      const channel = sourceDisplayName(source.source, datasetType);
-      const endpoint = endpointLabel(source.endpoint ?? source.url ?? source.route);
-      const key = [channel, endpoint, String(source.symbol ?? source.name ?? '')].join('|');
-      if (!unique.has(key)) {
-        unique.set(key, {
-          channel,
-          dataset: String(datasetType ?? '数据集'),
-          endpoint,
-          as_of: source.as_of ?? source.quote_time ?? source.fetched_at ?? source.updated_at,
-          sample_count: source.sample_count ?? source.rows ?? source.count ?? source.records,
-          limitation: source.limitation ?? source.note ?? source.warning,
-        });
-      }
-    }
-    return Array.from(unique.values()).slice(0, 8);
-  }
-
-  const channels: JsonRecord[] = [];
-  const rootSource = data?.source ?? asRecord(data?.quote)?.source ?? 'eastmoney';
-  if (asRecord(data?.quote)) {
-    const quote = asRecord(data?.quote);
-    channels.push({
-      channel: sourceDisplayName(rootSource, 'realtime'),
-      dataset: '实时行情',
-      endpoint: '/api/market/quotes/realtime',
-      as_of: quote?.quote_time ?? quote?.fetched_at ?? data?.as_of,
-    });
-  }
-  if (asArray(asRecord(data?.kline)?.bars).length > 0 || getBars(data).length > 0) {
-    channels.push({
-      channel: sourceDisplayName(rootSource, 'history'),
-      dataset: '历史 K 线',
-      endpoint: '/api/market/quotes/history',
-      as_of: data?.as_of,
-      sample_count: getBars(data).length,
-    });
-  }
-  if (asRecord(data?.financials) || asRecord(data?.fundamentalIndicators)) {
-    channels.push({
-      channel: sourceDisplayName(rootSource, 'financials'),
-      dataset: '财务与基本面',
-      endpoint: '/api/market/fundamentals/financials',
-      as_of: asRecord(data?.financials)?.as_of ?? data?.as_of,
-    });
-  }
-  if (asRecord(data?.announcements)) {
-    channels.push({
-      channel: sourceDisplayName(rootSource, 'announcements'),
-      dataset: '公告事件',
-      endpoint: '/api/market/announcements',
-      as_of: asRecord(data?.announcements)?.as_of ?? data?.as_of,
-    });
-  }
-  if (asRecord(data?.imageExtraction)) {
-    channels.push({
-      channel: sourceDisplayName('uploaded_image', 'portfolio'),
-      dataset: '截图识别',
-      endpoint: '上传附件',
-      as_of: asRecord(data?.imageExtraction)?.extracted_at ?? data?.as_of,
-    });
-  }
-  return channels;
 }
 
 function movingAverage(values: Array<number | null>, windowSize: number, index: number): number | null {
@@ -606,7 +431,7 @@ function BacktestPanel({ backtest }: { backtest: JsonRecord | null }) {
         <span>策略名称来源：回测数据 · {points.length} 个交易日</span>
       </div>
 
-      <div className="metric-strip four-col backtest-metrics">
+      <div className="metric-strip metrics-4 backtest-metrics">
         <div className="metric-cell"><span className="metric-label">策略收益</span><span className={'metric-value ' + ((numeric(summary?.total_return_pct) ?? 0) >= 0 ? 'red' : 'green')}>{formatPercent(summary?.total_return_pct)}</span></div>
         <div className="metric-cell"><span className="metric-label">最大回撤</span><span className="metric-value green">{formatPercent(summary?.max_drawdown_pct)}</span></div>
         <div className="metric-cell"><span className="metric-label">胜率</span><span className="metric-value">{formatPercent(summary?.win_rate_pct)}</span></div>
@@ -777,6 +602,8 @@ function AnnouncementPanel({ announcements }: { announcements: JsonRecord[] }) {
   );
 }
 
+${financialSnapshotPageFragment()}
+
 function LiquidityPanel({ rows }: { rows: JsonRecord[] }) {
   if (rows.length === 0) {
     return null;
@@ -932,40 +759,6 @@ function TrendTemplatePanel({ rows }: { rows: JsonRecord[] }) {
   );
 }
 
-function VisualizationPlanPanel({ visualization }: { visualization: JsonRecord | null }) {
-  const rows = getVisualizationRows(visualization);
-  if (!visualization || rows.length === 0) {
-    return null;
-  }
-
-  return (
-    <article className="data-panel">
-      <div className="panel-heading compact">
-        <div>
-          <h2>场景模板</h2>
-          <p>{String(visualization.name ?? visualization.template_id ?? 'QuantPilot 场景化看板')}</p>
-        </div>
-        <span>{String(visualization.template_id ?? '-')}</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>必备组件</th><th>状态</th></tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 8).map((row, index) => (
-              <tr key={String(row.name ?? index)}>
-                <td>{String(row.name ?? '-')}</td>
-                <td>{String(row.status ?? '-')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </article>
-  );
-}
-
 function SignalPanel({
   quote,
   latestBar,
@@ -1058,7 +851,6 @@ function SignalPanel({
 
 export default async function Home() {
   const data = await readDashboardData();
-  const sourceEvidence = await readSourcesEvidence();
   const assets = asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
   const primaryAsset = assets[0] ?? data;
   const quote = asRecord(primaryAsset?.quote) ?? asRecord(data?.quote);
@@ -1067,6 +859,7 @@ export default async function Home() {
   const computedMetrics = getComputedMetrics(data);
   const fundamentalSummary = getFundamentalSummary(data);
   const fundamentalMetricComparison = getFundamentalMetricComparison(data);
+  const financialQuality = getFinancialQuality(data);
   const reports = getReports(data);
   const announcements = getAnnouncements(data);
   const backtest = getBacktest(data);
@@ -1075,7 +868,7 @@ export default async function Home() {
   const valuationRows = getValuationRows(data);
   const trendTemplateRows = getTrendTemplateRows(data);
   const visualization = getVisualization(data);
-  const sourceChannels = inferSourceChannels(data, sourceEvidence);
+  const isFundamentalSnapshot = String(visualization?.variant_id ?? visualization?.variantId ?? '') === 'single-stock-fundamental-snapshot';
   const latestBar = bars.at(-1);
   const name = String(primaryAsset?.name ?? quote?.name ?? primaryAsset?.symbol ?? data?.name ?? 'QuantPilot');
   const symbol = String(primaryAsset?.symbol ?? quote?.symbol ?? data?.symbol ?? '-');
@@ -1104,10 +897,9 @@ export default async function Home() {
   ].some(hasNumber);
 
   return (
-    <main className="dashboard-shell" data-visual-language="financial-workbench" data-market-proxy="/api/market" data-source-file={DATA_FILE}>
+    <main className="dashboard-shell" data-visual-language="financial-workbench" data-dashboard-variant={String(visualization?.variant_id ?? visualization?.variantId ?? 'base')} data-market-proxy="/api/market" data-source-file={DATA_FILE}>
       <section className="hero-panel">
         <div className="top-bar">
-          <span className="source-pill">{String(data?.source ?? quote?.source ?? 'eastmoney')}</span>
           <span className="freshness">数据更新于 {displayDateTime(quote?.quote_time ?? data?.as_of)}</span>
         </div>
 
@@ -1131,7 +923,6 @@ export default async function Home() {
           <div className="meta-item"><span className="meta-label">最低</span><span className="meta-value green">{displayNumber(todayLow)}</span></div>
           <div className="meta-item"><span className="meta-label">振幅</span><span className="meta-value">{displayPercent(todayAmplitude)}</span></div>
           <div className="meta-item"><span className="meta-label">成交额</span><span className="meta-value">{displayMoney(todayAmount)}</span></div>
-          <span className="meta-source">行情源：{String(quote?.source ?? data?.source ?? 'eastmoney')}</span>
         </div>
 
         <div className="insight-strip">
@@ -1150,6 +941,13 @@ export default async function Home() {
         </div>
       </section>
 
+      {isFundamentalSnapshot ? (
+        <section className="financial-snapshot-grid">
+          <FinancialQualityPanel quality={financialQuality} />
+          <FinancialPanel reports={reports} summary={fundamentalSummary} comparison={fundamentalMetricComparison} />
+        </section>
+      ) : null}
+
       <section className="chart-zone">
         <TrendChart bars={bars} />
         <SignalPanel
@@ -1161,7 +959,7 @@ export default async function Home() {
         />
       </section>
 
-      <div className="metric-strip">
+      <div className="metric-strip metrics-7">
         <div className="metric-cell">
           <span className="metric-label">最新价</span>
           <span className="metric-value">{displayNumber(latestPrice)}</span>
@@ -1173,6 +971,10 @@ export default async function Home() {
         <div className="metric-cell">
           <span className="metric-label">PE-TTM</span>
           <span className="metric-value">{displayNumber(quote?.pe_ttm ?? quote?.pe ?? summary?.pe_ttm)}</span>
+        </div>
+        <div className="metric-cell">
+          <span className="metric-label">PB-MRQ</span>
+          <span className="metric-value">{displayNumber(quote?.pb_mrq ?? quote?.pb ?? summary?.pb_mrq)}</span>
         </div>
         <div className="metric-cell">
           <span className="metric-label">总市值</span>
@@ -1190,7 +992,7 @@ export default async function Home() {
 
       <BacktestPanel backtest={backtest} />
 
-      <div className="metric-strip four-col">
+      <div className="metric-strip metrics-4">
         <div className="metric-cell">
           <span className="metric-label">最新营收</span>
           <span className="metric-value">{formatMoney(fundamentalSummary?.latest_revenue)}</span>
@@ -1209,30 +1011,7 @@ export default async function Home() {
         </div>
       </div>
 
-      <section className="content-grid">
-        <article className="data-panel">
-          <div className="panel-heading compact">
-            <div>
-              <h2>数据信源渠道</h2>
-              <p>展示本次看板实际使用的外部或本地数据渠道。</p>
-            </div>
-          </div>
-          {sourceChannels.length > 0 ? (
-            <div className="source-channel-list">
-              {sourceChannels.map((source, index) => (
-                <div key={index} className="source-channel">
-                  <strong>{String(source.channel)}</strong>
-                  <span>{String(source.dataset ?? '数据集')}</span>
-                  <small>{String(source.endpoint ?? '-')}</small>
-                  <em>时间：{formatDate(source.as_of)}{source.sample_count ? ' · 样本 ' + String(source.sample_count) : ''}</em>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-state">暂无可展示的信源渠道，需检查 evidence/sources.json。</p>
-          )}
-          <p className="evidence-note">技术证据：{SOURCES_FILE} · {DATA_FILE}</p>
-        </article>
+      <section className="content-grid single-column">
         <article className="data-panel">
           <h2>最近 K 线</h2>
           <div className="table-wrap">
@@ -1260,7 +1039,7 @@ export default async function Home() {
       </section>
 
       <section className="content-grid wide">
-        <FinancialPanel reports={reports} summary={fundamentalSummary} comparison={fundamentalMetricComparison} />
+        {!isFundamentalSnapshot ? <FinancialPanel reports={reports} summary={fundamentalSummary} comparison={fundamentalMetricComparison} /> : null}
         <AnnouncementPanel announcements={announcements} />
       </section>
 
@@ -1274,9 +1053,6 @@ export default async function Home() {
         <TrendTemplatePanel rows={trendTemplateRows} />
       </section>
 
-      <section className="content-grid wide">
-        <VisualizationPlanPanel visualization={visualization} />
-      </section>
     </main>
   );
 }
@@ -1382,27 +1158,6 @@ textarea {
   margin-bottom: 12px;
   font-size: 13px;
   color: var(--muted);
-}
-
-.source-pill {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid rgba(184, 135, 25, 0.24);
-  border-radius: 999px;
-  color: #805600;
-  background: #fff9e8;
-  font-weight: 700;
-}
-
-.source-pill::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--gold);
 }
 
 .top-bar .freshness {
@@ -1534,14 +1289,6 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.meta-row .meta-source {
-  align-self: center;
-  justify-self: end;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .insight-strip {
   display: grid;
   grid-template-columns: 1.15fr 0.9fr 1.35fr;
@@ -1576,7 +1323,7 @@ textarea {
 
 .metric-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 1px;
   margin-bottom: 24px;
   background: var(--line);
@@ -1586,7 +1333,12 @@ textarea {
 }
 
 .metric-strip .metric-cell {
-  padding: 14px 16px;
+  display: flex;
+  min-width: 0;
+  min-height: 82px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px 14px;
   background: var(--panel);
 }
 
@@ -1599,12 +1351,21 @@ textarea {
 }
 
 .metric-strip .metric-cell .metric-value {
-  font-size: 20px;
+  min-width: 0;
+  font-size: clamp(16px, 1.35vw, 20px);
   font-weight: 700;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
+.metric-strip.metrics-7 {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.metric-strip.metrics-4,
 .metric-strip.four-col {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2007,58 +1768,11 @@ textarea {
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.8fr);
 }
 
-/* ==================== SOURCE CHANNELS ==================== */
-
-.source-channel-list {
-  display: grid;
-  gap: 8px;
+.content-grid.single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 
-.source-channel {
-  padding: 10px 12px;
-  border: 1px solid var(--line-light);
-  border-radius: 6px;
-  background: var(--surface-1);
-  min-width: 0;
-}
-
-.source-channel strong {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--ink);
-  font-size: 15px;
-}
-
-.source-channel span {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.source-channel small {
-  display: block;
-  overflow: hidden;
-  color: var(--blue);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 2px;
-}
-
-.source-channel em {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: normal;
-  overflow-wrap: anywhere;
-}
-
-.evidence-note {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
+${financialSnapshotCss()}
 
 /* ==================== MINI METRICS ==================== */
 
@@ -2315,6 +2029,20 @@ tbody tr:hover {
 
 /* ==================== RESPONSIVE ==================== */
 
+@media (max-width: 1180px) and (min-width: 801px) {
+  .metric-strip.metrics-7 {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .metric-strip.metrics-7 .metric-cell {
+    grid-column: span 3;
+  }
+
+  .metric-strip.metrics-7 .metric-cell:nth-last-child(-n + 3) {
+    grid-column: span 4;
+  }
+}
+
 @media (max-width: 800px) {
   .dashboard-shell {
     width: min(100vw - 24px, 720px);
@@ -2362,10 +2090,20 @@ tbody tr:hover {
     line-height: 1.05;
   }
 
-  .metric-strip {
+  .metric-strip,
+  .metric-strip.metrics-7 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .metric-strip.metrics-7 .metric-cell {
+    grid-column: auto;
+  }
+
+  .metric-strip.metrics-7 .metric-cell:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .metric-strip.metrics-4,
   .metric-strip.four-col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2400,11 +2138,6 @@ tbody tr:hover {
     display: none;
   }
 
-  .meta-row .meta-source {
-    justify-self: start;
-    grid-column: 1 / -1;
-  }
-
   .chart-zone,
   .backtest-grid {
     grid-template-columns: 1fr;
@@ -2416,12 +2149,14 @@ tbody tr:hover {
   }
 
   .content-grid,
-  .content-grid.wide {
+  .content-grid.wide,
+  .financial-snapshot-grid {
     grid-template-columns: 1fr;
   }
 
   .content-grid > *,
-  .content-grid.wide > * {
+  .content-grid.wide > *,
+  .financial-snapshot-grid > * {
     min-width: 0;
   }
 
@@ -2436,15 +2171,21 @@ tbody tr:hover {
 }
 
 @media (max-width: 520px) {
-  .metric-strip {
+  .metric-strip,
+  .metric-strip.metrics-7 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .metric-strip.metrics-4,
   .metric-strip.four-col {
     grid-template-columns: 1fr;
   }
 
   .mini-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quality-facts {
     grid-template-columns: 1fr;
   }
 

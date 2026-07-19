@@ -380,6 +380,13 @@
     }
   }
 
+  @media (max-width: 1024px) {
+    .task-drawer-actions {
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
   .sheet-overlay[data-state='open'] {
     animation: sheet-overlay-in 180ms ease-out;
   }

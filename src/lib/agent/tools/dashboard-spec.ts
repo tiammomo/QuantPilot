@@ -364,6 +364,30 @@ function hasFundamentalTrend(finalData: JsonRecord): boolean {
   ));
 }
 
+function hasFinancialQualityScore(finalData: JsonRecord): boolean {
+  const quality = dataRecord(finalData, 'financialQuality');
+  const rows = recordArray(quality?.rows);
+  if (rows.length !== 1) return false;
+  const row = rows[0];
+  const score = finiteNumber(row.quality_score);
+  return Boolean(
+    contractString(row.symbol) &&
+    contractString(row.latest_report_date) &&
+    score !== null &&
+    score >= 0 &&
+    score <= 100 &&
+    contractString(row.quality_label) &&
+    Array.isArray(row.strengths) &&
+    Array.isArray(row.watch_items) &&
+    Array.isArray(quality?.limitations)
+  );
+}
+
+function hasAnnouncementContract(finalData: JsonRecord): boolean {
+  const announcements = dataRecord(finalData, 'announcements');
+  return Boolean(announcements && Array.isArray(announcements.announcements));
+}
+
 function hasCashFlowComparisonOrLimitation(finalData: JsonRecord): boolean {
   const comparison = dataRecord(finalData, 'fundamentalMetricComparison');
   return Boolean(
@@ -437,7 +461,16 @@ const SINGLE_STOCK_COMMAND_CENTER_COMPONENTS = [
   'K 线与成交量主图',
   '趋势/量能/风险信号',
   '财务与公告摘要',
-  '信源质量',
+  '数据质量',
+] as const;
+
+const SINGLE_STOCK_FUNDAMENTAL_COMPONENTS = [
+  '行情侧栏',
+  '财务质量评分',
+  '营收利润趋势',
+  '利润率/ROE',
+  '公告事件',
+  '缺失字段说明',
 ] as const;
 
 const STOCK_SELECTION_RANKING_COMPONENTS = [
@@ -446,7 +479,7 @@ const STOCK_SELECTION_RANKING_COMPONENTS = [
   '收益对比主图',
   '回撤/波动主图',
   '排序依据',
-  '信源追踪',
+  '数据口径',
 ] as const;
 
 const BACKTEST_PERFORMANCE_COMPONENTS = [
@@ -512,7 +545,19 @@ const DASHBOARD_CAPABILITIES: readonly DashboardCapability[] = [
       prerequisite('derived_risk_signals', 'computed or technical data contains bounded drawdown and non-negative volatility signals', hasDerivedRiskSignals),
     ],
   ),
-  unsupportedCapability('single-stock-diagnosis', 'single-stock-fundamental-snapshot', 'The base renderer does not implement the variant-specific financial quality scorecard.'),
+  supportedCapability(
+    'single-stock-diagnosis',
+    'single-stock-fundamental-snapshot',
+    'base',
+    SINGLE_STOCK_FUNDAMENTAL_COMPONENTS,
+    [
+      prerequisite('single_stock_quote', 'quote contains an identified symbol and finite price', hasSingleStockQuote),
+      prerequisite('fundamental_reports', 'financials contains at least two identified report periods', hasFundamentalReports),
+      prerequisite('fundamental_trend', 'fundamentalIndicators contains at least two revenue and profit points', hasFundamentalTrend),
+      prerequisite('financial_quality_score', 'financialQuality contains one bounded, attributable score with strengths, watch items, and limitations', hasFinancialQualityScore),
+      prerequisite('announcement_contract', 'announcements declares an explicit announcements array, including an empty array when no events are available', hasAnnouncementContract),
+    ],
+  ),
   unsupportedCapability('technical-timing', 'technical-kline-trader', 'The base renderer does not implement explicit trigger and invalidation conditions.'),
   unsupportedCapability('technical-timing', 'technical-breakout-watch', 'The base renderer does not implement breakout price bands and invalidation workflow.'),
   supportedCapability(

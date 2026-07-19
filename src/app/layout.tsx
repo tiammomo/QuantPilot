@@ -17,6 +17,16 @@ export const metadata: Metadata = {
     template: '%s',
   },
   description: '从真实行情与证据出发，生成、评测和治理可验证的量化研究看板。',
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/quantpilot-mark.svg?v=2', type: 'image/svg+xml' },
+      { url: '/favicon-32.png?v=2', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png?v=2', sizes: '16x16', type: 'image/png' },
+    ],
+    shortcut: '/favicon-32.png?v=2',
+    apple: [{ url: '/apple-touch-icon.png?v=2', sizes: '180x180', type: 'image/png' }],
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,5 +1,5 @@
 import { CLI_OPTIONS, type CLIOption } from '@/types/cli';
-import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/cliModels';
+import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/models';
 
 export const ACTIVE_CLI_IDS = ['moagent'] as const;
 

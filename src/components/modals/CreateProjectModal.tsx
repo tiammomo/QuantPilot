@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence } from 'framer-motion';
 import { MotionDiv, MotionP } from '@/lib/motion';
-import { getModelDefinitionsForCli, getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
+import { getModelDefinitionsForCli, getDefaultModelForCli, normalizeModelId } from '@/lib/constants/models';
 import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
 import type { CLIStatus } from '@/types/cli';
 import {
@@ -27,7 +27,7 @@ const CLI_OPTIONS: CLIOption[] = [
     id: 'moagent',
     name: 'MoAgent',
     icon: '◈',
-    description: 'QuantPilot 自研 Agent 框架，直连 DeepSeek 官方 API',
+    description: 'QuantPilot 自研 Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型',
     color: 'from-blue-600 to-indigo-600',
     downloadUrl: 'https://api-docs.deepseek.com/guides/coding_agents',
     models: getModelDefinitionsForCli('moagent').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
@@ -39,7 +39,7 @@ const CLI_OPTIONS: CLIOption[] = [
       runtime,
       external,
     })),
-    features: ['MoAgent 自研内核', 'DeepSeek 官方 API', '受控工具执行'],
+    features: ['MoAgent 自研内核', '多 Provider 模型选择', '受控工具执行'],
   },
 ];
 
@@ -716,7 +716,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
                       className="text-slate-900 hover:underline"
                     >Global Settings</button>.</>
                   ) : (
-                    <>Quick start with DeepSeek V4 Flash. Review the locked API configuration in <button
+                    <>Quick start with local Qwen 3.5 9B. Review the locked API configuration in <button
                       onClick={() => {
                         onClose();
                         onOpenGlobalSettings?.();

@@ -5,7 +5,6 @@ import path from 'path';
 type JsonRecord = Record<string, unknown>;
 
 const DATA_FILE = 'data_file/final/dashboard-data.json';
-const SOURCES_FILE = 'evidence/sources.json';
 
 function asRecord(value: unknown): JsonRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -45,23 +44,7 @@ function formatMoney(value: unknown): string {
   return formatNumber(number);
 }
 
-function sourceDisplayName(source: unknown, datasetType?: unknown): string {
-  const normalized = String(source ?? '').toLowerCase();
-  const type = String(datasetType ?? '').toLowerCase();
-  if (normalized.includes('eastmoney')) {
-    if (/kline|history|历史/.test(type)) return '东方财富历史 K 线接口';
-    if (/financial|fundamental|财务/.test(type)) return '东方财富财务数据接口';
-    if (/announcement|event|公告/.test(type)) return '东方财富公告事件接口';
-    return '东方财富实时行情接口';
-  }
-  if (normalized.includes('uploaded_image')) return '用户上传截图';
-  if (normalized.includes('market_prefetch')) return 'QuantPilot 后端预取';
-  if (normalized.includes('tencent')) return '腾讯证券行情接口';
-  if (normalized.includes('sina')) return '新浪财经行情接口';
-  if (normalized.includes('akshare')) return 'AKShare 免费数据接口';
-  if (normalized.includes('local')) return '本地计算结果';
-  return String(source ?? '未知信源');
-}`;
+`;
 
 export const DASHBOARD_DATA_READER = `async function readDashboardData(): Promise<JsonRecord | null> {
   try {

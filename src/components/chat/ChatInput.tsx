@@ -2,11 +2,8 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  CheckCircle2,
-  Clock3,
   Image as ImageIcon,
   ListPlus,
-  Loader2,
   MessageSquare,
   Pause,
   SendHorizontal,
@@ -16,11 +13,9 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import PersonalMemoryComposer from './PersonalMemoryComposer';
 import {
   buildQuickQuestions,
-  inferQuestionFocus,
-  inferQuestionTimeRange,
-  inferSymbolSearchQuery,
   QUESTION_COMPOSER_COPY,
   QUESTION_MODE_COPY,
   questionOutputLabel,
@@ -75,24 +70,6 @@ interface ChatInputProps {
   onRemoveQueuedMessage?: (id: string) => void;
 }
 
-interface ResolvedSymbol {
-  symbol: string;
-  name?: string;
-  market?: string;
-  asset_type?: string;
-}
-
-interface QueryRewritePreview {
-  status?: 'ready' | 'partial' | 'needs_clarification' | 'refused';
-  timeRange?: { label?: string } | null;
-  analysisFocus?: { label?: string } | null;
-  unresolvedTargets?: string[];
-  safety?: {
-    decision?: 'allow' | 'refuse';
-    message?: string | null;
-  };
-}
-
 export default function ChatInput({
   onSendMessage,
   disabled = false,
@@ -121,9 +98,6 @@ export default function ChatInput({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
-  const [resolvedSymbols, setResolvedSymbols] = useState<ResolvedSymbol[]>([]);
-  const [queryRewritePreview, setQueryRewritePreview] = useState<QueryRewritePreview | null>(null);
-  const [isResolvingSymbol, setIsResolvingSymbol] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submissionLockRef = useRef(false);
@@ -147,12 +121,6 @@ export default function ChatInput({
   const imageUploadTitle = selectedModelSupportsImages
     ? '上传图片，模型可直接识别图片内容'
     : '上传图片作为附件上下文；当前模型不支持原生视觉识别，Agent 会读取附件清单并标注需要人工确认的字段。';
-  const symbolSearchQuery = useMemo(
-    () => message.trim() ? inferSymbolSearchQuery(message, projectName) : null,
-    [message, projectName],
-  );
-  const questionTimeRange = useMemo(() => inferQuestionTimeRange(message), [message]);
-  const questionFocus = useMemo(() => inferQuestionFocus(message), [message]);
   const quickQuestions = useMemo(() => buildQuickQuestions(projectName), [projectName]);
 
   useEffect(() => {
@@ -175,47 +143,6 @@ export default function ChatInput({
       window.localStorage.removeItem(draftStorageKey);
     }
   }, [draftStorageKey, loadedDraftStorageKey, message, projectId]);
-
-  useEffect(() => {
-    const query = message.trim();
-    if (!query) {
-      setResolvedSymbols([]);
-      setQueryRewritePreview(null);
-      setIsResolvingSymbol(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setIsResolvingSymbol(true);
-      try {
-        const response = await fetch(`${API_BASE}/api/quant/query/rewrite`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, purpose: 'preview' }),
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-        const payload = await response.json();
-        const rewrite = payload?.data;
-        const results = rewrite?.resolvedSymbols;
-        setResolvedSymbols(Array.isArray(results) ? results.slice(0, 3) : []);
-        setQueryRewritePreview(rewrite && typeof rewrite === 'object' ? rewrite : null);
-      } catch (error) {
-        if (!(error instanceof Error && error.name === 'AbortError')) {
-          setResolvedSymbols([]);
-          setQueryRewritePreview(null);
-        }
-      } finally {
-        if (!controller.signal.aborted) setIsResolvingSymbol(false);
-      }
-    }, 350);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [message]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) {
@@ -602,37 +529,19 @@ export default function ChatInput({
           <div className="mx-1 mt-1.5 rounded-xl border border-slate-200/80 bg-slate-50/80 px-2.5 py-2">
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              {QUESTION_COMPOSER_COPY.recognitionTitle}
-              <span className="font-normal text-slate-400">{QUESTION_COMPOSER_COPY.recognitionHelper}</span>
+              {QUESTION_COMPOSER_COPY.modelRewriteTitle}
+              <span className="font-normal text-slate-400">{QUESTION_COMPOSER_COPY.modelRewriteHelper}</span>
             </div>
-            {queryRewritePreview?.safety?.decision === 'refuse' && (
-              <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900">
-                {queryRewritePreview.safety.message}
-              </div>
-            )}
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {isResolvingSymbol ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {QUESTION_COMPOSER_COPY.resolvingTarget}
-                </span>
-              ) : resolvedSymbols.length > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {resolvedSymbols[0].name || symbolSearchQuery} · {resolvedSymbols[0].symbol}{resolvedSymbols[0].market ? `.${resolvedSymbols[0].market}` : ''}
-                  {resolvedSymbols.length > 1 ? ` +${resolvedSymbols.length - 1}` : ''}
-                </span>
-              ) : symbolSearchQuery ? (
-                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
-                  {symbolSearchQuery} · {QUESTION_COMPOSER_COPY.pendingTargetVerification}
-                </span>
-              ) : null}
               <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
-                <Clock3 className="h-3 w-3" />
-                {queryRewritePreview?.timeRange?.label || questionTimeRange}
+                <Sparkles className="h-3 w-3 text-primary" />
+                {selectedModelOption?.name || selectedModel || '所选模型'}
               </span>
               <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
-                {queryRewritePreview?.analysisFocus?.label || questionFocus}
+                {QUESTION_COMPOSER_COPY.literalTarget}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+                {QUESTION_COMPOSER_COPY.resolverVerification}
               </span>
               <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
                 {questionOutputLabel(mode)}
@@ -716,6 +625,13 @@ export default function ChatInput({
                 />
               </button>
             )}
+            {projectId ? (
+              <PersonalMemoryComposer
+                projectId={projectId}
+                suggestedValue={message}
+                disabled={disabled || isSubmitting}
+              />
+            ) : null}
             <div className="flex items-center rounded-full border border-slate-200 bg-white p-0.5">
               <button
                 type="button"

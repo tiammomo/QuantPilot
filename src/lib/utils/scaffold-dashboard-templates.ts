@@ -70,20 +70,6 @@ function getTrendTemplateRows(data: JsonRecord | null): JsonRecord[] {
   return asArray(trendTemplate?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
-function getVisualization(data: JsonRecord | null): JsonRecord | null {
-  return asRecord(data?.visualization);
-}
-
-function getVisualizationRows(visualization: JsonRecord | null): JsonRecord[] {
-  const required = asArray(visualization?.required_components).map(String);
-  const rendered = new Set(asArray(visualization?.rendered_components).map(String));
-  const missing = new Set(asArray(visualization?.missing_components).map(String));
-  return required.map((name) => ({
-    name,
-    status: missing.has(name) ? '待补充' : rendered.has(name) ? '已渲染' : '按模板渲染',
-  }));
-}
-
 function getLiquidityRows(data: JsonRecord | null): JsonRecord[] {
   const liquidity = asRecord(data?.liquidity);
   return asArray(liquidity?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
@@ -312,50 +298,14 @@ function TrendTemplatePanel({ rows }: { rows: JsonRecord[] }) {
   );
 }
 
-function VisualizationPlanPanel({ visualization }: { visualization: JsonRecord | null }) {
-  const rows = getVisualizationRows(visualization);
-  if (!visualization || rows.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="comparison-matrix">
-      <div className="panel-heading">
-        <div>
-          <h2>场景模板</h2>
-          <p>{String(visualization.name ?? visualization.template_id ?? 'QuantPilot 场景化看板')}</p>
-        </div>
-        <span>{String(visualization.template_id ?? '-')}</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>必备组件</th><th>状态</th></tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 8).map((row, index) => (
-              <tr key={String(row.name ?? index)}>
-                <td>{String(row.name ?? '-')}</td>
-                <td>{String(row.status ?? '-')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 export default async function Home() {
   const data = await readDashboardData();
   const rows = getComparisonRows(data);
-  const assets = getAssets(data);
   const leaders = getLeaders(data);
   const correlationPairs = getCorrelationPairs(data);
   const liquidityRows = getLiquidityRows(data);
   const valuationRows = getValuationRows(data);
   const trendTemplateRows = getTrendTemplateRows(data);
-  const visualization = getVisualization(data);
   const requestedSymbols = asArray(data?.requestedSymbols ?? data?.symbols).map(String);
   const bestReturn = asRecord(leaders?.best_return);
   const lowestDrawdown = asRecord(leaders?.lowest_drawdown);
@@ -371,8 +321,7 @@ export default async function Home() {
         </div>
         <div className="header-meta">
           <span>样本：最近 60 个交易日</span>
-          <span>信源：{sourceDisplayName(data?.source ?? 'eastmoney')}</span>
-          <span>证据：{SOURCES_FILE}</span>
+          <span>更新：{String(data?.as_of ?? '-')}</span>
         </div>
       </header>
 
@@ -448,45 +397,6 @@ export default async function Home() {
         <TrendTemplatePanel rows={trendTemplateRows} />
       </section>
 
-      <VisualizationPlanPanel visualization={visualization} />
-
-      <section className="comparison-matrix">
-        <div className="panel-heading">
-          <div>
-            <h2>数据信源渠道与质量</h2>
-            <p>逐只标的展示行情、K 线、财务等渠道和样本覆盖；公开行情接口可能存在延迟。</p>
-          </div>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>标的</th>
-                <th>信源渠道</th>
-                <th>行情时间</th>
-                <th>K 线样本</th>
-                <th>质量提示</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assets.map((asset, index) => {
-                const quote = asRecord(asset.quote);
-                const kline = asRecord(asset.kline);
-                const quality = asRecord(quote?.data_quality) ?? asRecord(kline?.data_quality);
-                return (
-                  <tr key={String(asset.symbol ?? index)}>
-                    <td><strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong><small>{String(asset.symbol ?? quote?.symbol ?? '-')}</small></td>
-                    <td>{sourceDisplayName(asset.source ?? quote?.source ?? 'eastmoney')}</td>
-                    <td>{String(asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? '-')}</td>
-                    <td>{asArray(kline?.bars).length}</td>
-                    <td>{String(quality?.status ?? 'ok')}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </main>
   );
 }
@@ -718,44 +628,6 @@ function FinancialQualityPanel({ rows }: { rows: JsonRecord[] }) {
   );
 }
 
-function DataQualityPanel({ data, assets }: { data: JsonRecord | null; assets: JsonRecord[] }) {
-  const visualization = asRecord(data?.visualization);
-  const components = asArray(visualization?.required_components).map(String);
-  return (
-    <section className="selection-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>数据信源渠道逐项追踪</h2>
-          <p>逐只标的展示实际使用的行情、K 线、财务渠道和样本覆盖。</p>
-        </div>
-        <span>多标的对比</span>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>标的</th><th>信源渠道</th><th>行情时间</th><th>K 线样本</th><th>报告期</th></tr></thead>
-          <tbody>
-            {assets.map((asset, index) => {
-              const quote = asRecord(asset.quote);
-              const kline = asRecord(asset.kline);
-              const quality = asRecord(asset.financialQuality);
-              return (
-                <tr key={String(asset.symbol ?? index)}>
-                  <td><strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong><small>{String(asset.symbol ?? quote?.symbol ?? '-')}</small></td>
-                  <td>{sourceDisplayName(asset.source ?? quote?.source ?? 'eastmoney')}</td>
-                  <td>{String(asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? '-')}</td>
-                  <td>{asArray(kline?.bars).length}</td>
-                  <td>{String(quality?.latest_report_date ?? '-').slice(0, 10)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p className="component-line">组件覆盖：{components.join(' / ') || '按多标的对比模板渲染'} · 技术证据：{DATA_FILE}</p>
-    </section>
-  );
-}
-
 export default async function Home() {
   const data = await readDashboardData();
   const assets = getAssets(data);
@@ -837,7 +709,6 @@ export default async function Home() {
       </section>
 
       <FinancialQualityPanel rows={financialRows} />
-      <DataQualityPanel data={data} assets={assets} />
     </main>
   );
 }
@@ -2004,40 +1875,6 @@ function RiskPanel({ risk }: { risk: JsonRecord | null }) {
   );
 }
 
-function DataSourcePanel({ assets }: { assets: JsonRecord[] }) {
-  return (
-    <section className="holding-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>数据信源渠道</h2>
-          <p>逐只标的展示实际数据来源、行情时间和 K 线覆盖。</p>
-        </div>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>标的</th><th>信源渠道</th><th>行情时间</th><th>K 线样本</th></tr>
-          </thead>
-          <tbody>
-            {assets.map((asset, index) => {
-              const quote = asRecord(asset.quote);
-              const kline = asRecord(asset.kline);
-              return (
-                <tr key={String(asset.symbol ?? index)}>
-                  <td><strong>{String(asset.name ?? quote?.name ?? asset.symbol)}</strong><small>{String(asset.symbol ?? quote?.symbol ?? '-')}</small></td>
-                  <td>{sourceDisplayName(asset.source ?? quote?.source ?? 'eastmoney')}</td>
-                  <td>{String(asset.as_of ?? quote?.quote_time ?? quote?.fetched_at ?? '-')}</td>
-                  <td>{asArray(kline?.bars).length}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 export default async function Home() {
   const data = await readDashboardData();
   const portfolio = getPortfolio(data);
@@ -2081,8 +1918,6 @@ export default async function Home() {
       <ComparisonMetricsPanel rows={comparisonRows} />
 
       <RiskPanel risk={risk} />
-
-      <DataSourcePanel assets={assets} />
     </main>
   );
 }

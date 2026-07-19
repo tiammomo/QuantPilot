@@ -19,7 +19,16 @@ const SINGLE_STOCK_COMPONENTS = [
   'K 线与成交量主图',
   '趋势/量能/风险信号',
   '财务与公告摘要',
-  '信源质量',
+  '数据质量',
+];
+
+const SINGLE_STOCK_FUNDAMENTAL_COMPONENTS = [
+  '行情侧栏',
+  '财务质量评分',
+  '营收利润趋势',
+  '利润率/ROE',
+  '公告事件',
+  '缺失字段说明',
 ];
 
 const STOCK_SELECTION_COMPONENTS = [
@@ -28,7 +37,7 @@ const STOCK_SELECTION_COMPONENTS = [
   '收益对比主图',
   '回撤/波动主图',
   '排序依据',
-  '信源追踪',
+  '数据口径',
 ];
 
 const BACKTEST_COMPONENTS = [
@@ -49,7 +58,6 @@ const FUNDAMENTAL_COMPONENTS = [
 ];
 
 const REJECTED_VARIANTS = [
-  ['single-stock-diagnosis', 'single-stock-fundamental-snapshot'],
   ['technical-timing', 'technical-kline-trader'],
   ['technical-timing', 'technical-breakout-watch'],
   ['fundamental-research', 'fundamental-report-trend'],
@@ -225,6 +233,37 @@ function fundamentalData(): JsonRecord {
       'fundamental-research',
       'fundamental-quality-scorecard',
       FUNDAMENTAL_COMPONENTS,
+    ),
+  };
+}
+
+function singleStockFundamentalData(): JsonRecord {
+  const reports = [
+    { symbol: '600589', report_date: '2026-03-31', revenue: 547, parent_net_profit: 272 },
+    { symbol: '600589', report_date: '2025-12-31', revenue: 1_800, parent_net_profit: 900 },
+  ];
+  return {
+    runId: 'run-plan',
+    symbol: '600589',
+    quote: { symbol: '600589', price: 8.31, source: 'eastmoney' },
+    financials: { symbol: '600589', reports },
+    fundamentalIndicators: { symbol: '600589', points: reports },
+    financialQuality: {
+      rows: [{
+        symbol: '600589',
+        latest_report_date: '2026-03-31',
+        quality_score: 83,
+        quality_label: '盈利质量较强',
+        strengths: ['毛利率较高'],
+        watch_items: ['复核现金流'],
+      }],
+      limitations: ['未纳入行业景气度'],
+    },
+    announcements: { symbol: '600589', announcements: [] },
+    visualization: visualization(
+      'single-stock-diagnosis',
+      'single-stock-fundamental-snapshot',
+      SINGLE_STOCK_FUNDAMENTAL_COMPONENTS,
     ),
   };
 }
@@ -555,6 +594,10 @@ describe('dashboard renderer capability registry', () => {
       'single-stock-command-center',
     )).toBe(true);
     expect(isDashboardSpecCapabilitySupported(
+      'single-stock-diagnosis',
+      'single-stock-fundamental-snapshot',
+    )).toBe(true);
+    expect(isDashboardSpecCapabilitySupported(
       'fundamental-research',
       'fundamental-quality-scorecard',
     )).toBe(true);
@@ -570,13 +613,14 @@ describe('dashboard renderer capability registry', () => {
     }));
     expect(matrix).toEqual([
       { templateId: 'single-stock-diagnosis', variantId: 'single-stock-command-center', supported: true },
-      ...REJECTED_VARIANTS.slice(0, 3).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      { templateId: 'single-stock-diagnosis', variantId: 'single-stock-fundamental-snapshot', supported: true },
+      ...REJECTED_VARIANTS.slice(0, 2).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'fundamental-research', variantId: 'fundamental-quality-scorecard', supported: true },
-      ...REJECTED_VARIANTS.slice(3, 4).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(2, 3).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'stock-selection', variantId: 'selection-ranking-matrix', supported: true },
-      ...REJECTED_VARIANTS.slice(4, 10).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(3, 9).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
       { templateId: 'backtest-review', variantId: 'backtest-performance-review', supported: true },
-      ...REJECTED_VARIANTS.slice(10).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
+      ...REJECTED_VARIANTS.slice(9).map(([templateId, variantId]) => ({ templateId, variantId, supported: false })),
     ]);
     const catalogIdentities = KNOWN_TEMPLATE_IDS.flatMap((templateId) => (
       serializeQuantVisualizationTemplate(templateId).alternatives.map((variant) => ({
@@ -608,6 +652,13 @@ describe('dashboard renderer capability registry', () => {
       variantId: 'single-stock-command-center',
       components: SINGLE_STOCK_COMPONENTS,
       data: singleStockData(),
+      renderer: 'base',
+    },
+    {
+      templateId: 'single-stock-diagnosis',
+      variantId: 'single-stock-fundamental-snapshot',
+      components: SINGLE_STOCK_FUNDAMENTAL_COMPONENTS,
+      data: singleStockFundamentalData(),
       renderer: 'base',
     },
     {
@@ -768,6 +819,46 @@ describe('dashboard renderer capability registry', () => {
     expect(page).toContain('策略名称来源：回测数据');
     expect(page).toContain('已完成交易');
     expect(page).toContain('笔已完成');
+  });
+
+  it('renders the certified single-stock fundamental snapshot from prepared data', () => {
+    const spec = __dashboardSpecTesting.compileDashboardSpec(
+      runPlan(
+        'single-stock-diagnosis',
+        'single-stock-fundamental-snapshot',
+        SINGLE_STOCK_FUNDAMENTAL_COMPONENTS,
+      ),
+      singleStockFundamentalData(),
+      {},
+    );
+    const page = __dashboardSpecTesting.renderDashboard(spec).page;
+    expect(page).toContain('FinancialQualityPanel');
+    expect(page).toContain('财务质量评分');
+    expect(page).toContain('缺失字段与口径说明');
+    expect(page).toContain('single-stock-fundamental-snapshot');
+    expect(page).toContain('PB-MRQ');
+  });
+
+  it('rejects a fundamental snapshot without an attributable quality score', () => {
+    const data = singleStockFundamentalData();
+    data.financialQuality = { rows: [], limitations: [] };
+    const error = capturedToolError(() => {
+      __dashboardSpecTesting.compileDashboardSpec(
+        runPlan(
+          'single-stock-diagnosis',
+          'single-stock-fundamental-snapshot',
+          SINGLE_STOCK_FUNDAMENTAL_COMPONENTS,
+        ),
+        data,
+        {},
+      );
+    });
+    expect(error.code).toBe('DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED');
+    expect(error.details).toMatchObject({
+      missing: expect.arrayContaining([
+        expect.objectContaining({ id: 'financial_quality_score' }),
+      ]),
+    });
   });
 
   it.each([

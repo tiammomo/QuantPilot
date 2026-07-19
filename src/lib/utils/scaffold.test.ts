@@ -66,6 +66,9 @@ describe('restoreQuantDashboardTemplate', () => {
         expect(template.page, `${template.name} page: ${legacyStructure}`).not.toContain(legacyStructure);
         expect(template.css, `${template.name} css: ${legacyStructure}`).not.toContain(legacyStructure);
       }
+      for (const hiddenEvidenceDetail of ['数据信源渠道', '技术证据', '行情源：', 'evidence/sources.json', '场景模板', '必备组件']) {
+        expect(template.page, `${template.name}: ${hiddenEvidenceDetail}`).not.toContain(hiddenEvidenceDetail);
+      }
     }
   });
 
@@ -142,9 +145,24 @@ describe('restoreQuantDashboardTemplate', () => {
       fs.readFile(path.join(projectPath, 'scripts', 'run-dev.js'), 'utf8'),
     ]);
     expect(page).toContain('data-visual-language="financial-workbench"');
+    expect(page).not.toContain('数据信源渠道');
+    expect(page).not.toContain('技术证据');
+    expect(page).not.toContain('行情源：');
+    expect(page).not.toContain('evidence/sources.json');
+    expect(page).not.toContain('场景模板');
+    expect(page).not.toContain('必备组件');
+    expect(page).toContain('className="metric-strip metrics-7"');
+    expect(page).toContain('className="metric-strip metrics-4"');
     expect(css).toContain('FINANCIAL WORKBENCH CANVAS');
     expect(css).toContain('border-inline: 1px solid var(--line)');
     expect(css).toContain('border-bottom: 1px solid var(--line)');
+    expect(css).toContain('.metric-strip.metrics-7');
+    expect(css).toContain('grid-template-columns: repeat(7, minmax(0, 1fr))');
+    expect(css).toContain('grid-template-columns: repeat(12, minmax(0, 1fr))');
+    expect(css).toContain('.metric-strip.metrics-7 .metric-cell:nth-last-child(-n + 3)');
+    expect(css).toContain('font-variant-numeric: tabular-nums lining-nums');
+    expect(css).toContain('white-space: nowrap');
+    expect(css).not.toContain('grid-template-columns: repeat(6, minmax(0, 1fr))');
     expect(css).not.toContain('linear-gradient(180deg, #eef4ff');
     expect(nextConfig).toContain('outputFileTracingRoot: projectRoot');
     expect(nextConfig).toContain('root: projectRoot');

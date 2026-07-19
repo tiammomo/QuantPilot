@@ -43,6 +43,7 @@ export function planPreviewReconciliation(params: {
   // otherwise an unaccepted failed Mission would look perpetually active.
   if (
     snapshot.status === 'failed' ||
+    snapshot.status === 'needs_revalidation' ||
     snapshot.status === 'cancelled' ||
     snapshot.status === 'needs_clarification' ||
     snapshot.status === 'refused'

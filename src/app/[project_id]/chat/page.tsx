@@ -16,7 +16,7 @@ import { ChatErrorBoundary } from '@/components/ErrorBoundary';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
-import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
+import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/models';
 import {
   ACTIVE_CLI_BRAND_COLORS,
   ACTIVE_CLI_IDS,
@@ -1244,6 +1244,18 @@ const persistProjectPreferences = useCallback(
       }
 
       if (snapshot.status === 'preview_pending') {
+        return;
+      }
+
+      if (snapshot.status === 'needs_revalidation') {
+        setIsRunning(false);
+        setAgentWorkComplete(false);
+        setQuantValidationState('failed');
+        setQuantValidationMessage('看板文件已在任务完成后更新，需要发起新一轮验收。');
+        previewUrlRef.current = null;
+        setPreviewUrl(null);
+        setIsStartingPreview(false);
+        setPreviewInitializationMessage('看板已更新，请重新生成并验收后查看最终预览。');
         return;
       }
 

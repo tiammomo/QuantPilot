@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">QuantPilot</title>
+  <desc id="desc">带有上升趋势航向线的 Q 形量化研究标志</desc>
+  <defs>
+    <linearGradient id="quantpilot-bg" x1="88" y1="64" x2="430" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F47D63" />
+      <stop offset="1" stop-color="#C83F34" />
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#quantpilot-bg)" />
+  <rect x="36" y="36" width="440" height="440" rx="100" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="8" />
+  <circle cx="244" cy="238" r="126" fill="none" stroke="#FFFFFF" stroke-width="48" />
+  <path d="M326 324L401 399" fill="none" stroke="#FFFFFF" stroke-width="48" stroke-linecap="round" />
+  <path d="M166 279L219 226L267 259L342 184" fill="none" stroke="#FFD8CB" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M306 184H342V220" fill="none" stroke="#FFD8CB" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

@@ -82,7 +82,6 @@ export function baseDashboardWorkbenchCss(): string {
 .dashboard-shell[data-visual-language="financial-workbench"] .volume-chart,
 .dashboard-shell[data-visual-language="financial-workbench"] .financial-chart,
 .dashboard-shell[data-visual-language="financial-workbench"] .chart-empty-state,
-.dashboard-shell[data-visual-language="financial-workbench"] .source-channel,
 .dashboard-shell[data-visual-language="financial-workbench"] .correlation-row,
 .dashboard-shell[data-visual-language="financial-workbench"] .compact-row {
   border-radius: 0;

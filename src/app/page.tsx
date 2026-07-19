@@ -9,8 +9,6 @@ import {
   CircleAlert,
   CircleCheckBig,
   CircleDashed,
-  Clock3,
-  Crosshair,
   FileChartColumn,
   FolderKanban,
   Home,
@@ -26,7 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
-import { getDefaultModelForCli, getModelDisplayName } from "@/lib/constants/cliModels";
+import { getDefaultModelForCli, getModelDisplayName } from "@/lib/constants/models";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,9 +63,6 @@ import { cn } from "@/lib/utils";
 import homeAnimeResearcher from "@/assets/home-anime-quant-researcher-v3.webp";
 import {
   buildQuestionInstruction,
-  inferQuestionFocus,
-  inferQuestionTimeRange,
-  inferSymbolSearchQuery,
   questionOutputLabel,
   type QuestionMode,
 } from "@/components/chat/question-composer";
@@ -238,9 +233,6 @@ export default function HomePage() {
   const accountName = user?.name || user?.email || "研究员";
   const accountInitial = accountName.slice(0, 1).toUpperCase();
   const normalizedPrompt = prompt.trim();
-  const querySubject = normalizedPrompt ? inferSymbolSearchQuery(normalizedPrompt) : null;
-  const queryTimeRange = normalizedPrompt ? inferQuestionTimeRange(normalizedPrompt) : null;
-  const queryFocus = normalizedPrompt ? inferQuestionFocus(normalizedPrompt) : null;
 
   // --- Session persistence ---
   useEffect(() => {
@@ -698,7 +690,14 @@ export default function HomePage() {
     <div className="home-shell relative flex min-h-screen flex-col overflow-x-clip bg-background text-foreground">
       <header className="platform-header sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between px-3 md:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#e96750] to-[#c94331] text-sm font-bold text-white shadow-[0_10px_22px_-12px_rgba(201,67,49,0.82)]">Q</div>
+          <Image
+            src="/quantpilot-mark.svg"
+            alt=""
+            width={40}
+            height={40}
+            priority
+            className="h-10 w-10 shrink-0 rounded-xl shadow-[0_10px_22px_-12px_rgba(201,67,49,0.82)]"
+          />
           <span className="text-base font-bold tracking-tight sm:text-lg">QuantPilot</span>
 
           <nav className="ml-4 hidden items-center gap-1 lg:flex" aria-label="首页导航">
@@ -739,7 +738,7 @@ export default function HomePage() {
       </header>
 
       <main className="platform-content flex-1 scroll-pb-24 px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 md:px-6 md:pb-16 md:pt-5">
-        <div className="mx-auto w-full max-w-[90rem]">
+        <div className="mx-auto w-full max-w-[116rem]">
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -861,10 +860,9 @@ export default function HomePage() {
                   </p>
                 ) : normalizedPrompt ? (
                   <div aria-live="polite" className="mx-auto mt-2.5 flex max-w-[70rem] flex-wrap items-center justify-center gap-1.5 text-[11px]">
-                    <span className="mr-1 font-semibold text-muted-foreground">初步识别</span>
-                    {querySubject ? <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground"><Crosshair className="h-3 w-3 text-primary" />{querySubject}</span> : null}
-                    <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground"><Clock3 className="h-3 w-3 text-primary" />{queryTimeRange}</span>
-                    <span className="inline-flex min-h-7 items-center rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">{queryFocus}</span>
+                    <span className="mr-1 inline-flex items-center gap-1 font-semibold text-muted-foreground"><Sparkles className="h-3 w-3 text-primary" />提交后由所选大模型解析</span>
+                    <span className="inline-flex min-h-7 items-center rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">标的原文保真</span>
+                    <span className="inline-flex min-h-7 items-center rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">Resolver 校验证券代码</span>
                     <span className="inline-flex min-h-7 items-center gap-1 rounded-full border border-border/70 bg-background/75 px-2.5 text-foreground">{outputMode === "act" ? <LayoutDashboard className="h-3 w-3 text-primary" /> : <MessageSquare className="h-3 w-3 text-primary" />}{questionOutputLabel(outputMode)}</span>
                   </div>
                 ) : null}

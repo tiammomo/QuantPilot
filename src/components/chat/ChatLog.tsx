@@ -13,6 +13,8 @@ import {
   shouldRealtimeAssistantUpdateStopWaiting,
 } from '@/lib/quant/realtime-generation-status';
 import { collapseToolReadActivities } from '@/lib/chat/tool-activity';
+import PersonalMemoryFeedback from './PersonalMemoryFeedback';
+import PersonalMemoryCandidateCard from './PersonalMemoryCandidateCard';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -1663,6 +1665,27 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       ? 'websocket'
       : 'sse';
   const useWebSocketTransport = realtimeTransportMode === 'websocket';
+  const preparedPersonalizationRequests = useMemo(() => {
+    const requestIds = new Set<string>();
+    for (const message of messages) {
+      if (message.role !== 'user' || !message.requestId) continue;
+      const metadata = message.metadata && typeof message.metadata === 'object'
+        ? message.metadata as Record<string, unknown>
+        : null;
+      const personalization = metadata?.personalization;
+      if (!personalization || typeof personalization !== 'object') continue;
+      const detail = personalization as Record<string, unknown>;
+      const legacyOrPrepared = detail.status === 'prepared' || detail.status === 'applied';
+      if (
+        legacyOrPrepared
+        && typeof detail.exposedMemoryCount === 'number'
+        && detail.exposedMemoryCount > 0
+      ) {
+        requestIds.add(message.requestId);
+      }
+    }
+    return requestIds;
+  }, [messages]);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [expandedToolMessages, setExpandedToolMessages] = useState<Record<string, ToolExpansionState>>({});
   const fallbackMessageIdRef = useRef<Map<string, string>>(new Map());
@@ -3388,6 +3411,13 @@ const ToolResultMessage = ({
           const turnMetrics = messageMetadata?.isMissionFinal === true
             ? parseMoAgentTurnMetrics(messageMetadata.turnMetrics)
             : null;
+          const canRatePersonalMemory =
+            message.role === 'assistant'
+            && message.messageType === 'chat'
+            && messageMetadata?.isMoAgentFinal === true
+            && messageMetadata?.validationPassed === true
+            && Boolean(message.requestId)
+            && preparedPersonalizationRequests.has(message.requestId ?? '');
           const isToolMessage = message.messageType === 'tool_result' || isToolUsageMessage(message);
           const toolMessageKey = isToolMessage
             ? ensureStableMessageId(message)
@@ -3405,7 +3435,8 @@ const ToolResultMessage = ({
                 {message.role === 'user' ? (
                   // User message - boxed on the right
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] bg-slate-100 rounded-lg px-4 py-3">
+                    <div className="max-w-[80%]">
+                    <div className="bg-slate-100 rounded-lg px-4 py-3">
                       <div className="text-sm text-slate-900 break-words">
                         {(() => {
                           const cleanedMessage = cleanUserMessage(messageText);
@@ -3553,6 +3584,14 @@ const ToolResultMessage = ({
                         })()}
                       </div>
                     </div>
+                    {message.requestId && messageMetadata?.personalizationCandidate ? (
+                      <PersonalMemoryCandidateCard
+                        projectId={projectId}
+                        requestId={message.requestId}
+                        candidate={messageMetadata.personalizationCandidate}
+                      />
+                    ) : null}
+                    </div>
                   </div>
                 ) : (
                   // Agent message - full width, no box
@@ -3577,6 +3616,9 @@ const ToolResultMessage = ({
                       <div className="text-sm text-slate-900 leading-relaxed">
                         {renderContentWithThinking(shortenPath(messageText))}
                         {turnMetrics ? <TurnMetricsFooter metrics={turnMetrics} /> : null}
+                        {canRatePersonalMemory && message.requestId ? (
+                          <PersonalMemoryFeedback projectId={projectId} requestId={message.requestId} />
+                        ) : null}
                       </div>
                     )}
                   </div>
