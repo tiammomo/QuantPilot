@@ -413,8 +413,8 @@
     "capabilityId": "stock_diagnosis",
     "variantExpectations": [
       { "templateId": "single-stock-diagnosis", "variantId": "single-stock-command-center", "supported": true },
-      { "templateId": "single-stock-diagnosis", "variantId": "single-stock-fundamental-snapshot", "supported": false },
-      { "templateId": "technical-timing", "variantId": "technical-kline-trader", "supported": false },
+      { "templateId": "single-stock-diagnosis", "variantId": "single-stock-fundamental-snapshot", "supported": true },
+      { "templateId": "technical-timing", "variantId": "technical-kline-trader", "supported": true },
       { "templateId": "technical-timing", "variantId": "technical-breakout-watch", "supported": false },
       { "templateId": "fundamental-research", "variantId": "fundamental-quality-scorecard", "supported": true },
       { "templateId": "fundamental-research", "variantId": "fundamental-report-trend", "supported": false },
@@ -423,11 +423,11 @@
       { "templateId": "stock-selection", "variantId": "selection-liquidity-trend-board", "supported": false },
       { "templateId": "sector-rotation", "variantId": "sector-rotation-radar", "supported": false },
       { "templateId": "sector-rotation", "variantId": "sector-capital-flow-board", "supported": false },
-      { "templateId": "strategy-research", "variantId": "strategy-hypothesis-canvas", "supported": false },
+      { "templateId": "strategy-research", "variantId": "strategy-hypothesis-canvas", "supported": true },
       { "templateId": "strategy-research", "variantId": "strategy-signal-lab", "supported": false },
       { "templateId": "backtest-review", "variantId": "backtest-performance-review", "supported": true },
       { "templateId": "backtest-review", "variantId": "backtest-trade-forensics", "supported": false },
-      { "templateId": "holding-analysis", "variantId": "portfolio-risk-console", "supported": false },
+      { "templateId": "holding-analysis", "variantId": "portfolio-risk-console", "supported": true },
       { "templateId": "holding-analysis", "variantId": "portfolio-rebalance-plan", "supported": false }
     ],
     "selectionExpectations": [

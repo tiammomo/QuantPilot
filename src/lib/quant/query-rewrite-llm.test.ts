@@ -79,6 +79,9 @@ describe('query rewrite LLM adapter', () => {
     expect(request.messages[1].content).not.toContain('deterministic');
     expect(request.messages[1].content).toContain('answerOnlyEvidence');
     expect(request.messages[1].content).toContain('broadUniverseEvidence');
+    expect(request.messages[1].content).toContain('multiple unnamed securities');
+    expect(request.messages[1].content).toContain('帮我推荐6月3日要买的股票');
+    expect(request.messages[1].content).toContain('有哪些股票值得关注');
   });
 
   it('normalizes local-model null sentinels without weakening other schema checks', async () => {

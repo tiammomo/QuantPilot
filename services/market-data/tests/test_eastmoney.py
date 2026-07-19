@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -13,6 +14,7 @@ from quantpilot_market_data.cache import MarketDataCache
 from quantpilot_market_data.fundamentals import build_fundamental_indicators
 from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.providers.eastmoney import (
+    EastMoneyClient,
     infer_asset_type,
     normalize_secid,
     parse_a_share_list_payload,
@@ -137,6 +139,24 @@ def test_infer_asset_type_for_index_and_etf() -> None:
     assert infer_asset_type(symbol="600519", secid="1.600519", name="贵州茅台") == "stock"
     assert infer_asset_type(symbol="000300", secid="1.000300", name="沪深300") == "index"
     assert infer_asset_type(symbol="510300", secid="1.510300", name="沪深300ETF华泰柏瑞") == "etf"
+
+
+def test_resolve_symbol_uses_known_alias_without_remote_search(monkeypatch) -> None:
+    client = EastMoneyClient()
+
+    def fail_if_remote_client_is_created():
+        raise AssertionError("known aliases must not call the remote suggest API")
+
+    monkeypatch.setattr(client, "_create_http_client", fail_if_remote_client_is_created)
+
+    results = asyncio.run(client.resolve_symbol("沪深300ETF"))
+
+    assert len(results) == 1
+    assert results[0].symbol == "510300"
+    assert results[0].secid == "1.510300"
+    assert results[0].asset_type == "etf"
+    assert results[0].market == "SH"
+    assert results[0].raw == {"resolution": "known_alias"}
 
 
 def test_parse_symbol_suggest_payload() -> None:

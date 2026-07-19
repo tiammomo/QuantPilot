@@ -161,6 +161,43 @@ describe('writeInitialRunPlan', () => {
     });
   });
 
+  it('keeps a benchmark capability authoritative while retaining the LLM rewrite', async () => {
+    const projectPath = await createProject();
+    const query = '分析沪深300最近120个交易日的趋势与量能。';
+    const queryRewrite = await buildRewrite({
+      query,
+      targets: ['沪深300'],
+      symbolByTarget: { 沪深300: '000300' },
+      focus: 'strategy',
+      timeRange: {
+        label: '最近120个交易日',
+        value: 120,
+        unit: 'trading_day',
+        evidence: '最近120个交易日',
+      },
+    });
+
+    const plan = await writeInitialRunPlan({
+      projectPath,
+      requestId: 'benchmark-technical-routing',
+      capabilityId: 'technical_analysis',
+      capabilitySource: 'benchmark',
+      instruction: query,
+      queryRewrite,
+    });
+
+    expect(plan).toMatchObject({
+      status: 'planned',
+      capabilityId: 'technical_analysis',
+      symbols: ['000300'],
+      timeRange: '最近120个交易日',
+      queryRewrite: {
+        analysisFocus: { id: 'strategy' },
+        execution: { strategy: 'llm_primary' },
+      },
+    });
+  });
+
   it('asks for comparison targets when the LLM finds only a generic quantity', async () => {
     const projectPath = await createProject();
     const query = '帮我对比几只股票，生成看板。';

@@ -63,19 +63,9 @@ const INVESTMENT_CONSTRAINT_PATTERN =
   /短线|中线|长线|日内|波段|价值|成长|稳健|激进|保守|风险|回撤|仓位|周期|一周|一个月|三个月|半年|一年|预算|资金|偏好|低风险|高风险|A股|港股|美股|ETF|指数/i;
 const IMAGE_CONTEXT_TARGET_PATTERN =
   /图片|截图|持仓|账户|仓位|组合|调仓|证券|交易|盈亏|成本|可用|现金|总资产|市值/i;
-const BROAD_STOCK_SELECTION_PATTERN =
-  /全A|A股股票池|股票池|选股|筛选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/;
 
 function normalizeInstruction(instruction: string): string {
   return instruction.replace(/\s+/g, ' ').trim();
-}
-
-function isBroadStockSelectionRequest(instruction: string): boolean {
-  const compact = instruction.replace(/\s+/g, '');
-  if (!/(?:股票|个股|A股|全A|股票池)/.test(compact)) {
-    return false;
-  }
-  return BROAD_STOCK_SELECTION_PATTERN.test(compact);
 }
 
 function hasFinancialIntent(instruction: string, capabilityId?: string | null): boolean {
@@ -170,8 +160,9 @@ export function assessQuantIntentForClarification(
   const codes = extractExplicitSymbolCodes(instruction);
   const knownTargetSymbols = inferKnownSymbols(instruction);
   const hasBroadMarketTarget = BROAD_MARKET_TARGET_PATTERN.test(instruction);
-  const broadStockSelectionRequest =
-    params.broadUniverse === true || isBroadStockSelectionRequest(instruction);
+  // Query Rewrite is the authority for executable unnamed universes. Do not
+  // reconstruct this semantic decision from keywords in the clarification layer.
+  const broadStockSelectionRequest = params.broadUniverse === true;
   const explicitTargetCount = new Set([...symbols, ...codes, ...knownTargetSymbols]).size;
   const targetCount = explicitTargetCount;
   const canInferTargetFromImage =

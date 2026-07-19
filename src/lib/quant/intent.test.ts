@@ -61,6 +61,24 @@ describe('quant intent clarification', () => {
     });
   });
 
+  it('uses only the LLM broad-universe decision for unnamed stock selection', () => {
+    const instruction = '帮我推荐6月3日要买的股票，给我推荐10个。';
+
+    expect(assessQuantIntentForClarification({
+      instruction,
+      capabilityId: 'asset_comparison',
+      semanticFocusId: 'comparison',
+      broadUniverse: false,
+    }).missing).toContain('comparison_universe');
+
+    expect(assessQuantIntentForClarification({
+      instruction,
+      capabilityId: 'asset_comparison',
+      semanticFocusId: 'comparison',
+      broadUniverse: true,
+    })).toMatchObject({ required: false, missing: [] });
+  });
+
   it('counts an ETF name and its overlapping index prefix as one comparison target', () => {
     expect(
       assessQuantIntentForClarification({

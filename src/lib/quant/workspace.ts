@@ -310,7 +310,11 @@ function inferCapabilityId(params: {
   queryRewrite: QuantQueryRewriteResult;
   resolvedSymbolCount: number;
 }) {
-  if (params.requestedCapabilityId && params.requestedCapabilitySource === 'manual') {
+  const requestedCapabilityIsAuthoritative =
+    params.requestedCapabilitySource === 'manual' ||
+    params.requestedCapabilitySource === 'benchmark';
+
+  if (params.requestedCapabilityId && requestedCapabilityIsAuthoritative) {
     return params.requestedCapabilityId;
   }
 
@@ -483,7 +487,9 @@ export async function writeInitialRunPlan(params: {
   const planningInstruction = stripOperationalInstructions(params.instruction) || params.instruction.trim();
   const queryRewrite = params.queryRewrite ?? await rewriteQuantQuery(planningInstruction, {
     requestedCapabilityId:
-      params.capabilitySource === 'manual' ? params.capabilityId : null,
+      params.capabilitySource === 'manual' || params.capabilitySource === 'benchmark'
+        ? params.capabilityId
+        : null,
     requestedModel: params.llmModel,
     projectId: params.projectId,
   });

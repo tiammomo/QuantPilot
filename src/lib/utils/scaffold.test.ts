@@ -70,6 +70,7 @@ describe('restoreQuantDashboardTemplate', () => {
         expect(template.page, `${template.name}: ${hiddenEvidenceDetail}`).not.toContain(hiddenEvidenceDetail);
       }
     }
+    expect(holdingAnalysisPageTemplate()).toContain('数据信源：已记录');
   });
 
   it('contains long ETF names and wide comparison content on mobile workbenches', () => {
@@ -151,6 +152,7 @@ describe('restoreQuantDashboardTemplate', () => {
     expect(page).not.toContain('evidence/sources.json');
     expect(page).not.toContain('场景模板');
     expect(page).not.toContain('必备组件');
+    expect(page).toContain('量能、数据信源与数据质量');
     expect(page).toContain('className="metric-strip metrics-7"');
     expect(page).toContain('className="metric-strip metrics-4"');
     expect(css).toContain('FINANCIAL WORKBENCH CANVAS');

@@ -215,6 +215,10 @@ class EastMoneyClient:
             return parse_quote_list_payload(secids, payload)
 
     async def resolve_symbol(self, query: str, count: int = 5) -> list[SymbolResolveResult]:
+        known_alias = resolve_known_security_alias(query)
+        if known_alias is not None:
+            return [known_alias]
+
         params = {
             "input": query.strip(),
             "type": "14",
@@ -530,6 +534,38 @@ def normalize_secid(symbol_or_secid: str) -> str:
         return f"0.{code}"
 
     raise ValueError(f"无法推断东方财富市场编号：{symbol_or_secid}")
+
+
+def resolve_known_security_alias(query: str) -> SymbolResolveResult | None:
+    """Resolve an exact market alias without depending on the remote suggest API.
+
+    Query semantics remain LLM-owned. This function only canonicalizes a target
+    the LLM has already extracted, using the same exact aliases accepted by the
+    quote and K-line endpoints. That keeps symbol resolution deterministic and
+    prevents duplicate code/name references from becoming false clarifications.
+    """
+
+    normalized_query = query.strip()
+    secid = KNOWN_SECURITY_ALIASES.get(normalized_query) or KNOWN_SECURITY_ALIASES.get(
+        normalized_query.upper()
+    )
+    if secid is None:
+        return None
+
+    symbol = secid.split(".", 1)[1]
+    return SymbolResolveResult(
+        query=query,
+        symbol=symbol,
+        name=normalized_query,
+        asset_type=infer_asset_type(
+            symbol=symbol,
+            secid=secid,
+            name=normalized_query,
+        ),
+        market=market_from_secid(secid),
+        secid=secid,
+        raw={"resolution": "known_alias"},
+    )
 
 
 def market_from_payload(secid: str, data: dict[str, Any]) -> MarketCode:

@@ -41,13 +41,19 @@ async def resolve_symbol(
     ttl_seconds: int,
 ) -> SymbolResolveResponse:
     normalized_count = max(1, min(count, 20))
-    cache_key = cache.build_key("symbols-resolve", {"query": query, "count": normalized_count})
+    # v2 invalidates legacy negative entries created before exact market aliases
+    # were resolved locally. Empty suggest responses are deliberately not
+    # cached: a transient upstream miss must not turn into repeated false
+    # clarification requests in the long-running workspace flow.
+    cache_key = cache.build_key("symbols-resolve-v2", {"query": query, "count": normalized_count})
     cached = read_cached_response(cache, cache_key, SymbolResolveResponse)
     if cached is not None:
         return cached
 
     results = await client.resolve_symbol(query, count=normalized_count)
     response = SymbolResolveResponse(results=results, fetched_at=datetime.now(UTC))
+    if not results:
+        return response
     return cache_response(cache, cache_key, ttl_seconds, response, SymbolResolveResponse)
 
 

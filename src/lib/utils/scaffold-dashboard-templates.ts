@@ -701,6 +701,7 @@ export default async function Home() {
         <div className="header-meta">
           <span>研究用途：{isStrategyResearch ? '假设与候选验证' : '多标的对比'}</span>
           <span>数据口径：真实数据与信源证据</span>
+          <span>数据质量与限制：{warnings.length > 0 ? warnings.length + ' 项待核验' : '未发现阻断项'}</span>
         </div>
       </header>
 
@@ -2072,6 +2073,7 @@ export default async function Home() {
           <span>持仓 {String(portfolio?.holdings_count ?? holdings.length)} 只</span>
           <span>覆盖 {requestedSymbols.length || assets.length} 个标的</span>
           <span>数据截至 {String(portfolio?.as_of ?? holdings[0]?.as_of ?? '-')}</span>
+          <span>数据信源：已记录</span>
         </div>
       </header>
 

@@ -164,6 +164,7 @@ const QUERY_REWRITE_TOOL = {
           'backtest',
           'portfolio_risk',
         ],
+        description: 'Use comparison for selecting, ranking, or recommending multiple unnamed securities. Use strategy only when the user asks to define or study signals, rules, or a strategy.',
       },
       outputIntent: { type: 'string', enum: ['dashboard', 'answer'] },
       answerOnlyEvidence: {
@@ -173,7 +174,10 @@ const QUERY_REWRITE_TOOL = {
         ],
         description: 'For outputIntent=answer, copy the shortest literal query excerpt that explicitly rejects dashboard generation. Otherwise return JSON null; never return an empty string.',
       },
-      broadUniverse: { type: 'boolean' },
+      broadUniverse: {
+        type: 'boolean',
+        description: 'True for an explicit market/universe/sector scope or an executable unnamed-stock selection request with concrete date, quantity, or screening constraints. A vague discovery request such as 有哪些股票值得关注 is not an executable universe.',
+      },
       broadUniverseEvidence: {
         anyOf: [
           { type: 'string', minLength: 1, maxLength: 160 },
@@ -215,12 +219,12 @@ function semanticPrompt(input: QuantQuerySemanticRewriteInput): string {
       'Do not resolve names to codes and do not infer a missing security.',
       'Use null timeRange when no time expression is explicit. Otherwise timeRange.evidence must be the shortest exact excerpt copied from normalizedQuery.',
       'When timeRange contains an explicit number, set timeRange.value to that number. Use JSON null for non-numeric ranges such as 今年以来 and for date_range.',
-      'Use broadUniverse only for an explicit market, universe, industry, sector, or screener scope, and copy that exact excerpt into broadUniverseEvidence.',
+      'Use broadUniverse for an explicit market, universe, industry, sector, or screener scope. A request to select or recommend multiple unnamed 股票/个股 is executable only when it includes a concrete date, quantity, or screening constraint; then copy 股票 or 个股 into broadUniverseEvidence. Vague discovery such as 有哪些股票值得关注 does not define an executable universe and must use false.',
       'Default outputIntent to dashboard. Use answer only when the query explicitly asks for answer-only/no-dashboard output.',
       'When outputIntent is answer, answerOnlyEvidence must be the shortest exact excerpt copied from normalizedQuery that rejects a dashboard. Otherwise it must be JSON null, never an empty string.',
       'When broadUniverse is false, broadUniverseEvidence must be JSON null, never an empty string.',
       'Use comparison only when comparing two or more securities. Changes in one company financial metrics remain fundamental.',
-      'When the query explicitly says 回测, set analysisFocusId to backtest. Use strategy for screening or strategy design without an explicit backtest request.',
+      'When the query explicitly says 回测, set analysisFocusId to backtest. Use comparison for selecting, ranking, or recommending multiple unnamed securities. Use strategy only when the user asks to define or study signals, rules, or a strategy without an explicit backtest request.',
       'Call emit_query_rewrite_semantics exactly once.',
     ],
     examples: [
@@ -235,6 +239,32 @@ function semanticPrompt(input: QuantQuerySemanticRewriteInput): string {
           broadUniverse: true,
           broadUniverseEvidence: '全市场',
           confidence: 0.95,
+        },
+      },
+      {
+        query: '帮我推荐6月3日要买的股票，给我推荐10个',
+        output: {
+          targetCandidates: [],
+          timeRange: { label: '6月3日', value: null, unit: 'date_range', evidence: '6月3日' },
+          analysisFocusId: 'comparison',
+          outputIntent: 'dashboard',
+          answerOnlyEvidence: null,
+          broadUniverse: true,
+          broadUniverseEvidence: '股票',
+          confidence: 0.95,
+        },
+      },
+      {
+        query: '帮我看看最近有哪些股票值得关注，生成可视化看板',
+        output: {
+          targetCandidates: [],
+          timeRange: { label: '最近', value: null, unit: 'trading_day', evidence: '最近' },
+          analysisFocusId: 'comparison',
+          outputIntent: 'dashboard',
+          answerOnlyEvidence: null,
+          broadUniverse: false,
+          broadUniverseEvidence: null,
+          confidence: 0.9,
         },
       },
       {

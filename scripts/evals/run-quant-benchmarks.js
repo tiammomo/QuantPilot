@@ -942,6 +942,7 @@ async function runClarificationCase(testCase) {
     instruction: testCase.question,
     requestId,
     capabilityId: testCase.capabilityId,
+    capabilitySource: 'benchmark',
   });
   const prefetch = await prefetchQuantDataForRunPlan({ projectPath, plan });
 
@@ -1016,6 +1017,7 @@ async function runClarificationContinuationCase(testCase) {
     instruction: testCase.question,
     requestId,
     capabilityId: testCase.capabilityId,
+    capabilitySource: 'benchmark',
   });
   await updateQuantGenerationStep({
     projectPath,
@@ -1056,6 +1058,7 @@ async function runClarificationContinuationCase(testCase) {
       instruction: continuation.resolvedInstruction,
       requestId: followupRequestId,
       capabilityId: testCase.capabilityId,
+      capabilitySource: 'benchmark',
     });
     await updateQuantGenerationStep({
       projectPath,
@@ -1360,6 +1363,7 @@ async function runSourceDegradationCase(testCase) {
     instruction: '贵州茅台 600519 最近行情走势如何？',
     requestId,
     capabilityId: testCase.capabilityId,
+    capabilitySource: 'benchmark',
   });
   assertCondition(plan.status === 'planned', `降级证据 fixture 应生成 planned 计划，实际为 ${plan.status}`, failures);
   await updateQuantGenerationStep({
@@ -2158,6 +2162,7 @@ async function runCase(testCase, options) {
     instruction: testCase.question,
     requestId,
     capabilityId: testCase.capabilityId,
+    capabilitySource: 'benchmark',
     hasImageAttachments: Boolean(testCase.imageAttachment),
   });
   await updateQuantGenerationStep({
