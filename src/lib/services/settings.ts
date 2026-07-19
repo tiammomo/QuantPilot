@@ -2,7 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/client';
-import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
+import {
+  MOAGENT_DEFAULT_MODEL,
+  normalizeMoAgentModelId,
+} from '@/lib/constants/models';
 
 const DATA_DIR = process.env.SETTINGS_DIR || path.join(process.cwd(), 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'global-settings.json');
@@ -19,19 +22,32 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   default_cli: 'moagent',
   cli_settings: {
     moagent: {
-      model: DEEPSEEK_MODEL_ID,
+      model: MOAGENT_DEFAULT_MODEL,
     },
   },
 };
 
-function singleProviderSettings(value?: unknown): GlobalSettings {
-  void value;
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
 
+function configuredModel(value?: unknown): string {
+  const root = record(value);
+  const cliSettings = record(root?.cli_settings ?? root?.cliSettings);
+  const moagent = record(cliSettings?.moagent);
+  return normalizeMoAgentModelId(
+    typeof moagent?.model === 'string' ? moagent.model : MOAGENT_DEFAULT_MODEL,
+  );
+}
+
+function singleProviderSettings(value?: unknown): GlobalSettings {
   return {
     default_cli: 'moagent',
     cli_settings: {
       moagent: {
-        model: DEEPSEEK_MODEL_ID,
+        model: configuredModel(value),
       },
     },
   };
@@ -100,13 +116,17 @@ export function normalizeCliSettings(settings: unknown): CLISettings | undefined
   }
 
   return {
-    moagent: {
-      model: DEEPSEEK_MODEL_ID,
-    },
+    ...singleProviderSettings({ cli_settings: settings }).cli_settings,
   };
 }
 
-export async function updateGlobalSettings(_partial: Partial<GlobalSettings>): Promise<GlobalSettings> {
-  await writeSettings(DEFAULT_SETTINGS);
-  return DEFAULT_SETTINGS;
+export async function updateGlobalSettings(partial: Partial<GlobalSettings>): Promise<GlobalSettings> {
+  const current = await loadGlobalSettings();
+  const next = singleProviderSettings({
+    ...current,
+    ...partial,
+    cli_settings: partial.cli_settings ?? current.cli_settings,
+  });
+  await writeSettings(next);
+  return next;
 }

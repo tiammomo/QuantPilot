@@ -137,12 +137,12 @@ export function createMoAgentPhaseGraph(
       'model',
       'medium',
       {
-        maxTurns: 3,
-        maxToolCalls: 8,
+        maxTurns: 6,
+        maxToolCalls: 12,
         maxOutputTokens: 8_000,
         maxCacheMissInputTokens: 24_000,
         maxPreparedInputTokens: 24_000,
-        maxCumulativePreparedInputTokens: 72_000,
+        maxCumulativePreparedInputTokens: 144_000,
         progressStallTurns: 1,
       },
     );

@@ -7,6 +7,7 @@ export type QuantGenerationTerminalStatus =
   | 'idle'
   | 'running'
   | 'preview_pending'
+  | 'needs_revalidation'
   | 'ready'
   | 'failed'
   | 'cancelled'
@@ -194,6 +195,14 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
     // the project can safely retry/adopt the validated preview.
     status = 'preview_pending';
   } else if (
+    params.generation?.status === 'completed' &&
+    validationStale
+  ) {
+    // A completed run with subsequently edited artifacts is not still
+    // generating. Surface an explicit maintenance state so the client does
+    // not leave the user on an endless generation animation.
+    status = 'needs_revalidation';
+  } else if (
     params.generation &&
     params.validation &&
     (validationStale || !validationMatchesCurrentRun)
@@ -211,7 +220,7 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
   return {
     requestId,
     status,
-    terminal: ['ready', 'failed', 'cancelled', 'needs_clarification', 'refused'].includes(status),
+    terminal: ['ready', 'needs_revalidation', 'failed', 'cancelled', 'needs_clarification', 'refused'].includes(status),
     validationStatus: validationPassed
       ? 'passed'
       : validationFailed

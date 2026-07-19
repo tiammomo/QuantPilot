@@ -72,22 +72,25 @@ beforeEach(() => {
 
 describe('POST /api/quant/query/rewrite', () => {
   it('returns a versioned executable rewrite contract', async () => {
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-      expect(url.pathname).toBe('/api/v1/symbols/resolve');
-      expect(url.searchParams.get('query')).toBe('北方稀土');
-      return Response.json({
-        results: [{
-          symbol: '600111',
-          name: '北方稀土',
-          asset_type: 'stock',
-          market: 'SH',
-          secid: '1.600111',
-          source: 'eastmoney',
-        }],
-      });
+    mocks.rewriteQuantQuery.mockResolvedValueOnce({
+      schemaVersion: 4,
+      status: 'ready',
+      targetCandidates: ['北方稀土'],
+      resolvedSymbols: [{ symbol: '600111', market: 'SH' }],
+      issues: [],
+      execution: {
+        strategy: 'llm_primary',
+        llm: {
+          attempted: true,
+          applied: true,
+          status: 'applied',
+          provider: 'openai',
+          model: 'local_qwen:qwen3.5-9b-q5km',
+          usage: null,
+        },
+      },
+      safety: { decision: 'allow' },
     });
-    vi.stubGlobal('fetch', fetchMock);
 
     const response = await POST(request({
       query: '帮我分析一下北方稀土',
@@ -99,16 +102,16 @@ describe('POST /api/quant/query/rewrite', () => {
     expect(payload).toMatchObject({
       success: true,
       data: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         status: 'ready',
         targetCandidates: ['北方稀土'],
         resolvedSymbols: [{ symbol: '600111', market: 'SH' }],
       },
       meta: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         purpose: 'execution',
-        strategy: 'deterministic',
-        llmStatus: 'not_needed',
+        strategy: 'llm_primary',
+        llmStatus: 'applied',
       },
     });
     expect(payload.meta.durationMs).toBeGreaterThanOrEqual(0);
@@ -133,7 +136,7 @@ describe('POST /api/quant/query/rewrite', () => {
     });
   });
 
-  it('defaults unspecified calls to deterministic preview mode', async () => {
+  it('defaults unspecified calls to LLM execution mode', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({
       results: [{
         symbol: '600111',
@@ -148,14 +151,45 @@ describe('POST /api/quant/query/rewrite', () => {
     const payload = await response.json();
 
     expect(payload.meta).toMatchObject({
-      purpose: 'preview',
-      strategy: 'deterministic',
-      llmStatus: 'not_requested',
+      purpose: 'execution',
+      strategy: 'llm_unavailable',
+      llmStatus: 'skipped_unconfigured',
     });
     expect(mocks.requireAction).toHaveBeenCalledWith({
       headers: expect.any(Headers),
-      action: 'quant.data.read',
+      action: 'quant.query.rewrite.llm',
     });
+    expect(mocks.rewriteQuantQuery).toHaveBeenCalledWith(
+      '帮我分析一下北方稀土',
+      expect.objectContaining({}),
+    );
+  });
+
+  it('keeps preview compatibility without using a model-free rewrite path', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ results: [] })));
+
+    const response = await POST(request({
+      query: '分析大位科技最近20个交易日',
+      purpose: 'preview',
+      model: 'local_qwen:qwen3.5-9b-q5km',
+    }));
+    const payload = await response.json();
+
+    expect(payload.meta).toMatchObject({
+      purpose: 'preview',
+      strategy: 'llm_unavailable',
+      llmStatus: 'skipped_unconfigured',
+    });
+    expect(mocks.requireAction).toHaveBeenCalledWith({
+      headers: expect.any(Headers),
+      action: 'quant.query.rewrite.llm',
+    });
+    expect(mocks.rewriteQuantQuery).toHaveBeenCalledWith(
+      '分析大位科技最近20个交易日',
+      expect.objectContaining({
+        requestedModel: 'local_qwen:qwen3.5-9b-q5km',
+      }),
+    );
   });
 
   it('returns the authorization response before executing a denied rewrite', async () => {
@@ -171,7 +205,7 @@ describe('POST /api/quant/query/rewrite', () => {
     });
   });
 
-  it('returns a deterministic refusal for guaranteed-return requests', async () => {
+  it('returns a policy refusal for guaranteed-return requests', async () => {
     const response = await POST(request({
       query: '明天买哪只股票一定能涨停？',
       purpose: 'execution',
@@ -182,7 +216,7 @@ describe('POST /api/quant/query/rewrite', () => {
     expect(payload).toMatchObject({
       success: true,
       data: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         status: 'refused',
         safety: {
           decision: 'refuse',
@@ -204,7 +238,7 @@ describe('POST /api/quant/query/rewrite', () => {
       responseStatus: 200,
       responseBody: {
         success: true,
-        data: { schemaVersion: 3, status: 'ready' },
+        data: { schemaVersion: 4, status: 'ready' },
         meta: { requestId: 'rewrite-1' },
       },
       responseAvailable: true,
@@ -263,10 +297,10 @@ describe('POST /api/quant/query/rewrite', () => {
   it('persists token usage and marks accounting only after both usage writes succeed', async () => {
     mocks.requireAction.mockResolvedValue({ session: { user: { id: 'member-1' } } });
     mocks.rewriteQuantQuery.mockResolvedValueOnce({
-      schemaVersion: 3,
+      schemaVersion: 4,
       status: 'ready',
       execution: {
-        strategy: 'llm_semantic_rewrite',
+        strategy: 'llm_primary',
         llm: {
           attempted: true,
           status: 'applied',

@@ -14,6 +14,10 @@ import {
 } from '@/lib/agent/framework-identity';
 import { parseMoAgentToolArguments } from '@/lib/agent/core/tool-arguments';
 import { DeepSeekProvider, DeepSeekProviderError } from '@/lib/agent/providers/deepseek';
+import {
+  OpenAICompatibleProvider,
+  OpenAICompatibleProviderError,
+} from '@/lib/agent/providers/openai-compatible';
 import { MoAgentDeterministicToolPlanProvider } from '@/lib/agent/providers/deterministic-tool-plan';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { compileMoAgentSkills } from '@/lib/agent/skills';
@@ -32,10 +36,9 @@ import type {
   MoAgentToolResult,
 } from '@/lib/agent/types';
 import {
-  DEEPSEEK_MODEL_ID,
-  DEEPSEEK_OFFICIAL_BASE_URL,
   MOAGENT_DEFAULT_MODEL,
-} from '@/lib/constants/cliModels';
+  normalizeMoAgentModelId,
+} from '@/lib/constants/models';
 import { createRealtimeMessage, serializeMessage } from '@/lib/serializers/chat';
 import {
   assessPlatformPreparedQuantArtifacts,
@@ -84,6 +87,8 @@ import { validateMoAgentProjectPath } from './moagent-workspace';
 import type { MoAgentCandidateSubmission } from '@/lib/agent/mission';
 import { candidateFromMoAgentRun } from '@/lib/services/moagent-candidate';
 import { getProjectLlmConfig } from '@/lib/config/llm';
+import type { PersonalizationCapsule } from '@/lib/platform/memory';
+import type { GovernedKnowledgeCapsule } from '@/lib/platform/knowledge';
 
 export type MoAgentImageAttachment = {
   name: string;
@@ -399,16 +404,19 @@ async function buildBoundedHistory(
   return selected.reverse();
 }
 
-function formatRunFailure(result: MoAgentRunResult): string {
+function formatRunFailure(
+  result: MoAgentRunResult,
+  provider: { label: string; credentialEnv: string },
+): string {
   const cause = result.error?.cause;
-  if (cause instanceof DeepSeekProviderError) {
+  if (cause instanceof DeepSeekProviderError || cause instanceof OpenAICompatibleProviderError) {
     if (cause.status === 401 || cause.status === 403) {
-      return 'DeepSeek 官方 API 鉴权失败，请检查 .env.local 中的 DEEPSEEK_API_KEY。';
+      return `${provider.label} 鉴权失败，请检查运行环境中的 ${provider.credentialEnv}。`;
     }
     if (cause.status === 429) {
-      return 'DeepSeek 官方 API 当前触发限流，请稍后重试。';
+      return `${provider.label} 当前触发限流，请稍后重试。`;
     }
-    return `DeepSeek 官方 API 请求失败${cause.status ? `（HTTP ${cause.status}）` : ''}。`;
+    return `${provider.label} 请求失败${cause.status ? `（HTTP ${cause.status}）` : ''}。`;
   }
   switch (result.status) {
     case 'max_turns':
@@ -505,6 +513,8 @@ export async function executeMoAgent(
   model: string = MOAGENT_DEFAULT_MODEL,
   requestId?: string,
   images?: MoAgentImageAttachment[],
+  personalization?: PersonalizationCapsule | null,
+  governedKnowledge?: GovernedKnowledgeCapsule | null,
 ): Promise<MoAgentCandidateSubmission> {
   return executeMoAgentPhase({
     projectId,
@@ -513,6 +523,8 @@ export async function executeMoAgent(
     model,
     requestId,
     images,
+    personalization,
+    governedKnowledge,
     profile: 'generation',
   });
 }
@@ -524,6 +536,8 @@ interface ExecuteMoAgentPhaseOptions {
   model: string;
   requestId?: string;
   images?: MoAgentImageAttachment[];
+  personalization?: PersonalizationCapsule | null;
+  governedKnowledge?: GovernedKnowledgeCapsule | null;
   profile: MoAgentToolProfile;
   /**
    * Repair requests have a derived request ID, but cancellation is owned by
@@ -542,11 +556,18 @@ async function executeMoAgentPhase(
     instruction,
     requestId,
     images,
+    personalization,
+    governedKnowledge,
+    model,
     profile,
     parentRequestId,
   } = options;
-  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
-  const resolvedModel = DEEPSEEK_MODEL_ID;
+  const resolvedModel = normalizeMoAgentModelId(model);
+  const llmConfig = getProjectLlmConfig(resolvedModel);
+  const apiKey = process.env[llmConfig.credentialEnv]?.trim();
+  const providerLabel = llmConfig.provider === 'deepseek'
+    ? 'DeepSeek 官方 API'
+    : 'ModelPort OpenAI-compatible API';
   const abortController = new AbortController();
   const totalTimeoutMs = positiveIntegerEnv('MOAGENT_TIMEOUT_MS', 20 * 60 * 1_000);
   const deadlineAt = Date.now() + totalTimeoutMs;
@@ -698,12 +719,13 @@ async function executeMoAgentPhase(
       hasAttachments: Boolean(images?.length),
       dashboardSpecReady: preparedAssessment.dashboardSpecReady,
     });
-    const llmConfig = getProjectLlmConfig();
     if (phaseGraph.providerMode === 'model' && !llmConfig.agent.enabled) {
       throw new Error('项目 LLM Agent 已由 QUANTPILOT_LLM_AGENT_ENABLED 禁用。');
     }
     if (phaseGraph.providerMode === 'model' && !apiKey) {
-      throw new Error('DEEPSEEK_API_KEY 未配置，请在 .env.local 中填写 DeepSeek 官方 API Key。');
+      throw new Error(
+        `${llmConfig.credentialEnv} 未配置，请在运行环境中注入 ${providerLabel} 凭据。`,
+      );
     }
     publishStatus(
       'agent_phase_selected',
@@ -906,6 +928,8 @@ async function executeMoAgentPhase(
     const userPrompt = buildQuantPilotUserPrompt({
       taskPacket: taskPrompt,
       skillContext: skillBundle.taskContext,
+      personalizationContext: personalization?.content ?? null,
+      governedKnowledgeContext: governedKnowledge?.content ?? null,
       initialDashboardContract,
       requireDashboardContract: dashboardContractRequired,
     });
@@ -933,15 +957,26 @@ async function executeMoAgentPhase(
             },
           ],
         })
-      : new DeepSeekProvider({
-          apiKey: apiKey!,
-          baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
-          headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
-          maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
-          maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
-          initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
-          maxRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_MAX_MS', 10_000),
-        });
+      : llmConfig.provider === 'deepseek'
+        ? new DeepSeekProvider({
+            apiKey: apiKey!,
+            baseUrl: llmConfig.baseUrl,
+            headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
+            maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
+            maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
+            initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
+            maxRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_MAX_MS', 10_000),
+          })
+        : new OpenAICompatibleProvider({
+            providerName: 'openai',
+            apiKey: apiKey!,
+            baseUrl: llmConfig.baseUrl,
+            headers: { 'X-Client-App': `QuantPilot-MoAgent/${MOAGENT_VERSION}` },
+            maxRequestBytes: positiveIntegerEnv('MOAGENT_MAX_REQUEST_BYTES', 2_000_000),
+            maxRetries: nonNegativeIntegerEnv('MOAGENT_PROVIDER_MAX_RETRIES', 2),
+            initialRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_BASE_MS', 500),
+            maxRetryDelayMs: nonNegativeIntegerEnv('MOAGENT_PROVIDER_RETRY_MAX_MS', 10_000),
+          });
     const runtimeModel = phaseGraph.providerMode === 'deterministic'
       ? 'moagent-deterministic-renderer-v1'
       : resolvedModel;
@@ -1155,7 +1190,7 @@ async function executeMoAgentPhase(
         case 'provider_retry':
           publishStatus(
             'provider_retry',
-            `DeepSeek 请求暂时不可用，MoAgent 将进行第 ${event.attempt}/${event.maxAttempts} 次尝试。`,
+            `${providerLabel} 暂时不可用，MoAgent 将进行第 ${event.attempt}/${event.maxAttempts} 次尝试。`,
             {
               runtime: 'moagent',
               eventId: event.eventId,
@@ -1325,7 +1360,10 @@ async function executeMoAgentPhase(
     if (result.status !== 'completed') {
       throw new MoAgentExecutionError(
         result.error?.code ?? `MOAGENT_${result.status.toUpperCase()}`,
-        formatRunFailure(result),
+        formatRunFailure(result, {
+          label: providerLabel,
+          credentialEnv: llmConfig.credentialEnv,
+        }),
         {
           cause: result.error?.cause,
           repairableByValidation:
@@ -1417,12 +1455,23 @@ export async function initializeNextJsProject(
   initialPrompt: string,
   model: string = MOAGENT_DEFAULT_MODEL,
   requestId?: string,
+  personalization?: PersonalizationCapsule | null,
+  governedKnowledge?: GovernedKnowledgeCapsule | null,
 ): Promise<MoAgentCandidateSubmission> {
   const instruction = `Enhance the existing, platform-scaffolded Next.js 16 application for this requirement:
 ${initialPrompt}
 
 Keep the App Router, TypeScript, package setup, local CSS, market proxy, platform-prefetched run plan, final data, evidence, and dashboard data binding. Do not recreate the project or reset package.json. At 390x844 the first viewport must show the instrument, price, at least two real metrics, and the main visualization body. At 1440x900 keep the primary visualization above the fold. QuantPilot will run build, preview, and validation after submit_result.`;
-  return executeMoAgent(projectId, projectPath, instruction, model, requestId);
+  return executeMoAgent(
+    projectId,
+    projectPath,
+    instruction,
+    model,
+    requestId,
+    undefined,
+    personalization,
+    governedKnowledge,
+  );
 }
 
 export async function applyChanges(
@@ -1432,8 +1481,19 @@ export async function applyChanges(
   model: string = MOAGENT_DEFAULT_MODEL,
   requestId?: string,
   images?: MoAgentImageAttachment[],
+  personalization?: PersonalizationCapsule | null,
+  governedKnowledge?: GovernedKnowledgeCapsule | null,
 ): Promise<MoAgentCandidateSubmission> {
-  return executeMoAgent(projectId, projectPath, instruction, model, requestId, images);
+  return executeMoAgent(
+    projectId,
+    projectPath,
+    instruction,
+    model,
+    requestId,
+    images,
+    personalization,
+    governedKnowledge,
+  );
 }
 
 /** Trusted orchestration entry point for validation-directed repairs only. */

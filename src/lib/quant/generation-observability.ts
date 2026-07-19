@@ -13,7 +13,7 @@ import { readQuantArtifactContractReport, type QuantArtifactContractReport } fro
 import { readQuantGenerationQueue, type QuantGenerationQueueState } from '@/lib/quant/generation-queue';
 import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantVisualValidationReport, type QuantVisualValidationReport } from '@/lib/quant/visual-validation';
-import { normalizeModelId } from '@/lib/constants/cliModels';
+import { normalizeModelId } from '@/lib/constants/models';
 
 type JsonRecord = Record<string, unknown>;
 

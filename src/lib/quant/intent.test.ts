@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   assessQuantIntentForClarification,
   buildClarificationContinuation,
-  extractQuantTargetCandidates,
 } from './intent';
 
 describe('quant intent clarification', () => {
@@ -15,10 +14,14 @@ describe('quant intent clarification', () => {
     ['大位科技这个股票怎么样', '大位科技'],
     ['大位科技这只股票如何', '大位科技'],
     ['大位科技这家公司最近怎么样', '大位科技'],
-  ])('keeps a resolvable security name in %s', (instruction, expectedTarget) => {
-    expect(extractQuantTargetCandidates(instruction)).toContain(expectedTarget);
+  ])('accepts a target already resolved by Query Rewrite in %s', (instruction) => {
     expect(
-      assessQuantIntentForClarification({ instruction, capabilityId: 'stock_diagnosis' })
+      assessQuantIntentForClarification({
+        instruction,
+        capabilityId: 'stock_diagnosis',
+        symbols: ['600589'],
+        semanticFocusId: 'comprehensive',
+      })
     ).toMatchObject({ required: false, missing: [] });
   });
 
@@ -37,6 +40,7 @@ describe('quant intent clarification', () => {
     const result = assessQuantIntentForClarification({
       instruction: '中信证券最近怎么样',
       capabilityId: 'stock_diagnosis',
+      symbols: ['600030'],
     });
 
     expect(result.defaults).toEqual(
@@ -49,7 +53,6 @@ describe('quant intent clarification', () => {
 
   it('does not count generic quantity phrases as comparison targets', () => {
     const instruction = '帮我对比几只股票，生成看板。';
-    expect(extractQuantTargetCandidates(instruction)).toEqual([]);
     expect(
       assessQuantIntentForClarification({ instruction, capabilityId: 'asset_comparison' })
     ).toMatchObject({
@@ -93,15 +96,30 @@ describe('quant intent clarification', () => {
       originalQuestion,
     });
     expect(continuation?.resolvedInstruction).toContain('贵州茅台');
-    expect(
-      assessQuantIntentForClarification({
-        instruction: continuation?.resolvedInstruction ?? '',
-        capabilityId: 'asset_comparison',
-      })
-    ).toMatchObject({ required: false, missing: [] });
   });
 
-  it('does not attach an unrelated new question to a pending clarification', () => {
+  it('does not inherit stale clarification state during project reinitialization', () => {
+    const originalQuestion = '帮我对比几只股票，生成看板。';
+    const clarification = assessQuantIntentForClarification({
+      instruction: originalQuestion,
+      capabilityId: 'asset_comparison',
+    });
+
+    expect(buildClarificationContinuation({
+      previousPlan: {
+        runId: 'stale-clarification-run',
+        status: 'needs_clarification',
+        capabilityId: 'asset_comparison',
+        question: originalQuestion,
+        clarification,
+      },
+      instruction: '分析贵州茅台近 60 个交易日的趋势、量能、估值与主要风险。',
+      capabilityId: 'stock_diagnosis',
+      reset: true,
+    })).toBeNull();
+  });
+
+  it('passes a possible new question to the next LLM rewrite with the prior context', () => {
     const originalQuestion = '帮我对比几只股票，生成看板。';
     const clarification = assessQuantIntentForClarification({
       instruction: originalQuestion,
@@ -118,10 +136,10 @@ describe('quant intent clarification', () => {
       },
       instruction: '看看平安',
       capabilityId: 'stock_diagnosis',
-    })).toBeNull();
+    })?.resolvedInstruction).toContain('看看平安');
   });
 
-  it('does not attach a new recommendation request to a pending stock ambiguity', () => {
+  it('passes a new recommendation response through the safety and LLM rewrite pipeline', () => {
     const clarification = assessQuantIntentForClarification({
       instruction: '看看平安',
       capabilityId: 'stock_diagnosis',
@@ -137,7 +155,7 @@ describe('quant intent clarification', () => {
       },
       instruction: '给我推荐一只明天保证涨停、稳赚不赔的股票',
       capabilityId: 'stock_diagnosis',
-    })).toBeNull();
+    })?.resolvedInstruction).toContain('保证涨停');
   });
 
   it('accepts a compact response that directly supplies missing comparison symbols', () => {

@@ -4,7 +4,7 @@
  */
 import { useState, useCallback, useEffect } from 'react';
 import { CLIOption, CLIStatus, CLIPreference, CLI_OPTIONS } from '@/types/cli';
-import { getDefaultModelForCli } from '@/lib/constants/cliModels';
+import { getDefaultModelForCli } from '@/lib/constants/models';
 import { DEFAULT_ACTIVE_CLI, normalizeModelForCli, sanitizeActiveCli } from '@/lib/utils/cliOptions';
 
 interface UseCLIOptions {

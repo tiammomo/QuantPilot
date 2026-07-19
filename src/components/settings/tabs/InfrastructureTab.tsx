@@ -52,7 +52,7 @@ function InfrastructureTab({
 }: InfrastructureTabProps) {
   const commands = infrastructure?.commands ?? {
     start: "npm run db:up",
-    sync: "npm run prisma:push",
+    sync: "npm run prisma:deploy",
     inspect: "npm run db:doctor",
     psql: "npm run db:psql",
   };

@@ -1,8 +1,12 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { rewriteQuantQuery } from './query-rewrite';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  rewriteQuantQuery,
+  type QuantQueryFocusId,
+  type QuantQueryLlmSemantics,
+} from './query-rewrite';
 import { writeInitialRunPlan } from './workspace';
 
 const temporaryProjects: string[] = [];
@@ -14,180 +18,161 @@ async function createProject() {
 }
 
 afterEach(async () => {
-  vi.unstubAllGlobals();
   await Promise.all(
     temporaryProjects.splice(0).map((projectPath) =>
       fs.rm(projectPath, { recursive: true, force: true })
-    )
+    ),
   );
 });
 
-describe('writeInitialRunPlan', () => {
-  it('plans a named security diagnosis without requiring a ticker clarification', async () => {
-    const projectPath = await createProject();
-    const plan = await writeInitialRunPlan({
-      projectPath,
-      requestId: 'named-security-diagnosis-regression',
-      capabilityId: 'stock_diagnosis',
-      capabilitySource: 'auto',
-      instruction: '中信证券最近怎么样',
-    });
-
-    expect(plan.status).toBe('planned');
-    expect(plan.clarification).toBeUndefined();
-    expect(plan.symbols).toEqual(['600030']);
-    expect(plan.timeRange).toBe('最近 120 个交易日');
-    expect(plan.visualization.required).toBe(true);
-    expect(plan.visualization.templateId).toBe('single-stock-diagnosis');
-    expect(plan.visualization.matchReasons).toEqual(
-      expect.arrayContaining([expect.stringMatching(/^识别到 1 个标的$/)])
-    );
+async function buildRewrite(params: {
+  query: string;
+  targets?: string[];
+  symbolByTarget?: Record<string, string>;
+  focus?: QuantQueryFocusId;
+  outputIntent?: 'dashboard' | 'answer';
+  answerOnlyEvidence?: string | null;
+  timeRange?: QuantQueryLlmSemantics['timeRange'];
+  broadUniverse?: boolean;
+  broadUniverseEvidence?: string | null;
+}) {
+  const targets = params.targets ?? [];
+  return rewriteQuantQuery(params.query, {
+    semanticRewriter: async () => ({
+      ok: true,
+      provider: 'openai',
+      model: 'local_qwen:qwen3.5-9b-q5km',
+      data: {
+        targetCandidates: targets,
+        timeRange: params.timeRange ?? null,
+        analysisFocusId: params.focus ?? 'comprehensive',
+        outputIntent: params.outputIntent ?? 'dashboard',
+        answerOnlyEvidence: params.answerOnlyEvidence ?? null,
+        broadUniverse: params.broadUniverse ?? false,
+        broadUniverseEvidence: params.broadUniverseEvidence ?? null,
+        confidence: 0.95,
+      },
+    }),
+    resolver: async (target) => {
+      const symbol = params.symbolByTarget?.[target];
+      return symbol
+        ? {
+            results: [{
+              symbol,
+              name: target,
+              asset_type: 'stock',
+              market: symbol.startsWith('6') ? 'SH' : 'SZ',
+              source: 'test-resolver',
+            }],
+          }
+        : { results: [] };
+    },
   });
+}
 
-  it('persists dynamically resolved conversational names as plan symbols', async () => {
+describe('writeInitialRunPlan', () => {
+  it('persists the LLM rewrite and authoritative resolver symbol in the run plan', async () => {
     const projectPath = await createProject();
-    const queryRewrite = await rewriteQuantQuery('大位科技这个股票怎么样', {
-      resolver: async () => ({
-        results: [{
-          symbol: '600589',
-          name: '大位科技',
-          asset_type: 'stock',
-          market: 'SH',
-          secid: '1.600589',
-          source: 'test-market-api',
-        }],
-      }),
+    const query = '大位科技这个股票怎么样';
+    const queryRewrite = await buildRewrite({
+      query,
+      targets: ['大位科技'],
+      symbolByTarget: { 大位科技: '600589' },
     });
+
     const plan = await writeInitialRunPlan({
       projectPath,
-      requestId: 'conversational-security-diagnosis-regression',
+      requestId: 'named-security-diagnosis',
       capabilityId: 'stock_diagnosis',
       capabilitySource: 'auto',
-      instruction: '大位科技这个股票怎么样',
+      instruction: query,
       queryRewrite,
     });
 
-    expect(plan.status).toBe('planned');
-    expect(plan.symbols).toEqual(['600589']);
-    expect(plan.visualization.matchReasons).toEqual(
-      expect.arrayContaining([expect.stringMatching(/^识别到 1 个标的$/)])
-    );
+    expect(plan).toMatchObject({
+      status: 'planned',
+      capabilityId: 'stock_diagnosis',
+      symbols: ['600589'],
+      timeRange: '最近 120 个交易日',
+      visualization: { required: true, templateId: 'single-stock-diagnosis' },
+      queryRewrite: {
+        schemaVersion: 4,
+        execution: { strategy: 'llm_primary' },
+      },
+    });
     await expect(
       fs.readFile(path.join(projectPath, '.quantpilot', 'query_rewrite.json'), 'utf8'),
     ).resolves.toContain('600589');
   });
 
-  it('uses query rewrite output intent for short named-security questions', async () => {
+  it('uses the LLM output intent to skip dashboard generation', async () => {
     const projectPath = await createProject();
-    const queryRewrite = await rewriteQuantQuery('北方稀土怎么样', {
-      resolver: async () => ({
-        results: [{
-          symbol: '600111',
-          name: '北方稀土',
-          asset_type: 'stock',
-          market: 'SH',
-          secid: '1.600111',
-          source: 'test-market-api',
-        }],
-      }),
+    const query = '只回答北方稀土怎么样，不需要看板';
+    const queryRewrite = await buildRewrite({
+      query,
+      targets: ['北方稀土'],
+      symbolByTarget: { 北方稀土: '600111' },
+      outputIntent: 'answer',
+      answerOnlyEvidence: '不需要看板',
     });
 
     const plan = await writeInitialRunPlan({
       projectPath,
-      requestId: 'short-named-security-dashboard-regression',
+      requestId: 'answer-only',
       capabilityId: 'stock_diagnosis',
       capabilitySource: 'auto',
-      instruction: '北方稀土怎么样',
+      instruction: query,
       queryRewrite,
     });
 
-    expect(queryRewrite.outputIntent).toBe('dashboard');
-    expect(plan.visualization.required).toBe(true);
-    expect(plan.visualization.templateId).toBe('single-stock-diagnosis');
-  });
-
-  it('keeps an explicit answer-only request out of dashboard generation', async () => {
-    const projectPath = await createProject();
-    const queryRewrite = await rewriteQuantQuery('只回答北方稀土怎么样，不需要看板', {
-      resolver: async () => ({
-        results: [{
-          symbol: '600111',
-          name: '北方稀土',
-          asset_type: 'stock',
-          market: 'SH',
-          secid: '1.600111',
-          source: 'test-market-api',
-        }],
-      }),
-    });
-
-    const plan = await writeInitialRunPlan({
-      projectPath,
-      requestId: 'short-named-security-answer-regression',
-      capabilityId: 'stock_diagnosis',
-      capabilitySource: 'auto',
-      instruction: '只回答北方稀土怎么样，不需要看板',
-      queryRewrite,
-    });
-
-    expect(queryRewrite.outputIntent).toBe('answer');
     expect(plan.visualization.required).toBe(false);
   });
 
-  it('keeps a single symbol with duplicate aliases on the technical-analysis template', async () => {
+  it('selects asset comparison from LLM semantics and resolved targets', async () => {
     const projectPath = await createProject();
-    const plan = await writeInitialRunPlan({
-      projectPath,
-      requestId: 'single-stock-technical-regression',
-      capabilityId: 'technical_analysis',
-      capabilitySource: 'auto',
-      instruction:
-        '生成贵州茅台最近120个交易日的技术分析看板，必须包含价格趋势、成交量、MA5/MA20/MA60、风险结论、数据更新时间和数据信源。',
+    const query = '对比贵州茅台和宁德时代最近120个交易日的收益、回撤和波动率看板。';
+    const queryRewrite = await buildRewrite({
+      query,
+      targets: ['贵州茅台', '宁德时代'],
+      symbolByTarget: { 贵州茅台: '600519', 宁德时代: '300750' },
+      focus: 'comparison',
+      timeRange: {
+        label: '最近120个交易日',
+        value: 120,
+        unit: 'trading_day',
+        evidence: '最近120个交易日',
+      },
     });
 
-    expect(plan.symbols).toEqual(['600519']);
-    expect(plan.capabilityId).toBe('technical_analysis');
-    expect(plan.visualization.templateId).toBe('technical-timing');
-  });
-
-  it('does not reinterpret an ETF alias as both the ETF and its index prefix', async () => {
-    const projectPath = await createProject();
-    const plan = await writeInitialRunPlan({
-      projectPath,
-      requestId: 'hs300-etf-alias-regression',
-      capabilityId: 'technical_analysis',
-      capabilitySource: 'auto',
-      instruction: '510300 沪深300ETF 最近120天走势如何？生成趋势看板。',
-    });
-
-    expect(plan.symbols).toEqual(['510300']);
-    expect(plan.capabilityId).toBe('technical_analysis');
-    expect(plan.visualization.templateId).toBe('technical-timing');
-  });
-
-  it('selects asset comparison only when the instruction resolves to distinct symbols', async () => {
-    const projectPath = await createProject();
     const plan = await writeInitialRunPlan({
       projectPath,
       requestId: 'multi-stock-comparison',
       capabilityId: 'technical_analysis',
       capabilitySource: 'auto',
-      instruction: '对比贵州茅台和宁德时代最近120个交易日的收益、回撤和波动率看板。',
+      instruction: query,
+      queryRewrite,
     });
 
-    expect(plan.symbols).toEqual(['600519', '300750']);
-    expect(plan.capabilityId).toBe('asset_comparison');
-    expect(plan.visualization.templateId).toBe('stock-selection');
+    expect(plan).toMatchObject({
+      status: 'planned',
+      capabilityId: 'asset_comparison',
+      symbols: ['600519', '300750'],
+      timeRange: '最近120个交易日',
+    });
   });
 
-  it('requires clarification when a comparison only names a generic quantity', async () => {
+  it('asks for comparison targets when the LLM finds only a generic quantity', async () => {
     const projectPath = await createProject();
+    const query = '帮我对比几只股票，生成看板。';
+    const queryRewrite = await buildRewrite({ query, focus: 'comparison' });
+
     const plan = await writeInitialRunPlan({
       projectPath,
       requestId: 'generic-comparison-clarification',
       capabilityId: 'asset_comparison',
       capabilitySource: 'auto',
-      instruction: '帮我对比几只股票，生成看板。',
+      instruction: query,
+      queryRewrite,
     });
 
     expect(plan.status).toBe('needs_clarification');
@@ -195,62 +180,55 @@ describe('writeInitialRunPlan', () => {
     expect(plan.clarification?.missing).toContain('comparison_universe');
   });
 
-  it('uses dynamic resolution for names not covered by the partial static alias set', async () => {
+  it('stops the run plan when Query Rewrite is unavailable instead of parsing keywords', async () => {
     const projectPath = await createProject();
-    const symbolByQuery: Record<string, string> = {
-      北方稀土: '600111',
-      宁德时代: '300750',
-    };
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-      const query = url.searchParams.get('query') ?? '';
-      return Response.json({
-        results: [{
-          symbol: symbolByQuery[query],
-          name: query,
-          asset_type: 'stock',
-          market: query === '北方稀土' ? 'SH' : 'SZ',
-        }],
-      });
-    }));
+    const queryRewrite = await rewriteQuantQuery('分析大位科技', {
+      semanticRewriter: async () => ({
+        ok: false,
+        code: 'LLM_NETWORK_ERROR',
+        provider: 'openai',
+        model: 'local_qwen:qwen3.5-9b-q5km',
+        retryable: true,
+      }),
+    });
 
     const plan = await writeInitialRunPlan({
       projectPath,
-      requestId: 'mixed-static-dynamic-symbols',
-      capabilityId: 'asset_comparison',
-      capabilitySource: 'auto',
-      instruction: '比较北方稀土和宁德时代的收益与风险',
+      requestId: 'rewrite-unavailable',
+      instruction: '分析大位科技',
+      queryRewrite,
     });
 
-    expect(plan.status).toBe('planned');
-    expect(plan.symbols).toEqual(['600111', '300750']);
-    expect(plan.symbols).toEqual(
-      plan.queryRewrite?.resolvedSymbols.map((item) => item.symbol),
-    );
-    expect(plan.queryRewrite?.resolvedSymbols).toHaveLength(2);
+    expect(plan).toMatchObject({
+      status: 'needs_clarification',
+      symbols: [],
+      visualization: { required: false },
+      clarification: { confidence: 0 },
+    });
   });
 
   it('keeps a single-stock financial metric comparison on fundamental analysis', async () => {
     const projectPath = await createProject();
-    const queryRewrite = await rewriteQuantQuery(
-      '北方稀土2025年年报里，经营现金流增速是否跑赢净利润？',
-      {
-        resolver: async () => ({
-          results: [{
-            symbol: '600111',
-            name: '北方稀土',
-            asset_type: 'stock',
-            market: 'SH',
-          }],
-        }),
+    const query = '北方稀土2025年年报里，经营现金流增速是否跑赢净利润？';
+    const queryRewrite = await buildRewrite({
+      query,
+      targets: ['北方稀土'],
+      symbolByTarget: { 北方稀土: '600111' },
+      focus: 'fundamental',
+      timeRange: {
+        label: '2025年年报',
+        value: 1,
+        unit: 'reporting_period',
+        evidence: '2025年年报',
       },
-    );
+    });
+
     const plan = await writeInitialRunPlan({
       projectPath,
       requestId: 'fundamental-metric-comparison',
       capabilityId: 'fundamental_analysis',
       capabilitySource: 'auto',
-      instruction: queryRewrite.originalQuery,
+      instruction: query,
       queryRewrite,
     });
 
@@ -259,15 +237,14 @@ describe('writeInitialRunPlan', () => {
       capabilityId: 'fundamental_analysis',
       symbols: ['600111'],
       llm: {
-        provider: 'deepseek',
-        model: 'deepseek-v4-flash',
-        queryRewrite: { mode: 'auto' },
+        provider: 'openai',
+        model: 'local_qwen:qwen3.5-9b-q5km',
+        queryRewrite: { enabled: true },
       },
     });
-    expect(plan.clarification).toBeUndefined();
   });
 
-  it('creates a non-executable refused plan for guaranteed-return requests', async () => {
+  it('creates a non-executable refused plan before model execution', async () => {
     const projectPath = await createProject();
     const plan = await writeInitialRunPlan({
       projectPath,
@@ -275,7 +252,6 @@ describe('writeInitialRunPlan', () => {
       capabilityId: 'stock_diagnosis',
       capabilitySource: 'auto',
       instruction: '明天买哪只股票一定能涨停？',
-      enableLlmRewrite: true,
     });
 
     expect(plan).toMatchObject({
@@ -284,24 +260,5 @@ describe('writeInitialRunPlan', () => {
       refusal: { code: 'GUARANTEED_RETURN_REQUEST' },
       visualization: { required: false },
     });
-  });
-
-  it('lets an explicit rebalance action outrank generic portfolio-risk nouns', async () => {
-    const projectPath = await createProject();
-    const plan = await writeInitialRunPlan({
-      projectPath,
-      requestId: 'portfolio-rebalance-specificity',
-      capabilityId: 'portfolio_risk',
-      capabilitySource: 'auto',
-      instruction:
-        '我持有杭钢股份、京沪高铁、三七互娱、中国黄金、完美世界，请结合集中风险和现金生成调仓分析看板。',
-    });
-
-    expect(plan.status).toBe('planned');
-    expect(plan.visualization.templateId).toBe('holding-analysis');
-    expect(plan.visualization.variantId).toBe('portfolio-rebalance-plan');
-    expect(plan.visualization.matchReasons).toEqual(
-      expect.arrayContaining([expect.stringContaining('调仓')]),
-    );
   });
 });

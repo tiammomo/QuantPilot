@@ -6,7 +6,10 @@ import { prisma } from '@/lib/db/client';
 import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/backend';
 import fs from 'fs/promises';
 import path from 'path';
-import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
+import {
+  MOAGENT_DEFAULT_MODEL,
+  normalizeMoAgentModelId,
+} from '@/lib/constants/models';
 import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
 import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
@@ -35,17 +38,24 @@ function parseProjectSettings(existing: string | null | undefined): Record<strin
   return parsed;
 }
 
-function mergeLlmSettings(existing: string | null | undefined): string {
+function mergeLlmSettings(
+  existing: string | null | undefined,
+  selectedModel?: string | null,
+): string {
   return JSON.stringify({
     ...parseProjectSettings(existing),
-    llm: getProjectLlmConfig(),
+    llm: getProjectLlmConfig(selectedModel),
   });
 }
 
-function mergeProjectSettings(existing: string | null | undefined, quantCapabilityId?: string | null): string {
+function mergeProjectSettings(
+  existing: string | null | undefined,
+  quantCapabilityId?: string | null,
+  selectedModel?: string | null,
+): string {
   return JSON.stringify({
     ...parseProjectSettings(existing),
-    llm: getProjectLlmConfig(),
+    llm: getProjectLlmConfig(selectedModel),
     quant: buildQuantProjectSettings(quantCapabilityId),
   });
 }
@@ -66,7 +76,8 @@ async function writeQuantPilotManifest(params: {
   const capability = getQuantCapability(params.quantCapabilityId);
   const capabilitySource = normalizeCapabilitySource(params.quantCapabilitySource);
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
-  const llm = getProjectLlmConfig();
+  const selectedModel = normalizeMoAgentModelId(params.selectedModel);
+  const llm = getProjectLlmConfig(selectedModel);
   const quantPilotDir = path.join(params.projectPath, '.quantpilot');
   await fs.mkdir(quantPilotDir, { recursive: true });
   await Promise.all([
@@ -86,7 +97,7 @@ async function writeQuantPilotManifest(params: {
     createdAt: new Date().toISOString(),
     runtime: {
       cli: params.preferredCli,
-      model: params.selectedModel,
+      model: selectedModel,
       llmProfileId: llm.profileId,
     },
     llm,
@@ -159,7 +170,8 @@ export async function ensureProjectLlmConfiguration(params: {
   selectedModel?: string | null;
   settings?: string | null;
 }): Promise<void> {
-  const llm = getProjectLlmConfig();
+  const selectedModel = normalizeMoAgentModelId(params.selectedModel);
+  const llm = getProjectLlmConfig(selectedModel);
   const quantPilotDir = path.join(params.projectPath, '.quantpilot');
   const manifestPath = path.join(quantPilotDir, 'manifest.json');
   await fs.mkdir(quantPilotDir, { recursive: true });
@@ -185,7 +197,7 @@ export async function ensureProjectLlmConfiguration(params: {
     runtime: {
       ...existingRuntime,
       cli: params.preferredCli ?? 'moagent',
-      model: params.selectedModel ?? DEEPSEEK_MODEL_ID,
+      model: selectedModel,
       llmProfileId: llm.profileId,
     },
     llm,
@@ -196,7 +208,7 @@ export async function ensureProjectLlmConfiguration(params: {
     await fs.writeFile(manifestPath, nextManifestContent, 'utf8');
   }
 
-  const nextSettings = mergeLlmSettings(params.settings);
+  const nextSettings = mergeLlmSettings(params.settings, selectedModel);
   if (nextSettings !== (params.settings ?? '')) {
     await prisma.project.update({
       where: { id: params.projectId },
@@ -231,7 +243,7 @@ export async function getAllProjects(access?: {
     ...project,
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel: normalizeMoAgentModelId(project.selectedModel),
   })) as Project[];
 }
 
@@ -247,7 +259,7 @@ export async function getProjectById(id: string): Promise<Project | null> {
     ...project,
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel: normalizeMoAgentModelId(project.selectedModel),
   } as Project;
 }
 
@@ -262,7 +274,7 @@ export async function createProject(
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
   const preferredCli = 'moagent';
-  const selectedModel = DEEPSEEK_MODEL_ID;
+  const selectedModel = normalizeMoAgentModelId(input.selectedModel);
   const quantCapability = getQuantCapability(input.quantCapabilityId);
   await writeQuantPilotManifest({
     projectPath,
@@ -289,7 +301,7 @@ export async function createProject(
       repoPath: projectPath,
       preferredCli,
       selectedModel,
-      settings: mergeProjectSettings(undefined, quantCapability.id),
+      settings: mergeProjectSettings(undefined, quantCapability.id, selectedModel),
       status: 'idle',
       templateType: 'nextjs',
       lastActiveAt: new Date(),
@@ -313,7 +325,7 @@ export async function createProject(
     ...project,
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel,
   } as Project;
 }
 
@@ -324,16 +336,23 @@ export async function updateProject(
   id: string,
   input: UpdateProjectInput
 ): Promise<Project> {
+  const current = await prisma.project.findUnique({
+    where: { id },
+    select: { selectedModel: true, settings: true },
+  });
+  const selectedModel = normalizeMoAgentModelId(
+    input.selectedModel ?? current?.selectedModel ?? MOAGENT_DEFAULT_MODEL,
+  );
   const project = await prisma.project.update({
     where: { id },
     data: {
       ...input,
-      ...(input.settings !== undefined
-        ? { settings: mergeLlmSettings(input.settings) }
+      ...(input.settings !== undefined || input.selectedModel !== undefined
+        ? { settings: mergeLlmSettings(input.settings ?? current?.settings, selectedModel) }
         : {}),
       preferredCli: 'moagent',
       fallbackEnabled: false,
-      selectedModel: DEEPSEEK_MODEL_ID,
+      selectedModel,
       updatedAt: new Date(),
     },
   });
@@ -343,7 +362,7 @@ export async function updateProject(
     ...project,
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel,
   } as Project;
 }
 
@@ -425,20 +444,28 @@ export async function getProjectCliPreference(projectId: string): Promise<Projec
   return {
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel: normalizeMoAgentModelId(project.selectedModel),
   };
 }
 
 export async function updateProjectCliPreference(
   projectId: string,
-  _input: Partial<ProjectCliPreference>
+  input: Partial<ProjectCliPreference>
 ): Promise<ProjectCliPreference> {
+  const current = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { selectedModel: true, settings: true },
+  });
+  const selectedModel = normalizeMoAgentModelId(
+    input.selectedModel ?? current?.selectedModel ?? MOAGENT_DEFAULT_MODEL,
+  );
   await prisma.project.update({
     where: { id: projectId },
     data: {
       preferredCli: 'moagent',
       fallbackEnabled: false,
-      selectedModel: DEEPSEEK_MODEL_ID,
+      selectedModel,
+      settings: mergeLlmSettings(current?.settings, selectedModel),
       updatedAt: new Date(),
     },
   });
@@ -446,6 +473,6 @@ export async function updateProjectCliPreference(
   return {
     preferredCli: 'moagent',
     fallbackEnabled: false,
-    selectedModel: DEEPSEEK_MODEL_ID,
+    selectedModel,
   };
 }

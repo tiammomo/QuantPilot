@@ -101,6 +101,9 @@ describe('API route authorization coverage', () => {
   it('marks sensitive authenticated payloads as non-cacheable', async () => {
     const sensitiveRoutes = [
       'src/app/api/account/sessions/route.ts',
+      'src/app/api/account/memory/route.ts',
+      'src/app/api/account/memory/preferences/[record_id]/corrections/route.ts',
+      'src/app/api/account/memory/preferences/[record_id]/revisions/route.ts',
       'src/app/api/account/usage/route.ts',
       'src/app/api/admin/audit/route.ts',
       'src/app/api/admin/users/route.ts',

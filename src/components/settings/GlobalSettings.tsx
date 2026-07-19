@@ -5,7 +5,7 @@ import { MotionDiv } from "@/lib/motion";
 import { FaCog } from "react-icons/fa";
 import ServiceConnectionModal from "@/components/modals/ServiceConnectionModal";
 import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
-import { getModelDefinitionsForCli, normalizeModelId } from "@/lib/constants/cliModels";
+import { getModelDefinitionsForCli, normalizeModelId } from "@/lib/constants/models";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 
@@ -31,14 +31,14 @@ const CLI_OPTIONS: CLIOption[] = [
     id: "moagent",
     name: "MoAgent",
     icon: "",
-    description: "QuantPilot 自研 Agent 框架，直连 DeepSeek 官方 API",
+    description: "QuantPilot 自研 Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型",
     color: "from-blue-600 to-indigo-600",
     brandColor: "#2563EB",
     downloadUrl: "https://api-docs.deepseek.com/guides/coding_agents",
     installCommand: "npm install",
     enabled: true,
-    models: getModelDefinitionsForCli("moagent").map(({ id, name, description, provider, external }) => ({
-      id, name, description, provider, external,
+    models: getModelDefinitionsForCli("moagent").map(({ id, name, description, provider, runtime, external }) => ({
+      id, name, description, provider, runtime, external,
     })),
   },
 ];
@@ -321,8 +321,22 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
                 cliStatus={cliStatus}
                 saveMessage={saveMessage}
                 isLoading={isLoading}
+                selectedModelId={defaultCliSettings.model as string | undefined}
                 onRefreshCliStatus={checkCLIStatus}
                 onSaveSettings={saveGlobalSettings}
+                onSelectModel={(modelId) => {
+                  setGlobalSettings((current) => ({
+                    ...current,
+                    default_cli: "moagent",
+                    cli_settings: {
+                      ...current.cli_settings,
+                      moagent: {
+                        ...current.cli_settings.moagent,
+                        model: normalizeModelId("moagent", modelId),
+                      },
+                    },
+                  }));
+                }}
                 onOpenInstallModal={(cli) => {
                   setSelectedCLI(cli);
                   setInstallModalOpen(true);

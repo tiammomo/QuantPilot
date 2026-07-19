@@ -217,7 +217,7 @@ async function migrateEvalQueue() {
     const data = {
       status: item.status || 'failed',
       cli: 'moagent',
-      model: 'deepseek-v4-flash',
+      model: 'local_qwen:qwen3.5-9b-q5km',
       reasoningEffort: '',
       selectedCases: Array.isArray(item.selectedCases) ? item.selectedCases : [],
       limit: typeof item.limit === 'number' ? item.limit : null,
@@ -281,7 +281,7 @@ async function migrateEvalSchedule() {
     enabled: Boolean(schedule.enabled),
     intervalHours: Number(schedule.intervalHours || 24),
     cli: 'moagent',
-    model: 'deepseek-v4-flash',
+    model: 'local_qwen:qwen3.5-9b-q5km',
     reasoningEffort: '',
     selectedCases: Array.isArray(schedule.selectedCases) ? schedule.selectedCases : [],
     limit: typeof schedule.limit === 'number' ? schedule.limit : null,

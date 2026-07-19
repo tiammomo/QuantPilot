@@ -103,9 +103,9 @@ export interface OpsPlatformDashboard {
 
 const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
 const MARKET_API_BASE_URL = getServiceRawEndpoint('market-data') || 'http://127.0.0.1:8000';
-const LOKI_BASE_URL = getServiceRawEndpoint('loki') || 'http://127.0.0.1:3100';
+const LOKI_BASE_URL = getServiceRawEndpoint('loki') || 'http://127.0.0.1:33100';
 const LOKI_QUERY = (process.env.LOKI_QUERY || '{app="quantpilot"}').replace(/\\"/g, '"');
-const GRAFANA_BASE_URL = getServiceRawEndpoint('grafana') || `http://127.0.0.1:${process.env.GRAFANA_PORT || '3001'}`;
+const GRAFANA_BASE_URL = getServiceRawEndpoint('grafana') || `http://127.0.0.1:${process.env.GRAFANA_PORT || '33012'}`;
 
 function relativePath(filePath: string): string {
   return path.relative(ROOT, filePath) || '.';
@@ -792,7 +792,7 @@ export async function getOpsPlatformDashboard(params: {
   const projectCount = await countDirectoryItems(projectsDir, 'project-');
   const missingRequired = [
     process.env.DATABASE_URL?.trim() ? null : 'DATABASE_URL',
-    process.env.DEEPSEEK_API_KEY?.trim() ? null : 'DEEPSEEK_API_KEY',
+    process.env.MODELPORT_API_KEY?.trim() ? null : 'MODELPORT_API_KEY',
     marketApi.enabled && !process.env.QUANTPILOT_MARKET_API_URL?.trim()
       ? 'QUANTPILOT_MARKET_API_URL'
       : null,
@@ -828,14 +828,20 @@ export async function getOpsPlatformDashboard(params: {
     {
       id: 'agent-cli',
       label: 'MoAgent',
-      status: agentRuntimeInstalled && process.env.DEEPSEEK_API_KEY?.trim() ? 'ok' : 'failed',
+      status: agentRuntimeInstalled && (
+        process.env.MODELPORT_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim()
+      ) ? 'ok' : 'failed',
       summary: agentRuntimeInstalled
-        ? process.env.DEEPSEEK_API_KEY?.trim() ? 'V4 Flash 官方直连已就绪' : '执行引擎已安装，API Key 未配置'
+        ? process.env.MODELPORT_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim()
+          ? '模型 Provider 凭据已配置'
+          : '执行引擎已安装，Provider 凭据未配置'
         : '本地执行引擎缺失',
-      detail: '模型固定为 deepseek-v4-flash，服务端固定直连 DeepSeek 官方 API。',
+      detail: '默认通过 ModelPort 使用本地 Qwen 与托管 DeepSeek，保留可选官方直连。',
       actions: [
         agentRuntimeInstalled ? null : '运行 npm install 安装本地执行引擎。',
-        process.env.DEEPSEEK_API_KEY?.trim() ? null : '在 .env.local 中配置 DEEPSEEK_API_KEY。',
+        process.env.MODELPORT_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim()
+          ? null
+          : '在 .env.local 中配置 MODELPORT_API_KEY。',
       ].filter((item): item is string => Boolean(item)),
     },
     {
@@ -863,7 +869,7 @@ export async function getOpsPlatformDashboard(params: {
         ? `已连接 ${infrastructure.data.provider}，TimescaleDB ${infrastructure.data.timescale.version ?? '未启用'}`
         : componentUnavailableSummary(database, '数据库'),
       detail: infrastructure.error ?? `${infrastructure.data.quantSchema.tables.length} 张 quant 表可用。`,
-      actions: database.enabled && !infrastructure.data.connected ? ['运行 npm run db:up 和 npm run prisma:push。'] : [],
+      actions: database.enabled && !infrastructure.data.connected ? ['运行 npm run db:up 和 npm run prisma:deploy。'] : [],
     },
     {
       id: 'docker-timescaledb',

@@ -43,6 +43,8 @@ export interface DeepSeekProviderOptions {
   maxRetryDelayMs?: number;
   retryRandom?: () => number;
   sleepImpl?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  /** DeepSeek uses proprietary thinking fields; generic OpenAI-compatible APIs omit them. */
+  reasoningWireFormat?: 'deepseek' | 'none';
 }
 
 interface DeepSeekProviderLimits {
@@ -175,7 +177,10 @@ async function abortableSleep(delayMs: number, signal?: AbortSignal): Promise<vo
   });
 }
 
-function serializeMessage(message: MoAgentMessage): Record<string, unknown> {
+function serializeMessage(
+  message: MoAgentMessage,
+  includeReasoningContent: boolean,
+): Record<string, unknown> {
   switch (message.role) {
     case 'system':
     case 'user':
@@ -185,7 +190,7 @@ function serializeMessage(message: MoAgentMessage): Record<string, unknown> {
         role: 'assistant',
         content: message.content,
       };
-      if (message.reasoningContent !== undefined) {
+      if (includeReasoningContent && message.reasoningContent !== undefined) {
         serialized.reasoning_content = message.reasoningContent;
       }
       if (message.toolCalls?.length) {
@@ -274,24 +279,34 @@ function parseUsage(value: unknown): MoAgentTokenUsage | undefined {
   const details = isRecord(value.completion_tokens_details)
     ? value.completion_tokens_details
     : undefined;
-  const cachedInputTokens =
-    positiveInteger(value.prompt_cache_hit_tokens) ??
-    (isRecord(value.prompt_tokens_details)
-      ? positiveInteger(value.prompt_tokens_details.cached_tokens)
-      : undefined);
-  const cacheMissInputTokens = positiveInteger(value.prompt_cache_miss_tokens);
+  const proprietaryCacheHitTokens = positiveInteger(value.prompt_cache_hit_tokens);
+  const proprietaryCacheMissTokens = positiveInteger(value.prompt_cache_miss_tokens);
+  const standardCachedInputTokens = isRecord(value.prompt_tokens_details)
+    ? positiveInteger(value.prompt_tokens_details.cached_tokens)
+    : undefined;
   const reasoningTokens = details ? positiveInteger(details.reasoning_tokens) : undefined;
-  if ((cachedInputTokens === undefined) !== (cacheMissInputTokens === undefined)) {
-    return undefined;
-  }
   if (
-    cachedInputTokens !== undefined &&
-    cacheMissInputTokens !== undefined &&
-    cachedInputTokens + cacheMissInputTokens !== inputTokens
+    (proprietaryCacheHitTokens === undefined) !==
+    (proprietaryCacheMissTokens === undefined)
   ) {
     return undefined;
   }
+  if (
+    proprietaryCacheHitTokens !== undefined &&
+    proprietaryCacheMissTokens !== undefined &&
+    proprietaryCacheHitTokens + proprietaryCacheMissTokens !== inputTokens
+  ) {
+    return undefined;
+  }
+  if (standardCachedInputTokens !== undefined && standardCachedInputTokens > inputTokens) {
+    return undefined;
+  }
   if (reasoningTokens !== undefined && reasoningTokens > outputTokens) return undefined;
+  const cachedInputTokens = proprietaryCacheHitTokens ?? standardCachedInputTokens;
+  const cacheMissInputTokens = proprietaryCacheMissTokens ??
+    (standardCachedInputTokens === undefined
+      ? undefined
+      : inputTokens - standardCachedInputTokens);
   const cacheEstimated = cachedInputTokens === undefined;
   const effectiveCachedInputTokens = cachedInputTokens ?? 0;
   const effectiveCacheMissInputTokens = cacheMissInputTokens ?? inputTokens;
@@ -455,6 +470,7 @@ export class DeepSeekProvider implements MoAgentModelProvider {
   private readonly maxRetryDelayMs: number;
   private readonly retryRandom: () => number;
   private readonly sleepImpl: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+  private readonly reasoningWireFormat: 'deepseek' | 'none';
 
   constructor(options: DeepSeekProviderOptions) {
     if (!options.apiKey.trim()) {
@@ -529,6 +545,7 @@ export class DeepSeekProvider implements MoAgentModelProvider {
     }
     this.retryRandom = options.retryRandom ?? Math.random;
     this.sleepImpl = options.sleepImpl ?? abortableSleep;
+    this.reasoningWireFormat = options.reasoningWireFormat ?? 'deepseek';
   }
 
   private retryDelayMs(failedAttempt: number, retryAfterMs?: number): number {
@@ -551,7 +568,8 @@ export class DeepSeekProvider implements MoAgentModelProvider {
 
     const body: Record<string, unknown> = {
       model: request.model,
-      messages: request.messages.map(serializeMessage),
+      messages: request.messages.map((message) =>
+        serializeMessage(message, this.reasoningWireFormat === 'deepseek')),
       stream: true,
       stream_options: { include_usage: true },
     };
@@ -575,7 +593,7 @@ export class DeepSeekProvider implements MoAgentModelProvider {
     if (request.temperature !== undefined) {
       body.temperature = request.temperature;
     }
-    if (request.reasoning !== undefined) {
+    if (request.reasoning !== undefined && this.reasoningWireFormat === 'deepseek') {
       body.thinking = { type: request.reasoning.enabled ? 'enabled' : 'disabled' };
       if (request.reasoning.effort !== undefined) {
         body.reasoning_effort = request.reasoning.effort;

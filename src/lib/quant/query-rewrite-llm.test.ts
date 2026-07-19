@@ -7,14 +7,7 @@ function input(): QuantQuerySemanticRewriteInput {
   return {
     originalQuery: '比较北方稀土和宁德时代去年下半年走势',
     normalizedQuery: '比较北方稀土和宁德时代去年下半年走势',
-    deterministic: {
-      targetCandidates: ['北方稀土', '宁德时代'],
-      timeRange: null,
-      analysisFocus: { id: 'comparison', label: '标的对比' },
-      outputIntent: 'dashboard',
-      broadUniverse: false,
-    },
-    trigger: 'nonstandard_time_range',
+    trigger: 'primary',
     requestedModel: 'deepseek-v4-flash',
     signal: new AbortController().signal,
   };
@@ -25,10 +18,12 @@ describe('query rewrite LLM adapter', () => {
     const complete = vi.fn(async function* (_request: MoAgentModelRequest) {
       const payload = JSON.stringify({
         targetCandidates: ['北方稀土', '宁德时代'],
-        timeRange: { label: '去年下半年', unit: 'date_range' },
+        timeRange: { label: '去年下半年', unit: 'date_range', evidence: '去年下半年' },
         analysisFocusId: 'comparison',
         outputIntent: 'dashboard',
+        answerOnlyEvidence: null,
         broadUniverse: false,
+        broadUniverseEvidence: null,
         confidence: 0.92,
       });
       yield {
@@ -69,8 +64,18 @@ describe('query rewrite LLM adapter', () => {
     });
     const request = complete.mock.calls[0][0];
     expect(request.toolChoice).toEqual({ name: 'emit_query_rewrite_semantics' });
+    expect(request.tools?.[0]?.inputSchema).toMatchObject({
+      properties: {
+        answerOnlyEvidence: expect.any(Object),
+        broadUniverseEvidence: expect.any(Object),
+      },
+    });
+    expect(request.tools?.[0]?.inputSchema.required).not.toContain('answerOnlyEvidence');
     expect(request.temperature).toBe(0);
     expect(request.reasoning).toEqual({ enabled: false });
+    expect(request.messages[1].content).not.toContain('deterministic');
+    expect(request.messages[1].content).toContain('answerOnlyEvidence');
+    expect(request.messages[1].content).toContain('broadUniverseEvidence');
   });
 
   it('rejects malformed or out-of-schema tool arguments', async () => {

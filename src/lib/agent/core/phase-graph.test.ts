@@ -29,7 +29,7 @@ describe('MoAgent PhaseGraph', () => {
     }).lane).toBe('model_data_preparation');
   });
 
-  it('keeps custom and repair lanes within three model turns', () => {
+  it('gives custom edits enough inspect/write/submit turns while keeping repair tighter', () => {
     const custom = createMoAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: true,
@@ -48,9 +48,10 @@ describe('MoAgent PhaseGraph', () => {
     expect(custom).toMatchObject({
       lane: 'model_custom',
       budgets: {
-        maxTurns: 3,
+        maxTurns: 6,
+        maxToolCalls: 12,
         maxPreparedInputTokens: 24_000,
-        maxCumulativePreparedInputTokens: 72_000,
+        maxCumulativePreparedInputTokens: 144_000,
         progressStallTurns: 1,
       },
     });

@@ -43,13 +43,13 @@
     {
       "id": "query-rewrite",
       "name": "问题改写",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "status": "stable",
       "scope": "workflow",
-      "boundary": "作为规划前唯一语义事实源，规则优先解析自然语言量化问题，对复杂、部分解析或低置信度输入调用 LLM 语义增强，再经标的 API 与确定性安全策略核验。",
+      "boundary": "作为规划前唯一语义事实源，由所选 LLM 通过严格 Schema 解析全部自然语言语义，再经原文字面证据、独立标的 Resolver 与确定性安全策略核验；模型不可用时失败关闭。",
       "inputs": [
         "用户原始问题",
-        "DeepSeek LLM 按需语义增强",
+        "用户选定的 ModelPort 或直连 LLM",
         "config/llm.json 与项目 Manifest LLM profile",
         "后端 GET /api/v1/symbols/resolve",
         "用户选择的 capabilityId"
@@ -75,14 +75,15 @@
       ],
       "validation": [
         "问题改写必须先于 run plan 和数据预取",
-        "简单问题不得调用 LLM，复杂问题的 LLM 失败必须安全降级为确定性结果",
-        "部分标的解析失败必须允许 LLM 清理候选并重新调用 Resolver",
+        "preview 与 execution 都必须调用所选 LLM，不存在关键词语义改写旁路",
+        "LLM 未配置、超时、失败或输出无效时必须返回 llm_unavailable 并停止下游执行",
         "LLM 只能拆语义，不得发明或确认证券代码",
         "resolvedSymbols 必须使用标准六位代码且不得重复",
         "前端、规划器、预取器和 Skills 必须消费同一契约",
         "标的未找到、标的歧义和解析服务不可用必须使用不同错误码",
         "确定性收益承诺必须返回 refused，禁止进入取数和 Agent 执行",
-        "Run Plan 不得脱离 Query Rewrite 重新猜测分析重点"
+        "Run Plan 不得脱离 Query Rewrite 重新猜测标的、周期或分析重点",
+        "数据预取只能消费 run_plan.symbols，不得从原始问题二次解析证券名称"
       ]
     },
     {
@@ -400,7 +401,7 @@
     {
       "id": "dashboard-visualization",
       "name": "可视化看板",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "status": "stable",
       "scope": "visualization",
       "boundary": "基于已验证 final 数据、MoAgent 定向注入的模板与金融指标判读生成 Next.js 金融分析看板；验证失败时只按平台报告修复允许产物，提交后由平台负责 build、preview 和 validation。",
@@ -431,7 +432,9 @@
         "移动端不得出现页面级横向溢出",
         "页面必须使用连续金融工作台画布，禁止独立圆角卡片网格、悬浮阴影和 card 套 card",
         "指标带必须说明时间窗口、覆盖对象和计算口径，不能裸写内部公式",
-        "必须包含图表、来源、加载/错误/空状态",
+        "指标带必须按指标数量均衡分栏，禁止桌面端 N+1 孤项、大面积空白和数值拆行",
+        "渠道端点、技术证据、模板名称和必备组件状态不得作为用户可见分区",
+        "必须包含图表、数据时间/质量、加载/错误/空状态，后台 evidence 保留来源",
         "必须按 visualization.templateId 选择模板族，并按 visualization.variantId/layout 覆盖具体页面结构",
         "动态 JSON 的每一层嵌套对象都必须分别使用 asRecord 守卫并通过 Next.js build",
         "自动验证失败时必须按 failure ID 和文件指针定向读取报告并实际修复",

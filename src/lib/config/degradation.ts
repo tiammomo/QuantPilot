@@ -9,7 +9,10 @@ export interface RuntimeDegradationConfig {
   mode: DegradationMode;
   components: {
     database: ComponentDegradationConfig;
+    knowledge: ComponentDegradationConfig;
     marketApi: ComponentDegradationConfig;
+    memory: ComponentDegradationConfig;
+    modelPort: ComponentDegradationConfig;
     observability: ComponentDegradationConfig;
     redis: ComponentDegradationConfig;
   };
@@ -44,9 +47,24 @@ export function getRuntimeDegradationConfig(): RuntimeDegradationConfig {
         enabled: envFlag('QUANTPILOT_DATABASE_ENABLED', true),
         required: offline ? false : envFlag('QUANTPILOT_DATABASE_REQUIRED', true),
       },
+      knowledge: {
+        enabled: offline ? false : envFlag(
+          'QUANTPILOT_KNOWLEDGE_ENABLED',
+          process.env.NODE_ENV !== 'test',
+        ),
+        required: !offline && envFlag('QUANTPILOT_KNOWLEDGE_REQUIRED', false),
+      },
       marketApi: {
         enabled: offline ? false : envFlag('QUANTPILOT_MARKET_API_ENABLED', true),
         required: !offline && envFlag('QUANTPILOT_MARKET_API_REQUIRED', strict),
+      },
+      memory: {
+        enabled: offline ? false : envFlag('QUANTPILOT_MEMORY_ENABLED', process.env.NODE_ENV !== 'test'),
+        required: !offline && envFlag('QUANTPILOT_MEMORY_REQUIRED', false),
+      },
+      modelPort: {
+        enabled: offline ? false : envFlag('QUANTPILOT_MODELPORT_ENABLED', true),
+        required: !offline && envFlag('QUANTPILOT_MODELPORT_REQUIRED', strict),
       },
       observability: {
         enabled: offline ? false : envFlag('QUANTPILOT_OBSERVABILITY_ENABLED', true),

@@ -31,6 +31,7 @@ export interface QuantVisualViewportResult {
     firstViewportLargeChartCount: number;
     tinyChartCount: number;
     squashedMetricCount: number;
+    orphanedMetricRowCount: number;
     contentRegionCount: number;
     cardLikeSurfaceCount: number;
     firstViewportCardLikeSurfaceCount: number;
@@ -42,7 +43,7 @@ export interface QuantVisualViewportResult {
     horizontalOverflow: boolean;
     blankLike: boolean;
     hasMarketLanguage: boolean;
-    hasDataSourceLanguage: boolean;
+    hasDataFreshnessLanguage: boolean;
   };
 }
 
@@ -53,6 +54,19 @@ export interface QuantSurfaceCompositionMetrics {
   cardGridClusterCount: number;
   cardLikeSurfaceRatio: number;
   firstViewportCardLikeSurfaceRatio: number;
+}
+
+export function assessMetricStripBalance(params: {
+  viewportId: 'desktop' | 'mobile';
+  orphanedMetricRowCount: number;
+}): string[] {
+  if (params.viewportId !== 'desktop' || params.orphanedMetricRowCount <= 0) {
+    return [];
+  }
+
+  return [
+    `检测到 ${params.orphanedMetricRowCount} 个指标带末行只有一个窄指标，产生大面积空白；请按指标数量采用均衡网格或让末项填满整行。`,
+  ];
 }
 
 export function assessFinancialWorkbenchSurface(metrics: QuantSurfaceCompositionMetrics): {
@@ -252,6 +266,38 @@ async function validateViewport(params: {
         const lineHeight = Number.parseFloat(style.lineHeight || style.fontSize || '16');
         return rect.height > Math.max(34, lineHeight * 2.2) && rect.width < 72;
       }).length;
+      const orphanedMetricRowCount = Array.from(document.querySelectorAll(
+        'main .metric-strip, main .comparison-metrics, main .selection-metrics, main .portfolio-metrics, main .risk-strip'
+      )).filter((container) => {
+        const containerRect = container.getBoundingClientRect();
+        const containerStyle = window.getComputedStyle(container);
+        if (
+          containerRect.width < 240 ||
+          containerRect.height < 40 ||
+          containerStyle.visibility === 'hidden' ||
+          containerStyle.display === 'none'
+        ) {
+          return false;
+        }
+
+        const rows = new Map<number, DOMRect[]>();
+        for (const child of Array.from(container.children)) {
+          const rect = child.getBoundingClientRect();
+          const style = window.getComputedStyle(child);
+          if (rect.width <= 4 || rect.height <= 4 || style.visibility === 'hidden' || style.display === 'none') {
+            continue;
+          }
+          const rowKey = Math.round(rect.top / 4) * 4;
+          rows.set(rowKey, [...(rows.get(rowKey) ?? []), rect]);
+        }
+
+        const orderedRows = Array.from(rows.entries()).sort(([left], [right]) => left - right).map(([, rects]) => rects);
+        if (orderedRows.length < 2 || orderedRows[0].length < 3) {
+          return false;
+        }
+        const lastRow = orderedRows[orderedRows.length - 1];
+        return lastRow.length === 1 && lastRow[0].width < containerRect.width * 0.72;
+      }).length;
       const oversizedHeading = headingElements.some((element) => {
         const style = window.getComputedStyle(element);
         const fontSize = Number.parseFloat(style.fontSize || '0');
@@ -324,6 +370,7 @@ async function validateViewport(params: {
         firstViewportLargeChartCount: largeCharts.filter((chart) => chart.top < viewportHeight).length,
         tinyChartCount: tinyCharts.length,
         squashedMetricCount,
+        orphanedMetricRowCount,
         contentRegionCount: contentRegions.length,
         cardLikeSurfaceCount: cardLikeRegions.length,
         firstViewportCardLikeSurfaceCount: firstViewportCardLikeRegions.length,
@@ -335,7 +382,7 @@ async function validateViewport(params: {
         horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
         blankLike: bodyText.trim().length < 80 && rects.length < 8,
         hasMarketLanguage: /最新价|实时|价格|price|K\s*线|成交量|均线|财务|回撤|波动|净值|持仓|收益|风险/i.test(bodyText),
-        hasDataSourceLanguage: /dashboard-data\.json|数据来源|数据信源|信源渠道|source|fetched_at|as_of|更新时间/i.test(bodyText),
+        hasDataFreshnessLanguage: /更新时间|更新：|数据截至|行情时间|报告期|样本区间|样本窗口/i.test(bodyText),
       };
     });
 
@@ -369,11 +416,15 @@ async function validateViewport(params: {
     if (metrics.squashedMetricCount > 0) {
       failures.push(`检测到 ${metrics.squashedMetricCount} 个数字或指标被挤压成多行，图表或数据区宽度需要调整。`);
     }
+    failures.push(...assessMetricStripBalance({
+      viewportId: params.viewport.id,
+      orphanedMetricRowCount: metrics.orphanedMetricRowCount,
+    }));
     const surfaceAssessment = assessFinancialWorkbenchSurface(metrics);
     failures.push(...surfaceAssessment.failures);
     warnings.push(...surfaceAssessment.warnings);
-    if (!metrics.hasDataSourceLanguage) {
-      warnings.push('页面缺少数据信源、更新时间或最终数据文件说明。');
+    if (!metrics.hasDataFreshnessLanguage) {
+      warnings.push('页面缺少数据更新时间、报告期或样本口径说明。');
     }
     if (metrics.svgCount + metrics.canvasCount === 0 && metrics.rectCount < 12 && metrics.visibleGraphicCount < 12) {
       failures.push('页面缺少可识别的图表元素。');

@@ -37,11 +37,14 @@ vi.mock('@/lib/quota', () => ({
 
 import { POST } from './route';
 
-function request(projectId = 'project-new'): NextRequest {
+function request(
+  projectId = 'project-new',
+  extra: Record<string, unknown> = {},
+): NextRequest {
   return new NextRequest('http://localhost/api/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'idempotency-key': 'create-test' },
-    body: JSON.stringify({ project_id: projectId, name: 'New project' }),
+    body: JSON.stringify({ project_id: projectId, name: 'New project', ...extra }),
   });
 }
 
@@ -98,6 +101,21 @@ describe('POST /api/projects quota orchestration', () => {
     expect(mocks.createProject.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.settleQuotaReservation.mock.invocationCallOrder[0]);
     expect(mocks.releaseQuotaReservation).not.toHaveBeenCalled();
+  });
+
+  it('preserves a registered local model selection in the service input', async () => {
+    const response = await POST(request('project-local', {
+      selectedModel: 'local_qwen:qwen3.5-9b-q5km',
+    }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: 'project-local',
+        selectedModel: 'local_qwen:qwen3.5-9b-q5km',
+      }),
+      { ownerId: 'member-1' },
+    );
   });
 
   it('releases the reservation when project creation fails', async () => {

@@ -7,6 +7,20 @@ import { authorizeApplicationRequest } from '@/lib/auth/authorization';
 import { getProjectAuthConfig, isPublicAuthPath } from '@/lib/config/auth';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const PUBLIC_BRAND_ASSET_PATHS = new Set([
+  '/apple-touch-icon.png',
+  '/favicon-16.png',
+  '/favicon-32.png',
+  '/favicon.png',
+  '/icon.svg',
+  '/manifest.webmanifest',
+  '/quantpilot-mark.svg',
+  '/QuantPilot_Icon.png',
+]);
+
+function isPublicBrandAssetPath(pathname: string): boolean {
+  return PUBLIC_BRAND_ASSET_PATHS.has(pathname) || /^\/icons\/quantpilot-(?:192|512)\.png$/.test(pathname);
+}
 
 function loginRedirect(request: NextRequest): NextResponse {
   const login = new URL('/login', request.url);
@@ -32,10 +46,11 @@ function isSameOriginMutation(request: NextRequest): boolean {
 }
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  if (isPublicBrandAssetPath(pathname)) return NextResponse.next();
+
   const config = getProjectAuthConfig();
   if (!config.enabled) return NextResponse.next();
-
-  const pathname = request.nextUrl.pathname;
 
   if (pathname !== '/login' && isPublicAuthPath(pathname, config)) {
     return NextResponse.next();

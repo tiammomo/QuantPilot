@@ -1,427 +1,292 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  extractQuantQueryTargetCandidates,
-  inferQuantQueryFocus,
-  inferQuantQueryTimeRange,
+  rankQuantSymbolCandidates,
   rewriteQuantQuery,
+  type QuantQueryLlmSemantics,
+  type QuantQuerySemanticRewriter,
 } from './query-rewrite';
 
-describe('quant query rewrite', () => {
-  it.each([
-    '帮我分析一下北方稀土',
-    '请帮我分析一下北方稀土',
-    '能不能分析一下北方稀土',
-    '我想了解一下北方稀土',
-    '麻烦帮我看看北方稀土',
-    '北方稀土这只股票怎么样',
-  ])('extracts the same security target from conversational query: %s', (query) => {
-    expect(extractQuantQueryTargetCandidates(query)).toEqual(['北方稀土']);
-  });
+function semanticData(
+  overrides: Partial<QuantQueryLlmSemantics> = {},
+): QuantQueryLlmSemantics {
+  return {
+    targetCandidates: ['大位科技'],
+    timeRange: null,
+    analysisFocusId: 'comprehensive',
+    outputIntent: 'dashboard',
+    answerOnlyEvidence: null,
+    broadUniverse: false,
+    broadUniverseEvidence: null,
+    confidence: 0.95,
+    ...overrides,
+  };
+}
 
-  it('keeps multiple comparison targets in user order', () => {
-    expect(
-      extractQuantQueryTargetCandidates('比较贵州茅台和宁德时代近60个交易日走势'),
-    ).toEqual(['贵州茅台', '宁德时代']);
-  });
+function successfulRewrite(
+  data: QuantQueryLlmSemantics,
+  provider = 'openai',
+): QuantQuerySemanticRewriter {
+  return vi.fn(async () => ({
+    ok: true as const,
+    provider,
+    model: 'local_qwen:qwen3.5-9b-q5km',
+    usage: { inputTokens: 80, outputTokens: 30, totalTokens: 110 },
+    data,
+  }));
+}
 
-  it('keeps deterministic previews clean for complex comparison wording', () => {
-    expect(extractQuantQueryTargetCandidates(
-      '请分别比较北方稀土和宁德时代去年下半年的趋势，同时说明谁的回撤风险更大',
-    )).toEqual(['北方稀土', '宁德时代']);
-    expect(inferQuantQueryTimeRange('比较北方稀土去年下半年走势')).toEqual({
-      label: '去年下半年',
-      value: 6,
-      unit: 'month',
-      source: 'explicit',
-    });
-  });
+function resolvedSecurity(target: string, symbol = '600589', market = 'SH') {
+  return {
+    results: [{
+      query: target,
+      symbol,
+      name: target,
+      asset_type: 'stock',
+      market,
+      secid: `${market === 'SH' ? '1' : '0'}.${symbol}`,
+      source: 'test-resolver',
+    }],
+  };
+}
 
-  it('does not turn comparison metrics into security targets', () => {
-    const query = '请比较北方稀土和宁德时代去年下半年的收益、波动率和最大回撤，说明差异原因';
-    expect(extractQuantQueryTargetCandidates(query)).toEqual(['北方稀土', '宁德时代']);
-    expect(inferQuantQueryFocus(query)).toEqual({ id: 'comparison', label: '标的对比' });
-  });
-
-  it('recognizes implicit one-unit time ranges', () => {
-    expect(inferQuantQueryTimeRange('中证红利近一年和沪深300相比谁更稳')).toEqual({
-      label: '最近 1 年',
-      value: 1,
-      unit: 'year',
-      source: 'explicit',
-    });
-  });
-
-  it('keeps a leading implicit time range out of the first comparison target', () => {
-    expect(extractQuantQueryTargetCandidates(
-      '近一年中证红利和沪深300谁表现更稳？',
-    )).toEqual(['中证红利', '沪深300']);
-    expect(inferQuantQueryFocus(
-      '近一年中证红利和沪深300谁表现更稳？',
-    )).toEqual({ id: 'comparison', label: '标的对比' });
-  });
-
-  it('keeps financial metric comparisons on the fundamental focus', () => {
-    expect(inferQuantQueryFocus(
-      '北方稀土2025年年报里，比较经营现金流增速和净利润增速',
-    )).toEqual({ id: 'fundamental', label: '财务与估值' });
-  });
-
-  it('extracts an explicit annual reporting period without polluting the target', () => {
-    const query = '北方稀土2025年年报里，每股经营现金流增速有没有跑赢净利润增速？请生成可验证看板。';
-    expect(extractQuantQueryTargetCandidates(query)).toEqual(['北方稀土']);
-    expect(inferQuantQueryTimeRange(query)).toEqual({
-      label: '2025年年报',
-      value: 1,
-      unit: 'reporting_period',
-      source: 'explicit',
-    });
-  });
-
-  it('resolves targets and emits an executable query contract', async () => {
-    const resolver = vi.fn(async (query: string) => ({
-      results: [{
-        query,
-        symbol: '600111',
-        name: '北方稀土',
-        asset_type: 'stock',
-        market: 'SH',
-        secid: '1.600111',
-        source: 'eastmoney',
-      }],
-    }));
-
-    const result = await rewriteQuantQuery(
-      '帮我分析一下北方稀土近60个交易日的趋势和风险',
-      { resolver },
-    );
-
-    expect(resolver).toHaveBeenCalledWith('北方稀土', 5);
-    expect(result).toMatchObject({
-      schemaVersion: 3,
-      status: 'ready',
-      capabilityHint: 'technical_analysis',
-      targetCandidates: ['北方稀土'],
-      resolvedSymbols: [{
-        symbol: '600111',
-        name: '北方稀土',
-        market: 'SH',
-      }],
+describe('quant query rewrite schema v4', () => {
+  it('uses the selected LLM as the only semantic parser before resolving 大位科技', async () => {
+    const semanticRewriter = successfulRewrite(semanticData({
       timeRange: {
-        label: '最近 60 个交易日',
-        value: 60,
+        label: '最近20个交易日',
+        value: 20,
         unit: 'trading_day',
+        evidence: '最近20个交易日',
       },
-      analysisFocus: { id: 'technical', label: '趋势与风险' },
-      execution: {
-        strategy: 'deterministic',
-        llm: { attempted: false, applied: false, status: 'not_requested' },
-      },
-    });
-    expect(result.rewrittenQuery).toContain('北方稀土（600111.SH）');
-  });
-
-  it('returns actionable clarification issues instead of throwing on misses', async () => {
-    const result = await rewriteQuantQuery('分析一下不存在标的', {
-      resolver: async () => ({ results: [] }),
-    });
-
-    expect(result.status).toBe('needs_clarification');
-    expect(result.unresolvedTargets).toEqual(['不存在标的']);
-    expect(result.issues).toEqual([
-      expect.objectContaining({ code: 'TARGET_NOT_FOUND', retryable: false }),
-    ]);
-  });
-
-  it('recognizes time and focus without resolving symbols', () => {
-    expect(inferQuantQueryTimeRange('过去2年财务表现')).toMatchObject({
-      label: '最近 2 年',
-      value: 2,
-      unit: 'year',
-    });
-    expect(inferQuantQueryFocus('做均线策略回测')).toEqual({
-      id: 'backtest',
-      label: '策略回测',
-    });
-  });
-
-  it('classifies known index aliases without calling the remote resolver', async () => {
-    const result = await rewriteQuantQuery('分析沪深300最近走势', {
-      resolveTargets: false,
-    });
-
-    expect(result.resolvedSymbols).toEqual([
-      expect.objectContaining({
-        symbol: '000300',
-        market: 'SH',
-        assetType: 'index',
-        secid: '1.000300',
-      }),
-    ]);
-  });
-
-  it('uses the LLM semantic fallback only for complex queries and still resolves every target', async () => {
-    const semanticRewriter = vi.fn(async () => ({
-      ok: true as const,
-      provider: 'test-llm',
-      model: 'test-model',
-      usage: { inputTokens: 120, outputTokens: 40, totalTokens: 160 },
-      data: {
-        targetCandidates: ['北方稀土', '宁德时代'],
-        timeRange: { label: '去年下半年', unit: 'date_range' as const },
-        analysisFocusId: 'comparison' as const,
-        outputIntent: 'dashboard' as const,
-        broadUniverse: false,
-        confidence: 0.91,
-      },
+      analysisFocusId: 'technical',
     }));
-    const symbols: Record<string, string> = {
-      北方稀土: '600111',
-      宁德时代: '300750',
-    };
-    const resolver = vi.fn(async (target: string) => ({
-      results: [{
-        symbol: symbols[target],
-        name: target,
-        asset_type: 'stock',
-        market: target === '北方稀土' ? 'SH' : 'SZ',
-        secid: `${target === '北方稀土' ? '1' : '0'}.${symbols[target]}`,
-        source: 'test-resolver',
-      }],
-    }));
+    const resolver = vi.fn(async (target: string) => resolvedSecurity(target));
 
     const result = await rewriteQuantQuery(
-      '请分别比较北方稀土和宁德时代去年下半年的趋势，同时说明谁的回撤风险更大',
-      { allowLlm: true, semanticRewriter, resolver },
+      '分析大位科技最近20个交易日，生成技术面看板',
+      {
+        requestedModel: 'local_qwen:qwen3.5-9b-q5km',
+        semanticRewriter,
+        resolver,
+      },
     );
 
     expect(semanticRewriter).toHaveBeenCalledOnce();
-    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(semanticRewriter).toHaveBeenCalledWith(expect.objectContaining({
+      trigger: 'primary',
+      requestedModel: 'local_qwen:qwen3.5-9b-q5km',
+    }));
+    expect(resolver).toHaveBeenCalledWith('大位科技', 5);
     expect(result).toMatchObject({
+      schemaVersion: 4,
       status: 'ready',
-      targetCandidates: ['北方稀土', '宁德时代'],
-      resolvedSymbols: [{ symbol: '600111' }, { symbol: '300750' }],
-      timeRange: { label: '去年下半年', unit: 'date_range' },
-      analysisFocus: { id: 'comparison', label: '标的对比' },
-      capabilityHint: 'asset_comparison',
+      capabilityHint: 'technical_analysis',
+      targetCandidates: ['大位科技'],
+      resolvedSymbols: [{ symbol: '600589', name: '大位科技' }],
+      timeRange: { label: '最近20个交易日', value: 20, unit: 'trading_day' },
+      analysisFocus: { id: 'technical' },
       execution: {
-        strategy: 'hybrid_llm',
-        llm: {
-          attempted: true,
-          applied: true,
-          status: 'applied',
-          provider: 'test-llm',
-          model: 'test-model',
-          semanticConfidence: 0.91,
-          usage: { totalTokens: 160 },
-        },
+        strategy: 'llm_primary',
+        llm: { attempted: true, applied: true, status: 'applied' },
       },
     });
   });
 
-  it('rejects LLM-invented targets before the symbol resolver', async () => {
-    const resolver = vi.fn(async (target: string) => ({
-      results: [{
-        symbol: '600111',
-        name: target,
-        asset_type: 'stock',
-        market: 'SH',
-        secid: '1.600111',
-      }],
+  it('resolves each literal target returned by the LLM in user order', async () => {
+    const query = '比较北方稀土和宁德时代去年下半年的趋势';
+    const semanticRewriter = successfulRewrite(semanticData({
+      targetCandidates: ['北方稀土', '宁德时代'],
+      timeRange: {
+        label: '去年下半年',
+        unit: 'date_range',
+        evidence: '去年下半年',
+      },
+      analysisFocusId: 'comparison',
+      confidence: 0.91,
+    }));
+    const resolver = vi.fn(async (target: string) => resolvedSecurity(
+      target,
+      target === '北方稀土' ? '600111' : '300750',
+      target === '北方稀土' ? 'SH' : 'SZ',
+    ));
+
+    const result = await rewriteQuantQuery(query, { semanticRewriter, resolver });
+
+    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      status: 'ready',
+      capabilityHint: 'asset_comparison',
+      resolvedSymbols: [{ symbol: '600111' }, { symbol: '300750' }],
+      analysisFocus: { id: 'comparison' },
+    });
+  });
+
+  it('fails closed when the LLM is unavailable and never invokes the resolver', async () => {
+    const resolver = vi.fn();
+    const semanticRewriter: QuantQuerySemanticRewriter = vi.fn(async () => ({
+      ok: false as const,
+      code: 'LLM_NETWORK_ERROR',
+      provider: 'openai',
+      model: 'local_qwen:qwen3.5-9b-q5km',
+      retryable: true,
     }));
 
-    const result = await rewriteQuantQuery(
-      '请分别分析北方稀土，同时解释它的主要风险',
-      {
-        allowLlm: true,
-        resolver,
-        semanticRewriter: async () => ({
-          ok: true,
-          provider: 'test-llm',
-          model: 'test-model',
-          data: {
-            targetCandidates: ['北方稀土', '虚构证券'],
-            timeRange: null,
-            analysisFocusId: 'technical',
-            outputIntent: 'dashboard',
-            broadUniverse: false,
-            confidence: 0.8,
-          },
-        }),
+    const result = await rewriteQuantQuery('比较贵州茅台和宁德时代', {
+      semanticRewriter,
+      resolver,
+    });
+
+    expect(resolver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'needs_clarification',
+      targetCandidates: [],
+      resolvedSymbols: [],
+      issues: [{ code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable: true }],
+      execution: {
+        strategy: 'llm_unavailable',
+        llm: { attempted: true, applied: false, status: 'failed' },
       },
-    );
+    });
+  });
+
+  it('does not supplement an empty LLM target set with keyword-derived targets', async () => {
+    const resolver = vi.fn();
+    const result = await rewriteQuantQuery('分析大位科技最近20个交易日', {
+      semanticRewriter: successfulRewrite(semanticData({
+        targetCandidates: [],
+        timeRange: {
+          label: '最近20个交易日',
+          value: 20,
+          unit: 'trading_day',
+          evidence: '最近20个交易日',
+        },
+      })),
+      resolver,
+    });
+
+    expect(result).toMatchObject({
+      status: 'needs_clarification',
+      targetCandidates: [],
+      execution: { strategy: 'llm_primary' },
+    });
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it('drops an invented target before the resolver while keeping literal targets', async () => {
+    const resolver = vi.fn(async (target: string) => resolvedSecurity(target, '600111'));
+    const result = await rewriteQuantQuery('分析北方稀土的主要风险', {
+      semanticRewriter: successfulRewrite(semanticData({
+        targetCandidates: ['北方稀土', '虚构证券'],
+        analysisFocusId: 'technical',
+      })),
+      resolver,
+    });
 
     expect(result.targetCandidates).toEqual(['北方稀土']);
     expect(resolver).toHaveBeenCalledOnce();
     expect(resolver).toHaveBeenCalledWith('北方稀土', 5);
   });
 
-  it('falls back to the deterministic contract when LLM rewrite fails', async () => {
-    const semanticRewriter = vi.fn(async () => ({
-      ok: false as const,
-      code: 'LLM_NETWORK_ERROR',
-      provider: 'test-llm',
-      model: 'test-model',
-      retryable: true,
-    }));
-    const result = await rewriteQuantQuery(
-      '请分别比较贵州茅台和宁德时代，同时说明趋势差异',
-      {
-        allowLlm: true,
-        semanticRewriter,
-        resolver: async (target) => ({
-          results: [{
-            symbol: target === '贵州茅台' ? '600519' : '300750',
-            name: target,
-            asset_type: 'stock',
-            market: target === '贵州茅台' ? 'SH' : 'SZ',
-            secid: `${target === '贵州茅台' ? '1.600519' : '0.300750'}`,
-          }],
-        }),
-      },
-    );
-
-    expect(result.status).toBe('ready');
-    expect(result.resolvedSymbols).toHaveLength(2);
-    expect(result.execution).toMatchObject({
-      strategy: 'deterministic_fallback',
-      llm: {
-        attempted: true,
-        applied: false,
-        status: 'failed',
-        errorCode: 'LLM_NETWORK_ERROR',
-      },
-    });
-  });
-
-  it('never calls the LLM during a deterministic-only preview', async () => {
-    const semanticRewriter = vi.fn();
-    await rewriteQuantQuery(
-      '请分别比较贵州茅台和宁德时代，同时说明趋势差异',
-      {
-        allowLlm: false,
-        semanticRewriter,
-        resolveTargets: false,
-      },
-    );
-
-    expect(semanticRewriter).not.toHaveBeenCalled();
-  });
-
-  it('repairs a partial resolver miss through the LLM and resolves the cleaned target set again', async () => {
-    const semanticRewriter = vi.fn(async () => ({
-      ok: true as const,
-      provider: 'test-llm',
-      model: 'test-model',
-      data: {
-        targetCandidates: ['北方稀土', '宁德时代'],
-        timeRange: null,
-        analysisFocusId: 'comparison' as const,
-        outputIntent: 'dashboard' as const,
-        broadUniverse: false,
-        confidence: 0.9,
-      },
-    }));
-    let northAttempts = 0;
-    const resolver = vi.fn(async (target: string) => {
-      if (target === '北方稀土') {
-        northAttempts += 1;
-        if (northAttempts === 1) return { results: [] };
-      }
-      return {
-        results: [{
-          symbol: target === '北方稀土' ? '600111' : '300750',
-          name: target,
-          asset_type: 'stock',
-          market: target === '北方稀土' ? 'SH' : 'SZ',
-        }],
-      };
-    });
-
-    const result = await rewriteQuantQuery('比较北方稀土和宁德时代的表现', {
-      allowLlm: true,
-      resolver,
-      semanticRewriter,
-    });
-
-    expect(semanticRewriter).toHaveBeenCalledOnce();
-    expect(northAttempts).toBe(2);
-    expect(result).toMatchObject({
-      status: 'ready',
-      resolvedSymbols: [{ symbol: '600111' }, { symbol: '300750' }],
-      execution: { strategy: 'hybrid_llm' },
-    });
-  });
-
-  it('treats an explicit A-share screener as a broad universe without inventing a target', async () => {
+  it('requires literal evidence for broad-universe and time-range semantics', async () => {
     const resolver = vi.fn();
-    const result = await rewriteQuantQuery('帮我筛选A股近20日涨幅前10且PE低于30的公司', {
-      resolver,
-    });
-
-    expect(result).toMatchObject({
-      status: 'ready',
-      broadUniverse: true,
-      targetCandidates: [],
-      unresolvedTargets: [],
-    });
-    expect(resolver).not.toHaveBeenCalled();
-  });
-
-  it('rejects financial screening criteria returned as LLM security targets', async () => {
-    const resolver = vi.fn();
-    const query = '筛选A股里2025年营收和净利润都增长、经营现金流质量较好的公司';
-    const result = await rewriteQuantQuery(query, {
-      allowLlm: true,
-      resolver,
-      semanticRewriter: async () => ({
-        ok: true,
-        provider: 'test-llm',
-        model: 'test-model',
-        data: {
-          targetCandidates: [
-            'A股里2025年营收和净利润都增长',
-            '经营现金流质量较好的公司',
-          ],
-          timeRange: null,
-          analysisFocusId: 'fundamental',
-          outputIntent: 'dashboard',
-          broadUniverse: true,
-          confidence: 0.85,
+    const result = await rewriteQuantQuery('筛选A股近20日涨幅前10的公司', {
+      semanticRewriter: successfulRewrite(semanticData({
+        targetCandidates: [],
+        timeRange: {
+          label: '近20日',
+          value: 20,
+          unit: 'day',
+          evidence: '近20日',
         },
-      }),
+        broadUniverse: true,
+        broadUniverseEvidence: 'A股',
+      })),
+      resolver,
     });
 
     expect(result).toMatchObject({
       status: 'ready',
       broadUniverse: true,
-      targetCandidates: [],
-      unresolvedTargets: [],
+      timeRange: { label: '近20日' },
+      execution: { strategy: 'llm_primary' },
     });
     expect(resolver).not.toHaveBeenCalled();
   });
 
-  it('refuses guaranteed-return requests before resolver or LLM execution', async () => {
+  it('fails closed when the LLM emits ungrounded broad-universe semantics', async () => {
+    const result = await rewriteQuantQuery('分析大位科技', {
+      semanticRewriter: successfulRewrite(semanticData({
+        broadUniverse: true,
+        broadUniverseEvidence: '全市场',
+      })),
+      resolver: vi.fn(),
+    });
+
+    expect(result).toMatchObject({
+      status: 'needs_clarification',
+      issues: [{ code: 'QUERY_REWRITE_LLM_UNAVAILABLE' }],
+      execution: {
+        strategy: 'llm_unavailable',
+        llm: { status: 'invalid_output', errorCode: 'LLM_INVALID_OUTPUT' },
+      },
+    });
+  });
+
+  it('allows answer-only output only with literal negative-dashboard evidence', async () => {
+    const result = await rewriteQuantQuery('只回答北方稀土怎么样，不需要看板', {
+      semanticRewriter: successfulRewrite(semanticData({
+        targetCandidates: ['北方稀土'],
+        outputIntent: 'answer',
+        answerOnlyEvidence: '不需要看板',
+      })),
+      resolver: async (target) => resolvedSecurity(target, '600111'),
+    });
+
+    expect(result.outputIntent).toBe('answer');
+  });
+
+  it('returns an actionable issue when the authoritative resolver misses', async () => {
+    const result = await rewriteQuantQuery('分析大位科技', {
+      semanticRewriter: successfulRewrite(semanticData()),
+      resolver: async () => ({ results: [] }),
+    });
+
+    expect(result).toMatchObject({
+      status: 'needs_clarification',
+      unresolvedTargets: ['大位科技'],
+      issues: [{ code: 'TARGET_NOT_FOUND', retryable: false }],
+    });
+  });
+
+  it('refuses guaranteed-return requests before LLM or resolver execution', async () => {
     const resolver = vi.fn();
     const semanticRewriter = vi.fn();
     const result = await rewriteQuantQuery('明天买哪只股票一定能涨停？', {
-      allowLlm: true,
-      resolver,
       semanticRewriter,
+      resolver,
     });
 
     expect(result).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       status: 'refused',
-      safety: {
-        decision: 'refuse',
-        code: 'GUARANTEED_RETURN_REQUEST',
-      },
       execution: {
-        strategy: 'deterministic',
-        llm: { attempted: false },
+        strategy: 'safety_refusal',
+        llm: { attempted: false, status: 'not_applicable' },
       },
     });
-    expect(resolver).not.toHaveBeenCalled();
     expect(semanticRewriter).not.toHaveBeenCalled();
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it('marks equal resolver matches as ambiguous', () => {
+    const result = rankQuantSymbolCandidates('测试证券', {
+      results: [
+        { symbol: '600001', name: '测试证券甲', asset_type: 'stock' },
+        { symbol: '000001', name: '测试证券乙', asset_type: 'stock' },
+      ],
+    });
+
+    expect(result.selected).toBeNull();
+    expect(result.ambiguous).toHaveLength(2);
   });
 });

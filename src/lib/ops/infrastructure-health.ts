@@ -28,7 +28,7 @@ export interface InfrastructureHealthResult {
 
 const DEFAULT_COMMANDS = {
   start: 'npm run db:up',
-  sync: 'npm run prisma:push',
+  sync: 'npm run prisma:deploy',
   inspect: 'npm run db:doctor',
   psql: 'npm run db:psql',
 };

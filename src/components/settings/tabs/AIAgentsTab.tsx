@@ -20,8 +20,10 @@ interface AIAgentsTabProps {
   cliStatus: CLIStatus;
   saveMessage: { type: "success" | "error"; text: string } | null;
   isLoading: boolean;
+  selectedModelId?: string;
   onRefreshCliStatus: () => void;
   onSaveSettings: () => void;
+  onSelectModel: (modelId: string) => void;
   onOpenInstallModal: (cli: CLIOption) => void;
 }
 
@@ -30,23 +32,38 @@ function AIAgentsTab({
   cliStatus,
   saveMessage,
   isLoading,
+  selectedModelId,
   onRefreshCliStatus,
   onSaveSettings,
+  onSelectModel,
   onOpenInstallModal,
 }: AIAgentsTabProps) {
   const runtime = cliOptions[0];
   const status = runtime ? cliStatus[runtime.id] : undefined;
-  const model = runtime?.models[0];
   const installed = Boolean(status?.installed);
   const configured = Boolean(status?.configured);
+  const configuredModelIds = new Set(status?.models ?? []);
+
+  const connectionForModel = (model: CLIOption["models"][number]) =>
+    model.runtime === "modelport"
+      ? {
+          label: "ModelPort OpenAI-compatible",
+          endpoint: "127.0.0.1:38082/v1",
+          credentialEnv: "MODELPORT_API_KEY",
+        }
+      : {
+          label: "DeepSeek 官方 API",
+          endpoint: "api.deepseek.com",
+          credentialEnv: "DEEPSEEK_API_KEY",
+        };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Official API only</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">DeepSeek 模型接入</h3>
-          <p className="mt-1 text-sm text-slate-600">平台仅保留 DeepSeek V4 Flash，且固定直连 DeepSeek 官方接口。</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Multi-provider runtime</p>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">MoAgent 模型接入</h3>
+          <p className="mt-1 text-sm text-slate-600">本机 Qwen 为默认模型；日常 DeepSeek 经 ModelPort，官方直连仅作为可选备用。</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -87,22 +104,37 @@ function AIAgentsTab({
           </div>
         </div>
 
-        <div className="grid gap-4 p-5 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium text-slate-500">唯一模型</p>
-            <p className="mt-2 font-semibold text-slate-950">{model?.name ?? "DeepSeek V4 Flash"}</p>
-            <code className="mt-2 block text-xs text-blue-700">deepseek-v4-flash</code>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium text-slate-500">官方接口</p>
-            <p className="mt-2 font-semibold text-slate-950">MoAgent · DeepSeek API</p>
-            <code className="mt-2 block break-all text-xs text-blue-700">api.deepseek.com/chat/completions</code>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-medium text-slate-500">API Key</p>
-            <p className="mt-2 font-semibold text-slate-950">{configured ? "已从服务端环境读取" : "尚未配置"}</p>
-            <code className="mt-2 block text-xs text-blue-700">DEEPSEEK_API_KEY</code>
-          </div>
+        <div className="grid gap-4 p-5 md:grid-cols-2">
+          {runtime?.models.map((model) => {
+            const connection = connectionForModel(model);
+            const modelConfigured = configuredModelIds.has(model.id);
+            const selected = selectedModelId === model.id;
+            return (
+              <button
+                key={model.id}
+                type="button"
+                onClick={() => onSelectModel(model.id)}
+                className={`rounded-xl border p-4 text-left transition ${selected ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-slate-50 hover:border-slate-300"}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-950">{model.name}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">{model.description}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${modelConfigured ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    {modelConfigured ? "凭据已配置" : "待配置"}
+                  </span>
+                </div>
+                <code className="mt-3 block break-all text-xs text-blue-700">{model.id}</code>
+                <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                  <span>{connection.label}</span>
+                  <code className="break-all">{connection.endpoint}</code>
+                  <code className="sm:col-span-2">{connection.credentialEnv}</code>
+                </div>
+                {selected && <p className="mt-3 text-xs font-semibold text-blue-700">当前全局默认模型</p>}
+              </button>
+            );
+          })}
         </div>
 
         {!installed && runtime && (
@@ -114,7 +146,7 @@ function AIAgentsTab({
         )}
         {!configured && (
           <div className="border-t border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-            在 <code className="rounded bg-white/70 px-1.5 py-0.5">.env.local</code> 写入 <code className="rounded bg-white/70 px-1.5 py-0.5">DEEPSEEK_API_KEY</code> 后重启项目。Base URL 与模型不可自定义。
+            在 <code className="rounded bg-white/70 px-1.5 py-0.5">.env.local</code> 配置 <code className="rounded bg-white/70 px-1.5 py-0.5">MODELPORT_API_KEY</code> 后重启项目；官方直连的 <code className="rounded bg-white/70 px-1.5 py-0.5">DEEPSEEK_API_KEY</code> 保持可选且默认不配置。
           </div>
         )}
       </div>

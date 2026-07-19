@@ -2,10 +2,6 @@ import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
-import {
-  inferQuantSymbolsFromText,
-} from '@/lib/quant/symbol-aliases';
-import { extractQuantQueryTargetCandidates } from '@/lib/quant/query-rewrite';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/quant/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
 
@@ -83,53 +79,9 @@ function pickSymbolCode(value: unknown): string | null {
 
 function inferPlannedSymbols(plan: QuantRunPlan): string[] {
   const planned = Array.isArray(plan.symbols) ? plan.symbols : [];
-  return uniqueSymbols([
-    ...planned.map(pickSymbolCode).filter((symbol): symbol is string => Boolean(symbol)),
-    ...inferQuantSymbolsFromText(plan.question),
-  ]).slice(0, 8);
-}
-
-export function extractQuantSymbolNameCandidates(question: string): string[] {
-  return extractQuantQueryTargetCandidates(question).slice(0, 6);
-}
-
-async function resolveSymbolsFromQuestion(question: string, warnings: string[]): Promise<string[]> {
-  const candidates = extractQuantSymbolNameCandidates(question);
-  const resolved: string[] = [];
-
-  for (const candidate of candidates) {
-    try {
-      const response = await fetchJson(
-        `/api/v1/symbols/resolve?query=${encodeURIComponent(candidate)}&count=5`
-      );
-      const rows = Array.isArray(response.results) ? response.results : [];
-      const firstStock = rows
-        .map(asRecord)
-        .find((row) => {
-          const symbol = pickSymbolCode(row);
-          const raw = asRecord(row?.raw);
-          const classify = typeof raw?.Classify === 'string' ? raw.Classify : '';
-          return Boolean(symbol && (!classify || classify === 'AStock' || classify === 'Index' || classify === 'Fund'));
-        });
-      const symbol = pickSymbolCode(firstStock);
-      if (symbol) {
-        resolved.push(symbol);
-      }
-    } catch (error) {
-      warnings.push(`证券名称 ${candidate} 解析失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  return uniqueSymbols(resolved);
-}
-
-async function inferSymbols(plan: QuantRunPlan, warnings: string[]): Promise<string[]> {
-  const planned = inferPlannedSymbols(plan);
-  if (planned.length > 0) {
-    return planned;
-  }
-
-  return resolveSymbolsFromQuestion(plan.question, warnings);
+  return uniqueSymbols(
+    planned.map(pickSymbolCode).filter((symbol): symbol is string => Boolean(symbol)),
+  ).slice(0, 8);
 }
 
 function isBroadStockScreenerPlan(plan: QuantRunPlan): boolean {
@@ -853,7 +805,7 @@ async function syncRunPlanSymbols(params: {
   projectPath: string;
   plan: QuantRunPlan;
   symbols: string[];
-  source: 'question' | 'screener';
+  source: 'run_plan' | 'screener';
   warnings: string[];
 }) {
   const symbols = uniqueSymbols(params.symbols);
@@ -1872,9 +1824,8 @@ export async function prefetchQuantDataForRunPlan(params: {
   await ensureQuantWorkspace(params.projectPath);
   const runId = params.plan.runId;
   const rawFiles: string[] = [];
-  const symbolResolutionWarnings: string[] = [];
-  let symbols = await inferSymbols(params.plan, symbolResolutionWarnings);
-  const warnings: string[] = [...symbolResolutionWarnings];
+  let symbols = inferPlannedSymbols(params.plan);
+  const warnings: string[] = [];
   let screenerData: JsonRecord | null = null;
 
   if (symbols.length === 0 && isBroadStockScreenerPlan(params.plan)) {
@@ -1928,7 +1879,7 @@ export async function prefetchQuantDataForRunPlan(params: {
     projectPath: params.projectPath,
     plan: params.plan,
     symbols,
-    source: screenerData ? 'screener' : 'question',
+    source: screenerData ? 'screener' : 'run_plan',
     warnings,
   });
 

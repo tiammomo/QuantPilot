@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   const requestedCapabilityId = typeof input.requestedCapabilityId === 'string'
     ? input.requestedCapabilityId.trim()
     : null;
-  const purpose = input.purpose === 'execution' ? 'execution' : 'preview';
+  const purpose = input.purpose === 'preview' ? 'preview' : 'execution';
   if (
     input.purpose !== undefined &&
     input.purpose !== 'preview' &&
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   try {
     actionContext = await requireAction({
       headers: request.headers,
-      action: purpose === 'execution' ? 'quant.query.rewrite.llm' : 'quant.data.read',
+      action: 'quant.query.rewrite.llm',
     });
   } catch (error) {
     return authErrorResponse(error);
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     ? requestedIdempotencyKey
     : requestId;
   let operationHandle: ApiOperationHandle | null = null;
-  const persistOperation = hasExplicitIdempotencyKey || (purpose === 'execution' && Boolean(actionContext.session));
+  const persistOperation = hasExplicitIdempotencyKey || Boolean(actionContext.session);
   if (persistOperation) {
     try {
       const operation = await claimApiOperation({
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     }
   }
   let quotaReservationId: string | null = null;
-  if (purpose === 'execution' && actionContext.session) {
+  if (actionContext.session) {
     try {
       const reservation = await reserveQuota({
         actorUserId: actionContext.session.user.id,
@@ -165,7 +165,6 @@ export async function POST(request: NextRequest) {
     data = await rewriteQuantQuery(query, {
       requestedCapabilityId,
       requestedModel,
-      allowLlm: purpose === 'execution',
     });
   } catch (error) {
     if (quotaReservationId) {

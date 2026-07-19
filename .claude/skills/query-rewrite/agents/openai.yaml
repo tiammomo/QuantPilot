@@ -1,4 +1,4 @@
 interface:
   display_name: "Query Rewrite"
-  short_description: "规则优先、LLM 按需增强的量化问题结构化查询合同"
-  default_prompt: "使用 $query-rewrite 按混合架构规范化量化问题并核验标的、周期、意图和降级状态。"
+  short_description: "LLM-first、Resolver 独立核验且失败关闭的量化问题合同"
+  default_prompt: "使用 $query-rewrite 消费平台 schema v4 合同，核验模型状态、标的、周期、意图和停止条件。"

@@ -1,6 +1,6 @@
 'use client';
 
-import { Gauge, KeyRound } from 'lucide-react';
+import { BrainCircuit, Gauge, KeyRound } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 
@@ -10,11 +10,13 @@ import { cn } from '@/lib/utils';
 
 const ACCOUNT_NAV_ITEMS: SubNavItem[] = [
   { id: 'usage', label: '用量与配额', icon: <Gauge className="h-4 w-4" /> },
+  { id: 'memory', label: '用户记忆', icon: <BrainCircuit className="h-4 w-4" /> },
   { id: 'security', label: '账号与会话', icon: <KeyRound className="h-4 w-4" /> },
 ];
 
 const ACCOUNT_PATHS: Record<string, string> = {
   usage: '/account/usage',
+  memory: '/account/memory',
   security: '/account/security',
 };
 
@@ -35,7 +37,11 @@ export function AccountPageShell({
 }: AccountPageShellProps) {
   const pathname = usePathname() ?? '/account/usage';
   const router = useRouter();
-  const activeId = pathname.startsWith('/account/security') ? 'security' : 'usage';
+  const activeId = pathname.startsWith('/account/security')
+    ? 'security'
+    : pathname.startsWith('/account/memory')
+      ? 'memory'
+      : 'usage';
 
   return (
     <div className="platform-shell min-h-dvh">

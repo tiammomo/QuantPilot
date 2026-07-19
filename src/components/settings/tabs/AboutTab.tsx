@@ -9,8 +9,8 @@ function AboutTab() {
         <div className="relative mx-auto mb-4 h-20 w-20">
           <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#DE7356]/20 to-[#DE7356]/5 blur-xl" />
           <Image
-            src="/QuantPilot_Icon.png"
-            alt="QuantPilot Icon"
+            src="/quantpilot-mark.svg"
+            alt="QuantPilot 图标"
             width={80}
             height={80}
             className="relative z-10 h-full w-full rounded-2xl object-contain shadow-lg"
@@ -23,8 +23,8 @@ function AboutTab() {
       <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6">
         <div className="text-center">
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-slate-700">
-            QuantPilot 是面向量化研发的 AI 工作台，当前仅通过 DeepSeek 官方 API 使用 V4 Flash，
-            并串联 GitHub、Supabase 与 Vercel 等工程化服务。
+            QuantPilot 是面向量化研发的 AI 工作台，通过 MoAgent 与 ModelPort 使用本地 Qwen、
+            托管 DeepSeek 及可选官方直连，并串联 GitHub、Supabase 与 Vercel 等工程化服务。
           </p>
         </div>
 

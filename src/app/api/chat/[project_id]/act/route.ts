@@ -15,7 +15,7 @@ import { collectMoAgentTurnMetrics } from "@/lib/services/moagent-turn-metrics";
 import {
   getDefaultModelForCli,
   normalizeModelId,
-} from "@/lib/constants/cliModels";
+} from "@/lib/constants/models";
 import { streamManager } from "@/lib/services/stream";
 import type { ChatActRequest } from "@/types/backend";
 import { generateProjectId } from "@/lib/utils";
@@ -104,6 +104,19 @@ import {
   startPersistentValidatedPreview,
   type ValidatedGenerationPreview,
 } from "@/lib/quant/generation-preview";
+import {
+  exposePersonalization,
+  recallPersonalization,
+  type PersonalizationCapsule,
+} from "@/lib/platform/memory";
+import { detectPersonalMemoryCandidate } from "@/lib/platform/memory/candidate";
+import {
+  prepareGovernedKnowledge,
+  recordGovernedKnowledgeUsage,
+  writeGovernedKnowledgeEvidence,
+  type GovernedKnowledgeCapsule,
+  type GovernedKnowledgePreparation,
+} from "@/lib/platform/knowledge";
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -127,6 +140,8 @@ type CliRuntime = {
     instruction: string,
     model?: string,
     requestId?: string,
+    personalization?: PersonalizationCapsule | null,
+    governedKnowledge?: GovernedKnowledgeCapsule | null,
   ) => Promise<MoAgentCandidateSubmission>;
   applyChanges: (
     projectId: string,
@@ -135,6 +150,8 @@ type CliRuntime = {
     model?: string,
     requestId?: string,
     images?: ProcessedImageAttachment[],
+    personalization?: PersonalizationCapsule | null,
+    governedKnowledge?: GovernedKnowledgeCapsule | null,
   ) => Promise<MoAgentCandidateSubmission>;
   applyRepairChanges: (
     projectId: string,
@@ -390,6 +407,9 @@ function runValidationAfterExecution(params: {
   conversationId?: string | null;
   cliSource?: string | null;
   agentExecutionSuccessSummary?: string;
+  governedKnowledge?: GovernedKnowledgeCapsule | null;
+  governedKnowledgePreparation?: GovernedKnowledgePreparation | null;
+  governedKnowledgeTaskCategory?: string;
   publishWorkspaceProgress: WorkspaceProgressPublisher;
   relatedAgentRequestIds: Set<string>;
 }): Promise<void> {
@@ -873,6 +893,21 @@ function runValidationAfterExecution(params: {
         status: "completed",
       });
       await markUserRequestAsCompleted(params.projectId, params.requestId);
+      if (params.governedKnowledge && params.governedKnowledgePreparation) {
+        const knowledgeUsage = await recordGovernedKnowledgeUsage({
+          capsule: params.governedKnowledge,
+          requestId: params.requestId,
+          taskCategory: params.governedKnowledgeTaskCategory ?? 'quant-research',
+        });
+        await writeGovernedKnowledgeEvidence({
+          projectPath: params.projectPath,
+          requestId: params.requestId,
+          preparation: params.governedKnowledgePreparation,
+          usage: knowledgeUsage,
+        }).catch((error) => {
+          console.error('[GovernedKnowledge] Failed to persist Usage evidence projection:', error);
+        });
+      }
       await params.publishWorkspaceProgress({
         stage: 5,
         validationCheckCount: report.checks.length,
@@ -2233,12 +2268,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       settings: project.settings,
     });
 
+    const isInitialPrompt =
+      body.isInitialPrompt === true ||
+      legacyBody["is_initial_prompt"] === true ||
+      legacyBody["is_initial_prompt"] === "true";
+
     const previousRunPlan = await readQuantRunPlan(projectPath);
     const clarificationContinuation = buildClarificationContinuation({
       previousPlan: previousRunPlan,
       instruction: finalInstruction,
       displayInstruction,
       capabilityId: quantCapabilityId,
+      reset: isInitialPrompt,
     });
     const effectiveInstruction = clarificationContinuation
       ? `${clarificationContinuation.resolvedInstruction}${imageAttachmentInstruction}`
@@ -2250,13 +2291,22 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         ? effectiveDisplayInstruction.trim()
         : finalInstruction;
 
-    const isInitialPrompt =
-      body.isInitialPrompt === true ||
-      legacyBody["is_initial_prompt"] === true ||
-      legacyBody["is_initial_prompt"] === "true";
+    const memoryRecall = await recallPersonalization({
+      projectId: project_id,
+      actorUserId: actionContext.actorUserId,
+      requestId,
+      instruction: effectiveDisplayInstruction || effectiveInstruction,
+      capabilityId: quantCapabilityId,
+    });
+    const personalizationCandidate = detectPersonalMemoryCandidate(
+      effectiveDisplayInstruction || instructionWithoutLegacyPaths || effectiveInstruction,
+    );
 
     const metadata =
-      processedImages.length > 0 || clarificationContinuation
+      processedImages.length > 0
+      || clarificationContinuation
+      || memoryRecall.status !== "disabled"
+      || personalizationCandidate !== null
         ? {
             ...(processedImages.length > 0
               ? {
@@ -2280,6 +2330,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                     missing: clarificationContinuation.missing,
                   },
                 }
+              : {}),
+            ...(memoryRecall.status !== "disabled"
+              ? {
+                  personalization: {
+                    status: memoryRecall.status,
+                    exposedMemoryCount: memoryRecall.exposedMemoryCount,
+                  },
+                }
+              : {}),
+            ...(personalizationCandidate
+              ? { personalizationCandidate }
               : {}),
           }
         : undefined;
@@ -2367,6 +2428,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     );
     let usePrefetchedSelectionDashboard = false;
     let missionContext: MoAgentMissionContext | null = null;
+    let governedKnowledgePreparation: GovernedKnowledgePreparation | null = null;
+    let governedKnowledgeTaskCategory = 'quant-research';
 
     const clarificationResponse = await runQuantGenerationStageLocked({
       projectId: project_id,
@@ -2459,7 +2522,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         capabilitySource: quantCapabilitySource,
         hasImageAttachments: processedImages.length > 0,
         previousPlan: previousRunPlan,
-        enableLlmRewrite: true,
         llmModel: selectedModel,
       });
 
@@ -2680,6 +2742,41 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           clarification: runPlan.clarification,
         });
       }
+
+      governedKnowledgePreparation = await prepareGovernedKnowledge({
+        requestId,
+        task: [
+          runPlan.queryRewrite?.rewrittenQuery ?? runPlan.question,
+          `capability: ${runPlan.requestedCapabilityId ?? runPlan.capabilityId}`,
+          ...runPlan.analysisSteps.slice(0, 12),
+        ].join('\n'),
+      });
+      governedKnowledgeTaskCategory =
+        runPlan.requestedCapabilityId ?? runPlan.capabilityId ?? 'quant-research';
+      await writeGovernedKnowledgeEvidence({
+        projectPath,
+        requestId,
+        preparation: governedKnowledgePreparation,
+      });
+      streamManager.publish(project_id, {
+        type: "status",
+        data: {
+          status: "governed_knowledge_prepared",
+          message: governedKnowledgePreparation.status === 'prepared'
+            ? `已取得 ${governedKnowledgePreparation.citationCount} 条受治理知识引用。`
+            : governedKnowledgePreparation.status === 'empty'
+              ? "受治理知识检索无匹配结果，继续使用真实市场数据。"
+              : governedKnowledgePreparation.status === 'unavailable'
+                ? "受治理知识服务当前不可用，已按可选依赖降级。"
+                : "受治理知识集成未启用。",
+          requestId,
+          metadata: {
+            knowledgeStatus: governedKnowledgePreparation.status,
+            passageCount: governedKnowledgePreparation.passageCount,
+            citationCount: governedKnowledgePreparation.citationCount,
+          },
+        },
+      });
 
       missionContext = await createQuantMoAgentMission({
         projectId: project_id,
@@ -3204,6 +3301,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 summary: "平台已基于预取数据生成确定性选股看板候选。",
               });
             }
+            const personalization = await exposePersonalization({
+              projectId: project_id,
+              actorUserId: actionContext.actorUserId,
+              requestId,
+              recall: memoryRecall,
+            });
+            const governedKnowledge = usePrefetchedSelectionDashboard
+              ? null
+              : governedKnowledgePreparation?.capsule ?? null;
             if (isInitialPrompt) {
               return cliRuntime.initializeNextJsProject(
                 project_id,
@@ -3211,6 +3317,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
                 effectiveInstruction,
                 selectedModel,
                 requestId,
+                personalization,
+                governedKnowledge,
               );
             }
             return cliRuntime.applyChanges(
@@ -3220,6 +3328,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               selectedModel,
               requestId,
               processedImages,
+              personalization,
+              governedKnowledge,
             );
           })(),
           repairExecutor: cliRuntime.applyRepairChanges,
@@ -3235,6 +3345,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           agentExecutionSuccessSummary: usePrefetchedSelectionDashboard
             ? "平台已完成本地选股、行情预取和标准看板生成，跳过 Agent 生成并进入自动验证。"
             : undefined,
+          governedKnowledge: usePrefetchedSelectionDashboard
+            ? null
+            : governedKnowledgePreparation?.capsule ?? null,
+          governedKnowledgePreparation,
+          governedKnowledgeTaskCategory,
           publishWorkspaceProgress,
           relatedAgentRequestIds,
         });

@@ -5,11 +5,30 @@ import tls from 'node:tls';
 
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { prisma } from '@/lib/db/client';
+import {
+  EvolvableMemoryHttpAdapter,
+  getMemoryIntegrationConfig,
+  memoryCompatibilityIssues,
+  MEMORY_CHAT_CAPABILITIES,
+} from '@/lib/platform/memory';
+import {
+  AkepHttpAdapter,
+  getKnowledgeIntegrationConfig,
+  knowledgeCompatibilityIssues,
+} from '@/lib/platform/knowledge';
 
 export type ReadinessStatus = 'ok' | 'failed' | 'disabled';
 
 export interface ReadinessComponent {
-  name: 'database' | 'marketApi' | 'redis' | 'observability' | 'workspace';
+  name:
+    | 'database'
+    | 'knowledge'
+    | 'marketApi'
+    | 'memory'
+    | 'modelPort'
+    | 'redis'
+    | 'observability'
+    | 'workspace';
   enabled: boolean;
   required: boolean;
   ok: boolean;
@@ -145,7 +164,27 @@ export async function getWebReadiness(): Promise<ReadinessResult> {
       );
   const marketBaseUrl = (process.env.QUANTPILOT_MARKET_API_URL || 'http://127.0.0.1:8000')
     .replace(/\/$/, '');
-  const lokiBaseUrl = (process.env.LOKI_URL || 'http://127.0.0.1:3100').replace(/\/$/, '');
+  const modelPortBaseUrl = (process.env.QUANTPILOT_MODELPORT_URL || 'http://127.0.0.1:38082')
+    .replace(/\/$/, '');
+  const lokiBaseUrl = (process.env.LOKI_URL || 'http://127.0.0.1:33100').replace(/\/$/, '');
+  let memoryRuntime:
+    | { config: ReturnType<typeof getMemoryIntegrationConfig>; adapter: EvolvableMemoryHttpAdapter }
+    | { error: unknown };
+  try {
+    const config = getMemoryIntegrationConfig();
+    memoryRuntime = { config, adapter: new EvolvableMemoryHttpAdapter(config) };
+  } catch (error) {
+    memoryRuntime = { error };
+  }
+  let knowledgeRuntime:
+    | { config: ReturnType<typeof getKnowledgeIntegrationConfig>; adapter: AkepHttpAdapter }
+    | { error: unknown };
+  try {
+    const config = getKnowledgeIntegrationConfig();
+    knowledgeRuntime = { config, adapter: new AkepHttpAdapter(config) };
+  } catch (error) {
+    knowledgeRuntime = { error };
+  }
 
   return runReadinessProbes([
     {
@@ -156,9 +195,40 @@ export async function getWebReadiness(): Promise<ReadinessResult> {
       },
     },
     {
+      name: 'knowledge',
+      ...degradation.components.knowledge,
+      run: async () => {
+        if ('error' in knowledgeRuntime) throw knowledgeRuntime.error;
+        const discovery = await knowledgeRuntime.adapter.discover('quantpilot-readiness');
+        const issues = knowledgeCompatibilityIssues(discovery, knowledgeRuntime.config);
+        if (issues.length > 0) throw new Error('Incompatible governed knowledge service');
+        await knowledgeRuntime.adapter.checkReady('quantpilot-readiness');
+      },
+    },
+    {
       name: 'marketApi',
       ...degradation.components.marketApi,
       run: () => probeHttp(`${marketBaseUrl}/ready`),
+    },
+    {
+      name: 'memory',
+      ...degradation.components.memory,
+      run: async () => {
+        if ('error' in memoryRuntime) throw memoryRuntime.error;
+        const discovery = await memoryRuntime.adapter.discover('quantpilot-readiness');
+        const issues = memoryCompatibilityIssues(
+          discovery,
+          memoryRuntime.config,
+          MEMORY_CHAT_CAPABILITIES,
+        );
+        if (issues.length > 0) throw new Error('Incompatible memory service');
+        await memoryRuntime.adapter.checkReady('quantpilot-readiness');
+      },
+    },
+    {
+      name: 'modelPort',
+      ...degradation.components.modelPort,
+      run: () => probeHttp(`${modelPortBaseUrl}/livez`),
     },
     {
       name: 'redis',

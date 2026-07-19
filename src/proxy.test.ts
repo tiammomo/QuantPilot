@@ -56,6 +56,20 @@ describe('project authentication proxy', () => {
     expect(response.status).toBe(401);
   });
 
+  it.each([
+    '/quantpilot-mark.svg',
+    '/favicon-16.png',
+    '/favicon-32.png',
+    '/apple-touch-icon.png',
+    '/icons/quantpilot-192.png',
+    '/icons/quantpilot-512.png',
+    '/manifest.webmanifest',
+  ])('serves the public brand asset %s without a session', async (pathname) => {
+    const response = await proxy(request(pathname));
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(getAuthSession).not.toHaveBeenCalled();
+  });
+
   it('allows only the minimal public liveness and readiness paths without a session', async () => {
     const [liveness, readiness] = await Promise.all([
       proxy(request('/api/health')),

@@ -1,6 +1,6 @@
 "use client";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getDefaultModelForCli } from '@/lib/constants/cliModels';
+import { getDefaultModelForCli } from '@/lib/constants/models';
 
 export type GlobalAISettings = {
   default_cli: string;

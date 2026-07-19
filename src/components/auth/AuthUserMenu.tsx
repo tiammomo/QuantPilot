@@ -1,6 +1,6 @@
 'use client';
 
-import { Gauge, KeyRound, LogOut, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { BrainCircuit, Gauge, KeyRound, LogOut, ShieldCheck, UserRound, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -54,6 +54,7 @@ export function AuthUserMenu({ variant = 'floating' }: { variant?: AuthUserMenuV
   const initial = displayName.slice(0, 1).toUpperCase();
   const accountLinks = [
     { href: '/account/usage', label: '用量与配额', icon: Gauge },
+    { href: '/account/memory', label: '用户记忆', icon: BrainCircuit },
     { href: '/account/security', label: '账号与会话', icon: KeyRound },
     ...(user.role === 'admin'
       ? [{ href: '/admin/users', label: '用户管理', icon: Users }]

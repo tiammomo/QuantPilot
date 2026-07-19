@@ -3,6 +3,7 @@ import catalogJson from '../../../config/service-catalog.json';
 export type ServiceRuntime =
   | 'node'
   | 'python'
+  | 'rust'
   | 'postgresql'
   | 'redis'
   | 'clickhouse'

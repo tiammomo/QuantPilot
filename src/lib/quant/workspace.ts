@@ -5,9 +5,7 @@ import {
   QuantIntentClarification,
 } from '@/lib/quant/intent';
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/quant/capabilities';
-import { inferKnownSymbols, inferQuantSymbolsFromText } from '@/lib/quant/symbol-aliases';
 import {
-  extractQuantQueryTargetCandidates,
   rewriteQuantQuery,
   type QuantQueryRewriteResult,
 } from '@/lib/quant/query-rewrite';
@@ -143,21 +141,6 @@ function normalizeForIntent(instruction: string): string {
   return stripOperationalInstructions(instruction).replace(/\s+/g, '');
 }
 
-function inferSymbols(instruction: string): string[] {
-  return inferQuantSymbolsFromText(instruction);
-}
-
-function inferTimeRange(instruction: string): string | null {
-  const normalized = instruction.replace(/\s+/g, '');
-  const dayMatch = normalized.match(/最近(\d+)(?:个)?(?:交易日|日|天)/);
-  if (dayMatch?.[1]) return `最近 ${dayMatch[1]} 个交易日`;
-  const yearMatch = normalized.match(/最近(\d+)?年/);
-  if (yearMatch) return yearMatch[1] ? `最近 ${yearMatch[1]} 年` : '最近 1 年';
-  const quarterMatch = normalized.match(/最近(\d+)?(?:个)?(?:报告期|季度)/);
-  if (quarterMatch) return quarterMatch[1] ? `最近 ${quarterMatch[1]} 个报告期` : '最近多个报告期';
-  return null;
-}
-
 function inferDefaultTimeRange(capabilityId: string): string | null {
   if (capabilityId === 'fundamental_analysis') {
     return '最近报告期';
@@ -186,6 +169,20 @@ function mergeQueryRewriteClarification(params: {
   hasImageAttachments?: boolean;
 }): QuantIntentClarification {
   if (params.hasImageAttachments || params.queryRewrite.broadUniverse) return params.base;
+
+  const rewriteUnavailable = params.queryRewrite.issues.find(
+    (issue) => issue.code === 'QUERY_REWRITE_LLM_UNAVAILABLE',
+  );
+  if (rewriteUnavailable) {
+    return {
+      required: true,
+      reason: rewriteUnavailable.message,
+      missing: [],
+      questions: [rewriteUnavailable.message],
+      confidence: 0,
+      defaults: params.base.defaults,
+    };
+  }
 
   const actionableIssues = params.queryRewrite.issues.filter(
     (issue) => issue.code === 'TARGET_NOT_FOUND' || issue.code === 'TARGET_AMBIGUOUS',
@@ -224,22 +221,6 @@ function mergeQueryRewriteClarification(params: {
     confidence: Math.min(params.base.confidence, params.queryRewrite.confidence),
     defaults: params.base.defaults,
   };
-}
-
-function shouldUseAssetComparison(instruction: string) {
-  const normalized = normalizeForIntent(instruction);
-  const inferredSymbols = inferSymbols(instruction);
-  const symbolCount = inferredSymbols.length;
-  const broadStockScreenerIntent = isBroadStockScreenerInstruction(instruction);
-  const comparisonIntent =
-    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池/.test(
-      normalized
-    );
-  const multiNamedStocks =
-    /、|，|,|和|与|及/.test(normalized) &&
-    inferKnownSymbols(instruction).length >= 2;
-
-  return symbolCount >= 2 || comparisonIntent || multiNamedStocks || broadStockScreenerIntent;
 }
 
 function isBroadStockScreenerInstruction(instruction: string): boolean {
@@ -326,8 +307,6 @@ function inferCapabilityId(params: {
   requestedCapabilitySource?: string | null;
   manifestCapabilityId?: string | null;
   manifestCapabilitySource?: string | null;
-  instruction: string;
-  hasImageAttachments?: boolean;
   queryRewrite: QuantQueryRewriteResult;
   resolvedSymbolCount: number;
 }) {
@@ -339,7 +318,7 @@ function inferCapabilityId(params: {
     return params.manifestCapabilityId;
   }
 
-  if (hasExplicitPortfolioIntent(params.instruction, params.hasImageAttachments)) {
+  if (params.queryRewrite.analysisFocus.id === 'portfolio_risk') {
     return 'portfolio_risk';
   }
 
@@ -354,18 +333,15 @@ function inferCapabilityId(params: {
     return 'asset_comparison';
   }
 
-  if (params.requestedCapabilityId) {
-    return params.requestedCapabilityId;
-  }
-
   if (params.queryRewrite.capabilityHint) {
     return params.queryRewrite.capabilityHint;
   }
 
-  if (
-    params.resolvedSymbolCount >= 2 &&
-    shouldUseAssetComparison(params.instruction)
-  ) {
+  if (params.requestedCapabilityId) {
+    return params.requestedCapabilityId;
+  }
+
+  if (params.resolvedSymbolCount >= 2) {
     return 'asset_comparison';
   }
 
@@ -387,7 +363,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
         '标准化收益、波动、回撤、成交额、换手率和相对强弱口径。',
         '检查每个标的数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
         '生成包含 screener、assets[]、comparison 和 selectionRanking 的最终数据文件。',
-        '生成选股排名看板并验证候选覆盖率、排名依据、图表和数据信源渠道。',
+        '生成选股排名看板并验证候选覆盖率、排名依据、图表、数据口径和更新时间。',
       ];
     }
     return [
@@ -396,7 +372,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
       '标准化收益、波动、回撤、成交量和相对强弱口径。',
       '检查每个标的数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成包含 assets[] 和 comparison 的最终数据文件。',
-      '生成多标的对比看板并验证标的覆盖率、图表和数据信源渠道。',
+      '生成多标的对比看板并验证标的覆盖率、图表、数据口径和更新时间。',
     ];
   }
 
@@ -407,7 +383,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
       '计算区间涨跌、均线、波动率、最大回撤等技术指标。',
       '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成技术分析数据文件和可视化页面。',
-      '验证页面、图表和数据信源渠道。',
+      '验证页面、图表和更新时间，并在后台验收信源证据文件。',
     ];
   }
 
@@ -418,7 +394,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
       '分析营收、利润、ROE、毛利率、现金流质量和增长变化。',
       '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成基本面分析数据文件和可视化页面。',
-      '验证页面、报告期、数据信源渠道和缺失字段说明。',
+      '验证页面、报告期、更新时间和缺失字段说明，并在后台验收信源证据文件。',
     ];
   }
 
@@ -429,7 +405,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
       '调用后端均线突破回测，生成净值曲线、回撤和交易明细。',
       '检查回测样本、参数、费用和限制，并写入 evidence/sources.json 与 evidence/data_quality.json。',
       '生成回测复盘数据文件和可视化页面。',
-      '验证页面、净值曲线、交易明细和数据信源渠道。',
+      '验证页面、净值曲线、交易明细和更新时间，并在后台验收信源证据文件。',
     ];
   }
 
@@ -450,7 +426,7 @@ function buildAnalysisSteps(capabilityId: string, hasSymbols: boolean, instructi
     '综合分析价格趋势、量价、财务质量和事件风险。',
     '检查数据质量并写入 evidence/sources.json 与 evidence/data_quality.json。',
     '生成个股诊断数据文件和可视化页面。',
-    '验证页面、图表、数据信源渠道和更新时间。',
+    '验证页面、图表和更新时间，并在后台验收信源证据文件。',
   ];
 }
 
@@ -498,28 +474,20 @@ export async function writeInitialRunPlan(params: {
   hasImageAttachments?: boolean;
   previousPlan?: QuantRunPlan | null;
   queryRewrite?: QuantQueryRewriteResult;
-  enableLlmRewrite?: boolean;
   llmModel?: string | null;
 }) {
   await ensureQuantWorkspace(params.projectPath);
   const manifest = await readManifest(params.projectPath);
   const manifestQuant = manifest?.quant;
   const planningInstruction = stripOperationalInstructions(params.instruction) || params.instruction.trim();
-  const staticallyInferredSymbols = inferSymbols(planningInstruction);
-  const extractedTargetCandidates = extractQuantQueryTargetCandidates(planningInstruction);
-  const requiresDynamicSymbolResolution =
-    extractedTargetCandidates.length > staticallyInferredSymbols.length;
   const queryRewrite = params.queryRewrite ?? await rewriteQuantQuery(planningInstruction, {
     requestedCapabilityId:
       params.capabilitySource === 'manual' ? params.capabilityId : null,
-    resolveTargets: requiresDynamicSymbolResolution,
-    allowLlm: params.enableLlmRewrite === true,
     requestedModel: params.llmModel,
   });
-  const explicitSymbols = Array.from(new Set([
-    ...queryRewrite.resolvedSymbols.map((item) => item.symbol),
-    ...staticallyInferredSymbols,
-  ]));
+  const explicitSymbols = Array.from(new Set(
+    queryRewrite.resolvedSymbols.map((item) => item.symbol),
+  ));
   const inheritPreviousPlan = shouldInheritPreviousPlanContext({
     instruction: planningInstruction,
     explicitSymbols,
@@ -533,8 +501,6 @@ export async function writeInitialRunPlan(params: {
     requestedCapabilitySource: params.capabilityId ? params.capabilitySource : inheritedCapabilityId ? 'manual' : params.capabilitySource,
     manifestCapabilityId: manifestQuant?.capabilityId,
     manifestCapabilitySource: manifestQuant?.capabilitySource,
-    instruction: planningInstruction,
-    hasImageAttachments: params.hasImageAttachments,
     queryRewrite,
     resolvedSymbolCount: explicitSymbols.length,
   });
@@ -544,11 +510,10 @@ export async function writeInitialRunPlan(params: {
     : getExecutionQuantCapability(capability.id);
   const quantSettings = buildQuantProjectSettings(capability.id);
   const now = new Date().toISOString();
-  const llm = getProjectLlmConfig();
+  const llm = getProjectLlmConfig(params.llmModel);
   const symbols = explicitSymbols.length > 0 ? explicitSymbols : inheritedSymbols;
   const requestedTimeRange =
     queryRewrite.timeRange?.label ??
-    inferTimeRange(planningInstruction) ??
     (inheritPreviousPlan ? params.previousPlan?.timeRange ?? null : null);
   const baseClarification = assessQuantIntentForClarification({
     instruction: planningInstruction,

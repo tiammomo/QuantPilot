@@ -2,23 +2,26 @@ import llmConfigFile from '../../../config/llm.json';
 import {
   DEEPSEEK_MODEL_ID,
   DEEPSEEK_OFFICIAL_BASE_URL,
+  LOCAL_OPENAI_BASE_URL,
+  LOCAL_QWEN_MODEL_ID,
+  MODELPORT_DEEPSEEK_MODEL_ID,
+  MOAGENT_DEFAULT_MODEL,
+  normalizeMoAgentModelId,
+  type MoAgentModelId,
 } from '@/lib/constants/models';
-
-export type QueryRewriteLlmMode = 'off' | 'auto' | 'always';
 
 export interface ProjectLlmConfig {
   schemaVersion: 1;
   profileId: string;
-  provider: 'deepseek';
-  model: typeof DEEPSEEK_MODEL_ID;
-  baseUrl: typeof DEEPSEEK_OFFICIAL_BASE_URL;
-  credentialEnv: 'DEEPSEEK_API_KEY';
+  provider: 'deepseek' | 'openai';
+  model: MoAgentModelId;
+  baseUrl: typeof DEEPSEEK_OFFICIAL_BASE_URL | typeof LOCAL_OPENAI_BASE_URL;
+  credentialEnv: 'DEEPSEEK_API_KEY' | 'MODELPORT_API_KEY';
   agent: {
     enabled: boolean;
   };
   queryRewrite: {
     enabled: boolean;
-    mode: QueryRewriteLlmMode;
     timeoutMs: number;
     maxRetries: number;
   };
@@ -56,41 +59,54 @@ function boundedInteger(
     : fallback;
 }
 
-function queryRewriteMode(value: string | undefined, fallback: QueryRewriteLlmMode): QueryRewriteLlmMode {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === 'off' || normalized === 'always' || normalized === 'auto'
-    ? normalized
-    : fallback;
-}
+const LOCKED_PROFILES = {
+  [DEEPSEEK_MODEL_ID]: {
+    provider: 'deepseek',
+    model: DEEPSEEK_MODEL_ID,
+    baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
+    credentialEnv: 'DEEPSEEK_API_KEY',
+  },
+  [LOCAL_QWEN_MODEL_ID]: {
+    provider: 'openai',
+    model: LOCAL_QWEN_MODEL_ID,
+    baseUrl: LOCAL_OPENAI_BASE_URL,
+    credentialEnv: 'MODELPORT_API_KEY',
+  },
+  [MODELPORT_DEEPSEEK_MODEL_ID]: {
+    provider: 'openai',
+    model: MODELPORT_DEEPSEEK_MODEL_ID,
+    baseUrl: LOCAL_OPENAI_BASE_URL,
+    credentialEnv: 'MODELPORT_API_KEY',
+  },
+} as const;
 
-function configuredProfile(): JsonRecord {
+function configuredProfile(requestedModel?: string | null): JsonRecord {
   const root = asRecord(llmConfigFile);
-  const profileId = typeof root?.defaultProfileId === 'string'
+  const configuredDefault = typeof root?.defaultProfileId === 'string'
     ? root.defaultProfileId
-    : DEEPSEEK_MODEL_ID;
+    : MOAGENT_DEFAULT_MODEL;
+  const profileId = requestedModel
+    ? normalizeMoAgentModelId(requestedModel)
+    : normalizeMoAgentModelId(configuredDefault);
   const profiles = asRecord(root?.profiles);
   const profile = asRecord(profiles?.[profileId]);
   if (!profile) throw new Error(`LLM profile is missing: ${profileId}`);
+  const locked = LOCKED_PROFILES[profileId];
   if (
-    profileId !== DEEPSEEK_MODEL_ID ||
-    profile.provider !== 'deepseek' ||
-    profile.model !== DEEPSEEK_MODEL_ID ||
-    profile.baseUrl !== DEEPSEEK_OFFICIAL_BASE_URL ||
-    profile.credentialEnv !== 'DEEPSEEK_API_KEY'
+    profile.provider !== locked.provider ||
+    profile.model !== locked.model ||
+    profile.baseUrl !== locked.baseUrl ||
+    profile.credentialEnv !== locked.credentialEnv
   ) {
-    throw new Error('LLM profile must use the locked DeepSeek official provider boundary.');
+    throw new Error(`LLM profile must use the locked provider boundary: ${profileId}.`);
   }
   return { ...profile, profileId };
 }
 
-export function getProjectLlmConfig(): ProjectLlmConfig {
-  const profile = configuredProfile();
+export function getProjectLlmConfig(requestedModel?: string | null): ProjectLlmConfig {
+  const profile = configuredProfile(requestedModel);
   const agent = asRecord(profile.agent);
   const rewrite = asRecord(profile.queryRewrite);
-  const defaultRewriteMode = queryRewriteMode(
-    typeof rewrite?.mode === 'string' ? rewrite.mode : undefined,
-    'auto',
-  );
   const defaultTimeoutMs = typeof rewrite?.timeoutMs === 'number'
     ? rewrite.timeoutMs
     : 4_000;
@@ -101,10 +117,10 @@ export function getProjectLlmConfig(): ProjectLlmConfig {
   return {
     schemaVersion: 1,
     profileId: String(profile.profileId),
-    provider: 'deepseek',
-    model: DEEPSEEK_MODEL_ID,
-    baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
-    credentialEnv: 'DEEPSEEK_API_KEY',
+    provider: profile.provider as ProjectLlmConfig['provider'],
+    model: profile.model as MoAgentModelId,
+    baseUrl: profile.baseUrl as ProjectLlmConfig['baseUrl'],
+    credentialEnv: profile.credentialEnv as ProjectLlmConfig['credentialEnv'],
     agent: {
       enabled: envFlag(
         'QUANTPILOT_LLM_AGENT_ENABLED',
@@ -115,10 +131,6 @@ export function getProjectLlmConfig(): ProjectLlmConfig {
       enabled: envFlag(
         'QUANTPILOT_LLM_QUERY_REWRITE_ENABLED',
         typeof rewrite?.enabled === 'boolean' ? rewrite.enabled : true,
-      ),
-      mode: queryRewriteMode(
-        process.env.QUANTPILOT_QUERY_REWRITE_LLM_MODE,
-        defaultRewriteMode,
       ),
       timeoutMs: boundedInteger(
         process.env.QUANTPILOT_QUERY_REWRITE_LLM_TIMEOUT_MS,

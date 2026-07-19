@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assessFinancialWorkbenchSurface,
+  assessMetricStripBalance,
   isVisualValidationInfrastructureError,
 } from './visual-validation';
 
@@ -78,5 +79,23 @@ describe('financial workbench surface composition', () => {
     expect(result.warnings).toEqual([
       expect.stringContaining('独立卡片式容器偏多'),
     ]);
+  });
+});
+
+describe('metric strip balance', () => {
+  it('rejects an orphaned narrow metric on a desktop row', () => {
+    expect(assessMetricStripBalance({
+      viewportId: 'desktop',
+      orphanedMetricRowCount: 1,
+    })).toEqual([
+      expect.stringContaining('末行只有一个窄指标'),
+    ]);
+  });
+
+  it('does not apply the desktop density rule to a mobile stack', () => {
+    expect(assessMetricStripBalance({
+      viewportId: 'mobile',
+      orphanedMetricRowCount: 1,
+    })).toEqual([]);
   });
 });

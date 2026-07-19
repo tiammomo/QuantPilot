@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { rewriteQuantQuery } from './query-rewrite';
 import {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
@@ -116,11 +117,38 @@ describe('validation repair ownership', () => {
   it('rebuilds an invalid run plan with the parent request before Agent repair', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-platform-repair-'));
     temporaryProjects.push(projectPath);
+    const originalInstruction = '比较贵州茅台 600519 与宁德时代 300750 的表现并生成看板';
+    const queryRewrite = await rewriteQuantQuery(originalInstruction, {
+      semanticRewriter: async () => ({
+        ok: true,
+        provider: 'openai',
+        model: 'local_qwen:qwen3.5-9b-q5km',
+        data: {
+          targetCandidates: ['600519', '300750'],
+          timeRange: null,
+          analysisFocusId: 'comparison',
+          outputIntent: 'dashboard',
+          answerOnlyEvidence: null,
+          broadUniverse: false,
+          broadUniverseEvidence: null,
+          confidence: 0.95,
+        },
+      }),
+      resolver: async (target) => ({
+        results: [{
+          symbol: target,
+          name: target === '600519' ? '贵州茅台' : '宁德时代',
+          asset_type: 'stock',
+          market: target.startsWith('6') ? 'SH' : 'SZ',
+        }],
+      }),
+    });
     const result = await repairQuantPlatformOwnedArtifacts({
       projectPath,
       requestId: 'parent-request',
-      originalInstruction: '比较贵州茅台 600519 与宁德时代 300750 的表现并生成看板',
+      originalInstruction,
       report: failedReport(),
+      queryRewrite,
     });
     const plan = JSON.parse(
       await fs.readFile(path.join(projectPath, '.quantpilot', 'run_plan.json'), 'utf8'),

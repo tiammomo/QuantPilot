@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
+import { normalizeMoAgentModelId } from '@/lib/constants/models';
 import { serializeProject } from '@/lib/serializers/project';
 import { streamManager } from '@/lib/services/stream';
 import { getProjectById, updateProject } from '@/lib/services/project';
@@ -45,7 +45,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     const cliPreference = 'moagent';
-    const selectedModel = DEEPSEEK_MODEL_ID;
+    const selectedModel = normalizeMoAgentModelId(
+      body?.selectedModel ?? body?.selected_model ?? project.selectedModel,
+    );
     const requestId =
       typeof body?.requestId === 'string' && body.requestId.trim().length > 0
         ? body.requestId.trim()

@@ -17,7 +17,7 @@ function InstallGuideModal({ onClose, onRefreshStatus, onCopyToast }: InstallGui
 
   const steps = [
     { title: "安装项目依赖", command: "npm install" },
-    { title: "配置 DeepSeek 官方 API Key", command: "DEEPSEEK_API_KEY=your_deepseek_api_key" },
+    { title: "配置 ModelPort 客户端凭据", command: "MODELPORT_API_KEY=..." },
     { title: "重新启动 QuantPilot", command: "npm run dev" },
   ];
 
@@ -31,7 +31,7 @@ function InstallGuideModal({ onClose, onRefreshStatus, onCopyToast }: InstallGui
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">M</span>
               <div>
                 <h3 className="text-lg font-semibold text-slate-950">MoAgent 修复指引</h3>
-                <p className="mt-1 text-sm text-slate-600">只使用官方 API，不支持自定义中转地址。</p>
+                <p className="mt-1 text-sm text-slate-600">默认通过 ModelPort 使用 Qwen 与 DeepSeek，官方直连保持可选。</p>
               </div>
             </div>
             <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-white/70 hover:text-slate-900" aria-label="关闭">×</button>

@@ -38,7 +38,7 @@ model Project {
 
   // Agent Runtime Preferences. MoAgent rebuilds bounded context from messages.
   preferredCli    String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
-  selectedModel   String? @map("selected_model") // 固定为 deepseek-v4-flash
+  selectedModel   String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
   fallbackEnabled Boolean @default(false) @map("fallback_enabled")
 
   // Settings (JSON)
@@ -50,20 +50,22 @@ model Project {
   lastActiveAt DateTime @default(now()) @map("last_active_at")
 
   // Relations
-  messages            Message[]
-  sessions            Session[]
-  envVars             EnvVar[]
-  serviceConnections  ProjectServiceConnection[]
-  commits             Commit[]
-  toolUsages          ToolUsage[]
-  userRequests        UserRequest[]
-  agentRuns           AgentRun[]
-  agentMissions       AgentMission[]
-  agentWorkspaceLease AgentWorkspaceLease?
-  owner               AuthUser?                  @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  memberships         ProjectMembership[]
-  usageEvents         UsageEvent[]
-  quotaReservations   QuotaReservation[]
+  messages                       Message[]
+  sessions                       Session[]
+  envVars                        EnvVar[]
+  serviceConnections             ProjectServiceConnection[]
+  commits                        Commit[]
+  toolUsages                     ToolUsage[]
+  userRequests                   UserRequest[]
+  agentRuns                      AgentRun[]
+  agentMissions                  AgentMission[]
+  agentWorkspaceLease            AgentWorkspaceLease?
+  owner                          AuthUser?                       @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  memberships                    ProjectMembership[]
+  usageEvents                    UsageEvent[]
+  quotaReservations              QuotaReservation[]
+  externalMemoryUses             ExternalMemoryUse[]
+  personalMemoryFeedbackReceipts PersonalMemoryFeedbackReceipt[]
 
   @@index([ownerId])
   @@map("projects")
@@ -274,6 +276,83 @@ model UserRequest {
   @@index([status])
   @@index([actorUserId, createdAt])
   @@map("user_requests")
+}
+
+/// Local attribution ledger for context received from an independently
+/// deployed memory provider. External records are referenced by opaque IDs;
+/// no provider persistence entity or foreign key crosses this boundary.
+model ExternalMemoryUse {
+  id                     String    @id @default(cuid())
+  provider               String
+  projectId              String    @map("project_id")
+  requestId              String    @map("request_id")
+  tenantId               String    @map("tenant_id")
+  subjectId              String    @map("subject_id")
+  traceId                String    @map("trace_id") @db.Uuid
+  policyId               String    @map("policy_id") @db.Uuid
+  policyVersion          Int       @map("policy_version")
+  validAt                DateTime  @map("valid_at")
+  knownAt                DateTime  @map("known_at")
+  sourceProjectionSha256 String    @map("source_projection_sha256")
+  deliveredContextSha256 String    @map("delivered_context_sha256")
+  exposedRevisionIds     Json      @map("exposed_revision_ids")
+  status                 String    @default("exposed")
+  exposedAt              DateTime? @map("exposed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, projectId, requestId])
+  @@index([projectId, createdAt])
+  @@index([subjectId, createdAt])
+  @@index([subjectId, status, createdAt])
+  @@index([traceId])
+  @@map("external_memory_uses")
+}
+
+/// Durable local receipt for explicit user feedback about an externally
+/// provided revision. Provider outcome IDs remain opaque, and retries use the
+/// same provider idempotency key.
+model PersonalMemoryFeedbackReceipt {
+  id            String    @id @default(cuid())
+  provider      String
+  projectId     String    @map("project_id")
+  requestId     String    @map("request_id")
+  subjectId     String    @map("subject_id")
+  revisionId    String    @map("revision_id") @db.Uuid
+  eventId       String    @map("event_id")
+  kind          String
+  status        String    @default("pending")
+  outcomeId     String?   @map("outcome_id") @db.Uuid
+  lastErrorCode String?   @map("last_error_code")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  completedAt   DateTime? @map("completed_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, projectId, requestId, revisionId])
+  @@index([subjectId, status, createdAt])
+  @@index([projectId, requestId])
+  @@map("personal_memory_feedback_receipts")
+}
+
+/// QuantPilot-owned user control for whether external memory may influence
+/// future Agent runs. This is a product usage fence, not a legal processing
+/// grant and not a copy of provider-side lifecycle state.
+model PersonalMemoryControl {
+  id                     String    @id @default(cuid())
+  subjectId              String    @unique @map("subject_id")
+  personalizationEnabled Boolean   @default(false) @map("personalization_enabled")
+  policyVersion          String    @map("policy_version")
+  enabledAt              DateTime? @map("enabled_at")
+  disabledAt             DateTime? @map("disabled_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@index([personalizationEnabled, updatedAt])
+  @@map("personal_memory_controls")
 }
 
 // ============================================================

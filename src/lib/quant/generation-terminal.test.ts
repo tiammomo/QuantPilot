@@ -271,7 +271,8 @@ describe('generation terminal snapshot', () => {
       preview: preview('running', 'http://localhost:4100'),
     });
 
-    expect(snapshot.status).toBe('running');
+    expect(snapshot.status).toBe('needs_revalidation');
+    expect(snapshot.terminal).toBe(true);
     expect(snapshot.validationStatus).toBe('pending');
     expect(snapshot.previewUrl).toBeNull();
   });

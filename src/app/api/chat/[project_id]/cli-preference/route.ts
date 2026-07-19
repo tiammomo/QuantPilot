@@ -7,7 +7,7 @@ import {
   getProjectCliPreference,
   updateProjectCliPreference,
 } from '@/lib/services/project';
-import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
+import { normalizeMoAgentModelId } from '@/lib/constants/models';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -35,18 +35,22 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
   return NextResponse.json({ success: true, data: preference });
 }
 
-export async function POST(_request: NextRequest, { params }: RouteContext) {
+export async function POST(request: NextRequest, { params }: RouteContext) {
   try {
     const { project_id } = await params;
     await requireAction({
-      headers: _request.headers,
-      action: projectRouteAction('project', _request.method),
+      headers: request.headers,
+      action: projectRouteAction('project', request.method),
       projectId: project_id,
     });
+    const body = await request.json().catch(() => ({}));
+    const requestedModel = body.selectedModel ?? body.selected_model;
     const update = {
       preferredCli: 'moagent',
       fallbackEnabled: false,
-      selectedModel: DEEPSEEK_MODEL_ID,
+      ...(typeof requestedModel === 'string'
+        ? { selectedModel: normalizeMoAgentModelId(requestedModel) }
+        : {}),
     };
 
     const updated = await updateProjectCliPreference(project_id, update);

@@ -14,10 +14,9 @@ from typing import Any
 SYMBOL_PATTERN = re.compile(r"^(?:6|0|3|5)\d{5}$")
 VALID_STATUSES = {"ready", "partial", "needs_clarification", "refused"}
 VALID_OUTPUT_INTENTS = {"dashboard", "answer"}
-VALID_STRATEGIES = {"deterministic", "hybrid_llm", "deterministic_fallback"}
+VALID_STRATEGIES = {"llm_primary", "llm_unavailable", "safety_refusal"}
 VALID_LLM_STATUSES = {
-    "not_requested",
-    "not_needed",
+    "not_applicable",
     "applied",
     "skipped_unconfigured",
     "invalid_output",
@@ -41,8 +40,8 @@ def validate(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {"valid": False, "errors": ["root must be an object"], "warnings": []}
 
-    if payload.get("schemaVersion") != 3:
-        errors.append("schemaVersion must equal 3")
+    if payload.get("schemaVersion") != 4:
+        errors.append("schemaVersion must equal 4")
     for field in ("originalQuery", "normalizedQuery", "rewrittenQuery", "capabilityHint"):
         if not isinstance(payload.get(field), str) or not payload[field].strip():
             errors.append(f"{field} must be a non-empty string")
@@ -81,15 +80,6 @@ def validate(payload: Any) -> dict[str, Any]:
         strategy = execution.get("strategy")
         if strategy not in VALID_STRATEGIES:
             errors.append("execution.strategy is invalid")
-        deterministic = execution.get("deterministic")
-        if not isinstance(deterministic, dict):
-            errors.append("execution.deterministic must be an object")
-        else:
-            if not isinstance(deterministic.get("targetCandidates"), list):
-                errors.append("execution.deterministic.targetCandidates must be an array")
-            if not isinstance(deterministic.get("analysisFocus"), dict):
-                errors.append("execution.deterministic.analysisFocus must be an object")
-
         llm = execution.get("llm")
         if not isinstance(llm, dict):
             errors.append("execution.llm must be an object")
@@ -120,16 +110,29 @@ def validate(payload: Any) -> dict[str, Any]:
                 ):
                     errors.append("applied LLM result requires semanticConfidence between 0 and 1")
 
-        if strategy == "hybrid_llm" and not (isinstance(llm, dict) and llm.get("applied") is True):
-            errors.append("hybrid_llm strategy requires an applied LLM result")
-        if strategy == "deterministic_fallback" and not (
+        if strategy == "llm_primary" and not (
+            isinstance(llm, dict)
+            and llm.get("attempted") is True
+            and llm.get("applied") is True
+            and llm.get("status") == "applied"
+        ):
+            errors.append("llm_primary requires an attempted, applied LLM result")
+        if strategy == "llm_unavailable" and not (
             isinstance(llm, dict)
             and llm.get("attempted") is True
             and llm.get("applied") is False
+            and llm.get("status") in {
+                "skipped_unconfigured", "invalid_output", "timed_out", "failed"
+            }
         ):
-            errors.append("deterministic_fallback requires an attempted, unapplied LLM result")
-        if strategy == "deterministic" and isinstance(llm, dict) and llm.get("applied") is True:
-            errors.append("deterministic strategy cannot contain an applied LLM result")
+            errors.append("llm_unavailable requires an attempted, unapplied failed LLM result")
+        if strategy == "safety_refusal" and not (
+            isinstance(llm, dict)
+            and llm.get("attempted") is False
+            and llm.get("applied") is False
+            and llm.get("status") == "not_applicable"
+        ):
+            errors.append("safety_refusal requires a non-attempted not_applicable LLM result")
 
     list_fields = (
         "targetCandidates",
@@ -177,8 +180,8 @@ def validate(payload: Any) -> dict[str, Any]:
             errors.append("refused status requires safety.decision=refuse")
         if resolved or unresolved or ambiguous:
             errors.append("refused status cannot contain resolution results")
-        if strategy != "deterministic":
-            errors.append("refused status requires deterministic strategy")
+        if strategy != "safety_refusal":
+            errors.append("refused status requires safety_refusal strategy")
     elif safety_decision == "refuse":
         errors.append("safety.decision=refuse requires refused status")
 

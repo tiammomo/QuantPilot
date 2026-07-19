@@ -2,9 +2,6 @@ import {
   extractExplicitSymbolCodes,
   inferKnownSymbols,
 } from '@/lib/quant/symbol-aliases';
-import {
-  extractQuantQueryTargetCandidates,
-} from '@/lib/quant/query-rewrite';
 
 export { stripConversationalSecurityReferenceSuffix } from '@/lib/quant/query-rewrite';
 
@@ -79,10 +76,6 @@ function isBroadStockSelectionRequest(instruction: string): boolean {
     return false;
   }
   return BROAD_STOCK_SELECTION_PATTERN.test(compact);
-}
-
-export function extractQuantTargetCandidates(instruction: string): string[] {
-  return extractQuantQueryTargetCandidates(instruction);
 }
 
 function hasFinancialIntent(instruction: string, capabilityId?: string | null): boolean {
@@ -176,12 +169,11 @@ export function assessQuantIntentForClarification(
 
   const codes = extractExplicitSymbolCodes(instruction);
   const knownTargetSymbols = inferKnownSymbols(instruction);
-  const targetCandidates = extractQuantTargetCandidates(instruction);
   const hasBroadMarketTarget = BROAD_MARKET_TARGET_PATTERN.test(instruction);
   const broadStockSelectionRequest =
     params.broadUniverse === true || isBroadStockSelectionRequest(instruction);
   const explicitTargetCount = new Set([...symbols, ...codes, ...knownTargetSymbols]).size;
-  const targetCount = Math.max(explicitTargetCount, targetCandidates.length);
+  const targetCount = explicitTargetCount;
   const canInferTargetFromImage =
     params.hasImageAttachments === true &&
     (IMAGE_CONTEXT_TARGET_PATTERN.test(instruction) || params.capabilityId === 'portfolio_risk');
@@ -258,7 +250,9 @@ export function buildClarificationContinuation(params: {
   instruction: string;
   displayInstruction?: string | null;
   capabilityId?: string | null;
+  reset?: boolean;
 }): QuantClarificationContinuation | null {
+  if (params.reset) return null;
   const previousPlan = params.previousPlan;
   const originalQuestion = normalizeInstruction(previousPlan?.question ?? '');
   const userResponse = normalizeInstruction(params.instruction);
@@ -273,62 +267,13 @@ export function buildClarificationContinuation(params: {
     return null;
   }
 
-  const capabilityId =
-    params.capabilityId ?? previousPlan.executionCapabilityId ?? previousPlan.capabilityId ?? null;
   const displayResponse = normalizeInstruction(params.displayInstruction || params.instruction);
   const missing = previousPlan.clarification.missing;
-  const responseCodes = extractExplicitSymbolCodes(userResponse);
-  const responseKnownSymbols = inferKnownSymbols(userResponse);
-  const responseTargets = extractQuantTargetCandidates(userResponse);
-  const responseTargetCount = new Set([
-    ...responseCodes,
-    ...responseKnownSymbols,
-    ...responseTargets,
-  ]).size;
-  const explicitContinuation =
-    /^(?:补充|确认|选择|选|是|代码|标的|股票|公司|重点|主要|时间|周期|风险偏好|预算|就按|上一个|上一轮|刚才|前面)/.test(userResponse) ||
-    /(?:代码是|指的是|标的是|选择的是|补充为|重点看)/.test(userResponse);
-  const independentRequest =
-    /^(?:请|帮我|帮忙|看看|看一下|分析|研究|筛选|选股|推荐|对比|比较|复盘|告诉我|明天买|给我(?:推荐|筛选|选股|分析|看看|看一下|对比|比较|买|卖))/.test(userResponse);
-  const addressesMissingField = (field: ClarificationMissingField): boolean => {
-    if (field === 'comparison_universe') {
-      return responseTargetCount >= 2 ||
-        (responseTargetCount >= 1 && explicitContinuation && !independentRequest);
-    }
-    if (field === 'target') {
-      return responseTargetCount >= 1 && (!independentRequest || explicitContinuation);
-    }
-    if (field === 'analysis_goal') {
-      return GOAL_KEYWORD_PATTERN.test(userResponse) &&
-        (!independentRequest || explicitContinuation);
-    }
-    if (field === 'investment_constraints') {
-      return INVESTMENT_CONSTRAINT_PATTERN.test(userResponse) &&
-        (!independentRequest || explicitContinuation);
-    }
-    return false;
-  };
-
-  if (!missing.some(addressesMissingField)) {
-    return null;
-  }
   const supplementLabel = buildContinuationSupplementLabel(missing);
   const resolvedInstruction = [
     originalQuestion,
     `${supplementLabel}：${userResponse}`,
   ].join('\n');
-  const combinedAssessment = assessQuantIntentForClarification({
-    instruction: resolvedInstruction,
-    capabilityId,
-  });
-  const stillMissing = new Set(combinedAssessment.missing);
-  const allPreviousFieldsStillMissing =
-    missing.length > 0 && missing.every((field) => stillMissing.has(field));
-
-  if (combinedAssessment.required && allPreviousFieldsStillMissing) {
-    return null;
-  }
-
   return {
     previousRunId: previousPlan.runId,
     originalQuestion,

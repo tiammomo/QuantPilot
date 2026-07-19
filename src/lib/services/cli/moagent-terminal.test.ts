@@ -682,11 +682,11 @@ describe('MoAgent terminal ownership', () => {
     }));
     expect(mocks.createInspector).toHaveBeenCalledTimes(1);
     expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
-      maxTurns: 3,
-      maxTotalToolCalls: 8,
+      maxTurns: 6,
+      maxTotalToolCalls: 12,
       maxRunInputTokens: 160_000,
       maxRunCacheMissInputTokens: 24_000,
-      maxRunPreparedInputTokens: 72_000,
+      maxRunPreparedInputTokens: 144_000,
       progressStallTurns: 1,
       preWriteReadOnlyTurnThreshold: 3,
       postWriteReadOnlyTurnThreshold: 2,
@@ -730,7 +730,7 @@ describe('MoAgent terminal ownership', () => {
 
     expect(mocks.engineOptions).toHaveBeenCalledWith(expect.objectContaining({
       maxRunCacheMissInputTokens: 1_000,
-      maxRunPreparedInputTokens: 72_000,
+      maxRunPreparedInputTokens: 144_000,
     }));
   });
 

@@ -10,7 +10,7 @@ import { NextRequest } from 'next/server';
 import { getAllProjects, createProject } from '@/lib/services/project';
 import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
-import { DEEPSEEK_MODEL_ID } from '@/lib/constants/cliModels';
+import { normalizeMoAgentModelId } from '@/lib/constants/models';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
 import { getQuantCapability } from '@/lib/quant/capabilities';
 import { getProjectAuthConfig } from '@/lib/config/auth';
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       name: projectName,
       initialPrompt: body.initialPrompt || body.initial_prompt,
       preferredCli: 'moagent',
-      selectedModel: DEEPSEEK_MODEL_ID,
+      selectedModel: normalizeMoAgentModelId(body.selectedModel ?? body.selected_model),
       description: body.description,
       quantCapabilityId: quantCapability.id,
       quantCapabilitySource:

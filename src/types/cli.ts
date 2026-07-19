@@ -1,6 +1,6 @@
 import {
   MOAGENT_MODEL_DEFINITIONS,
-} from '@/lib/constants/cliModels';
+} from '@/lib/constants/models';
 
 /**
  * Frontend Agent Runtime Type Definitions.
@@ -56,7 +56,7 @@ export const CLI_OPTIONS: CLIOption[] = [
   {
     id: 'moagent',
     name: 'MoAgent',
-    description: 'QuantPilot 自研 Agent 框架，直连 DeepSeek 官方 API',
+    description: 'QuantPilot 自研 Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型',
     icon: '/QuantPilot_Icon.png',
     available: true,
     configured: true,
@@ -64,7 +64,7 @@ export const CLI_OPTIONS: CLIOption[] = [
     color: 'from-blue-600 to-indigo-600',
     brandColor: '#2563EB',
     downloadUrl: 'https://api-docs.deepseek.com/guides/coding_agents',
-    features: ['MoAgent 自研内核', 'DeepSeek 官方 API', '受控工具执行'],
+    features: ['MoAgent 自研内核', '多 Provider 模型选择', '受控工具执行'],
     models: MOAGENT_MODEL_DEFINITIONS.map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
       id,
       name,

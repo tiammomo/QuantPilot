@@ -38,11 +38,11 @@
       "priority": 130,
       "phases": ["planning", "data-preparation"],
       "requiresTools": [],
-      "objective": "消费平台规则优先、LLM 按需增强且带确定性安全决策的唯一 query rewrite 语义合同，统一标的、周期、分析重点、输出方式和执行状态。",
+      "objective": "消费平台 LLM-first、Resolver 独立核验且带确定性安全决策的唯一 query rewrite 语义合同，统一标的、周期、分析重点、输出方式和执行状态。",
       "invariants": [
         "只读取 .quantpilot/query_rewrite.json，不在 Agent 运行时改写平台合同。",
         "LLM 只拆语义且输出不可信；只有经过平台 Schema、原文字面片段和 symbols/resolve 核验的 resolvedSymbols 才能取数。",
-        "deterministic_fallback 是规则降级结果，是否继续只看顶层 status，不因 LLM 失败直接终止。",
+        "llm_unavailable 是失败关闭状态，必须在规划和取数前停止，不得用关键词结果继续。",
         "ready 才进入完整取数；partial 和 needs_clarification 必须按 issue code 判断是否停止；refused 必须在取数前终止。",
         "Run Plan 必须消费 analysisFocus、broadUniverse 和 capabilityHint，不得脱离合同重新猜测分析重点。",
         "项目 Manifest 与 Run Plan 必须包含不带密钥值的完整 LLM profile。",
@@ -50,7 +50,7 @@
       ],
       "workflow": [
         "核对 execution.strategy、LLM 状态、resolvedSymbols、timeRange、analysisFocus、capabilityHint 和 outputIntent。",
-        "将 TARGET_NOT_FOUND、TARGET_AMBIGUOUS、SYMBOL_RESOLVER_UNAVAILABLE、GUARANTEED_RETURN_REQUEST 分别处理。"
+        "将 QUERY_REWRITE_LLM_UNAVAILABLE、TARGET_NOT_FOUND、TARGET_AMBIGUOUS、SYMBOL_RESOLVER_UNAVAILABLE、GUARANTEED_RETURN_REQUEST 分别处理。"
       ],
       "doneWhen": ["query rewrite 与 run plan 的标的、周期和澄清状态一致。"],
       "resources": []

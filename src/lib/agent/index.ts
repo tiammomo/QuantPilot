@@ -5,6 +5,7 @@ export * from './input-policy';
 export * from './context';
 export * from './core';
 export * from './providers/deepseek';
+export * from './providers/openai-compatible';
 export * from './runtime';
 export * from './skills';
 export * from './tools';

@@ -23,7 +23,7 @@
         "start": "npm run dev",
         "health": "npm run doctor"
       },
-      "dependencies": ["timescaledb", "redis", "market-data", "loki"],
+      "dependencies": ["timescaledb", "redis", "market-data", "memory", "knowledge", "modelport", "loki"],
       "capabilities": ["workspace", "generation-console", "evaluation", "operations"]
     },
     {
@@ -52,6 +52,101 @@
       },
       "dependencies": ["timescaledb", "redis", "clickhouse"],
       "capabilities": ["quotes", "research-universe", "backtests", "analytics"]
+    },
+    {
+      "id": "memory",
+      "name": "用户记忆服务",
+      "summary": "可选的版本化 HTTP 个性化能力；独立部署、独立存储并可无状态降级。",
+      "runtime": "python",
+      "kind": "api",
+      "domain": "personalization",
+      "owner": "platform",
+      "lifecycle": "supporting",
+      "enabledByDefault": true,
+      "requiredByDefault": false,
+      "enabledEnv": "QUANTPILOT_MEMORY_ENABLED",
+      "requiredEnv": "QUANTPILOT_MEMORY_REQUIRED",
+      "endpoint": {
+        "protocol": "http",
+        "env": ["QUANTPILOT_MEMORY_API_URL"],
+        "default": "http://127.0.0.1:38089",
+        "healthPath": "/readyz",
+        "healthMethod": "GET"
+      },
+      "commands": {
+        "health": "curl http://127.0.0.1:38089/readyz"
+      },
+      "dependencies": [],
+      "capabilities": [
+        "preference-memory",
+        "contextual-recall",
+        "attributed-outcomes",
+        "user-usage-fence",
+        "subject-scoped-token-broker"
+      ]
+    },
+    {
+      "id": "knowledge",
+      "name": "Agent Knowledge Platform",
+      "summary": "通过 AKEP v0.1 提供已发布、带引用、受 Space 与 purpose 治理的共享知识。",
+      "runtime": "node",
+      "kind": "api",
+      "domain": "governed-knowledge",
+      "owner": "platform",
+      "lifecycle": "supporting",
+      "enabledByDefault": true,
+      "requiredByDefault": false,
+      "enabledEnv": "QUANTPILOT_KNOWLEDGE_ENABLED",
+      "requiredEnv": "QUANTPILOT_KNOWLEDGE_REQUIRED",
+      "endpoint": {
+        "protocol": "http",
+        "env": ["QUANTPILOT_KNOWLEDGE_API_URL"],
+        "default": "http://localhost:8080",
+        "healthPath": "/health/ready",
+        "healthMethod": "GET"
+      },
+      "commands": {
+        "health": "curl http://localhost:8080/health/ready",
+        "discovery": "curl http://localhost:8080/.well-known/akep"
+      },
+      "dependencies": [],
+      "capabilities": [
+        "akep-discovery",
+        "governed-context-pack",
+        "immutable-citations",
+        "exposure-usage-feedback"
+      ]
+    },
+    {
+      "id": "modelport",
+      "name": "ModelPort 模型网关",
+      "summary": "统一承接 Qwen、DeepSeek 等模型的 OpenAI/Anthropic 协议、鉴权、路由、配额和用量证据。",
+      "runtime": "rust",
+      "kind": "api",
+      "domain": "model-gateway",
+      "owner": "ai-platform",
+      "lifecycle": "supporting",
+      "enabledByDefault": true,
+      "requiredByDefault": false,
+      "enabledEnv": "QUANTPILOT_MODELPORT_ENABLED",
+      "requiredEnv": "QUANTPILOT_MODELPORT_REQUIRED",
+      "endpoint": {
+        "protocol": "http",
+        "env": ["QUANTPILOT_MODELPORT_URL"],
+        "default": "http://127.0.0.1:38082",
+        "healthPath": "/livez",
+        "healthMethod": "GET"
+      },
+      "commands": {
+        "health": "curl http://127.0.0.1:38082/livez"
+      },
+      "dependencies": [],
+      "capabilities": [
+        "openai-compatible",
+        "anthropic-compatible",
+        "local-qwen-routing",
+        "provider-governance"
+      ]
     },
     {
       "id": "timescaledb",
@@ -151,7 +246,7 @@
       "endpoint": {
         "protocol": "http",
         "env": ["LOKI_URL"],
-        "default": "http://127.0.0.1:3100",
+        "default": "http://127.0.0.1:33100",
         "healthPath": "/ready",
         "healthMethod": "GET"
       },
@@ -179,13 +274,13 @@
       "endpoint": {
         "protocol": "http",
         "env": ["GRAFANA_URL"],
-        "default": "http://127.0.0.1:3001",
+        "default": "http://127.0.0.1:33012",
         "healthPath": "/api/health",
         "healthMethod": "GET"
       },
       "commands": {
         "start": "npm run obs:up",
-        "open": "open http://localhost:3001"
+        "open": "open http://localhost:33012"
       },
       "dependencies": ["loki"],
       "capabilities": ["log-query", "dashboarding"]

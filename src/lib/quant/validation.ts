@@ -12,6 +12,7 @@ import {
   writeInitialRunPlan,
 } from '@/lib/quant/workspace';
 import type { QuantRunPlan } from '@/lib/quant/workspace';
+import type { QuantQueryRewriteResult } from '@/lib/quant/query-rewrite';
 import { validateQuantArtifactContracts } from '@/lib/quant/artifact-contracts';
 import { validateQuantVisualPresentation } from '@/lib/quant/visual-validation';
 import {
@@ -1896,6 +1897,24 @@ async function checkDashboardBinding(
     };
   }
 
+  const internalPresentationSignals = [
+    '数据信源渠道',
+    '技术证据',
+    'evidence/sources.json',
+    '场景模板',
+    '必备组件',
+  ].filter((signal) => page.includes(signal));
+  if (internalPresentationSignals.length > 0) {
+    return {
+      status: 'failed',
+      summary: '页面把后台审计或生成契约信息渲染到了用户看板。',
+      details: `请移除用户可见的 ${internalPresentationSignals.join('、')} 分区；页面只保留更新时间、报告期、样本口径和质量/缺失提示，渠道端点、技术路径、模板 ID 与组件契约继续保留在后台 evidence/run plan 中。`,
+      metadata: {
+        internalPresentationSignals,
+      },
+    };
+  }
+
   if (expectedTemplateId && plannedTemplateId !== expectedTemplateId) {
     return {
       status: 'failed',
@@ -1975,12 +1994,12 @@ async function checkDashboardBinding(
 	        patterns: [
 	          /stock-selection|选股|候选|多标的|comparison|assets/,
 	          /selectionranking|financialquality|排名|相对强弱|研究优先级/,
-	          /收益对比|波动对比|回撤对比|财务质量|(?:数据来源|数据信源|信源渠道)逐项追踪/,
+	          /收益对比|波动对比|回撤对比|财务质量|数据口径|更新时间/,
 	        ],
 	      },
       'single-stock-diagnosis': {
         label: '个股诊断模板',
-        patterns: [/个股|行情|最新价|quote|k\s*线|k线/, /财务|公告|(?:数据来源|数据信源|信源渠道)|质量/],
+        patterns: [/个股|行情|最新价|quote|k\s*线|k线/, /财务|公告|质量|更新时间|报告期/],
       },
       'technical-timing': {
         label: '技术择时模板',
@@ -2044,7 +2063,7 @@ async function checkDashboardBinding(
 	        return {
 	          status: 'failed',
 	          summary: '页面仍残留持仓分析模板，不符合选股/多股对比任务。',
-	          details: 'stock-selection 页面应展示候选覆盖、排名依据、财务质量、收益/波动/回撤对比和数据信源渠道逐项追踪。',
+	          details: 'stock-selection 页面应展示候选覆盖、排名依据、财务质量、收益/波动/回撤对比、数据口径和更新时间；信源证据由后台文件验收。',
 	        };
 	      }
 	    }
@@ -2321,7 +2340,8 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
         '只查看 .quantpilot/visual-validation.json 指向的失败 viewport、截图与指标。',
         '修复桌面/移动端布局：首屏不能空白，不能横向溢出，文本不能互相遮挡。',
         '把独立白色圆角卡片网格合并为连续金融工作台：主画布共用背景，以细分区线、连续指标带、主图、矩阵和表格建立层级；移除重复圆角、阴影和 card 套 card。',
-        '移动端 390x844 首屏必须露出一个可用的核心图表、矩阵或表格；如果摘要区过高，压缩或下移次要指标、信源、模板说明和免责声明。',
+        '指标带按实际数量均衡分栏；移除桌面端 N+1 孤项和大片空白，避免金额、价格和百分比拆行或竖排。',
+        '移动端 390x844 首屏必须露出一个可用的核心图表、矩阵或表格；如果摘要区过高，压缩或下移次要指标和免责声明，并移除用户可见的渠道证据、模板名称与组件契约说明。',
       ];
     case 'final_data_file':
       return [
@@ -2586,6 +2606,7 @@ export async function repairQuantPlatformOwnedArtifacts(params: {
   requestId: string;
   originalInstruction: string;
   report: QuantValidationReport;
+  queryRewrite?: QuantQueryRewriteResult;
 }): Promise<{ runPlanRebuilt: boolean }> {
   const platformFailureText = params.report.checks
     .filter((check) => check.status === 'failed')
@@ -2605,6 +2626,7 @@ export async function repairQuantPlatformOwnedArtifacts(params: {
     instruction: params.originalInstruction,
     requestId: params.requestId,
     capabilitySource: 'inferred',
+    queryRewrite: params.queryRewrite,
   });
 
   await appendQuantWorkspaceEvent(params.projectPath, {
