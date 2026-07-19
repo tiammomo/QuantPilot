@@ -43,7 +43,6 @@ import {
   Rocket,
   ScanSearch,
   ShieldCheck,
-  WandSparkles,
   ListTree,
   Maximize2,
   Minimize2,
@@ -950,84 +949,54 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
       {viewMode === "catalog" ? (
         <main className="platform-content flex-1 overflow-y-auto" role="main">
           <div className="mx-auto w-full max-w-[1520px] space-y-8 px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
-            {/* Market hero */}
-            <section className="relative isolate overflow-hidden rounded-[26px] border border-border/70 bg-card shadow-[0_26px_70px_-48px_hsl(var(--shadow-color)/0.55)] sm:rounded-[30px]">
-              <div
-                aria-hidden="true"
-                className="absolute inset-0 -z-10 opacity-90"
-                style={{
-                  background:
-                    "radial-gradient(circle at 12% 0%, hsl(var(--primary) / 0.2), transparent 34%), radial-gradient(circle at 88% 10%, hsl(var(--info) / 0.16), transparent 32%), linear-gradient(135deg, hsl(var(--card)) 20%, hsl(var(--surface-secondary) / 0.78) 100%)",
-                }}
-              />
-              <div className="absolute -right-16 -top-20 -z-10 h-64 w-64 rounded-full border border-primary/10" aria-hidden="true" />
-              <div className="absolute -right-6 -top-10 -z-10 h-40 w-40 rounded-full border border-primary/15" aria-hidden="true" />
-
-              <div className="grid gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)] xl:items-center">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/65 px-3 py-1.5 text-[10px] font-black tracking-[0.18em] text-primary shadow-sm backdrop-blur">
-                    <WandSparkles className="h-3.5 w-3.5" />
-                    QUANTPILOT SKILLS MARKET
+            {/* Market overview */}
+            <section className="border-y border-border/70 bg-card/45">
+              <div className="grid gap-5 px-1 py-6 sm:px-2 sm:py-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-10">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+                    <span className={cn("h-2 w-2 rounded-full", pendingCount > 0 ? "bg-amber-500" : "bg-emerald-500")} />
+                    <span>{pendingCount > 0 ? `${pendingCount} 项需要处理` : "能力注册表运行正常"}</span>
+                    <span aria-hidden="true" className="text-border">/</span>
+                    <span>最近扫描 {formatTime(payload.generatedAt)}</span>
                   </div>
-                  <h2 className="mt-5 max-w-3xl text-3xl font-black leading-[1.14] tracking-[-0.035em] text-foreground sm:text-[38px] sm:leading-[1.1] lg:text-[40px] lg:leading-[1.08] xl:text-[48px] xl:leading-[1.06]">
-                    把研究能力，拼成一条
-                    <span className="mt-1 block bg-gradient-to-r from-primary via-orange-500 to-amber-500 bg-clip-text text-transparent">
-                      <span className="whitespace-nowrap">可信、可验、可复用的</span><wbr /><span className="whitespace-nowrap">工作流</span>
-                    </span>
-                  </h2>
-                  <p className="mt-5 max-w-[780px] text-sm leading-7 text-muted-foreground sm:text-base">
-                    从数据接入、标的解析到回测与可视化，每个技能都有明确的输入输出、验证规则和交付状态。
+                  <h1 className="mt-3 text-2xl font-bold tracking-[-0.025em] text-foreground sm:text-3xl">Skills Market</h1>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                    浏览和维护 QuantPilot 的研究能力。每个 Skill 都提供适用边界、输入输出、验证规则与交付状态。
                   </p>
-                  <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                    <Button
-                      className="h-11 gap-2 rounded-xl px-5 font-bold shadow-[0_14px_28px_-14px_hsl(var(--primary))]"
-                      onClick={() => document.getElementById("skill-catalog")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    >
-                      探索全部技能
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" className="h-11 gap-2 rounded-xl bg-background/50 px-5 font-bold backdrop-blur" onClick={() => changeViewMode("editor")}>
-                      <Wrench className="h-4 w-4" />
-                      进入 Skills Studio
-                    </Button>
-                  </div>
-                  <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs font-medium text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-4 w-4 text-emerald-500" />{payload.totals.ok} 个技能状态正常</span>
-                    <span className="inline-flex items-center gap-1.5"><Package className="h-4 w-4 text-primary" />{packagedCount} 个交付包就绪</span>
-                    <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-blue-500" />{validationRuleCount} 条验证规则</span>
-                  </div>
                 </div>
-
-                <div className="hidden rounded-[24px] border border-white/40 bg-background/70 p-5 shadow-[0_24px_55px_-38px_hsl(var(--shadow-color)/0.7)] backdrop-blur-xl dark:border-white/10 sm:p-6 xl:block">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-black tracking-[0.16em] text-muted-foreground">REGISTRY HEALTH</p>
-                      <h3 className="mt-1 text-lg font-black text-foreground">能力注册表</h3>
-                    </div>
-                    <span className="relative flex h-3 w-3">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                      <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
-                    </span>
-                  </div>
-                  <div className="mt-6 grid grid-cols-[112px_minmax(0,1fr)] items-center gap-5">
-                    <div className="relative flex h-28 w-28 items-center justify-center rounded-full p-2" style={{ background: `conic-gradient(hsl(var(--primary)) ${healthyRate * 3.6}deg, hsl(var(--muted)) 0deg)` }}>
-                      <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-card shadow-inner">
-                        <span className="text-2xl font-black tabular-nums text-foreground">{healthyRate}%</span>
-                        <span className="text-[10px] font-bold text-muted-foreground">健康度</span>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/60 pb-2 text-xs"><span className="text-muted-foreground">稳定技能</span><strong className="tabular-nums text-foreground">{payload.totals.stable}/{payload.totals.total}</strong></div>
-                      <div className="flex items-center justify-between border-b border-border/60 pb-2 text-xs"><span className="text-muted-foreground">能力域</span><strong className="tabular-nums text-foreground">{Object.values(payload.totals.scopes).filter(Boolean).length}</strong></div>
-                      <div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">待处理项</span><strong className={cn("tabular-nums", pendingCount > 0 ? "text-amber-600" : "text-emerald-600")}>{pendingCount}</strong></div>
-                    </div>
-                  </div>
-                  <div className="mt-5 flex items-center gap-2 rounded-xl border border-border/60 bg-muted/45 px-3 py-2.5 text-[11px] text-muted-foreground">
-                    <CircleGauge className="h-4 w-4 shrink-0 text-primary" />
-                    最近扫描 {formatTime(payload.generatedAt)}，指标均来自当前仓库。
-                  </div>
+                <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
+                  <Button
+                    className="h-10 gap-2 rounded-lg px-4 font-semibold shadow-none"
+                    onClick={() => document.getElementById("skill-catalog")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    浏览全部技能
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" className="h-10 gap-2 rounded-lg bg-background px-4 font-semibold shadow-none" onClick={() => changeViewMode("editor")}>
+                    <Wrench className="h-4 w-4" />
+                    打开 Studio
+                  </Button>
                 </div>
               </div>
+
+              <dl className="grid grid-cols-2 border-t border-border/70 sm:grid-cols-4">
+                <div className="px-3 py-4 sm:px-5">
+                  <dt className="text-xs text-muted-foreground">可用技能</dt>
+                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{payload.totals.ok}<span className="ml-1 text-xs font-normal text-muted-foreground">/ {payload.totals.total}</span></dd>
+                </div>
+                <div className="border-l border-border/70 px-3 py-4 sm:px-5">
+                  <dt className="text-xs text-muted-foreground">稳定版本</dt>
+                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{payload.totals.stable}</dd>
+                </div>
+                <div className="border-t border-border/70 px-3 py-4 sm:border-l sm:border-t-0 sm:px-5">
+                  <dt className="text-xs text-muted-foreground">交付包就绪</dt>
+                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{packagedCount}</dd>
+                </div>
+                <div className="border-l border-t border-border/70 px-3 py-4 sm:border-t-0 sm:px-5">
+                  <dt className="text-xs text-muted-foreground">验证规则</dt>
+                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{validationRuleCount}</dd>
+                </div>
+              </dl>
             </section>
 
             {/* Curated skills */}

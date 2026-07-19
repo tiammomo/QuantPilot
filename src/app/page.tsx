@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +20,7 @@ import {
   Sparkles,
   ChevronRight,
   ArrowRight,
+  Blocks,
   RefreshCcw,
   UserRound,
   Users,
@@ -809,9 +811,23 @@ export default function HomePage() {
                     <span className="sm:hidden">说清标的、时间和目标。</span>
                     <span className="hidden sm:inline">描述标的、时间范围和希望得到的结论，系统会自动补全取数、证据与验证步骤。</span>
                   </p>
+                  <Link
+                    href="/skills"
+                    className="group mx-auto mt-3 inline-flex min-h-9 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border border-primary/20 bg-background/75 px-3.5 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:border-primary/45 hover:bg-primary/[0.055] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:text-xs"
+                    aria-label="进入 Skills Market，发现更多研究能力"
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <Blocks className="h-3 w-3" />
+                    </span>
+                    <span className="truncate">
+                      <span className="font-semibold text-foreground">探索 Skills Market</span>
+                      <span className="hidden sm:inline">，发现更多分析模板与数据工具</span>
+                    </span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+                  </Link>
                 </div>
 
-                <div role="tablist" aria-label="研究类型" className="mx-auto mt-4 flex max-w-full snap-x snap-mandatory justify-start gap-3 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
+                <div role="tablist" aria-label="研究类型" className="mx-auto mt-3 flex max-w-full snap-x snap-mandatory justify-start gap-3 overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] sm:justify-center [&::-webkit-scrollbar]:hidden">
                   {readyCapabilities.slice(0, 4).map((capability, index) => (
                     <button
                       key={capability.id}
