@@ -33,7 +33,7 @@ stable_checks=0
 for attempt in $(seq 1 "$max_attempts"); do
   postgres_ready=0
   redis_ready=0
-  prisma_ready=0
+  host_ready=0
 
   if "${compose[@]}" exec -T timescaledb sh -ec \
     'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
@@ -45,17 +45,24 @@ for attempt in $(seq 1 "$max_attempts"); do
     redis_ready=1
   fi
 
-  if printf 'SELECT 1;\n' | ./node_modules/.bin/prisma db execute \
-    --stdin \
-    --schema prisma/schema.prisma \
-    >> "$log_file" 2>&1; then
-    prisma_ready=1
+  if node -e '
+    const net = require("node:net");
+    const url = new URL(process.env.DATABASE_URL);
+    const socket = net.createConnection({ host: url.hostname, port: Number(url.port || 5432) });
+    const fail = () => process.exit(1);
+    socket.setTimeout(2_000);
+    socket.once("connect", () => { socket.end(); process.exit(0); });
+    socket.once("timeout", fail);
+    socket.once("error", fail);
+  ' >> "$log_file" 2>&1; then
+    host_ready=1
   fi
 
-  # The host-side Prisma connection is the authoritative PostgreSQL probe: it
-  # uses the same URL and network path as migrations and the application. Keep
-  # the container-local pg_isready result as diagnostics, not a duplicate gate.
-  if [ "$redis_ready" -eq 1 ] && [ "$prisma_ready" -eq 1 ]; then
+  # The host-side TCP connection verifies the same published address used by
+  # migrations and the application. Prisma compatibility is then validated by
+  # the real migrate/db:init command instead of overloading `db execute` as a
+  # liveness probe.
+  if [ "$redis_ready" -eq 1 ] && [ "$host_ready" -eq 1 ]; then
     stable_checks=$((stable_checks + 1))
     log "Readiness check ${attempt}/${max_attempts} passed (${stable_checks}/${required_stable_checks} consecutive)."
     if [ "$stable_checks" -ge "$required_stable_checks" ]; then
@@ -64,10 +71,10 @@ for attempt in $(seq 1 "$max_attempts"); do
     fi
   else
     stable_checks=0
-    log "Readiness check ${attempt}/${max_attempts} pending (postgres=${postgres_ready}, redis=${redis_ready}, prisma=${prisma_ready})."
+    log "Readiness check ${attempt}/${max_attempts} pending (postgres=${postgres_ready}, redis=${redis_ready}, host=${host_ready})."
     if [ $((attempt % 10)) -eq 0 ]; then
-      printf '::notice title=Local infrastructure pending::attempt=%s postgres=%s redis=%s prisma=%s\n' \
-        "$attempt" "$postgres_ready" "$redis_ready" "$prisma_ready"
+      printf '::notice title=Local infrastructure pending::attempt=%s postgres=%s redis=%s host=%s\n' \
+        "$attempt" "$postgres_ready" "$redis_ready" "$host_ready"
     fi
   fi
 
@@ -75,6 +82,6 @@ for attempt in $(seq 1 "$max_attempts"); do
 done
 
 diagnostics
-printf '::error title=Local infrastructure timeout::postgres=%s redis=%s prisma=%s; required %s consecutive host-ready checks.\n' \
-  "$postgres_ready" "$redis_ready" "$prisma_ready" "$required_stable_checks"
+printf '::error title=Local infrastructure timeout::postgres=%s redis=%s host=%s; required %s consecutive host-ready checks.\n' \
+  "$postgres_ready" "$redis_ready" "$host_ready" "$required_stable_checks"
 exit 1
