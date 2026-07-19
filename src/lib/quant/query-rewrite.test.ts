@@ -121,6 +121,71 @@ describe('quant query rewrite schema v4', () => {
     });
   });
 
+  it('reconciles an unresolved display alias when an explicit code resolved the same security', async () => {
+    const semanticRewriter = successfulRewrite(semanticData({
+      targetCandidates: ['510300', '沪深300ETF'],
+      analysisFocusId: 'technical',
+    }));
+    const resolver = vi.fn(async (target: string) => target === '510300'
+      ? {
+          results: [{
+            query: target,
+            symbol: '510300',
+            name: '沪深300ETF华泰柏瑞',
+            asset_type: 'etf',
+            market: 'SH',
+            secid: '1.510300',
+            source: 'test-resolver',
+          }],
+        }
+      : { results: [] });
+
+    const result = await rewriteQuantQuery(
+      '510300 沪深300ETF 最近120天走势如何？',
+      { semanticRewriter, resolver },
+    );
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      resolvedSymbols: [{ symbol: '510300' }],
+      unresolvedTargets: [],
+      ambiguousTargets: [],
+      issues: [],
+    });
+  });
+
+  it('does not reconcile a short generic label with an explicitly resolved security', async () => {
+    const semanticRewriter = successfulRewrite(semanticData({
+      targetCandidates: ['510300', 'ETF'],
+      analysisFocusId: 'technical',
+    }));
+    const resolver = vi.fn(async (target: string) => target === '510300'
+      ? {
+          results: [{
+            query: target,
+            symbol: '510300',
+            name: '沪深300ETF华泰柏瑞',
+            asset_type: 'etf',
+            market: 'SH',
+            secid: '1.510300',
+            source: 'test-resolver',
+          }],
+        }
+      : { results: [] });
+
+    const result = await rewriteQuantQuery('510300 ETF 最近走势如何？', {
+      semanticRewriter,
+      resolver,
+    });
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      resolvedSymbols: [{ symbol: '510300' }],
+      unresolvedTargets: ['ETF'],
+      issues: [{ code: 'TARGET_NOT_FOUND', target: 'ETF' }],
+    });
+  });
+
   it('fails closed when the LLM is unavailable and never invokes the resolver', async () => {
     const resolver = vi.fn();
     const semanticRewriter: QuantQuerySemanticRewriter = vi.fn(async () => ({

@@ -15,6 +15,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-b
 
 const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../../src/lib/utils/scaffold.ts');
 const { writeInitialRunPlan } = jiti('../../src/lib/quant/workspace.ts');
+const { rewriteQuantQuery } = jiti('../../src/lib/quant/query-rewrite.ts');
 const {
   serializeQuantVisualizationTemplate,
 } = jiti('../../src/lib/quant/visualization-templates.ts');
@@ -85,9 +86,29 @@ const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
 const E2E_SUITE_PATH = path.resolve('benchmarks/quantpilot/e2e-suite.json');
 const DATASET_REGISTRY_PATH = path.resolve('benchmarks/quantpilot/datasets.json');
 const SNAPSHOT_MANIFEST_PATH = path.resolve('benchmarks/quantpilot/snapshot-manifest.json');
+const QUERY_REWRITE_FIXTURES_PATH = path.resolve('benchmarks/quantpilot/query-rewrite-fixtures.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
 const DEFAULT_MODEL = getDefaultModelForCli('moagent');
+const QUERY_REWRITE_FIXTURES = require(QUERY_REWRITE_FIXTURES_PATH);
+
+async function replayContractQueryRewrite({ testCase, instruction, phase = 'primary', projectId }) {
+  const fixture = QUERY_REWRITE_FIXTURES?.cases?.[testCase.id]?.[phase];
+  if (!fixture) {
+    throw new Error(`contract query rewrite fixture 缺失：${testCase.id}/${phase}`);
+  }
+  return rewriteQuantQuery(instruction, {
+    requestedCapabilityId: testCase.capabilityId,
+    projectId,
+    semanticRewriter: async () => ({
+      ok: true,
+      data: fixture,
+      provider: QUERY_REWRITE_FIXTURES.provider,
+      model: QUERY_REWRITE_FIXTURES.model,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    }),
+  });
+}
 
 function modelRuntime(model) {
   const definition = getModelDefinitionsForCli('moagent')
@@ -943,6 +964,11 @@ async function runClarificationCase(testCase) {
     requestId,
     capabilityId: testCase.capabilityId,
     capabilitySource: 'benchmark',
+    queryRewrite: await replayContractQueryRewrite({
+      testCase,
+      instruction: testCase.question,
+      projectId,
+    }),
   });
   const prefetch = await prefetchQuantDataForRunPlan({ projectPath, plan });
 
@@ -1018,6 +1044,11 @@ async function runClarificationContinuationCase(testCase) {
     requestId,
     capabilityId: testCase.capabilityId,
     capabilitySource: 'benchmark',
+    queryRewrite: await replayContractQueryRewrite({
+      testCase,
+      instruction: testCase.question,
+      projectId,
+    }),
   });
   await updateQuantGenerationStep({
     projectPath,
@@ -1059,6 +1090,12 @@ async function runClarificationContinuationCase(testCase) {
       requestId: followupRequestId,
       capabilityId: testCase.capabilityId,
       capabilitySource: 'benchmark',
+      queryRewrite: await replayContractQueryRewrite({
+        testCase,
+        instruction: continuation.resolvedInstruction,
+        phase: 'followup',
+        projectId,
+      }),
     });
     await updateQuantGenerationStep({
       projectPath,
@@ -1364,6 +1401,11 @@ async function runSourceDegradationCase(testCase) {
     requestId,
     capabilityId: testCase.capabilityId,
     capabilitySource: 'benchmark',
+    queryRewrite: await replayContractQueryRewrite({
+      testCase,
+      instruction: '贵州茅台 600519 最近行情走势如何？',
+      projectId,
+    }),
   });
   assertCondition(plan.status === 'planned', `降级证据 fixture 应生成 planned 计划，实际为 ${plan.status}`, failures);
   await updateQuantGenerationStep({
@@ -2164,6 +2206,11 @@ async function runCase(testCase, options) {
     capabilityId: testCase.capabilityId,
     capabilitySource: 'benchmark',
     hasImageAttachments: Boolean(testCase.imageAttachment),
+    queryRewrite: await replayContractQueryRewrite({
+      testCase,
+      instruction: testCase.question,
+      projectId,
+    }),
   });
   await updateQuantGenerationStep({
     projectPath,

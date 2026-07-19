@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "provider": "contract-fixture",
+  "model": "qwen3.5-query-rewrite-recorded-v1",
+  "cases": {
+    "stock-fundamental-maotai": {
+      "primary": {
+        "targetCandidates": ["贵州茅台"],
+        "timeRange": null,
+        "analysisFocusId": "fundamental",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.95
+      }
+    },
+    "index-technical-hs300": {
+      "primary": {
+        "targetCandidates": ["沪深300"],
+        "timeRange": {
+          "label": "最近120天",
+          "value": 120,
+          "unit": "day",
+          "evidence": "最近120天"
+        },
+        "analysisFocusId": "technical",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.95
+      }
+    },
+    "etf-technical-300etf": {
+      "primary": {
+        "targetCandidates": ["510300", "沪深300ETF"],
+        "timeRange": {
+          "label": "最近120天",
+          "value": 120,
+          "unit": "day",
+          "evidence": "最近120天"
+        },
+        "analysisFocusId": "technical",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.95
+      }
+    },
+    "backtest-300etf-ma-crossover": {
+      "primary": {
+        "targetCandidates": ["510300"],
+        "timeRange": {
+          "label": "最近一年",
+          "value": 1,
+          "unit": "year",
+          "evidence": "最近一年"
+        },
+        "analysisFocusId": "backtest",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.96
+      }
+    },
+    "asset-comparison-bluechips": {
+      "primary": {
+        "targetCandidates": ["贵州茅台", "平安银行", "宁德时代"],
+        "timeRange": {
+          "label": "最近120个交易日",
+          "value": 120,
+          "unit": "trading_day",
+          "evidence": "最近120个交易日"
+        },
+        "analysisFocusId": "comparison",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.97
+      }
+    },
+    "broad-a-share-buy-candidates": {
+      "primary": {
+        "targetCandidates": [],
+        "timeRange": {
+          "label": "6月3日",
+          "unit": "date_range",
+          "evidence": "6月3日"
+        },
+        "analysisFocusId": "comparison",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": true,
+        "broadUniverseEvidence": "股票",
+        "confidence": 0.94
+      }
+    },
+    "portfolio-risk-adjustment": {
+      "primary": {
+        "targetCandidates": ["杭钢股份", "京沪高铁", "三七互娱", "中国黄金", "完美世界"],
+        "timeRange": null,
+        "analysisFocusId": "portfolio_risk",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.97
+      }
+    },
+    "stock-diagnosis-citic-no-false-clarification": {
+      "primary": {
+        "targetCandidates": ["中信证券"],
+        "timeRange": null,
+        "analysisFocusId": "comprehensive",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.95
+      }
+    },
+    "stock-diagnosis-citic-custom-no-cards": {
+      "primary": {
+        "targetCandidates": ["中信证券"],
+        "timeRange": null,
+        "analysisFocusId": "comprehensive",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.96
+      }
+    },
+    "clarification-missing-symbol": {
+      "primary": {
+        "targetCandidates": [],
+        "timeRange": null,
+        "analysisFocusId": "comparison",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.72
+      }
+    },
+    "portfolio-image-contract": {
+      "primary": {
+        "targetCandidates": ["杭钢股份", "京沪高铁", "三七互娱", "中国黄金", "完美世界"],
+        "timeRange": null,
+        "analysisFocusId": "portfolio_risk",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.97
+      }
+    },
+    "clarification-continuation-bluechips": {
+      "primary": {
+        "targetCandidates": [],
+        "timeRange": null,
+        "analysisFocusId": "comparison",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.7
+      },
+      "followup": {
+        "targetCandidates": ["贵州茅台", "平安银行", "宁德时代"],
+        "timeRange": {
+          "label": "最近120个交易日",
+          "value": 120,
+          "unit": "trading_day",
+          "evidence": "最近120个交易日"
+        },
+        "analysisFocusId": "comparison",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.97
+      }
+    },
+    "source-degradation-contract": {
+      "primary": {
+        "targetCandidates": ["贵州茅台", "600519"],
+        "timeRange": null,
+        "analysisFocusId": "comprehensive",
+        "outputIntent": "dashboard",
+        "answerOnlyEvidence": null,
+        "broadUniverse": false,
+        "broadUniverseEvidence": null,
+        "confidence": 0.97
+      }
+    }
+  }
+}

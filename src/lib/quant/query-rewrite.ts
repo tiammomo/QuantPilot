@@ -377,6 +377,31 @@ interface ResolvedTargetSet {
   issues: QuantQueryRewriteIssue[];
 }
 
+function normalizeResolvedIdentity(value: string): string {
+  return normalizeSecurityText(value).replace(/[^\p{Script=Han}A-Z\d]/gu, '');
+}
+
+function targetIsCoveredByResolvedSymbol(
+  target: string,
+  resolvedSymbols: QuantResolvedSymbol[],
+): boolean {
+  const normalizedTarget = normalizeResolvedIdentity(target);
+  if (!normalizedTarget) return false;
+
+  return resolvedSymbols.some((resolved) => {
+    const normalizedSymbol = normalizeResolvedIdentity(resolved.symbol);
+    const normalizedName = normalizeResolvedIdentity(resolved.name);
+    if (normalizedTarget === normalizedSymbol || normalizedTarget === normalizedName) return true;
+
+    // LLMs commonly preserve both an explicit code and its adjacent display
+    // name (for example, "510300 沪深300ETF"). Once the code has resolved,
+    // a sufficiently specific substring of the canonical resolver name is the
+    // same entity, not a second missing comparison target. Keep short generic
+    // labels such as "ETF" unresolved so they cannot mask real ambiguity.
+    return normalizedTarget.length >= 4 && normalizedName.includes(normalizedTarget);
+  });
+}
+
 async function resolveTargetSet(params: {
   targetCandidates: string[];
   resolver: QuantSymbolResolver;
@@ -428,23 +453,32 @@ async function resolveTargetSet(params: {
     (item, index, items) =>
       items.findIndex((candidate) => candidate.symbol === item.symbol) === index,
   );
-  unresolvedTargets.sort(
+  const effectiveUnresolvedTargets = unresolvedTargets.filter(
+    (target) => !targetIsCoveredByResolvedSymbol(target, uniqueResolved),
+  );
+  const effectiveAmbiguousTargets = ambiguousTargets.filter(
+    (target) => !targetIsCoveredByResolvedSymbol(target.query, uniqueResolved),
+  );
+  const effectiveIssues = issues.filter(
+    (issue) => !issue.target || !targetIsCoveredByResolvedSymbol(issue.target, uniqueResolved),
+  );
+  effectiveUnresolvedTargets.sort(
     (left, right) => params.targetCandidates.indexOf(left) - params.targetCandidates.indexOf(right),
   );
-  ambiguousTargets.sort(
+  effectiveAmbiguousTargets.sort(
     (left, right) =>
       params.targetCandidates.indexOf(left.query) - params.targetCandidates.indexOf(right.query),
   );
-  issues.sort((left, right) =>
+  effectiveIssues.sort((left, right) =>
     params.targetCandidates.indexOf(left.target ?? '') -
     params.targetCandidates.indexOf(right.target ?? ''),
   );
 
   return {
     resolvedSymbols: uniqueResolved,
-    unresolvedTargets,
-    ambiguousTargets,
-    issues,
+    unresolvedTargets: effectiveUnresolvedTargets,
+    ambiguousTargets: effectiveAmbiguousTargets,
+    issues: effectiveIssues,
   };
 }
 

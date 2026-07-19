@@ -15,6 +15,7 @@ const { attestProductionReplayCase } = jiti('../../src/lib/eval/shadow-replay.ts
 const root = process.cwd();
 const benchmarkRoot = path.resolve('benchmarks/quantpilot');
 const registryPath = path.join(benchmarkRoot, 'datasets.json');
+const queryRewriteFixturesPath = path.join(benchmarkRoot, 'query-rewrite-fixtures.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -70,6 +71,49 @@ function main() {
   const publicDefinition = registry.datasets.find((item) => item.visibility === 'public');
   if (!publicDefinition?.path) throw new Error('dataset registry 缺少 public dataset');
   const publicCases = readJson(safeBenchmarkPath(publicDefinition.path, publicDefinition.id));
+  const queryRewriteFixtures = readJson(queryRewriteFixturesPath);
+  if (
+    queryRewriteFixtures.schemaVersion !== 1 ||
+    queryRewriteFixtures.provider !== 'contract-fixture' ||
+    typeof queryRewriteFixtures.model !== 'string' ||
+    !queryRewriteFixtures.model
+  ) {
+    problems.push('query rewrite fixture 必须声明 schemaVersion=1、contract-fixture provider 和 model');
+  }
+  const fixtureCases = queryRewriteFixtures.cases && typeof queryRewriteFixtures.cases === 'object'
+    ? queryRewriteFixtures.cases
+    : {};
+  const fixtureFreeTypes = new Set(['runtime_registry', 'repair_plan', 'renderer_capability_contract']);
+  const expectedFixtureCases = publicCases.filter((testCase) => !fixtureFreeTypes.has(testCase.type));
+  for (const testCase of expectedFixtureCases) {
+    const phases = fixtureCases[testCase.id];
+    const requiredPhases = testCase.type === 'clarification_continuation'
+      ? ['primary', 'followup']
+      : ['primary'];
+    for (const phase of requiredPhases) {
+      const fixture = phases?.[phase];
+      if (!fixture) {
+        problems.push(`${testCase.id}: 缺少 query rewrite ${phase} fixture`);
+        continue;
+      }
+      if (
+        !Array.isArray(fixture.targetCandidates) ||
+        !['comprehensive', 'technical', 'fundamental', 'events', 'comparison', 'strategy', 'backtest', 'portfolio_risk']
+          .includes(fixture.analysisFocusId) ||
+        !['dashboard', 'answer'].includes(fixture.outputIntent) ||
+        typeof fixture.broadUniverse !== 'boolean' ||
+        typeof fixture.confidence !== 'number'
+      ) {
+        problems.push(`${testCase.id}/${phase}: query rewrite fixture 结构无效`);
+      }
+    }
+  }
+  const publicCaseIds = new Set(publicCases.map((testCase) => testCase.id));
+  for (const fixtureCaseId of Object.keys(fixtureCases)) {
+    if (!publicCaseIds.has(fixtureCaseId)) {
+      problems.push(`query rewrite fixture 引用了未知 case：${fixtureCaseId}`);
+    }
+  }
   const externalDatasets = {};
   for (const definition of registry.datasets.filter((item) => item.visibility !== 'public')) {
     externalDatasets[definition.visibility] = readExternalCases(definition, problems);
