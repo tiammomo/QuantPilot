@@ -124,6 +124,14 @@ npm run check:integrations
 
 命令会产生真实模型 Token，但不写 Memory；只输出模型 ID、状态和 Token 计数，不输出 API Key、原始记忆正文或模型完整回复。Qwen-only、官方 direct-only 或 Memory-disabled 环境缺少未启用组件是预期结果，应分别检查实际启用的端点，不把 `check:integrations` 当作这些精简拓扑的统一健康门。
 
+要同时验证 agent-knowledge-platform 以及模型实际组合 Memory/Knowledge 后的效果，运行：
+
+```bash
+npm run check:triad-experience
+```
+
+该固定 30 题集额外覆盖 AKEP 自然语言检索、Citation、Usage/Feedback 幂等回执，以及 Qwen/DeepSeek 对两类上下文的选择性应用；报告落在 `tmp/triad-experience-latest.json`。
+
 ## 修改或新增 Profile
 
 长期配置入口是：

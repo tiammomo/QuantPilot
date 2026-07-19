@@ -26,22 +26,46 @@ market-data -- Quant HTTP --> QuantPilot data prefetch --> workspace
 4. QuantPilot 用配置固定的 Space、purpose、obligation 和字符预算请求 ContextPack。模型不能选择 AKEP URL、token、Space 或 purpose。
 5. ContextPack 被包装成不可信 JSON capsule。系统提示明确禁止其中内容覆盖用户请求、金融事实、权限、Skills、工具合同、验证和风险控制。
 6. 平台把 Citation、Revision、Payload digest、Policy Epoch 和 Exposure Receipt 写入 `evidence/knowledge-sources.json`，不建立正文镜像。
-7. 只有 Mission 取得 accepted Evidence Receipt 后，QuantPilot 才按实际进入 Agent 上下文的 Citation 写 AKEP Usage；取消、拒绝、澄清和失败任务不写 Usage。
+7. QuantPilot 在 Agent 调用前把 AKEP Exposure 与 Memory Usage 的不透明引用写入[联合上下文清单](context-composition.md)，不复制两边正文。
+8. 只有 Mission 取得 accepted Evidence Receipt 后，QuantPilot 才按实际进入 Agent 上下文的 Citation 写 AKEP Usage；取消、拒绝、澄清和失败任务不写 Usage。
+9. QuantPilot 将 Usage、Citation 绑定和 Mission receipt 写入服务端 `governed_knowledge_uses` 归因账本；工作空间 JSON 只用于审计展示，不能作为反馈授权依据。
+10. Mission 验收不抢占 AKEP 每个 Usage 唯一的最终 Feedback。最终消息显示“有帮助 / 一般 / 有伤害”，只有用户明确选择后才使用固定 evaluator 版本、业务事件 ID 和幂等键提交 AKEP Feedback。
+
+## 越用越强的治理闭环
+
+```text
+Published Knowledge -> ContextPack -> Accepted Mission -> Usage
+       ^                                             |
+       |                                             v
+review + publish <- evaluated Candidate <- helped / neutral / harmed
+```
+
+- `helped` 是可聚合的正向效果证据；`neutral` 表示使用过但没有确认增益；`harmed` 必须进入 AKEP 复审队列。
+- Feedback 不直接修改检索分数、正文或 Published Channel，避免单次评价、恶意评价或模型自评造成知识漂移。
+- 反复成功的业务模式可由独立 contributor workload 结合 accepted Mission receipt 和脱敏业务指标生成 Candidate。Qwen/ModelPort 可以辅助形成候选草稿，但模型输出只标记为 `generatedBy`，不能自评、自审或自发布。
+- AKEP 对 Candidate 执行固定数据集评测、证据检查和 Curator Review；Publisher 通过后，新 Revision 才进入下一次 ContextPack。
+- 因此“越用越强”是可回滚、可解释的发布循环，不是生产 Agent 在线改提示词或直接写知识库。
+
+当前代码已经打通 ContextPack、accepted Usage、服务端归因账本、显式 helped/neutral/harmed 和 AKEP 效果聚合。AKEP 已提供 Candidate、Evaluation、Review、Publish 与 harmed queue；候选内容的运营规则和评测集由接入业务按 Space 配置。
 
 当前第一阶段使用平台预取，不给模型增加动态知识工具。这样 MoAgent lane 的工具 schema 保持稳定，也不会让知识服务故障改变标准看板的确定性工具面。后续确需动态研究时，可在明确的 data-preparation lane 增加固定 schema 的只读工具，但 URL、Space、purpose、token 和预算仍由平台注入。
 
 ## 本地配置
 
-Agent Knowledge Platform 默认使用统一入口 `http://localhost:8080`，QuantPilot/ModelPort 分别使用 `3000`/`38082`，AKEP Core 直连调试端口可使用 `43117`，避免与 QuantPilot 冲突。
+Agent Knowledge Platform 使用同尾号端口对：统一 Web 入口 `http://localhost:33005`、Core 直连 `http://localhost:38085`。QuantPilot/ModelPort 分别使用 `3000`/`38082`，端口职责互不重叠。
 
 ```dotenv
 QUANTPILOT_KNOWLEDGE_ENABLED=1
 QUANTPILOT_KNOWLEDGE_REQUIRED=0
-QUANTPILOT_KNOWLEDGE_API_URL=http://localhost:8080
+QUANTPILOT_KNOWLEDGE_API_URL=http://localhost:33005
 QUANTPILOT_KNOWLEDGE_PURPOSE=quant-research
 QUANTPILOT_KNOWLEDGE_SPACES=https://knowledge.local/spaces/default
+QUANTPILOT_KNOWLEDGE_PROJECT_SPACES_ENABLED=1
+QUANTPILOT_KNOWLEDGE_PROJECT_SPACE_BASE_URL=https://knowledge.local/spaces/quantpilot/projects
 QUANTPILOT_KNOWLEDGE_BEARER_TOKEN=dev-reader
 ```
+
+`QUANTPILOT_KNOWLEDGE_SPACES` 是所有工作区都可读的共享 Space。每次请求还会由服务端追加 `<PROJECT_SPACE_BASE_URL>/<url-encoded Project.id>`；模型、浏览器 body 和生成 workspace 都不能选择或扩大它。生产 token 必须只授权所需 shared Space 与当前项目 Space。关闭 `PROJECT_SPACES_ENABLED` 表示明确采用 shared-only 模式，不适用于含项目私有知识的部署。
 
 `dev-reader` 只允许非生产 development auth。生产配置会拒绝静态 bearer token，必须提供 HTTPS OAuth client-credentials token endpoint、client ID/secret、AKEP resource 和最小 scopes。
 
@@ -73,8 +97,8 @@ Readiness 会分别展示 `knowledge` 与 `modelPort`，不能用顶层 `ok=true
 ## 验证
 
 ```bash
-curl --fail http://localhost:8080/.well-known/akep
-curl --fail http://localhost:8080/health/ready
+curl --fail http://localhost:33005/.well-known/akep
+curl --fail http://localhost:33005/health/ready
 curl --fail http://127.0.0.1:38082/livez
 npx vitest run src/lib/platform/knowledge src/lib/services/moagent-prompts.test.ts
 npm run check:service-catalog
@@ -85,7 +109,10 @@ npm run type-check
 
 - `src/lib/platform/knowledge/port.ts`：QuantPilot provider-neutral Port。
 - `src/lib/platform/knowledge/akep-http.ts`：AKEP HTTP、Discovery、同源和响应边界。
-- `src/lib/platform/knowledge/service.ts`：ContextPack、降级、Usage 与证据文件。
-- `src/app/api/chat/[project_id]/act/route.ts`：规划后预取、Mission 验收后 Usage。
+- `src/lib/platform/knowledge/service.ts`：ContextPack、降级、Usage、显式业务 Feedback 与证据文件。
+- `src/lib/platform/knowledge/growth.ts`、`use-repository.ts`：accepted Usage 归因、幂等反馈和服务端可信账本。
+- `src/lib/platform/context/use-manifest.ts`：连接 AKEP、Memory 与 Mission receipt 的无正文审计投影。
+- `src/app/api/chat/[project_id]/act/route.ts`：规划后预取、Agent 前联合曝光、Mission 验收后 Usage。
+- `src/app/api/projects/[project_id]/knowledge/*`、`src/components/chat/GovernedKnowledgeFeedback.tsx`：业务效果归因与用户强反馈。
 - `src/lib/services/moagent-prompts.ts`：不可信知识 capsule 的提示边界。
 - `config/service-catalog.json`、`src/lib/ops/readiness.ts`：AKEP 与 ModelPort 运维可见性。

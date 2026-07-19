@@ -44,7 +44,7 @@ evidence/data_quality.json
 | `.quantpilot/run_plan.json` | 消费 Query Rewrite 后形成的任务规划、标准代码、能力域、预期数据和可视化模板 |
 | `.quantpilot/events.jsonl` | 生成链路事件审计 |
 | `.quantpilot/generation-state.json` | 当前请求的阶段状态、错误、修复次数和元信息 |
-| `.quantpilot/generation-queue.json` | 当前 workspace 的生成队列、active request 和运行历史 |
+| `.quantpilot/generation-queue.json` | PostgreSQL generation job/outbox 的可再生投影，显示 active request 和运行历史；不是跨进程 claim、锁、取消或完成态权威 |
 | `.quantpilot/validation.json` | 自动验证报告 |
 | `.quantpilot/validation-repair-plan.json` | 自动修复计划 |
 | `.quantpilot/artifact-contracts.json` | run plan、final data、证据、队列和视觉产物契约检查 |

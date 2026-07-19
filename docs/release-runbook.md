@@ -5,7 +5,7 @@
 ## 当前部署边界
 
 - Web、market-data、PostgreSQL/TimescaleDB、Redis 和 Loki 必须在受控内网通信；只由 HTTPS 反向代理公开 Web。
-- 当前完整 generation pipeline 只支持单 Web 实例。数据库租约保护 MoAgent 写入，但外层预取、scaffold、build、preview 和验证尚未形成跨实例编排锁；未完成多主机故障测试前不要水平扩容 Web。
+- generation pipeline 已用 PostgreSQL job/outbox 在响应前持久化并 claim，项目级编排租约串行化 planning/data-prefetch、Agent execution 和 manual validation，AgentRun/Mission 分层 fencing 保护提交；进程崩溃会封存旧 attempt 并要求 replan，不会恢复 Provider 私有 session。当前 completion 仍由接收请求的 Web 进程启动，尚未拆出独立 polling worker，目标共享卷也未完成多主机断电验收；正式环境生成请求仍应路由到受控 generation worker/实例。
 - `PROJECTS_DIR` 必须是持久化、可读写的文件系统，且与数据库备份保持同一恢复点。
 - 生产密钥由 secret manager 或 root-only `EnvironmentFile` 注入，不写入镜像、standalone 目录、日志或 Git。
 

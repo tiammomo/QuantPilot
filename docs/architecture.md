@@ -67,7 +67,7 @@ flowchart LR
 | `moagent` | `deepseek:deepseek-v4-flash`（日常可选） | QuantPilot 调 ModelPort OpenAI-compatible `/chat/completions`；ModelPort 调 DeepSeek Anthropic `/v1/messages` | 分析与生成 |
 | `moagent` | `deepseek-v4-flash`（备用直连） | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 绕过 ModelPort 的部署/CI 备用链路 |
 
-MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。数据库唯一 active Mission slot 保证同一项目不会被两个合规入口同时创建非终态 generation。
+MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；项目级 generation lease、物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。generation lease 在 run plan 落盘前串行化外层编排，数据库唯一 active Mission slot 再保证同一项目不会被两个合规入口同时创建非终态 generation。
 
 模型和 CLI 的注册入口：
 
@@ -191,7 +191,7 @@ Go/Rust 的合理引入场景：
 - `.quantpilot/run_plan.json`
 - `.quantpilot/events.jsonl`
 - `.quantpilot/generation-state.json`
-- `.quantpilot/generation-queue.json`
+- `.quantpilot/generation-queue.json`（从 PostgreSQL `agent_generation_jobs` + outbox 生成的可丢弃观测投影；不参与 claim、取消或完成判定）
 - `.quantpilot/validation.json`
 - `.quantpilot/validation-repair-plan.json`
 - `.quantpilot/artifact-contracts.json`

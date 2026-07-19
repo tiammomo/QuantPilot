@@ -41,7 +41,7 @@ curl http://127.0.0.1:8000/api/v1/foundation/status
 QUANTPILOT_DEGRADATION_MODE=offline npm run dev
 ```
 
-## Qwen、ModelPort 与 Memory 日常检查
+## ModelPort、Memory 与 AKEP 日常检查
 
 三方服务启动后先运行只读验收：
 
@@ -51,19 +51,51 @@ npm run check:integrations
 
 成功表示 QuantPilot 默认 Qwen profile、ModelPort Qwen 与 DeepSeek 的模型发现/鉴权/工具流和续写、Qwen LLM Query Rewrite、Memory 契约和 readiness 均正常。DeepSeek 上游使用 ModelPort 的 Anthropic provider。该命令会产生真实模型 Token，但不写 Memory；输出不会包含凭据或记忆正文。
 
-发布验收、契约升级或故障恢复后，再按[用户记忆接入文档](user-memory-integration.md#qwenmodelport-与-memory-的三方长期验收)执行一次显式 `--write` 合成闭环。不要把写模式放进每分钟健康检查。
+发布验收、契约升级或故障恢复后，执行 `npm run check:triad-experience`；跨平台 scope、模型或身份边界变更后再执行 `npm run check:triad-experience:large`。后者会使用四个固定合成 subject 执行真实 Memory 写入和反馈闭环，不要放进每分钟健康检查。
+
+生产 Memory 发布必须额外执行 `npm run check:memory-production`。它要求 Memory 返回
+`production_ready=true`、`jwt/access_token` 身份边界、QuantPilot 使用短期 token broker，并以配置的
+非人类 probe subject 实际读取偏好列表，从而同时验证 JWT、JWKS、tenant/subject grant、
+ProcessingGrant、PostgreSQL 治理和耐久审计；只访问 `/health` 不算通过。
+
+需要验证真实问答体验，而不只是端点存活时，运行固定 30 题验收集：
+
+```bash
+npm run check:triad-experience
+```
+
+它覆盖 12 题大模型 Query Rewrite、6 题 Memory 写入/隔离/退出/归因、6 题 AKEP 检索/Citation/Usage/Feedback，以及 6 题模型与两类上下文的组合回答（其中一题验证 ModelPort DeepSeek）。报告写入 `tmp/triad-experience-latest.json`；测试只使用固定合成 subject 和隔离知识 Space，不读取真实用户记忆，也不输出凭据。可用 `-- --only=Q01,M02,K03,T04` 定点复测。
+
+上述体验集直接调用版本化服务边界，不创建任务记录。需要验收首页真实任务、Workspace、Mission 和最终预览时，先用两题校准，再用同一批次续跑全部 30 题：
+
+```bash
+npm run check:task-e2e -- --campaign=20260719a --limit=2
+npm run check:task-e2e -- --campaign=20260719a
+```
+
+该命令会真实登录、调用 Project 与 `/act` API，并在任务抽屉保留 `[E2E 20260719A/Cxx]` 记录；不要把它用于分钟级探活。重复使用同一 campaign 会恢复已有任务，不会复制创建。默认并发 2、单任务最长 20 分钟，可用 `--concurrency=1..4`、`--timeout-ms=...` 和 `--only=C01,C06` 控制。成功必须同时满足当前 Validation 通过、Mission accepted receipt 存在、核心产物完整、持久预览返回 HTTP 200，以及全部测试任务能在抽屉搜索到。状态轮询的 GET 请求会对短暂断连和 408/425/429/502/503/504 做有界重试；POST 不会被脚本盲目重放。
+
+如果少数 case 已进入权威失败终态，使用相同 campaign 和显式重试序号原地复测：
+
+```bash
+npm run check:task-e2e -- --campaign=20260719a --only=C18,C26,C27 --retry-failed=2
+```
+
+`--retry-failed=N` 只重试失败 case，并继续使用原 Project/任务抽屉记录；新的 request ID 使用 `-rN` 后缀。处于 `pending/running/repairing` 的任务不会被当成失败重放，脚本会继续等待自动修复和 Mission 验收。重试结束后再执行一次不带 `--only` 的完整命令，把 `tmp/task-e2e-<campaign>-latest.json` 恢复为全部 30 题的最终报告。该 `latest` 文件会被同 campaign 的每次执行覆盖，定点复测报告不能冒充全量报告。
 
 推荐排障顺序：
 
 1. ModelPort `/livez`、`/readyz` 和带鉴权的 `/v1/models`。
 2. ModelPort 管理台中 `deepseek` provider 的“查询余额”；它只读调用 DeepSeek 官方余额接口，充值和账单仍由 DeepSeek 控制台处理。
 3. Memory 根 discovery 和 `/readyz`；同时检查 `production_ready`，不要只看 HTTP 200。
-4. `npm run check:integrations`，区分模型发现、工具协议、Query Rewrite 和 Memory 契约错误。
-5. `curl http://127.0.0.1:3000/api/ready` 与 `npm run doctor`，确认 QuantPilot 自身数据库和本地归因表。
+4. AKEP `/health`、ContextPack 与 QuantPilot 配置的 Space；空 Space 即使 HTTP 200 也不会改善回答。
+5. `npm run check:integrations`，区分模型发现、工具协议、Query Rewrite 和 Memory 契约错误。
+6. `npm run check:triad-experience`，检查语义和组合体验，不以单次聊天主观判断兼容性。
+7. `curl http://127.0.0.1:3000/api/ready` 与 `npm run doctor`，确认 QuantPilot 自身数据库和本地归因表。
 
 如果数据预取已成功但没有生成看板，先检查项目 `.quantpilot/run_plan.json`：`queryRewrite.outputIntent` 应为 `dashboard`、`visualization.required` 应为 `true`，再核对 `templateId/variantId` 是否有受信 renderer。`queryRewrite.execution.llm.guardedFields` 出现 `outputIntent` 表示模型尝试无证据降级，平台已恢复默认看板；项目重新初始化不应出现“承接上一轮澄清”等前缀。
 
-三个项目必须独立升级和回滚。QuantPilot 不能导入 ModelPort/Memory 内部源码，ModelPort 与 Memory 不能共享 QuantPilot 数据库；跨仓兼容只以 `OpenAI-compatible HTTP` 和 `evolvable-memory-http/v1` 两个契约为准。
+四个仓库必须独立升级和回滚。QuantPilot 不能导入 ModelPort、Memory 或 AKEP 内部源码，外部服务不能共享 QuantPilot 数据库；跨仓兼容只以 `OpenAI-compatible HTTP`、`evolvable-memory-http/v1` 和 `AKEP v0.1 HTTP` 契约为准。
 
 ## 本地后台重启
 

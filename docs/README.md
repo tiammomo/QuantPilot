@@ -16,6 +16,7 @@
 | 想配置登录、用户权限或用量配额 | [用户、权限与会话管理](authentication.md) |
 | 想接入、使用或验证用户记忆服务 | [用户记忆服务接入、使用与效果验证](user-memory-integration.md) |
 | 想接入受治理知识平台 | [Agent Knowledge Platform 接入与解耦边界](knowledge-platform-integration.md) |
+| 想理解联合上下文、项目空间隔离或接入后续产品 | [联合上下文、项目隔离与接入规范](context-composition.md) |
 | 想配置 DeepSeek 或本地 Qwen 模型 | [模型 Provider 接入与使用](model-providers.md) |
 | 想确认当前前端启动模式 | [基础设施配置](infrastructure.md#主前端启动器) / [架构总览](architecture.md#构建与开发模式) |
 | 想理解生成链路 | [教学 02：AI 工作空间生成链路](learning/02-ai-workspace-generation.md) |
@@ -69,6 +70,7 @@
 | 认证与访问治理 | [用户、权限与会话管理](authentication.md) | 用户生命周期、capability 与项目角色双层授权、用量配额、数据库会话、安全审计和页面/API/WebSocket 边界 |
 | 用户记忆 | [用户记忆服务接入、使用与效果验证](user-memory-integration.md) | 启动接入、HTTP 解耦、实际效果、个性化键、归因反馈、鉴权与降级 |
 | 受治理知识 | [Agent Knowledge Platform 接入与解耦边界](knowledge-platform-integration.md) | AKEP ContextPack、Citation/Usage、OAuth、降级与 ModelPort 分工 |
+| 联合上下文 | [Memory、Knowledge 与 QuantPilot 联合上下文](context-composition.md) | Consumer/Workspace 两层隔离、后续产品接入、Usage Receipt、ContextUseManifest 与结果回流 |
 | 模型 Provider | [模型 Provider 接入与使用](model-providers.md) | DeepSeek、本地 Qwen、凭据、模型选择、协议要求与排障 |
 | 行情数据 | [行情数据源采集知识库](market-data-source-knowledge.md) | 东方财富、Baostock、AKShare、字段口径和补数规则 |
 | 策略平台 | [策略平台使用与设计指南](strategy-platform-guide.md) | 股票池、ETF/指数池、策略目录、因子目录、补数控制和策略数据依赖 |

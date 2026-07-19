@@ -14,10 +14,10 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
 - 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
 - LLM-first Query Rewrite：`preview` 与正式执行都由项目选中的模型生成 schema v4 语义合同，时间范围、宽域范围和 answer-only 意图必须有原文字面证据；证券 Resolver 独立确认代码。模型不可用时停止规划和预取，不以关键词结果冒充成功。
-- MoAgent 自研执行层：默认通过 ModelPort 使用本地 Qwen，日常 DeepSeek 经 ModelPort 的 Anthropic 上游 provider，也可为项目显式选择官方 OpenAI-compatible 直连并完全绕过 ModelPort；执行层负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL 双层 lease、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
+- MoAgent 自研执行层：默认通过 ModelPort 使用本地 Qwen，日常 DeepSeek 经 ModelPort 的 Anthropic 上游 provider，也可为项目显式选择官方 OpenAI-compatible 直连并完全绕过 ModelPort；执行层负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL generation job/事务 outbox、项目编排/AgentRun/Mission 分层 lease 与 fencing、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
 - Skills 能力层：通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 `.moagent/skills`，当前 Agent 执行仍从仓库兼容源按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力。
 - 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
-- 受治理知识接入：通过独立 AKEP HTTP 契约预取带 Revision/Citation 的有界 ContextPack，Mission 验收后记录 Usage；不共享数据库或源码。
+- 受治理上下文接入：通过独立 HTTP 契约组合 Memory Usage Receipt 与 AKEP ContextPack，Agent 前落无正文联合清单，Mission 验收后记录 AKEP Usage，用户明确评价后再分别回传 Memory Outcome 与 AKEP Feedback；不共享数据库或源码。
 
 ## 快速启动
 
@@ -35,6 +35,8 @@ MODELPORT_API_KEY="replace-with-scoped-modelport-client-key"
 ```
 
 本地 Qwen 是默认模型，日常 DeepSeek 也经 ModelPort 使用。DeepSeek 上游 Anthropic Key 只配置在 ModelPort；如果明确要绕过 ModelPort，则在 QuantPilot 注入 `DEEPSEEK_API_KEY`，并显式选择 `deepseek-v4-flash`。Memory 是独立可选组件，可用 `QUANTPILOT_MEMORY_ENABLED=0` 完全关闭。
+
+跨平台作用域采用 Consumer + Workspace 两层隔离：ModelPort API Key 固定绑定 QuantPilot 项目账本，Memory 使用 QuantPilot 独占 tenant，AKEP 每轮只查询 shared Space 与当前 `Project.id` 派生的 project Space；统一作用域摘要写入数据库和 workspace evidence。详见 [联合上下文与项目隔离](docs/context-composition.md)。
 
 | 运行方式 | `.env.local` 最小配置 | 额外动作 |
 | --- | --- | --- |
@@ -107,7 +109,10 @@ npm run dev
 | 四类生成模板真实构建 | `npm run check:scaffold-templates` |
 | 模型配置边界检查 | `npm run check:ai-provider-boundary` |
 | 模型目录与凭据连通性检查 | `npm run check:models` |
-| Qwen、ModelPort DeepSeek、Memory 完整联调 | `npm run check:integrations` |
+| Qwen、ModelPort DeepSeek、Memory 基础契约联调 | `npm run check:integrations` |
+| ModelPort、Memory、AKEP 30 题真实体验验收 | `npm run check:triad-experience` |
+| 四组自然语言变体、共 120 题真实压力验收 | `npm run check:triad-experience:large` |
+| 创建真实任务、生成 Workspace 并验收预览 | `npm run check:task-e2e -- --campaign=<批次>` |
 
 ## 文档导航
 
@@ -125,6 +130,7 @@ npm run dev
 | 想排障或做发布前检查 | [运行手册](docs/operations-runbook.md) / [故障排查](docs/troubleshooting.md) |
 | 想启用登录或配置权限/用量配额 | [用户、权限、配额与会话管理](docs/authentication.md) |
 | 想接入、使用或排查用户记忆 | [用户记忆服务接入、使用与效果验证](docs/user-memory-integration.md) |
+| 想理解 Memory、Knowledge 与 QuantPilot 的联合归因 | [联合上下文与结果归因](docs/context-composition.md) |
 | 想看后续优先级 | [持续完善路线图](docs/ROADMAP.md) |
 
 ## 推荐学习路径

@@ -228,9 +228,13 @@ evidence/data_quality.json
 
 如果用户已取消请求但队列仍显示 running，优先查看：
 
+- PostgreSQL `agent_generation_jobs` 中该 request 的 `status`、`lease_expires_at`、`fencing_token` 和 `error_code`；这是权威状态，workspace JSON 只是投影。
+- `agent_generation_outbox_events` 中同一 job 的 sequence 是否连续，以及 `published_at` 是否仍为空；未发布事件会在下一次状态读取时重投影。
 - `POST /api/chat/<project_id>/pause`
 - `/ops-platform` 中的 active request。
 - `.quantpilot/events.jsonl` 中最近的 queue 事件。
+
+如果数据库 job 已是 `cancelled`、`failed` 或 `interrupted`，但 JSON 仍显示 running，不要手改文件；重新读取项目状态触发投影修复。`DISPATCH_LEASE_EXPIRED_REPLAN_REQUIRED` 表示旧 worker 的细粒度 lease 也已失活，系统已封存旧 attempt，需要新请求基于当前 workspace 重规划。
 
 ## 自动验证失败后没有修复
 

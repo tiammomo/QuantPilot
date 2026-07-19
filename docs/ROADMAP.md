@@ -14,7 +14,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 - 数据能力已经有 K 线、覆盖率、ClickHouse 短线筛选，但财报质量、真实资金流、行业中性化和日频因子批处理仍需补齐。
 - 投研日报已经有观察池、报告契约、本地证据采样和企业微信/飞书/钉钉/Discord webhook adapter，后续要接新闻舆情源、LLM 摘要和定时 worker。
 - 后台队列和长任务目前还没有完全 worker 化，长期运行、暂停恢复和失败重试仍需要继续收敛。
-- 本地 Qwen 与 DeepSeek Anthropic 上游已通过 ModelPort 的限定模型发现、鉴权、流式工具调用和续写验收；Query Rewrite 已升级为 schema v4 LLM-first 合同，保持“大位科技”等原文实体，并在模型不可用时停止规划/预取，不再走关键词语义降级。DeepSeek 上游 Key 已收口到 ModelPort，管理台可只读查询官方余额，QuantPilot 仅持有受限客户端 Key。Evolvable User Memory 已通过隔离 subject 的写入、召回、项目隔离、提示注入和 Outcome 闭环。当前本地长期使用链路已打通，但 Memory 的 processing grant、抑制/删除、持久审计和可信 JWT 仍是生产阻塞项。
+- 本地 Qwen 与 DeepSeek Anthropic 上游已通过 ModelPort 的限定模型发现、鉴权、流式工具调用和续写验收；ModelPort 已为 OpenAI Chat Completions 应用本地 Qwen 默认思考策略，避免工具任务耗尽隐藏推理预算。Query Rewrite 已升级为 schema v4 LLM-first 合同，保持“大位科技”等原文实体，并在模型不可用时停止规划/预取，不再走关键词语义降级。Evolvable User Memory 已通过隔离 subject 的写入、召回、项目隔离、提示注入和 Outcome 闭环；AKEP 已通过自然语言检索、Citation、Usage 与 Feedback 幂等闭环。服务级固定 30 题体验集连续两轮 60/60 通过；任务级 campaign 进一步以 24 个 Qwen、6 个 ModelPort DeepSeek 的真实 Project 验证 `/act`、Workspace、Validation、Mission receipt、持久预览和任务抽屉，最终 30/30 READY。当前本地长期使用链路已打通；Memory 的持久治理、耐久审计、可信 JWT 和 production profile 仍是生产阻塞项。
 
 ## 精炼优先级快照
 
@@ -43,8 +43,10 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 生成生命周期准确性 | `needs_clarification`、排队、运行、修复不能被统计成失败 | 健康度按生命周期分层，仅终态任务进入交付成功率；等待输入给出明确下一步 |
 | 生成任务持久化 | 规划和预取也可能并发覆盖，长任务不能依赖请求进程 | 从请求入队开始串行执行，支持 request/run 级取消、幂等、恢复和终态 CAS |
 | 评测真实性分层 | 模板契约通过不等于模型生成通过 | contract 与 DeepSeek E2E 报告明确分开，夜间 E2E 绑定 commit、prompt、Skills 和数据证据 |
-| 三方集成契约门禁 | Qwen、ModelPort、Memory 独立升级后不能靠人工聊天猜兼容性 | `npm run check:integrations` 只读验收稳定通过；契约升级后显式运行隔离合成闭环；不共享源码或数据库 |
+| 长期集成契约门禁 | ModelPort、Memory、AKEP 独立升级后不能靠人工聊天猜兼容性 | `npm run check:integrations` 做基础只读验收；`npm run check:triad-experience` 固定 30 题覆盖语义、回执和组合回答；不共享源码或数据库 |
+| 跨平台项目空间隔离 | 后续多个产品共享基础设施时，不能共享身份、账本、偏好或项目知识 | 已建立 Consumer + Workspace 两层作用域、API Key 绑定、Memory tenant/facet 边界、shared + project Space 白名单和 scope digest；新产品接入必须通过伪造 scope、跨 tenant/Space 与重放负向测试 |
 | Query Rewrite 单一语义入口 | 关键词旁路会让模型配置正确时仍执行错误标的/周期 | schema v4、Provider 边界检查和单测共同保证 LLM-first；Resolver 只核验身份；模型失败时不进入 run plan/预取 |
+| 任务终态与修复竞态 | 中间 Validation 失败不能抢先终止仍在运行的自动修复 | `pending/running/repairing` 始终保持非终态；只有编排完成或失败后才发布 ready/failed；任务级 E2E 原记录重试并复核 30/30 |
 
 对应文档：
 
@@ -110,7 +112,9 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 工作 | 为什么重要 | 验收标准 |
 | --- | --- | --- |
 | Worker 化 | 长任务不应长期依赖 Next.js 请求生命周期；该项已从 P2 提前 | 生成、评测、策略扫描、补数任务可由独立 worker 执行 |
-| Redis 任务状态和锁 | 跨进程任务需要短期状态、锁和进度快照 | Redis 承载进度和锁，PostgreSQL 保存事实状态和最终结果 |
+| MoAgent 收敛 checkpoint | ProgressOracle 不能只存在于请求进程内 | 已完成 `progress_evaluated`、canonical-hash checkpoint v2、恢复前完整性校验和停滞状态投影；后续由 worker dispatcher 消费 replan 信号，而不是恢复旧 Provider session |
+| Mission 与外层编排接管 | 进程退出不能让任务永久占用，旧 worker 也不能晚到覆盖 | 已完成 Mission verification lease/fencing、项目级 generation lease，以及过期 dispatch 在细粒度 lease 全部失活后原子关闭 UserRequest/Mission 的 replan reconciliation |
+| Durable dispatcher / outbox | `.quantpilot/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、取消与崩溃封存；下一步拆出独立 polling worker 自动消费 pending/replan，Redis 只做可丢失唤醒 |
 | 暂停、恢复、停止语义统一 | 当前不同任务类型语义容易不一致 | 所有长任务都明确 checkpoint、resume offset、stop grace 和失败重试 |
 | 任务事件 outbox | 后续接 ClickHouse、日志或审计需要可重放事件 | 任务状态变化有事件记录，可用于运行治理中心和评测分析 |
 
