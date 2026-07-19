@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantpilot_dev_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-35433}:5432"
+      - "${POSTGRES_PORT:-35433}:5432"
     volumes:
       - quantpilot_ci_timescaledb_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +28,7 @@ services:
       - "60"
       - "1000"
     ports:
-      - "127.0.0.1:${REDIS_PORT:-36380}:6379"
+      - "${REDIS_PORT:-36380}:6379"
     volumes:
       - quantpilot_ci_redis_data:/data
     healthcheck:

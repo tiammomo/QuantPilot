@@ -57,8 +57,12 @@ function validateCatalog() {
   if (!dockerCompose.includes('pg_isready -h 127.0.0.1')) {
     fail('timescaledb healthcheck must require TCP readiness before dependent services start');
   }
-  if (!ciDockerCompose.includes('quantpilot-ci') || ciDockerCompose.includes('/docker-entrypoint-initdb.d')) {
-    fail('docker-compose.ci.yml must isolate CI data services without entrypoint SQL mounts');
+  if (
+    !ciDockerCompose.includes('quantpilot-ci') ||
+    !ciDockerCompose.includes('${POSTGRES_PORT:-35433}:5432') ||
+    ciDockerCompose.includes('/docker-entrypoint-initdb.d')
+  ) {
+    fail('docker-compose.ci.yml must expose isolated CI data services without loopback-only or entrypoint SQL mounts');
   }
   const expectedServices = [
     'web',
