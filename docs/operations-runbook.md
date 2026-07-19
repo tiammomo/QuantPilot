@@ -41,6 +41,30 @@ curl http://127.0.0.1:8000/api/v1/foundation/status
 QUANTPILOT_DEGRADATION_MODE=offline npm run dev
 ```
 
+## Qwen、ModelPort 与 Memory 日常检查
+
+三方服务启动后先运行只读验收：
+
+```bash
+npm run check:integrations
+```
+
+成功表示 QuantPilot 默认 Qwen profile、ModelPort Qwen 与 DeepSeek 的模型发现/鉴权/工具流和续写、Qwen LLM Query Rewrite、Memory 契约和 readiness 均正常。DeepSeek 上游使用 ModelPort 的 Anthropic provider。该命令会产生真实模型 Token，但不写 Memory；输出不会包含凭据或记忆正文。
+
+发布验收、契约升级或故障恢复后，再按[用户记忆接入文档](user-memory-integration.md#qwenmodelport-与-memory-的三方长期验收)执行一次显式 `--write` 合成闭环。不要把写模式放进每分钟健康检查。
+
+推荐排障顺序：
+
+1. ModelPort `/livez`、`/readyz` 和带鉴权的 `/v1/models`。
+2. ModelPort 管理台中 `deepseek` provider 的“查询余额”；它只读调用 DeepSeek 官方余额接口，充值和账单仍由 DeepSeek 控制台处理。
+3. Memory 根 discovery 和 `/readyz`；同时检查 `production_ready`，不要只看 HTTP 200。
+4. `npm run check:integrations`，区分模型发现、工具协议、Query Rewrite 和 Memory 契约错误。
+5. `curl http://127.0.0.1:3000/api/ready` 与 `npm run doctor`，确认 QuantPilot 自身数据库和本地归因表。
+
+如果数据预取已成功但没有生成看板，先检查项目 `.quantpilot/run_plan.json`：`queryRewrite.outputIntent` 应为 `dashboard`、`visualization.required` 应为 `true`，再核对 `templateId/variantId` 是否有受信 renderer。`queryRewrite.execution.llm.guardedFields` 出现 `outputIntent` 表示模型尝试无证据降级，平台已恢复默认看板；项目重新初始化不应出现“承接上一轮澄清”等前缀。
+
+三个项目必须独立升级和回滚。QuantPilot 不能导入 ModelPort/Memory 内部源码，ModelPort 与 Memory 不能共享 QuantPilot 数据库；跨仓兼容只以 `OpenAI-compatible HTTP` 和 `evolvable-memory-http/v1` 两个契约为准。
+
 ## 本地后台重启
 
 开发机上需要重新启动前后端时，只处理主前端和 market-data，不要顺手重建数据库卷。推荐流程：
@@ -115,6 +139,20 @@ POST /api/v1/ingestion/jobs/{job_id}/control
 | `stop` | 终止任务，保留已入库数据和任务日志 |
 
 ### 验证补数结果
+
+先运行新鲜度门禁。它会同时检查交易日历覆盖范围和 `daily/qfq` 最新日期，避免过期交易日历掩盖过期日线：
+
+```bash
+npm run check:market-freshness
+```
+
+该命令默认要求跟进最近一个已完成交易日（上海时间 18:00 后视为当日日线已就绪）。确需容忍上游延迟时，可直接运行脚本并显式设置允许落后的工作日数量：
+
+```bash
+node scripts/checks/check-market-data-freshness.js --max-lag-sessions 1
+```
+
+快速 `doctor` 会把过期数据报告为 warning；上面的独立门禁会返回非零退出码，适合部署或定时任务。
 
 ```bash
 npm run db:psql
@@ -240,7 +278,7 @@ npm run package:skills
 npm run check:validation-repair
 npm run check:project-visual
 npm run check:platform-visuals
-npm run benchmark:quant -- --case <case-id>
+npm run benchmark:quant:contract -- --case <case-id>
 ```
 
 失败案例应优先沉淀成规则，而不是只修某个生成工作空间。

@@ -15,6 +15,8 @@
 
 如果判断不出来，按“环境、数据、契约、页面、skill”的顺序排查。这个顺序通常比直接改页面更省时间。
 
+配置问题先看[配置、模型接入与可选组件指南](configuration.md)。运行时优先级是“进程环境 > `.env.local` > `.env`”；容器或 shell 中遗留的同名变量会覆盖文件。不要靠复制整份 `.env.example` 排障，它会增加重复配置。
+
 ## 一键诊断
 
 优先运行：
@@ -26,7 +28,7 @@ npm run doctor
 它会快速检查：
 
 - Node、npm、uv 版本。
-- DeepSeek 官方 API Key。
+- 默认本地 Qwen Provider 凭据，以及可选 DeepSeek 官方 API Key。
 - 项目内置 Agent 执行引擎。
 - 前端 `3000` 和后端 `8000` 可达性。
 - PostgreSQL / TimescaleDB、Loki 可观测性和降级配置。
@@ -52,7 +54,7 @@ npm run doctor:full
 QUANTPILOT_DEGRADATION_MODE=offline npm run doctor
 ```
 
-`offline` 会跳过市场数据后端、Loki/Grafana/Alloy 和 Redis 等可选外部探测；`auto` 适合本地开发；`strict` 适合 CI 或生产巡检。
+`offline` 会跳过市场数据后端、Memory、Loki/Grafana/Alloy 和 Redis 等可选外部探测；`auto` 适合本地开发；`strict` 适合 CI 或生产巡检。只想关闭 Memory 时使用 `QUANTPILOT_MEMORY_ENABLED=0`，不要切换整个系统到 `offline`。
 
 前端开发启动还有一个恢复保护：如果曾经用降级方式启动，但下一次启动时数据库、market-data、Redis 或 Loki 已经恢复，`npm run dev` 会在本次进程里切回 `auto` 和启用状态。只有确实要保留降级时才加：
 
@@ -86,7 +88,7 @@ http://localhost:3000
 当前前端启动链路是：
 
 ```text
-npm run dev -> scripts/dev/run-web.js -> npx next dev
+npm run dev -> scripts/dev/run-full.js -> scripts/dev/run-web.js -> npx next dev
 ```
 
 启动器只负责环境、端口、稳定 CSS、Prisma 检查和 Next dev 缓存保护；不再接入 `next-rspack`，也不再读取 `QUANTPILOT_BUNDLER` 做 bundler 切换。
@@ -132,28 +134,52 @@ npm run obs:up
 默认入口：
 
 ```text
-Loki: http://127.0.0.1:3100
-Grafana: http://localhost:3001
+Loki: http://127.0.0.1:33100
+Grafana: http://localhost:33012
 Alloy: http://localhost:12345
 ```
 
 如果不需要集中日志，可保持 Loki 停止。运行治理中心会降级读取本地日志文件；`npm run doctor` 在 `auto` 模式下只给 warning，不会失败。
 
-## DeepSeek V4 Flash 未就绪
+## 默认 ModelPort Qwen 未就绪
 
-确认 `.env.local` 中包含 DeepSeek 官方控制台签发的密钥：
+确认 ModelPort 监听 `http://127.0.0.1:38082/v1`，并在 QuantPilot `.env.local` 中配置它签发的受限客户端 Key：
 
 ```dotenv
-DEEPSEEK_API_KEY="your-deepseek-api-key"
+MODELPORT_API_KEY="your-scoped-modelport-client-key"
 ```
 
-平台固定使用 `deepseek-v4-flash`，由 MoAgent 直连 `https://api.deepseek.com/chat/completions`。不要设置自定义 Base URL、模型别名、备用模型或中转站变量；这些配置不会被读取。
+默认 profile 固定为 `local_qwen:qwen3.5-9b-q5km`。可先请求 `/v1/models` 验证鉴权；`401` 表示服务已连通但客户端 Key 未被接受，`403` 表示 Key 未获准访问该 provider/model。配置修改后重启 QuantPilot。新项目和未显式指定模型的 Query Rewrite 会自动使用 Qwen。
+
+## 日常 ModelPort DeepSeek 未就绪
+
+确认 ModelPort 自身运行环境包含 DeepSeek 上游 Key，QuantPilot 不保存该 Key：
+
+```dotenv
+DEEPSEEK_ANTHROPIC_AUTH_TOKEN="your-deepseek-upstream-key"
+```
+
+ModelPort `deepseek` provider 必须使用 `protocol = "anthropic"`、Base URL `https://api.deepseek.com/anthropic`，并公布 `deepseek:deepseek-v4-flash`。QuantPilot 的 `MODELPORT_API_KEY` 还必须获准访问 `deepseek` provider 和该限定模型。管理台“查询余额”成功但模型请求失败时，重点检查协议/工具兼容；余额查询失败时检查上游 Key 与 DeepSeek 账户状态。
+
+只有显式选择 `deepseek-v4-flash` 官方直连 profile 时，QuantPilot 运行环境才需要注入 `DEEPSEEK_API_KEY`；默认本地使用不配置它。
+
+## DeepSeek 官方直连失败
+
+先确认项目选择的是 `deepseek-v4-flash`，不是带命名空间的 `deepseek:deepseek-v4-flash`。前者直连官方，后者经过 ModelPort。再检查当前 QuantPilot 进程能否读取：
+
+```bash
+test -n "${DEEPSEEK_API_KEY}" && echo configured || echo missing
+```
+
+如果 Key 写在 `.env.local`，修改后必须重启 QuantPilot。官方直连不读取 `MODELPORT_API_KEY` 或 `DEEPSEEK_ANTHROPIC_AUTH_TOKEN`；也不会访问 `127.0.0.1:38082`。完全不运行 ModelPort 时，还要把账号/新项目默认模型显式改为官方直连，否则代码级默认 Qwen 的连接失败是预期行为。
+
+可直接请求 `https://api.deepseek.com/chat/completions` 区分官方鉴权问题与 QuantPilot 运行问题；该验证会产生真实 Token 费用，示例见[模型 Provider 接入](model-providers.md#deepseek-官方直连不走-modelport)。
 
 然后重启并检查：
 
 ```bash
 npm run dev
-npm run check-cli
+npm run check:models
 ```
 
 ## 生成页面没有真实行情
@@ -287,3 +313,20 @@ Reached maximum
 ```
 
 Loki 可用时优先在运行治理中心日志页查集中日志；Loki 不可用时查看本地文件日志。Next dev 的编译成功日志很多，通常可以先忽略，重点看红色错误、API 失败、SSE 断连和 Agent runtime 返回的错误。
+
+## Memory 已启动但聊天没有个性化
+
+如果 `QUANTPILOT_MEMORY_ENABLED=0`，`personalization.status=disabled` 是正常结果，不需要启动 Memory 或继续排查 URL/token。`REQUIRED=0` 则不是关闭：服务健康时仍会召回，异常时状态为 `unavailable` 并允许核心任务继续。
+
+先把“服务存活”“契约兼容”和“有匹配偏好”分开检查：
+
+```bash
+curl -fsS http://127.0.0.1:38089/
+curl -fsS http://127.0.0.1:38089/readyz
+curl -fsS http://127.0.0.1:3000/api/ready
+npm run doctor
+```
+
+根路径必须包含 `api_contract=evolvable-memory-http/v1`，`/readyz` 必须是 `ready`，QuantPilot readiness 中的 `memory` 组件必须是 `ok`。根路径返回 200 但没有 `api_contract`，通常说明旧进程或旧镜像未重启；重新构建或重启 Memory 后再验证。
+
+服务健康但消息 metadata 为 `personalization.status=empty` 时，检查是否真的写入了允许的 `analysis.*`、`output.*` 或 `research.*` 键，`context.product` 是否为 `quantpilot`，项目级偏好的 `project_id` 是否与当前项目一致。`prepared` 表示候选偏好已通过过滤，但只有最终回复显示“本轮实际使用了 N 条个人偏好”才证明 capsule 真正进入 Agent；澄清、拒绝和平台直出不会产生可反馈归因。`unavailable` 表示可选集成已降级，核心任务会继续；具体 API 示例、状态解释和 Outcome 归因规则见[用户记忆服务接入、使用与效果验证](user-memory-integration.md)。

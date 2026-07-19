@@ -129,7 +129,7 @@ npm run auth:bootstrap
 
 可能产生资源消耗的操作先创建带 TTL 的 reservation，成功后按实际数量 settlement，将 `reserved` 转入 `used` 并写入 `usage_events`；失败或取消则 release。预留、结算和直接记账都要求唯一幂等键，同一键重复相同请求只返回原结果，用不同 actor、metric、项目或数量复用则返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。这避免客户端重试和 worker 重放造成重复扣量，并用数据库事务、advisory lock 与条件更新防止并发超卖。
 
-`npm run prisma:deploy`（兼容别名 `prisma:push`）、Web 启动和 `db:init` 都先执行版本化 migration，再幂等补齐内置策略，并在接收流量前用 `projects.owner_id` 校准 `projects.owned` 全生命周期 bucket。校准与正常配额变更使用同一 actor/metric/window advisory lock；如果项目创建仍持有有效 reservation，该 actor 会被跳过，待下次启动重试，避免把“项目已插入但 reservation 尚未结算”的中间态重复计量。该精确校准只用于启动/管理员 bootstrap，不属于周期 cleanup；周期任务只回收过期 reservation。
+`npm run prisma:deploy`、Web 启动和 `db:init` 都先执行版本化 migration，再幂等补齐内置策略，并在接收流量前用 `projects.owner_id` 校准 `projects.owned` 全生命周期 bucket。校准与正常配额变更使用同一 actor/metric/window advisory lock；如果项目创建仍持有有效 reservation，该 actor 会被跳过，待下次启动重试，避免把“项目已插入但 reservation 尚未结算”的中间态重复计量。该精确校准只用于启动/管理员 bootstrap，不属于周期 cleanup；周期任务只回收过期 reservation。
 
 管理员的用户级配额固定为无限，不能设置数值限制；这只是 enforcement 豁免，不是停止计量。管理员发起的已接入操作仍写入 bucket 和 `usage_events`，事件标记 `enforcement_exempt=true`，所以管理端可以看到真实 `used/reserved`，用于成本分析和异常检测。
 
