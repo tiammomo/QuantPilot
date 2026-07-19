@@ -16,7 +16,11 @@ services:
       - quantpilot_timescaledb_data:/var/lib/postgresql/data
       - ./sqls:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      # The image starts a temporary Unix-socket-only PostgreSQL server while
+      # running /docker-entrypoint-initdb.d. Requiring TCP keeps Compose from
+      # reporting healthy before the final database server is accepting the
+      # same connections used by Prisma and the application.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 10

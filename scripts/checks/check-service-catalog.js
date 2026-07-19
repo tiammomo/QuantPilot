@@ -53,6 +53,9 @@ function validateCatalog() {
   const validProtocols = new Set(['http', 'postgresql', 'redis']);
   const ids = new Set();
   const dockerCompose = exists('docker-compose.yml') ? read('docker-compose.yml') : '';
+  if (!dockerCompose.includes('pg_isready -h 127.0.0.1')) {
+    fail('timescaledb healthcheck must require TCP readiness before dependent services start');
+  }
   const expectedServices = [
     'web',
     'market-data',

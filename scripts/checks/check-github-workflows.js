@@ -9,7 +9,9 @@ const expectedActions = new Map([
   ['actions/checkout', 'v7'],
   ['actions/setup-node', 'v7'],
   ['actions/upload-artifact', 'v7'],
-  ['astral-sh/setup-uv', 'v8'],
+  // setup-uv publishes immutable release tags but does not currently expose
+  // a moving v8 tag, so the major-only reference cannot be resolved by Actions.
+  ['astral-sh/setup-uv', 'v8.3.2'],
 ]);
 const failures = [];
 
