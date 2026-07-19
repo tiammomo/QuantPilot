@@ -58,15 +58,14 @@ for attempt in $(seq 1 "$max_attempts"); do
     host_ready=1
   fi
 
-  # The host-side TCP connection verifies the same published address used by
-  # migrations and the application. Prisma compatibility is then validated by
-  # the real migrate/db:init command instead of overloading `db execute` as a
-  # liveness probe.
-  if [ "$redis_ready" -eq 1 ] && [ "$host_ready" -eq 1 ]; then
+  # This script owns container readiness only. The immediately following
+  # migrate/db:init command is the authoritative host-network and database
+  # compatibility check; a custom socket probe must not supersede it.
+  if [ "$postgres_ready" -eq 1 ] && [ "$redis_ready" -eq 1 ]; then
     stable_checks=$((stable_checks + 1))
     log "Readiness check ${attempt}/${max_attempts} passed (${stable_checks}/${required_stable_checks} consecutive)."
     if [ "$stable_checks" -ge "$required_stable_checks" ]; then
-      log 'TimescaleDB and Redis are stably reachable from both containers and the host runtime.'
+      log "TimescaleDB and Redis are stable; host TCP diagnostic=${host_ready}."
       exit 0
     fi
   else
@@ -82,6 +81,6 @@ for attempt in $(seq 1 "$max_attempts"); do
 done
 
 diagnostics
-printf '::error title=Local infrastructure timeout::postgres=%s redis=%s host=%s; required %s consecutive host-ready checks.\n' \
+printf '::error title=Local infrastructure timeout::postgres=%s redis=%s host=%s; required %s consecutive container-ready checks.\n' \
   "$postgres_ready" "$redis_ready" "$host_ready" "$required_stable_checks"
 exit 1
