@@ -131,6 +131,9 @@ jobs:
       QUANTPILOT_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:3000
       QUANTPILOT_AUTH_SECURE_COOKIES: 0
       QUANTPILOT_AUTH_ALLOW_SIGNUP: 0
+      QUANTPILOT_AUTH_ADMIN_EMAIL: auth-smoke-admin@quantpilot.local
+      QUANTPILOT_AUTH_ADMIN_PASSWORD: AuthSmokeAdministrator!2026
+      QUANTPILOT_AUTH_ADMIN_NAME: QuantPilot CI Administrator
       QUANTPILOT_DEGRADATION_MODE: auto
       QUANTPILOT_MARKET_API_ENABLED: 0
       QUANTPILOT_REDIS_CACHE_ENABLED: 1
@@ -154,7 +157,7 @@ jobs:
 
       - name: Prepare database and local administrator
         run: |
-          docker compose up -d --wait timescaledb redis
+          bash scripts/ci/start-local-infrastructure.sh
           npm run prisma:deploy
           npm run auth:bootstrap
 
@@ -179,7 +182,9 @@ jobs:
           name: auth-smoke-${{ github.run_id }}
           if-no-files-found: warn
           retention-days: 14
-          path: tmp/auth-web.log
+          path: |
+            tmp/auth-web.log
+            tmp/local-infrastructure.log
 
       - name: Stop infrastructure
         if: always()
@@ -220,7 +225,7 @@ jobs:
 
       - name: Start local data services
         run: |
-          docker compose up -d --wait timescaledb redis
+          bash scripts/ci/start-local-infrastructure.sh
           npm run db:init
           mkdir -p tmp
           npm run dev:market > tmp/contract-market.log 2>&1 &
@@ -256,6 +261,7 @@ jobs:
             tmp/quantpilot-benchmark-screenshots/
             tmp/quantpilot-eval-mutations/
             tmp/contract-market.log
+            tmp/local-infrastructure.log
 
       - name: Stop infrastructure
         if: always()

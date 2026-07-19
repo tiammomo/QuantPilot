@@ -15,6 +15,10 @@ const expectedActions = new Map([
 ]);
 const failures = [];
 
+if (!fs.existsSync(path.join(root, 'scripts', 'ci', 'start-local-infrastructure.sh'))) {
+  failures.push('missing scripts/ci/start-local-infrastructure.sh');
+}
+
 for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.test(name)).sort()) {
   const relativePath = path.posix.join('.github', 'workflows', filename);
   const source = fs.readFileSync(path.join(workflowDir, filename), 'utf8');
@@ -25,6 +29,17 @@ for (const filename of fs.readdirSync(workflowDir).filter((name) => /\.ya?ml$/.t
       failures.push(`${relativePath}: ${action} must use ${expectedRevision}, found ${revision}`);
     }
   }
+}
+
+const quality = fs.readFileSync(path.join(workflowDir, 'quality.yml'), 'utf8');
+const infrastructureStartUses = quality.match(/bash scripts\/ci\/start-local-infrastructure\.sh/g) ?? [];
+if (infrastructureStartUses.length !== 2) {
+  failures.push(
+    `.github/workflows/quality.yml: stable local infrastructure gate must be used twice, found ${infrastructureStartUses.length}`,
+  );
+}
+if (!/QUANTPILOT_AUTH_ADMIN_EMAIL:\s*auth-smoke-admin@quantpilot\.local/.test(quality)) {
+  failures.push('.github/workflows/quality.yml: authenticated smoke must use an explicit CI administrator');
 }
 
 const nightlyPath = path.join(workflowDir, 'eval-nightly.yml');

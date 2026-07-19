@@ -4,6 +4,8 @@ const { PrismaClient } = require('@prisma/client');
 const { chromium } = require('playwright');
 
 const baseUrl = process.env.BETTER_AUTH_URL || 'http://127.0.0.1:3000';
+const adminEmail = process.env.QUANTPILOT_AUTH_ADMIN_EMAIL || 'admin@quantpilot.local';
+const adminPassword = process.env.QUANTPILOT_AUTH_ADMIN_PASSWORD || 'admin';
 const memberEmail = 'authz-e2e-member@quantpilot.local';
 const projectId = 'authz-e2e-project';
 const memberTestPassword = 'MemberVerification!2026';
@@ -51,7 +53,7 @@ async function main() {
   let memberId = null;
   try {
     const admin = await prisma.authUser.findUnique({
-      where: { email: 'admin@quantpilot.local' },
+      where: { email: adminEmail },
       include: { accounts: { where: { providerId: 'credential' }, take: 1 } },
     });
     if (!admin || !admin.accounts[0]?.password) throw new Error('Local admin credential is missing.');
@@ -69,7 +71,7 @@ async function main() {
 
     const adminContext = await browser.newContext();
     const adminPage = await adminContext.newPage();
-    await login(adminPage, 'admin', 'admin');
+    await login(adminPage, adminEmail, adminPassword);
     await adminPage.goto(`${baseUrl}/admin/users`, { waitUntil: 'networkidle' });
     await adminPage.getByRole('heading', { name: '用户管理' }).waitFor();
 
