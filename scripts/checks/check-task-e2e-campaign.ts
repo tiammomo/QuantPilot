@@ -74,6 +74,10 @@ function option(name: string): string | null {
   return argv.find((value) => value.startsWith(prefix))?.slice(prefix.length).trim() || null;
 }
 
+function flag(name: string): boolean {
+  return argv.includes(`--${name}`);
+}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -447,6 +451,26 @@ async function verifyTaskDrawer(context: BrowserContext, campaign: string, expec
   }
 }
 
+async function cleanupCampaignProjects(
+  request: APIRequestContext,
+  campaign: string,
+  projectIds: string[],
+): Promise<number> {
+  const prefix = `project-e2e-${campaign}-`;
+  assert(projectIds.every((projectId) => projectId.startsWith(prefix)),
+    `Refusing to clean a project outside campaign prefix ${prefix}.`);
+  let deleted = 0;
+  for (const projectId of projectIds) {
+    const response = await api(request, `/api/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+    });
+    assert(response.status === 200 || response.status === 404,
+      `Delete ${projectId} returned HTTP ${response.status}: ${JSON.stringify(response.body)}`);
+    if (response.status === 200) deleted += 1;
+  }
+  return deleted;
+}
+
 async function main(): Promise<void> {
   const dataset = await readDataset();
   const campaign = campaignId();
@@ -459,6 +483,9 @@ async function main(): Promise<void> {
   );
   const pollMs = integerOption('poll-ms', 5_000, 1_000, 30_000);
   const retryFailedAttempt = optionalIntegerOption('retry-failed', 2, 99);
+  const forceCleanup = flag('cleanup');
+  const retainProjects = flag('retain-projects');
+  assert(!(forceCleanup && retainProjects), '--cleanup and --retain-projects cannot be used together.');
   const only = new Set((option('only') ?? '').split(',').map((value) => value.trim()).filter(Boolean));
   const selected = dataset.cases
     .filter((item) => only.size === 0 || only.has(item.id))
@@ -466,7 +493,10 @@ async function main(): Promise<void> {
   assert(selected.length > 0, 'No task E2E cases were selected.');
   const reportPath = path.join(root, 'tmp', `task-e2e-${campaign}-latest.json`);
   const results = new Map<string, CaseResult>();
-  const writeReport = async (drawerCount: number | null = null) => {
+  const writeReport = async (
+    drawerCount: number | null = null,
+    cleanup: { attempted: boolean; deleted: number } | null = null,
+  ) => {
     const ordered = selected.flatMap((item) => {
       const result = results.get(item.id);
       return result ? [result] : [];
@@ -486,6 +516,7 @@ async function main(): Promise<void> {
         failed: ordered.filter((item) => item.state === 'failed').length,
         passRate: ordered.length === selected.length ? passed / selected.length : null,
         taskDrawerCount: drawerCount,
+        cleanup,
       },
       results: ordered,
     };
@@ -565,6 +596,20 @@ async function main(): Promise<void> {
     await writeReport(drawerCount);
     const ordered = selected.map((item) => results.get(item.id)!);
     const passed = ordered.filter((item) => item.passed).length;
+    const completedFullCampaign = only.size === 0 && selected.length === dataset.cases.length &&
+      passed === ordered.length;
+    const shouldCleanup = !retainProjects && (forceCleanup || completedFullCampaign);
+    const cleanup = shouldCleanup
+      ? {
+          attempted: true,
+          deleted: await cleanupCampaignProjects(
+            context.request,
+            campaign,
+            ordered.map((item) => item.projectId),
+          ),
+        }
+      : { attempted: false, deleted: 0 };
+    await writeReport(drawerCount, cleanup);
     process.stdout.write(`${JSON.stringify({
       campaign,
       total: ordered.length,
@@ -572,6 +617,7 @@ async function main(): Promise<void> {
       failed: ordered.length - passed,
       passRate: passed / ordered.length,
       taskDrawerCount: drawerCount,
+      cleanup,
       reportPath,
     }, null, 2)}\n`);
     if (passed !== ordered.length) process.exitCode = 1;

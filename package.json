@@ -61,6 +61,7 @@
     "check:memory-production": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-memory-production-readiness.ts",
     "check:triad-experience": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-triad-experience.ts",
     "check:triad-experience:large": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-triad-experience.ts --scale=4",
+    "check:memory-knowledge-50": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-memory-knowledge-50.ts",
     "check:task-e2e": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-task-e2e-campaign.ts",
     "check:production": "node scripts/checks/check-production-readiness.js",
     "check:standalone-runtime": "node scripts/checks/check-standalone-runtime.js",

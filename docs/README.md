@@ -27,6 +27,7 @@
 | 想查页面和后端接口 | [API 总览](api-reference.md) |
 | 想查数据库字段口径 | [数据字典](data-dictionary.md) |
 | 想执行补数、验证或排障流程 | [运行手册](operations-runbook.md) |
+| 想备份、清理 E2E/过期数据或判断哪些数据必须保留 | [数据生命周期与安全清理](data-lifecycle.md) |
 | 想做生产发布、备份恢复或回滚 | [生产发布 Runbook](release-runbook.md) |
 | 想做每日投研报告和推送 | [投研情报中心与日报自动化指南](research-automation-guide.md) |
 | 想参与开发 | [教学 06：开发者协作手册](learning/06-developer-playbook.md) |
@@ -78,6 +79,7 @@
 | 运行治理中心 | [运行治理中心使用与评分指南](ops-platform-guide.md) | 工作空间健康、治理评分、日志、降级模式和排查路径 |
 | Runbook | [运行手册](operations-runbook.md) | 长任务、补数、缓存、验证、skills 和提交前质量门 |
 | 生产发布 | [生产发布 Runbook](release-runbook.md) | 生产预检、独立产物、readiness、备份恢复、回滚和 GA 签字 |
+| 数据生命周期 | [数据生命周期与安全清理](data-lifecycle.md) | 数据所有权、测试隔离、备份、跨平台清理和禁止事项 |
 | 工作空间契约 | [生成工作空间契约](generated-workspace-contract.md) | run plan、数据文件、证据、验证、视觉检查和修复计划 |
 | Skills | [Skills 治理规范](skills-governance.md) / [Skills 教程](learning/07-skills-authoring.md) | skill 元数据、版本、发布、回滚、锁文件和编写方法 |
 | 评测 | [Agent 评测指南](evals-guide.md) | 用例、评测集、评测器、队列、运行记录和 CI 门禁 |

@@ -81,7 +81,7 @@ npm run check:task-e2e -- --campaign=20260719a
 npm run check:task-e2e -- --campaign=20260719a --only=C18,C26,C27 --retry-failed=2
 ```
 
-`--retry-failed=N` 只重试失败 case，并继续使用原 Project/任务抽屉记录；新的 request ID 使用 `-rN` 后缀。处于 `pending/running/repairing` 的任务不会被当成失败重放，脚本会继续等待自动修复和 Mission 验收。重试结束后再执行一次不带 `--only` 的完整命令，把 `tmp/task-e2e-<campaign>-latest.json` 恢复为全部 30 题的最终报告。该 `latest` 文件会被同 campaign 的每次执行覆盖，定点复测报告不能冒充全量报告。
+`--retry-failed=N` 只重试失败 case，并继续使用原 Project/任务抽屉记录；新的 request ID 使用 `-rN` 后缀。处于 `pending/running/repairing` 的任务不会被当成失败重放，脚本会继续等待自动修复和 Mission 验收。重试结束后再执行一次不带 `--only` 的完整命令，把 `tmp/task-e2e-<campaign>-latest.json` 恢复为全部 30 题的最终报告。该 `latest` 文件会被同 campaign 的每次执行覆盖，定点复测报告不能冒充全量报告。完整 30 题全部通过时，脚本默认在抽屉验收后清理测试 Project/Workspace；人工看板复核使用 `--retain-projects`，清理失败或部分批次使用 `--cleanup`。
 
 推荐排障顺序：
 

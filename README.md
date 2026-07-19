@@ -112,9 +112,13 @@ npm run dev
 | Qwen、ModelPort DeepSeek、Memory 基础契约联调 | `npm run check:integrations` |
 | ModelPort、Memory、AKEP 30 题真实体验验收 | `npm run check:triad-experience` |
 | 四组自然语言变体、共 120 题真实压力验收 | `npm run check:triad-experience:large` |
-| 创建真实任务、生成 Workspace 并验收预览 | `npm run check:task-e2e -- --campaign=<批次>` |
+| 50 题 Qwen + Memory + AKEP 持久闭环验收 | 先在 AKEP 运行 `pnpm seed:quantpilot-acceptance-50 -- --output=<manifest>`，再运行 `npm run check:memory-knowledge-50 -- --manifest=<manifest>`；数据默认保留 |
+| 创建真实任务、生成 Workspace 并验收预览 | `npm run check:task-e2e -- --campaign=<批次>`（完整通过后自动清理测试项目） |
 
 ## 文档导航
+
+配置、架构和运行文档统一从 [docs/README.md](docs/README.md) 进入；数据库与 E2E 清理先读
+[数据生命周期与安全清理](docs/data-lifecycle.md)，不要凭表名或创建时间直接删除数据。
 
 项目知识集中放在 `docs/`。根 README 只放少量入口，完整索引看 [文档总览](docs/README.md)。
 

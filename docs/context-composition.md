@@ -102,6 +102,47 @@ npm run check:task-e2e -- --campaign=20260719a
 
 `check:integrations` 是 ModelPort/Memory 的轻量契约探测；`check:triad-experience` 运行固定 30 题服务级真实体验集；large 模式把每题扩成四种不改变业务语义的自然语言表达，共执行 120 个 case。大规模模式不是复制通过结果：48 个 Query Rewrite 会分别调用 Qwen，24 个 Memory case 分四个稳定测试 subject 执行真实写入/召回/隔离/退出/Usage/历史闭环，24 个 AKEP case 分别创建 ContextPack/Usage/Feedback，24 个组合 case 分别调用模型并核对偏好、Citation 和工具协议。报告分别写入 `tmp/triad-experience-latest.json` 与 `tmp/triad-experience-4x-latest.json`。
 
-这些 service-level case 不创建 Project，不能用任务抽屉数量证明执行过。`check:task-e2e` 才走和首页一致的认证后端入口：创建带 `[E2E <campaign>/<case>]` 前缀的 Project，提交 `/api/chat/:projectId/act`，轮询权威 generation terminal snapshot，并核对当前 run 的 Validation、Mission accepted receipt、Workspace 核心产物、持久预览 HTTP 200 和任务抽屉可见性。固定数据集有 30 个任务，默认并发 2、单任务最长 20 分钟；可先用 `--limit=2` 校准，再用同一 campaign 继续全量，已有 Project 会被恢复而不是复制。失败子集使用 `--only=Cxx,Cyy --retry-failed=N` 在原任务记录内重试；运行中或自动修复中的 generation 保持非终态，不能被中间 Validation 失败抢先判死。报告写入 `tmp/task-e2e-<campaign>-latest.json`，生成的任务默认保留，便于人工打开看板复核。`latest` 反映最后一次命令选择的 case，正式留档前必须再跑一次完整 30 题。
+这些 service-level case 不创建 Project，不能用任务抽屉数量证明执行过。`check:task-e2e` 才走和首页一致的认证后端入口：创建带 `[E2E <campaign>/<case>]` 前缀的 Project，提交 `/api/chat/:projectId/act`，轮询权威 generation terminal snapshot，并核对当前 run 的 Validation、Mission accepted receipt、Workspace 核心产物、持久预览 HTTP 200 和任务抽屉可见性。固定数据集有 30 个任务，默认并发 2、单任务最长 20 分钟；可先用 `--limit=2` 校准，再用同一 campaign 继续全量，已有 Project 会被恢复而不是复制。失败子集使用 `--only=Cxx,Cyy --retry-failed=N` 在原任务记录内重试；运行中或自动修复中的 generation 保持非终态，不能被中间 Validation 失败抢先判死。报告写入 `tmp/task-e2e-<campaign>-latest.json`。部分运行或存在失败时保留 Project，便于复查和重试；完整 30 题全部通过后，脚本在验证任务抽屉后自动删除该批测试 Project 与 Workspace，避免污染真实任务记录。需要人工长期复核时显式传 `--retain-projects`；需要清理失败/部分批次时传 `--cleanup`。`latest` 反映最后一次命令选择的 case，正式留档前必须再跑一次完整 30 题。
 
 AKEP 的验收记录位于隔离 Space `https://knowledge.local/spaces/quantpilot-acceptance`；若本地长期运行也要使用这些已发布规则，需要把该 Space 显式加入 `QUANTPILOT_KNOWLEDGE_SPACES`，不能用空的默认 Space 假装知识接入有效。
+
+## 50 题持久闭环验收
+
+当目标不是检查各组件“能连通”，而是确认每一个 case 都同时进入 Memory 和知识库并被模型实际使用时，运行独立的 50 题验收。数据集覆盖 10 个标的，每个标的包含趋势、财务、估值、公告和风险 5 类问题；知识正文只保存分析方法、风险边界与数据质量规则，不把测试时点的行情或模型猜测发布成事实。
+
+先在 Agent Knowledge Platform 发布 50 条受治理知识并生成清单：
+
+```bash
+cd /home/tiammomo/projects/dev/agent-knowledge-platform
+pnpm seed:quantpilot-acceptance-50 -- \
+  --output=/home/tiammomo/projects/dev/QuantPilot/tmp/quantpilot-acceptance-50-v1-manifest.json
+```
+
+再由 QuantPilot 对清单逐条执行完整链路：
+
+```bash
+cd /home/tiammomo/projects/dev/QuantPilot
+npm run check:memory-knowledge-50 -- \
+  --manifest=/home/tiammomo/projects/dev/QuantPilot/tmp/quantpilot-acceptance-50-v1-manifest.json
+```
+
+每个 case 必须同时通过以下门禁：
+
+1. 向专用 subject 写入一条项目级偏好，并以同一 event 重放验证幂等；
+2. 从逐渐增长的 Memory 集合精确召回本题 revision，签发 Usage Receipt；
+3. 只从专用 AKEP Space 创建 ContextPack，并包含本题已发布知识；
+4. 经 ModelPort 调用默认本地 Qwen，强制输出结构化工具调用；
+5. 模型明确使用本题 Memory key，并返回当前 ContextPack 中真实存在、且至少一条属于本题预期 record 的 citation ID；
+6. 成功后写入 Memory Outcome、AKEP Usage 与 AKEP Feedback。
+
+默认作用域是：
+
+- Memory tenant：当前 `QUANTPILOT_MEMORY_TENANT_ID`；
+- Memory subject：`quantpilot-acceptance-50-v1`；
+- AKEP Space：`https://knowledge.local/spaces/quantpilot-acceptance-50-v1`；
+- 数据集：`quantpilot-memory-knowledge-acceptance-50-v1`；
+- 模型：`local_qwen:qwen3.5-9b-q5km`。
+
+这是一套**有意保留数据**的长期复核批次，不会像完整通过的 Workspace E2E 那样自动清理。清单和最新报告分别写入 `tmp/quantpilot-acceptance-50-v1-manifest.json` 与 `tmp/memory-knowledge-acceptance-50-latest.json`；报告包含每题的 record/revision/usage/outcome、ContextPack/exposure/usage/feedback、模型 citation 和 token 用量。发布脚本与 Memory event 都可幂等重跑；如需清理，必须按 [数据生命周期与安全清理](data-lifecycle.md) 先备份并按精确 subject/Space 操作，不能按时间范围或模糊名称批量删除。
+
+批量发布结束后可能短暂占满 AKEP 查询限额；验收脚本会对 readiness 的 HTTP 429/503 做有限指数退避，其他认证、契约或作用域错误立即失败，不会用无限重试掩盖真实故障。
