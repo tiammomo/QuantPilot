@@ -52,7 +52,10 @@ for attempt in $(seq 1 "$max_attempts"); do
     prisma_ready=1
   fi
 
-  if [ "$postgres_ready" -eq 1 ] && [ "$redis_ready" -eq 1 ] && [ "$prisma_ready" -eq 1 ]; then
+  # The host-side Prisma connection is the authoritative PostgreSQL probe: it
+  # uses the same URL and network path as migrations and the application. Keep
+  # the container-local pg_isready result as diagnostics, not a duplicate gate.
+  if [ "$redis_ready" -eq 1 ] && [ "$prisma_ready" -eq 1 ]; then
     stable_checks=$((stable_checks + 1))
     log "Readiness check ${attempt}/${max_attempts} passed (${stable_checks}/${required_stable_checks} consecutive)."
     if [ "$stable_checks" -ge "$required_stable_checks" ]; then
@@ -62,11 +65,16 @@ for attempt in $(seq 1 "$max_attempts"); do
   else
     stable_checks=0
     log "Readiness check ${attempt}/${max_attempts} pending (postgres=${postgres_ready}, redis=${redis_ready}, prisma=${prisma_ready})."
+    if [ $((attempt % 10)) -eq 0 ]; then
+      printf '::notice title=Local infrastructure pending::attempt=%s postgres=%s redis=%s prisma=%s\n' \
+        "$attempt" "$postgres_ready" "$redis_ready" "$prisma_ready"
+    fi
   fi
 
   sleep 2
 done
 
 diagnostics
-printf '::error title=Local infrastructure timeout::TimescaleDB and Redis did not remain reachable for %s consecutive checks.\n' "$required_stable_checks"
+printf '::error title=Local infrastructure timeout::postgres=%s redis=%s prisma=%s; required %s consecutive host-ready checks.\n' \
+  "$postgres_ready" "$redis_ready" "$prisma_ready" "$required_stable_checks"
 exit 1
