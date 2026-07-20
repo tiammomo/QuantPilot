@@ -32,9 +32,9 @@ quantpilot-market-api = "quantpilot_market_data.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.0",
+    "pytest>=9.1.1",
     "respx>=0.22.0",
-    "ruff>=0.14.0",
+    "ruff>=0.15.22",
 ]
 
 [build-system]
