@@ -251,7 +251,8 @@ curl 'http://127.0.0.1:8000/api/v1/events/announcements/600519?limit=20'
 - `quantpilot_market_data/providers/eastmoney.py`：东方财富数据源客户端。
 - `quantpilot_market_data/providers/baostock.py`：Baostock A 股历史字段补数 provider。
 - `quantpilot_market_data/providers/akshare.py`：AKShare 可选补数字段 provider。
-- `quantpilot_market_data/database.py`：TimescaleDB 写入、股票池分页、补数任务、基础组件和质量扫描查询。
+- `quantpilot_market_data/database_core.py`：数据库连接、日期和序列化等共享基础函数。
+- `quantpilot_market_data/repositories/`：TimescaleDB/PostgreSQL 查询、事务、批量写入与分页；不存在聚合 `database.py` 兼容入口。
 - `quantpilot_market_data/models.py`：行情数据模型。
 - `quantpilot_market_data/api.py`：FastAPI HTTP 服务。
 - `quantpilot_market_data/cli.py`：启动入口。

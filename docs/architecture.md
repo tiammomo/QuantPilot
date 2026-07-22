@@ -1,18 +1,22 @@
 # 架构总览
 
-QuantPilot 的核心链路是：用户提出量化研究问题，平台先用所选 LLM 生成 Query Rewrite schema v4 合同并通过独立 Resolver 核验标的，再形成 run plan、获取真实数据和证据；MoAgent 根据受控合同生成工作空间，最后由平台执行验证、视觉检查、产物契约检查和评测回归。
+QuantPilot 是通用 Data Agent 平台上的第一个金融应用。核心链路是：用户提出研究问题，Data Agent 使用所选 LLM 形成通用任务合同，Finance Domain Pack 再通过独立 Resolver 核验证券、生成金融 run plan 并注入数据、Skills、工具和 Mission；MoAgent 根据受控合同生成工作空间，最后由 Delivery 验证、视觉检查、产物契约和评测决定是否可交付。
 
 ```mermaid
 flowchart LR
   U[用户问题/图片] --> W[Next.js 工作台 :3000]
-  W --> Q[LLM-first Query Rewrite v4]
+  W --> D[Data Agent Profile]
+  D --> Q[LLM-first Task / Query Rewrite]
+  D --> F[Finance Domain Pack]
+  F --> Q
   Q --> MP[ModelPort / Qwen 或受控直连]
   Q --> M[证券 Resolver / 市场数据 :8000]
-  Q --> G[MoAgent Mission Graph]
+  Q --> G[Domain Mission -> MoAgent Graph]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
   G --> R[MoAgent Runtime]
   G --> DB
-  R --> S[QuantPilot Skills]
+  F --> S[Finance Skills / Tools / Validators]
+  S --> R
   W --> K[Agent Knowledge Platform / AKEP]
   R --> MP
   W --> M
@@ -48,9 +52,9 @@ flowchart LR
 ## 主链路
 
 1. 用户输入问题，必要时上传截图。
-2. 平台使用项目当前模型生成 `.quantpilot/query_rewrite.json`；模型只负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
+2. 平台使用项目当前模型生成通用 `.data-agent/task.json` 与金融 `.data-agent/finance-query-rewrite.json`；模型负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
 3. 模型未配置、超时、失败或输出缺少原文字面证据时返回 `llm_unavailable` 并停止；不执行关键词降级。
-4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后生成 `.quantpilot/run_plan.json`。
+4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后同时生成 `.data-agent/plan.json` 和金融 `.data-agent/finance-run-plan.json`。
 5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据。
 6. 平台根据 run plan 调用 `8000` 后端获取真实数据。
 7. 数据、来源和质量报告写入工作空间。
@@ -76,6 +80,8 @@ MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent S
 - `src/lib/services/cli/moagent.ts`
 
 完整设计、事件与工具边界见 [MoAgent 架构](moagent.md)。
+
+通用 Task/Profile/Domain Pack 合同、金融解耦边界和新业务接入步骤见 [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md)。
 
 ## Agent 与 Mission 完成边界
 
@@ -110,7 +116,7 @@ QuantPilot 当前采用 Python/Node 长期主线，不引入 Dubbo3 作为配置
 
 QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续保持 `Next.js + Python market-data`，代码侧按模块治理：
 
-- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、product-shell、platform-core、agent-runtime、quant-core、eval-core、ops-core 和 market-data-backend。
+- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、product-shell、platform-core、agent-runtime、data-agent-core、finance-domain、quant-core、eval-core、ops-core 和 market-data-backend。
 - `npm run check:module-boundaries` 检查反向依赖、通用 UI 污染和大文件预算。
 - 领域模块不能反向依赖 `src/app/**` 页面层。
 - `ui-kit` 只能承载无领域知识组件，不直接依赖量化、运维或运行时服务。
@@ -137,7 +143,7 @@ QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续
 - `services/` 编排 provider、缓存策略、降级和响应聚合。
 - `repositories/` 承接 TimescaleDB/PostgreSQL SQL、ClickHouse 同步、分页、批量写入和读模型缓存。
 - `database_core.py` 只保留连接、日期、Decimal、JSON 和证券元数据解析等无业务状态基础函数。
-- `database.py` 目前是兼容门面，只导出历史 public surface；新增 SQL 不再写入这个文件。
+- 旧 `database.py` 兼容门面已删除；基础连接与转换进入 `database_core.py`，业务 SQL 只进入 `repositories/`。
 
 本地基础设施默认使用 Docker 中的 PostgreSQL + TimescaleDB + Redis + Loki/Grafana/Alloy：
 
@@ -188,14 +194,14 @@ Go/Rust 的合理引入场景：
 
 每个生成项目都应形成一组可检查的产物：
 
-- `.quantpilot/run_plan.json`
-- `.quantpilot/events.jsonl`
-- `.quantpilot/generation-state.json`
-- `.quantpilot/generation-queue.json`（从 PostgreSQL `agent_generation_jobs` + outbox 生成的可丢弃观测投影；不参与 claim、取消或完成判定）
-- `.quantpilot/validation.json`
-- `.quantpilot/validation-repair-plan.json`
-- `.quantpilot/artifact-contracts.json`
-- `.quantpilot/visual-validation.json`
+- `.data-agent/finance-run-plan.json`
+- `.data-agent/events.jsonl`
+- `.data-agent/generation-state.json`
+- `.data-agent/generation-queue.json`（从 PostgreSQL `agent_generation_jobs` + outbox 生成的可丢弃观测投影；不参与 claim、取消或完成判定）
+- `.data-agent/validation.json`
+- `.data-agent/validation-repair-plan.json`
+- `.data-agent/artifact-contracts.json`
+- `.data-agent/visual-validation.json`
 - `data_file/final/dashboard-data.json`
 - `evidence/sources.json`
 - `evidence/data_quality.json`

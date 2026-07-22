@@ -6,7 +6,7 @@
 
 ![AI 工作空间生成链路](assets/workspace-generation-gpt-image2.png)
 
-这张图用 gpt-image2 生成，用来辅助理解“用户问题 → 规划 → 取数 → 生成工作空间 → 验证 → 修复”的闭环。真实排障时仍以 `.quantpilot` 文件、验证报告和运行治理中心日志为准。
+这张图用 gpt-image2 生成，用来辅助理解“用户问题 → 规划 → 取数 → 生成工作空间 → 验证 → 修复”的闭环。真实排障时仍以 `.data-agent` 文件、验证报告和运行治理中心日志为准。
 
 ## 基础概念
 
@@ -51,13 +51,13 @@ flowchart LR
 
 | 文件 | 用途 |
 | --- | --- |
-| `.quantpilot/query_rewrite.json` | LLM-first 语义、Resolver 结果、执行策略、安全状态和问题码 |
-| `.quantpilot/run_plan.json` | 任务计划、数据需求、预期页面类型 |
-| `.quantpilot/events.jsonl` | 生成过程事件流 |
-| `.quantpilot/generation-state.json` | 当前生成状态 |
-| `.quantpilot/validation.json` | build、HTTP、数据和证据验证结果 |
-| `.quantpilot/visual-validation.json` | 截图视觉验收结果 |
-| `.quantpilot/validation-repair-plan.json` | 自动修复计划 |
+| `.data-agent/finance-query-rewrite.json` | LLM-first 语义、Resolver 结果、执行策略、安全状态和问题码 |
+| `.data-agent/finance-run-plan.json` | 任务计划、数据需求、预期页面类型 |
+| `.data-agent/events.jsonl` | 生成过程事件流 |
+| `.data-agent/generation-state.json` | 当前生成状态 |
+| `.data-agent/validation.json` | build、HTTP、数据和证据验证结果 |
+| `.data-agent/visual-validation.json` | 截图视觉验收结果 |
+| `.data-agent/validation-repair-plan.json` | 自动修复计划 |
 | `data_file/final/dashboard-data.json` | 最终看板数据 |
 | `evidence/sources.json` | 数据来源和可追溯证据 |
 | `evidence/data_quality.json` | 数据质量、缺失字段、异常和限制 |
@@ -96,7 +96,7 @@ flowchart LR
 | 视觉检查 | 页面是空白、错误覆盖层、验证失败页、主图太小或内容重叠 |
 | stale report 检查 | 代码或数据改了，但验证报告还是旧的 |
 
-当验证失败时，应先读 `.quantpilot/validation.json` 和 `.quantpilot/validation-repair-plan.json`，再决定是补数据、修 skill、修生成模板还是修平台能力。
+当验证失败时，应先读 `.data-agent/validation.json` 和 `.data-agent/validation-repair-plan.json`，再决定是补数据、修 skill、修生成模板还是修平台能力。
 
 ## 常见页面类型
 
@@ -112,12 +112,12 @@ flowchart LR
 
 排查一个真实工作空间时，建议按这个顺序看：
 
-1. `.quantpilot/query_rewrite.json`：确认模型是否应用、标的是否由 Resolver 核验、是否需要重试或澄清。
-2. `.quantpilot/run_plan.json`：确认平台是否忠实消费标的、周期、能力和输出意图。
+1. `.data-agent/finance-query-rewrite.json`：确认模型是否应用、标的是否由 Resolver 核验、是否需要重试或澄清。
+2. `.data-agent/finance-run-plan.json`：确认平台是否忠实消费标的、周期、能力和输出意图。
 3. `evidence/sources.json`：确认数据源是否真实、是否走了降级。
 4. `data_file/final/dashboard-data.json`：确认页面能用的数据是否完整。
-5. `.quantpilot/validation.json`：确认失败项是代码、数据还是契约。
-6. `.quantpilot/visual-validation.json`：确认截图是否有错误页、空白或布局问题。
+5. `.data-agent/validation.json`：确认失败项是代码、数据还是契约。
+6. `.data-agent/visual-validation.json`：确认截图是否有错误页、空白或布局问题。
 7. `/ops-platform`：查看生成链路事件、日志和当前工作空间健康。
 
 ## 可选：用 gpt-image2 辅助流程图

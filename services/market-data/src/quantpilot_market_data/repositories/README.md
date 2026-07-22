@@ -16,7 +16,7 @@
 - 跨业务流程的缓存编排。
 - 页面展示字段拼装。
 
-迁移策略：`services/*`、`routers/*` 和 `api.py` 直接依赖领域 repository；`database.py` 只保留历史 public surface 的兼容导出。新增 SQL、事务和批量写入都进入对应 repository，再由 service 编排。
+`services/*`、`routers/*` 和 `api.py` 直接依赖领域 repository。旧 `database.py` 聚合门面已删除；新增 SQL、事务和批量写入都进入对应 repository，再由 service 编排。
 
 当前已落地：
 

@@ -40,7 +40,7 @@ npm run clean:local
 npm run clean:workspaces
 ```
 
-这不会删除 `data/projects/*` 本身，也不会删除 `data_file/`、`.quantpilot/`、`evidence/` 等可追溯产物。
+这不会删除 `data/projects/*` 本身，也不会删除 `data_file/`、`.data-agent/`、`evidence/` 等可追溯产物。
 
 等价的手工轻量清理命令：
 
@@ -69,8 +69,8 @@ rm -rf .next/dev/lock .next/dev/cache/webpack
 | `prisma/schema.prisma` | 主业务数据库 schema |
 | `package-lock.json` | 前端依赖锁定 |
 | `services/market-data/pyproject.toml`、`services/market-data/uv.lock` | Python 后端依赖和服务入口 |
-| `.claude/skills/`、`.claude/skills.registry.json`、`.claude/skills.lock.json`、`.claude/skills.changelog.json` | 仓库根目录保留、受版本与 SHA-256 完整性校验的 Skill 源兼容资产；不作为 workspace 运行时目录 |
-| `.claude/skill-packages/` | 仓库兼容发布包，用于校验、回滚、source 缺失时的执行 fallback，以及创建 `.moagent/skills/` 参考镜像 |
+| `.moagent/skills/`、`.moagent/skills.registry.json`、`.moagent/skills.lock.json`、`.moagent/skills.changelog.json` | 仓库 Skill 权威源，受版本与 SHA-256 完整性校验；不作为 workspace 运行时发现目录 |
+| `.moagent/skill-packages/` | 规范发布包，用于校验、回滚、source 缺失时的执行 fallback，以及创建 workspace 参考镜像 |
 | `benchmarks/quantpilot/cases.json` | 固定评测用例集 |
 | `docs/` | 架构、契约、治理和排障文档 |
 

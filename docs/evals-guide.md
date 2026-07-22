@@ -149,7 +149,7 @@ npm run check:eval-judge-calibration
 评测失败后不要急着改 prompt。先分三步看：
 
 1. 看报告：确认失败项是数据、构建、视觉、契约还是 Agent 运行时。
-2. 看产物：打开对应 workspace 的 `.quantpilot/validation.json`、`artifact-contracts.json` 和 `visual-validation.json`。
+2. 看产物：打开对应 workspace 的 `.data-agent/validation.json`、`artifact-contracts.json` 和 `visual-validation.json`。
 3. 看复发性：如果同类失败出现多次，再沉淀到 skill 或模板；如果是单个数据源问题，优先修数据链路。
 
 评测的最终产物不只是分数，而是可复用的修复知识。一次失败如果只靠手工改页面解决，下次生成仍然可能再犯；一次失败如果沉淀到 skill、契约或数据源规则，后续所有工作空间都会受益。

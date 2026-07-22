@@ -1,6 +1,6 @@
 # QuantPilot
 
-QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的 AI 工作台。用户用自然语言提出研究问题，平台会调度 Agent Runtime、读取真实数据、生成可运行工作空间，并通过自动验证、视觉检查、产物契约和评测链路把结果收敛到“好看、可用、可追溯”。
+QuantPilot 是建立在通用 Data Agent 与 MoAgent Framework 之上的金融量化应用。用户用自然语言提出研究问题，Finance Domain Pack 会组合证券解析、真实数据、Skills、工具、Mission 和可视化规则，生成可运行工作空间，并通过自动验证、视觉检查、产物契约和评测链路把结果收敛到“好看、可用、可追溯”。同一套框架可以继续接入零售、运营、制造等业务 Domain Pack，而不把业务规则写回 Agent 内核。
 
 生成内容仅用于研究、复盘和辅助决策，不构成投资建议、收益承诺或即时交易指令。
 
@@ -8,14 +8,15 @@ QuantPilot 是面向量化投研、金融数据分析和可视化看板生成的
 
 ## 核心能力
 
+- 通用 Data Agent：使用版本化 Task、Dataset、Connector、Domain Pack、Agent Profile 和 Execution Plan 合同组合业务能力；当前金融实现是 `finance.quant` Domain Pack。完整边界与新业务接入流程见 [Data Agent 平台与 Domain Pack 架构](docs/data-agent-architecture.md)。
 - AI 工作台：任务入口、项目聊天、工作空间预览、任务记录和自动修复链路。
 - 量化数据底座：PostgreSQL + TimescaleDB + Redis，承载应用状态、时序行情、估值因子、缓存和补数任务状态。
 - 市场数据服务：Python/FastAPI 后端，提供行情、K 线、财务、公告、指标、补数、基础组件和策略平台接口。
 - 策略平台：股票池、ETF/指数池、策略目录、板块资金、基础组件、金融知识和后续回测入口。
 - 投研情报中心：围绕观察池生成证据型日报，沉淀结构化报告、主题洞察、运行历史和推送回执。
 - LLM-first Query Rewrite：`preview` 与正式执行都由项目选中的模型生成 schema v4 语义合同，时间范围、宽域范围和 answer-only 意图必须有原文字面证据；证券 Resolver 独立确认代码。模型不可用时停止规划和预取，不以关键词结果冒充成功。
-- MoAgent 自研执行层：默认通过 ModelPort 使用本地 Qwen，日常 DeepSeek 经 ModelPort 的 Anthropic 上游 provider，也可为项目显式选择官方 OpenAI-compatible 直连并完全绕过 ModelPort；执行层负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL generation job/事务 outbox、项目编排/AgentRun/Mission 分层 lease 与 fencing、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
-- Skills 能力层：通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 `.moagent/skills`，当前 Agent 执行仍从仓库兼容源按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力。
+- MoAgent 自研执行层：默认通过 ModelPort 使用本地 Qwen，日常 DeepSeek 经 ModelPort 的 Anthropic 上游 provider，也可为项目显式选择官方 OpenAI-compatible 直连并完全绕过 ModelPort；执行层负责上下文治理、信息增益 Observation Ledger、Prompt Prefix/cache-break 诊断、阶段化类型工具循环、PostgreSQL generation job/事务 outbox、项目编排/AgentRun/Mission 分层 lease 与 fencing、共享文件系统资源锁、durable run/operation ledger、预算、取消和显式结果提交。MoAgent 不内置证券、量化工具或金融 Mission，这些由 Domain Pack 注入；每轮最终回复会展示完整业务耗时与主执行/自动修复累计 Token 用量。
+- Skills 能力层：仓库 `.moagent/**` 是唯一权威源，通过 registry/lock、版本与 SHA-256 完整性校验；项目初始化把参考镜像配置到 workspace `.moagent/skills`，Agent 执行按 source-first/package-fallback 规则只读编译有界上下文，不从 workspace 镜像发现能力，也不解析旧 Skill ID。
 - 业务与治理：业务知识中心、评测平台和运行治理中心共同覆盖能力知识、交付契约、生成质量、工作空间健康、运行 trace 和集中日志。
 - 受治理上下文接入：通过独立 HTTP 契约组合 Memory Usage Receipt 与 AKEP ContextPack，Agent 前落无正文联合清单，Mission 验收后记录 AKEP Usage，用户明确评价后再分别回传 Memory Outcome 与 AKEP Feedback；不共享数据库或源码。
 

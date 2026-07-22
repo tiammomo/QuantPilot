@@ -93,7 +93,7 @@ npm run check:task-e2e -- --campaign=20260719a --only=C18,C26,C27 --retry-failed
 6. `npm run check:triad-experience`，检查语义和组合体验，不以单次聊天主观判断兼容性。
 7. `curl http://127.0.0.1:3000/api/ready` 与 `npm run doctor`，确认 QuantPilot 自身数据库和本地归因表。
 
-如果数据预取已成功但没有生成看板，先检查项目 `.quantpilot/run_plan.json`：`queryRewrite.outputIntent` 应为 `dashboard`、`visualization.required` 应为 `true`，再核对 `templateId/variantId` 是否有受信 renderer。`queryRewrite.execution.llm.guardedFields` 出现 `outputIntent` 表示模型尝试无证据降级，平台已恢复默认看板；项目重新初始化不应出现“承接上一轮澄清”等前缀。
+如果数据预取已成功但没有生成看板，先检查项目 `.data-agent/finance-run-plan.json`：`queryRewrite.outputIntent` 应为 `dashboard`、`visualization.required` 应为 `true`，再核对 `templateId/variantId` 是否有受信 renderer。`queryRewrite.execution.llm.guardedFields` 出现 `outputIntent` 表示模型尝试无证据降级，平台已恢复默认看板；项目重新初始化不应出现“承接上一轮澄清”等前缀。
 
 四个仓库必须独立升级和回滚。QuantPilot 不能导入 ModelPort、Memory 或 AKEP 内部源码，外部服务不能共享 QuantPilot 数据库；跨仓兼容只以 `OpenAI-compatible HTTP`、`evolvable-memory-http/v1` 和 `AKEP v0.1 HTTP` 契约为准。
 
@@ -273,16 +273,16 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/research/universes/a-share-sample-res
 排查顺序：
 
 ```text
-.quantpilot/run_plan.json
-.quantpilot/generation-state.json
-.quantpilot/events.jsonl
+.data-agent/finance-run-plan.json
+.data-agent/generation-state.json
+.data-agent/events.jsonl
 data_file/final/dashboard-data.json
 evidence/sources.json
 evidence/data_quality.json
-.quantpilot/validation.json
-.quantpilot/artifact-contracts.json
-.quantpilot/visual-validation.json
-.quantpilot/validation-repair-plan.json
+.data-agent/validation.json
+.data-agent/artifact-contracts.json
+.data-agent/visual-validation.json
+.data-agent/validation-repair-plan.json
 ```
 
 常见处理：

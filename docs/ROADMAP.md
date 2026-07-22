@@ -29,7 +29,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 验证链路 | `src/lib/quant/validation.ts` | build、HTTP、数据、证据、截图和 stale report 检查混杂 | 拆 validators、report writer、repair summary |
 | 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | response mappers 已迁出并有单测，API client、dashboard 编排和部分页面交互仍集中 | 继续拆 market client、dashboard service、hooks、dialogs |
 | 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，当前约 1071 行，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
-| 市场数据后端 | `models.py`、`api.py`、`repositories/universes.py` | 模型和兼容入口偏大，universe repository 同时处理读取、写入、清洗 | 按 contract domains、legacy routes、membership hygiene 拆小 |
+| 市场数据后端 | `models.py`、`api.py`、`repositories/universes.py` | contracts 和应用装配偏大，universe repository 同时处理读取、写入、清洗 | 按 contract domains、routers、membership hygiene 拆小；旧 `database.py` 门面已删除 |
 
 ## P0：先让项目更容易被理解和发布
 
@@ -76,7 +76,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 工作 | 为什么重要 | 验收标准 |
 | --- | --- | --- |
 | 策略平台 hooks 和 dialogs 拆分 | 主 client 仍承载部分弹窗和扫描编排 | `StrategyPlatformClient` 只负责顶层状态和视图切换，补数、K 线详情、扫描任务各有 hook/service |
-| 策略数据 service 拆分 | `strategy-mappers.ts` 已迁出并补齐纯函数单测，`strategies.ts` 仍是稳定 public surface | 继续拆出 market client、dashboard service，保留现有导出兼容 |
+| 策略数据 service 拆分 | `strategy-mappers.ts` 已迁出并补齐纯函数单测，`strategies.ts` 仍是稳定 public surface | 继续拆出 market client、dashboard service；调用方只使用新的显式 public surface，不保留旧路径转发层 |
 | eval runtime 拆分 | report/database mappers 已迁入 `runtime-mappers.ts` 并补单测，runtime 当前约 1071 行 | 继续拆出 `runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
 | 模块边界预算收紧 | 当前大文件预算允许过渡，但不能长期放宽 | `npm run check:module-boundaries` 保持通过，大文件目标线逐步下降 |
 
@@ -114,7 +114,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | Worker 化 | 长任务不应长期依赖 Next.js 请求生命周期；该项已从 P2 提前 | 生成、评测、策略扫描、补数任务可由独立 worker 执行 |
 | MoAgent 收敛 checkpoint | ProgressOracle 不能只存在于请求进程内 | 已完成 `progress_evaluated`、canonical-hash checkpoint v2、恢复前完整性校验和停滞状态投影；后续由 worker dispatcher 消费 replan 信号，而不是恢复旧 Provider session |
 | Mission 与外层编排接管 | 进程退出不能让任务永久占用，旧 worker 也不能晚到覆盖 | 已完成 Mission verification lease/fencing、项目级 generation lease，以及过期 dispatch 在细粒度 lease 全部失活后原子关闭 UserRequest/Mission 的 replan reconciliation |
-| Durable dispatcher / outbox | `.quantpilot/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、取消与崩溃封存；下一步拆出独立 polling worker 自动消费 pending/replan，Redis 只做可丢失唤醒 |
+| Durable dispatcher / outbox | `.data-agent/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、取消与崩溃封存；下一步拆出独立 polling worker 自动消费 pending/replan，Redis 只做可丢失唤醒 |
 | 暂停、恢复、停止语义统一 | 当前不同任务类型语义容易不一致 | 所有长任务都明确 checkpoint、resume offset、stop grace 和失败重试 |
 | 任务事件 outbox | 后续接 ClickHouse、日志或审计需要可重放事件 | 任务状态变化有事件记录，可用于运行治理中心和评测分析 |
 

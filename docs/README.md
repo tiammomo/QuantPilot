@@ -21,6 +21,7 @@
 | 想确认当前前端启动模式 | [基础设施配置](infrastructure.md#主前端启动器) / [架构总览](architecture.md#构建与开发模式) |
 | 想理解生成链路 | [教学 02：AI 工作空间生成链路](learning/02-ai-workspace-generation.md) |
 | 想理解或扩展自研 Agent | [MoAgent 架构](moagent.md) |
+| 想把 Data Agent 接入新业务系统 | [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md) |
 | 想理解数据和策略平台 | [教学 03：市场数据与策略平台](learning/03-market-data-and-strategy-platform.md) |
 | 想优化生成页面 | [教学 04：Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md) |
 | 想做评测和运维 | [教学 05：评测、运维与质量门](learning/05-evaluation-and-operations.md) |
@@ -60,6 +61,7 @@
 | 配置与运行方式 | [配置、模型接入与可选组件指南](configuration.md) | 文件优先级、ModelPort/直连、Memory 开关、secret 边界与模式验收 |
 | 总体架构 | [架构总览](architecture.md) | 主链路、运行时、数据层、控制台和质量门 |
 | Agent 框架 | [MoAgent 架构](moagent.md) | Provider、Context Manager、Run Engine、durable ledger、类型化工具、Skills 与安全边界 |
+| Data Agent 与业务扩展 | [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md) | 通用任务合同、Agent Profile、Domain Pack、工具与 Mission 注入、金融迁移边界 |
 | 内部组件 | [内部组件学习指南](internal-components.md) | 页面、服务、数据、Skills、验证、运维和降级如何协作 |
 | 项目结构 | [项目结构与分层边界](project-structure.md) | 前端、后端、量化领域层、脚本和生成工作空间边界 |
 | 模块边界 | [模块边界与模块化单体治理](module-boundaries.md) | 模块清单、允许依赖、质量门和拆分顺序 |

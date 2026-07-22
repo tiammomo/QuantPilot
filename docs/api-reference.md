@@ -43,12 +43,12 @@
 | `/api/chat/[project_id]/stream` | `GET` | 项目聊天页 | SSE 消息流 |
 | `/api/chat/[project_id]/act` | `POST` | 项目聊天页 | 启动 Agent 执行、量化预取数、验证和修复链路 |
 | `/api/chat/[project_id]/pause` | `POST` | 项目聊天页 | 暂停当前执行 |
-| `/api/chat/[project_id]/active-session` | `GET/POST` | 项目聊天页 | CLI session 状态 |
 | `/api/chat/[project_id]/cli-preference` | `GET/POST` | 项目聊天页 | 项目级 CLI 和模型选择 |
 
 核心约束：
 
 - `act` 入口要把用户问题转换为 run plan、数据预取、生成、验证和修复事件。
+- 运行状态只来自 `UserRequest / AgentRun / Mission / GenerationJob`；不再提供旧 CLI Session API 或平行状态表。
 - 投资建议类问题必须保持研究/辅助决策口径，不输出确定性买卖承诺。
 - 如果是宽域选股问题，不应因为缺少明确标的而反复澄清，应走本地股票池筛选。
 
@@ -231,7 +231,7 @@ fundamental 复用 financials；单个上游故障不会丢弃其他成功区块
 | K 线只剩一天 | `/api/v1/research/bars/{symbol}` | `quant.stock_bars` 是否只查了最新日，前端是否误用 `limit=1` |
 | 成交额/换手率为空 | `/api/v1/ingestion/baostock/history` | `quant.stock_bars.amount`、`turnover` |
 | 板块资金慢 | `/api/v1/research/sector-capital-flow` | Redis TTL、后端是否全量扫描 |
-| 生成页面验证失败 | `/api/chat/[project_id]/act` | `.quantpilot/validation.json`、`data_file/final/dashboard-data.json` |
+| 生成页面验证失败 | `/api/chat/[project_id]/act` | `.data-agent/validation.json`、`data_file/final/dashboard-data.json` |
 | 评测队列卡住 | `/api/evals` | `eval_queue_items`、`tmp/quantpilot-eval-queue/` |
 
 ## 维护规则

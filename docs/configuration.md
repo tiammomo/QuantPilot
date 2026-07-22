@@ -326,7 +326,7 @@ QUANTPILOT_REDIS_CACHE_ENABLED=0
 
 MoAgent 的 Token、轮次、工具调用和 lease 默认值已经按完整 workspace 任务校准。除非有运行 trace 证明瓶颈，不要通过无限调大预算掩盖模型不收敛、工具契约错误或终态提交缺失。
 
-generation dispatch 的关键配置是 `MOAGENT_DISPATCH_LEASE_TTL_MS=120000`、`MOAGENT_DISPATCH_HEARTBEAT_INTERVAL_MS=30000`、`MOAGENT_DISPATCH_PENDING_ORPHAN_GRACE_MS=120000` 和 `MOAGENT_DISPATCH_ENVELOPE_MAX_BYTES=262144`。heartbeat 必须严格小于 TTL；pending 宽限期用于封存“已入库但尚未 claim 就崩溃”的窄窗口；信封上限只约束 provider-neutral replan 输入，不能用来放宽 Secret 边界，credential-shaped 字段无论大小都会拒绝写库。`.quantpilot/generation-queue.json` 可删除并由 PostgreSQL job/outbox 重建，不能通过修改该文件取消、重试或完成任务。
+generation dispatch 的关键配置是 `MOAGENT_DISPATCH_LEASE_TTL_MS=120000`、`MOAGENT_DISPATCH_HEARTBEAT_INTERVAL_MS=30000`、`MOAGENT_DISPATCH_PENDING_ORPHAN_GRACE_MS=120000` 和 `MOAGENT_DISPATCH_ENVELOPE_MAX_BYTES=262144`。heartbeat 必须严格小于 TTL；pending 宽限期用于封存“已入库但尚未 claim 就崩溃”的窄窗口；信封上限只约束 provider-neutral replan 输入，不能用来放宽 Secret 边界，credential-shaped 字段无论大小都会拒绝写库。`.data-agent/generation-queue.json` 可删除并由 PostgreSQL job/outbox 重建，不能通过修改该文件取消、重试或完成任务。
 
 ## Secret 边界
 

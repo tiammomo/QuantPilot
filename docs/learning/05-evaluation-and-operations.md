@@ -102,7 +102,7 @@ uv run pytest
 
 | 现象 | 优先检查 |
 | --- | --- |
-| 页面显示“看板验证未通过” | `.quantpilot/validation.json` 和 `validation-repair-plan.json` |
+| 页面显示“看板验证未通过” | `.data-agent/validation.json` 和 `validation-repair-plan.json` |
 | 只有小趋势图，没有主图 | `visual-validation.json` 和可视化 skill 模板匹配 |
 | 多股票对比横向溢出 | 页面布局、表格宽度、移动端断点 |
 | K 线为空或只剩一天 | `data_file/final/dashboard-data.json` 是否只写入最新日 |

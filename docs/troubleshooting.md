@@ -9,7 +9,7 @@
 | 环境层 | 端口打不开、CLI 找不到、数据库不可达 | `npm run doctor`、`/ops-platform` 基础环境 |
 | 数据层 | K 线为空、成交额缺失、补数很慢 | 策略平台补数弹窗、market-data 日志 |
 | 生成层 | Agent 报错、达到最大轮数、页面没生成完 | 项目聊天页、生成链路观测 |
-| 契约层 | 产物缺失、验证失败、证据不完整 | 工作空间健康、`.quantpilot/*.json` |
+| 契约层 | 产物缺失、验证失败、证据不完整 | 工作空间健康、`.data-agent/*.json` |
 | 视觉层 | 页面能打开但难看、溢出、图表空白 | Playwright 截图、视觉检查报告 |
 | 评测层 | CI 或评测平台失败 | 评测报告、运行队列、失败修复 |
 
@@ -194,9 +194,9 @@ curl "http://127.0.0.1:8000/api/v1/quotes/realtime/600519"
 
 ```text
 .moagent/skills/
-.quantpilot/run_plan.json
-.quantpilot/generation-state.json
-.quantpilot/generation-queue.json
+.data-agent/finance-run-plan.json
+.data-agent/generation-state.json
+.data-agent/generation-queue.json
 data_file/final/dashboard-data.json
 evidence/sources.json
 evidence/data_quality.json
@@ -211,19 +211,19 @@ evidence/data_quality.json
 - 聊天页执行过程。
 - `/ops-platform` 工作空间健康。
 - `/ops-platform` 链路观测。
-- `.quantpilot/events.jsonl`。
-- `.quantpilot/validation.json`。
-- `.quantpilot/validation-repair-plan.json`。
-- `.quantpilot/artifact-contracts.json`。
-- `.quantpilot/visual-validation.json`。
+- `.data-agent/events.jsonl`。
+- `.data-agent/validation.json`。
+- `.data-agent/validation-repair-plan.json`。
+- `.data-agent/artifact-contracts.json`。
+- `.data-agent/visual-validation.json`。
 
 ## 生成链路卡在运行中
 
 检查：
 
 ```text
-.quantpilot/generation-state.json
-.quantpilot/generation-queue.json
+.data-agent/generation-state.json
+.data-agent/generation-queue.json
 ```
 
 如果用户已取消请求但队列仍显示 running，优先查看：
@@ -232,7 +232,7 @@ evidence/data_quality.json
 - `agent_generation_outbox_events` 中同一 job 的 sequence 是否连续，以及 `published_at` 是否仍为空；未发布事件会在下一次状态读取时重投影。
 - `POST /api/chat/<project_id>/pause`
 - `/ops-platform` 中的 active request。
-- `.quantpilot/events.jsonl` 中最近的 queue 事件。
+- `.data-agent/events.jsonl` 中最近的 queue 事件。
 
 如果数据库 job 已是 `cancelled`、`failed` 或 `interrupted`，但 JSON 仍显示 running，不要手改文件；重新读取项目状态触发投影修复。`DISPATCH_LEASE_EXPIRED_REPLAN_REQUIRED` 表示旧 worker 的细粒度 lease 也已失活，系统已封存旧 attempt，需要新请求基于当前 workspace 重规划。
 
@@ -240,9 +240,9 @@ evidence/data_quality.json
 
 检查：
 
-- `.quantpilot/validation.json` 是否存在。
-- `.quantpilot/validation-repair-plan.json` 是否生成。
-- `.quantpilot/generation-state.json` 中 `repairAttemptCount` 是否增加。
+- `.data-agent/validation.json` 是否存在。
+- `.data-agent/validation-repair-plan.json` 是否生成。
+- `.data-agent/generation-state.json` 中 `repairAttemptCount` 是否增加。
 - Agent runtime 是否已被取消。
 - `npm run check:validation-repair` 是否通过。
 
@@ -268,13 +268,13 @@ npm run package:skills
 确认这些文件有同步更新：
 
 ```text
-.claude/skills.registry.json
-.claude/skills.lock.json
-.claude/skills.changelog.json
-.claude/skill-packages/<skill-id>.tgz
+.moagent/skills.registry.json
+.moagent/skills.lock.json
+.moagent/skills.changelog.json
+.moagent/skill-packages/<skill-id>.tgz
 ```
 
-这里的 `.claude/**` 表示仓库根目录保留的 Skill 源兼容区，也是当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。MoAgent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.moagent/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
+这里的 `.moagent/**` 表示仓库根目录保留的 Skill 源兼容区，也是当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。MoAgent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.moagent/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
 
 ## MoAgent 提示 workspace resource lock 被占用
 
