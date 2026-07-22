@@ -50,7 +50,7 @@ evidence/data_quality.json
 | `.data-agent/plan.json` | 跨业务通用的执行计划、领域计划引用、预期产物和验证规则 |
 | `.data-agent/finance-query-rewrite.json` | schema v4 LLM 语义、Resolver 标的、安全决策与失败关闭状态 |
 | `.data-agent/finance-run-plan.json` | 消费 Query Rewrite 后形成的任务规划、标准代码、能力域、预期数据和可视化模板 |
-| `.data-agent/attachments.json` | 当前请求的附件清单；`attachments[].path` 必须是工作空间相对路径，不接受绝对路径字段 |
+| `.data-agent/attachments.json` | 当前请求的附件清单；`attachments[].path` 必须是严格 `assets/<filename>` 工作空间相对路径，不接受绝对路径、内联 base64 或多层子路径 |
 | `.data-agent/events.jsonl` | 生成链路事件审计 |
 | `.data-agent/generation-state.json` | 当前请求的阶段状态、错误、修复次数和元信息 |
 | `.data-agent/generation-queue.json` | PostgreSQL generation job/outbox 的可再生投影，显示 active request 和运行历史；不是跨进程 claim、锁、取消或完成态权威 |

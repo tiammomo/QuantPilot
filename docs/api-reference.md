@@ -43,14 +43,42 @@
 | `/api/chat/[project_id]/stream` | `GET` | 项目聊天页 | SSE 消息流 |
 | `/api/chat/[project_id]/act` | `POST` | 项目聊天页 | 启动 Agent 执行、量化预取数、验证和修复链路 |
 | `/api/chat/[project_id]/pause` | `POST` | 项目聊天页 | 暂停当前执行 |
-| `/api/chat/[project_id]/cli-preference` | `GET/POST` | 项目聊天页 | 项目级 CLI 和模型选择 |
 
 核心约束：
 
 - `act` 入口要把用户问题转换为 run plan、数据预取、生成、验证和修复事件。
+- `act` 请求是严格 camelCase 合同；未知字段直接返回 `400 INVALID_ACT_REQUEST`，不再接受 snake_case、`cliPreference`、内联 base64 或宿主绝对路径。
 - 运行状态只来自 `UserRequest / AgentRun / Mission / GenerationJob`；不再提供旧 CLI Session API 或平行状态表。
 - 投资建议类问题必须保持研究/辅助决策口径，不输出确定性买卖承诺。
 - 如果是宽域选股问题，不应因为缺少明确标的而反复澄清，应走本地股票池筛选。
+
+`POST /api/chat/[project_id]/act` 当前请求体如下：
+
+```json
+{
+  "instruction": "分析大位科技最近 60 个交易日，并生成看板",
+  "displayInstruction": "分析大位科技最近 60 个交易日，并生成看板",
+  "conversationId": "optional-conversation-id",
+  "requestId": "optional-idempotent-request-id",
+  "selectedModel": "local_qwen:qwen3.5-9b-q5km",
+  "images": [
+    {
+      "name": "持仓截图",
+      "path": "assets/holding.png",
+      "mimeType": "image/png"
+    }
+  ],
+  "isInitialPrompt": false,
+  "quantCapabilityId": "single-stock-diagnosis",
+  "quantCapabilitySource": "manual"
+}
+```
+
+`instruction`、`displayInstruction` 和 `images` 至少有一项非空；`images` 最多 8 张。图片必须先通过 `/api/assets/[project_id]/upload` 上传，随后只提交服务端返回的 `assets/<filename>` 相对路径。上传响应使用 `originalFilename`、`publicPath`、`publicUrl`，不返回重复 snake_case 字段。服务端会校验真实文件、图片签名、单图/总大小和 canonical project root，再由 Data Agent 通用层写 manifest；金融持仓字段和量化提取要求由 Finance Domain Adapter 注入。
+
+`POST /api/chat/[project_id]/messages` 同样只接受 `content`、`role`、`messageType`、`conversationId`、`cliSource`；`DELETE` 只接受 `conversationId` 查询参数。消息、SSE 和 WebSocket 输出均使用 camelCase。客户端如果仍发送 `request_id`、`selected_model`、`base64_data`、`public_url` 或 `conversation_id`，应修复调用方，而不是给服务端增加兼容分支。
+
+`POST /api/projects` 只接受 `projectId`、`name`、`initialPrompt`、`selectedModel`、`description`、`quantCapabilityId`、`quantCapabilitySource`。项目模型偏好通过 `PUT /api/projects/[project_id]` 的 `selectedModel` 更新；旧 `/api/chat/[project_id]/cli-preference` 平行入口已删除。
 
 ### 量化控制台
 
@@ -87,6 +115,8 @@ LLM 通过 Tool Schema 解析标的原文、时间范围、分析重点和输出
 | `/api/env/[project_id]/*` | `GET/POST/DELETE` | 项目设置 | 项目环境变量读取、upsert、冲突检查 |
 | `/api/tokens`、`/api/tokens/[...segments]` | `GET/POST/DELETE` | 设置弹窗 | 服务 token 管理 |
 | `/api/github/*`、`/api/vercel/*`、`/api/supabase/*` | `GET/POST` | 集成弹窗 | 外部平台连接和项目创建 |
+
+环境变量写入只接受 `key`、`value`、`scope`、`varType`、`isSecret`、`description`，响应只输出 `valuePreview`、`hasValue`、`varType`、`isSecret` 等 camelCase 字段。密钥更新只接受 `{ "value": "..." }`；未知字段和旧 `var_type/is_secret` 直接返回 `400 INVALID_ENV_REQUEST`。Secret GET 默认只返回掩码与是否有值，不返回密文或明文。
 
 ### 用户记忆
 

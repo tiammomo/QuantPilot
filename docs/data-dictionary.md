@@ -82,7 +82,7 @@ reservation 创建时先把数量原子加入 `usage_buckets.reserved`；settlem
 
 默认成员模板包含 8 条规则：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 observe/day`、`llm.total_tokens.monthly=2000000 observe/month`、`query_rewrite.llm.daily=200 observe/day`、`quant.data_units.daily=2000 observe/day`、`research.report_runs.daily=20 observe/day`、`research.report_sends.daily=10 hard/day`。管理员解析为无限但仍记账；普通成员优先使用未到期用户配额覆盖，其次是分配模板和默认模板。
 
-MoAgent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；文件内容仍以工作空间为事实源。`agent_workspace_leases.workspace_key` 是 deployment namespace 与 canonical realpath 的哈希，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。
+MoAgent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；文件内容仍以工作空间为事实源。`agent_runs.workspace_key` 与 `agent_workspace_leases.workspace_key` 都是 deployment namespace 与 canonical realpath 的 `sha256:<64 hex>` 身份，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。`agent_runs.workspace_key` 没有数据库默认值，调用方必须显式提供；数据库 check constraint 和启动 readiness 会拒绝格式漂移。
 
 ## 量化时序表
 

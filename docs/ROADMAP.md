@@ -79,6 +79,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 策略数据 service 拆分 | `strategy-mappers.ts` 已迁出并补齐纯函数单测，`strategies.ts` 仍是稳定 public surface | 继续拆出 market client、dashboard service；调用方只使用新的显式 public surface，不保留旧路径转发层 |
 | eval runtime 拆分 | report/database mappers 已迁入 `runtime-mappers.ts` 并补单测，runtime 当前约 1071 行 | 继续拆出 `runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
 | 模块边界预算收紧 | 当前大文件预算允许过渡，但不能长期放宽 | `npm run check:module-boundaries` 保持通过，大文件目标线逐步下降 |
+| Chat Act Use Case 拆分 | 请求合同和附件层已完成，主 route 仍承载鉴权、规划、预取和派发 | 继续拆 identity/quota、planning、prefetch、dispatch 四个应用服务；route 降到 1400 行目标线 |
 
 对应文档：
 
