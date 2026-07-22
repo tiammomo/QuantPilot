@@ -6,6 +6,7 @@ import {
   assertMoAgentSchemaReady,
   evaluateMoAgentSchemaCatalog,
   type MoAgentCatalogColumn,
+  type MoAgentCatalogCheckConstraint,
   type MoAgentCatalogForeignKey,
   type MoAgentCatalogIndex,
   type MoAgentSchemaCatalog,
@@ -14,7 +15,7 @@ import {
 
 function readyCatalog(): MoAgentSchemaCatalog {
   const columns: MoAgentCatalogColumn[] = MOAGENT_SCHEMA_EXPECTATIONS.columns.map(
-    (column) => ({ ...column })
+    (column) => ({ ...column, defaultValue: null })
   );
   const indexes: MoAgentCatalogIndex[] = MOAGENT_SCHEMA_EXPECTATIONS.indexes.map(
     (index, position) => ({
@@ -36,7 +37,14 @@ function readyCatalog(): MoAgentSchemaCatalog {
       updateAction: foreignKey.updateAction,
       validated: true,
     }));
-  return { columns, indexes, foreignKeys };
+  const checkConstraints: MoAgentCatalogCheckConstraint[] =
+    MOAGENT_SCHEMA_EXPECTATIONS.checkConstraints.map((constraint) => ({
+      tableName: constraint.tableName,
+      constraintName: constraint.constraintName,
+      definition: `CHECK ((workspace_key ~ '${constraint.definitionIncludes[1]}'::text))`,
+      validated: true,
+    }));
+  return { columns, indexes, foreignKeys, checkConstraints };
 }
 
 describe('MoAgent schema readiness', () => {
@@ -47,7 +55,7 @@ describe('MoAgent schema readiness', () => {
       issues: [],
     });
     expect(MOAGENT_SCHEMA_CONTRACT_VERSION).toBe(
-      '20260719000600_add_generation_dispatch_outbox'
+      '20260722000300_enforce_agent_run_workspace_identity'
     );
   });
 
@@ -191,6 +199,27 @@ describe('MoAgent schema readiness', () => {
     });
   });
 
+  it('fails closed when AgentRun workspace identity has a default or missing SHA-256 check', () => {
+    const catalog = readyCatalog();
+    catalog.columns = catalog.columns.map((column) =>
+      column.tableName === 'agent_runs' && column.columnName === 'workspace_key'
+        ? { ...column, defaultValue: "'legacy:unknown'::text" }
+        : column
+    );
+    catalog.checkConstraints = [];
+
+    expect(evaluateMoAgentSchemaCatalog(catalog).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'COLUMN_DEFAULT_MISMATCH',
+        objectName: 'public.agent_runs.workspace_key',
+      }),
+      expect.objectContaining({
+        code: 'MISSING_CHECK_CONSTRAINT',
+        objectName: 'public.agent_runs.agent_runs_workspace_key_sha256_check',
+      }),
+    ]));
+  });
+
   it('fails closed when a Mission node ownership foreign key is missing', () => {
     const catalog = readyCatalog();
     catalog.foreignKeys = catalog.foreignKeys.filter(
@@ -212,6 +241,7 @@ describe('MoAgent schema readiness', () => {
       .fn()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     const client = { $queryRawUnsafe: query } as unknown as MoAgentSchemaQueryClient;
 
@@ -220,8 +250,8 @@ describe('MoAgent schema readiness', () => {
       code: 'MOAGENT_SCHEMA_NOT_READY',
       contractVersion: MOAGENT_SCHEMA_CONTRACT_VERSION,
     });
-    expect(query).toHaveBeenCalledTimes(3);
-    for (const [sql] of query.mock.calls) {
+    expect(query).toHaveBeenCalledTimes(4);
+    for (const [sql] of query.mock.calls.slice(0, 3)) {
       expect(sql).toMatch(/^\s*SELECT/);
       expect(sql).not.toMatch(/\b(?:ALTER|CREATE|DELETE|DROP|INSERT|TRUNCATE|UPDATE)\b/i);
       expect(sql).toContain("'agent_missions'");
@@ -231,6 +261,7 @@ describe('MoAgent schema readiness', () => {
       expect(sql).toContain("'agent_generation_jobs'");
       expect(sql).toContain("'agent_generation_outbox_events'");
     }
+    expect(query.mock.calls[3][0]).toContain("'agent_runs'");
 
     try {
       await assertMoAgentSchemaReady({

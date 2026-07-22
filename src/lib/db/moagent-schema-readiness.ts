@@ -8,7 +8,7 @@
  */
 
 export const MOAGENT_SCHEMA_CONTRACT_VERSION =
-  '20260719000600_add_generation_dispatch_outbox' as const;
+  '20260722000300_enforce_agent_run_workspace_identity' as const;
 
 export interface MoAgentSchemaQueryClient {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): PromiseLike<T>;
@@ -19,6 +19,14 @@ export interface MoAgentCatalogColumn {
   columnName: string;
   dataType: string;
   nullable: boolean;
+  defaultValue?: string | null;
+}
+
+export interface MoAgentCatalogCheckConstraint {
+  tableName: string;
+  constraintName: string;
+  definition: string;
+  validated: boolean;
 }
 
 export interface MoAgentCatalogIndex {
@@ -44,6 +52,7 @@ export interface MoAgentSchemaCatalog {
   columns: readonly MoAgentCatalogColumn[];
   indexes: readonly MoAgentCatalogIndex[];
   foreignKeys: readonly MoAgentCatalogForeignKey[];
+  checkConstraints: readonly MoAgentCatalogCheckConstraint[];
 }
 
 export type MoAgentSchemaIssueCode =
@@ -51,10 +60,14 @@ export type MoAgentSchemaIssueCode =
   | 'MISSING_COLUMN'
   | 'COLUMN_TYPE_MISMATCH'
   | 'COLUMN_NULLABILITY_MISMATCH'
+  | 'COLUMN_DEFAULT_MISMATCH'
   | 'MISSING_INDEX'
   | 'INVALID_INDEX'
   | 'MISSING_FOREIGN_KEY'
-  | 'UNVALIDATED_FOREIGN_KEY';
+  | 'UNVALIDATED_FOREIGN_KEY'
+  | 'MISSING_CHECK_CONSTRAINT'
+  | 'INVALID_CHECK_CONSTRAINT'
+  | 'UNVALIDATED_CHECK_CONSTRAINT';
 
 export interface MoAgentSchemaIssue {
   code: MoAgentSchemaIssueCode;
@@ -89,6 +102,12 @@ interface ExpectedForeignKey {
   referencedColumns: readonly string[];
   deleteAction: string;
   updateAction: string;
+}
+
+interface ExpectedCheckConstraint {
+  tableName: string;
+  constraintName: string;
+  definitionIncludes: readonly string[];
 }
 
 type ColumnDefinition = readonly [dataType: string, nullable: boolean];
@@ -555,11 +574,20 @@ const EXPECTED_FOREIGN_KEYS: readonly ExpectedForeignKey[] = [
   },
 ];
 
+const EXPECTED_CHECK_CONSTRAINTS: readonly ExpectedCheckConstraint[] = [
+  {
+    tableName: 'agent_runs',
+    constraintName: 'agent_runs_workspace_key_sha256_check',
+    definitionIncludes: ['workspace_key', '^sha256:[0-9a-f]{64}$'],
+  },
+];
+
 /** Exposed for deterministic contract tests and operator-facing diagnostics. */
 export const MOAGENT_SCHEMA_EXPECTATIONS = {
   columns: EXPECTED_COLUMNS,
   indexes: EXPECTED_INDEXES,
   foreignKeys: EXPECTED_FOREIGN_KEYS,
+  checkConstraints: EXPECTED_CHECK_CONSTRAINTS,
 } as const;
 
 const CATALOG_COLUMNS_SQL = `
@@ -567,7 +595,8 @@ SELECT
   table_name AS "tableName",
   column_name AS "columnName",
   data_type AS "dataType",
-  (is_nullable = 'YES') AS "nullable"
+  (is_nullable = 'YES') AS "nullable",
+  column_default AS "defaultValue"
 FROM information_schema.columns
 WHERE table_schema = 'public'
   AND table_name IN (
@@ -696,6 +725,23 @@ GROUP BY
 ORDER BY child_table.relname, constraint_info.conname
 `;
 
+const CATALOG_CHECK_CONSTRAINTS_SQL = `
+SELECT
+  table_info.relname AS "tableName",
+  constraint_info.conname AS "constraintName",
+  pg_get_constraintdef(constraint_info.oid) AS "definition",
+  constraint_info.convalidated AS "validated"
+FROM pg_catalog.pg_constraint AS constraint_info
+JOIN pg_catalog.pg_class AS table_info
+  ON table_info.oid = constraint_info.conrelid
+JOIN pg_catalog.pg_namespace AS table_namespace
+  ON table_namespace.oid = table_info.relnamespace
+WHERE constraint_info.contype = 'c'
+  AND table_namespace.nspname = 'public'
+  AND table_info.relname IN ('agent_runs')
+ORDER BY table_info.relname, constraint_info.conname
+`;
+
 function sameColumns(actual: readonly string[], expected: readonly string[]): boolean {
   return (
     actual.length === expected.length &&
@@ -721,7 +767,10 @@ export async function readMoAgentSchemaCatalog(
   const foreignKeys = await client.$queryRawUnsafe<MoAgentCatalogForeignKey[]>(
     CATALOG_FOREIGN_KEYS_SQL
   );
-  return { columns, indexes, foreignKeys };
+  const checkConstraints = await client.$queryRawUnsafe<MoAgentCatalogCheckConstraint[]>(
+    CATALOG_CHECK_CONSTRAINTS_SQL
+  );
+  return { columns, indexes, foreignKeys, checkConstraints };
 }
 
 export function evaluateMoAgentSchemaCatalog(
@@ -767,6 +816,18 @@ export function evaluateMoAgentSchemaCatalog(
         objectName,
         expected: expected.nullable ? 'nullable' : 'not null',
         actual: actual.nullable ? 'nullable' : 'not null',
+      });
+    }
+    if (
+      expected.tableName === 'agent_runs' &&
+      expected.columnName === 'workspace_key' &&
+      actual.defaultValue != null
+    ) {
+      issues.push({
+        code: 'COLUMN_DEFAULT_MISMATCH',
+        objectName,
+        expected: 'no default; callers must provide canonical workspace identity',
+        actual: actual.defaultValue,
       });
     }
   }
@@ -825,6 +886,39 @@ export function evaluateMoAgentSchemaCatalog(
         objectName,
         expected: 'validated foreign key',
         actual: candidates.map((foreignKey) => foreignKey.constraintName).join(', '),
+      });
+    }
+  }
+
+  for (const expected of EXPECTED_CHECK_CONSTRAINTS) {
+    if (!actualTables.has(expected.tableName)) continue;
+    const candidate = catalog.checkConstraints.find(
+      (constraint) =>
+        constraint.tableName === expected.tableName &&
+        constraint.constraintName === expected.constraintName
+    );
+    const objectName = `public.${expected.tableName}.${expected.constraintName}`;
+    if (!candidate) {
+      issues.push({
+        code: 'MISSING_CHECK_CONSTRAINT',
+        objectName,
+        expected: expected.definitionIncludes.join(' and '),
+      });
+      continue;
+    }
+    if (!expected.definitionIncludes.every((part) => candidate.definition.includes(part))) {
+      issues.push({
+        code: 'INVALID_CHECK_CONSTRAINT',
+        objectName,
+        expected: expected.definitionIncludes.join(' and '),
+        actual: candidate.definition,
+      });
+    }
+    if (!candidate.validated) {
+      issues.push({
+        code: 'UNVALIDATED_CHECK_CONSTRAINT',
+        objectName,
+        expected: 'validated check constraint',
       });
     }
   }

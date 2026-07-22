@@ -377,7 +377,7 @@ model AgentRun {
   projectId     String  @map("project_id")
   requestId     String? @map("request_id")
   actorUserId   String? @map("actor_user_id")
-  workspaceKey  String  @default("legacy:unknown") @map("workspace_key")
+  workspaceKey  String  @map("workspace_key")
 
   status                String    @default("pending")
   leaseOwner            String?   @map("lease_owner")

@@ -346,6 +346,55 @@
         "reason": "Python 后端不能依赖 Next.js 前端源码。"
       }
     ],
+    "removedPaths": [
+      {
+        "path": "src/app/api/chat/**/active-session/**",
+        "reason": "运行身份只由 Mission 和 AgentRun 管理，不恢复旧 active-session API。"
+      },
+      {
+        "path": "src/app/api/chat/**/sessions/**/status/**",
+        "reason": "运行状态只从 generation/status 和 Mission 存储读取。"
+      },
+      {
+        "path": "src/lib/services/chat-sessions.*",
+        "reason": "旧聊天 session 服务已经被 durable Mission 生命周期替代。"
+      },
+      {
+        "path": "src/app/api/chat/**/cli-preference/**",
+        "reason": "模型选择只通过项目当前合同持久化，不恢复平行偏好 API。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/database.py",
+        "reason": "数据库连接与业务 SQL 已拆入 database_core 和 repositories。"
+      }
+    ],
+    "forbiddenContent": [
+      {
+        "path": "prisma/schema.prisma",
+        "pattern": "@default\\(\\\"legacy:unknown\\\"\\)|active_claude_session_id",
+        "reason": "运行记录必须显式携带 canonical workspace SHA-256 身份。"
+      },
+      {
+        "path": "src/app/api/chat/[project_id]/act/route.ts",
+        "pattern": "body\\.(request_id|selected_model|cliPreference|quant_capability_id|quant_capability_source|is_initial_prompt)|base64_data",
+        "reason": "Act ingress 只接受 chat-act-contract.ts 定义的 camelCase 当前契约。"
+      },
+      {
+        "path": "src/app/api/projects/route.ts",
+        "pattern": "body\\.(project_id|initial_prompt|selected_model|quant_capability_id|quant_capability_source|capabilityId|capability_source)",
+        "reason": "项目创建只接受单一 camelCase 当前合同。"
+      },
+      {
+        "path": "src/lib/server/image-assets.ts",
+        "pattern": "temporary compatibility shape|outside this project",
+        "reason": "图片资产只接受严格 assets/<filename> 工作空间相对路径。"
+      },
+      {
+        "path": "src/lib/services/env.ts",
+        "pattern": "value_preview|has_value|var_type|is_secret",
+        "reason": "Secret API 和服务投影只维护单一 camelCase 当前合同。"
+      }
+    ],
     "largeFileBudgets": [
       {
         "path": "src/lib/utils/scaffold.ts",
@@ -373,9 +422,9 @@
       },
       {
         "path": "src/app/api/chat/[project_id]/act/route.ts",
-        "maxLines": 3730,
+        "maxLines": 3420,
         "targetLines": 1400,
-        "nextAction": "拆出请求解析、身份与配额、query rewrite、data prefetch、mission dispatch 和 terminal response；route 只做 HTTP 编排。"
+        "nextAction": "请求合同和附件处理已拆出；继续拆身份与配额、query rewrite、data prefetch、mission dispatch 和 terminal response，使 route 只做 HTTP 编排。"
       },
       {
         "path": "src/components/chat/ChatLog.tsx",

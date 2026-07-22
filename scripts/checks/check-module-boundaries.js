@@ -166,6 +166,31 @@ function validateForbiddenImports(config) {
   }
 }
 
+function validateRemovedPaths(config) {
+  const repositoryFiles = walkFiles('.', [
+    '.ts', '.tsx', '.js', '.cjs', '.mjs', '.py', '.prisma', '.json', '.md', '.sql',
+  ]);
+  for (const rule of config.rules?.removedPaths ?? []) {
+    const matches = repositoryFiles.filter((file) => matchesGlob(file, rule.path));
+    for (const file of matches) {
+      fail(`${file} restores a removed path; ${rule.reason}`);
+    }
+  }
+}
+
+function validateForbiddenContent(config) {
+  for (const rule of config.rules?.forbiddenContent ?? []) {
+    if (!exists(rule.path)) {
+      fail(`forbidden content rule references missing file: ${rule.path}`);
+      continue;
+    }
+    const expression = new RegExp(rule.pattern, rule.flags ?? 'm');
+    if (expression.test(read(rule.path))) {
+      fail(`${rule.path} contains removed contract content; ${rule.reason}`);
+    }
+  }
+}
+
 function validateLargeFiles(config) {
   for (const budget of config.rules?.largeFileBudgets ?? []) {
     if (!exists(budget.path)) {
@@ -207,6 +232,8 @@ function validateDocs(config) {
 const config = readJson(CONFIG_PATH);
 validateConfig(config);
 validateForbiddenImports(config);
+validateRemovedPaths(config);
+validateForbiddenContent(config);
 validateLargeFiles(config);
 validateDocs(config);
 
@@ -223,5 +250,5 @@ if (failures.length) {
 }
 
 console.log(
-  `[module-boundaries] ok: ${config.modules.length} modules, ${config.rules?.forbiddenImports?.length ?? 0} forbidden import rules`
+  `[module-boundaries] ok: ${config.modules.length} modules, ${config.rules?.forbiddenImports?.length ?? 0} forbidden import rules, ${config.rules?.removedPaths?.length ?? 0} removed path rules, ${config.rules?.forbiddenContent?.length ?? 0} current-contract rules`
 );
