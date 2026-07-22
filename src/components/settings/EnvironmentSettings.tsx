@@ -9,12 +9,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 interface EnvironmentVariable {
   key: string;
   value: string;
-  value_preview?: string;
   valuePreview?: string;
-  has_value?: boolean;
   hasValue?: boolean;
   isSecret?: boolean;
-  is_secret?: boolean;
 }
 
 interface EnvironmentSettingsProps {
@@ -30,17 +27,14 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   function normalizeEnvVariable(value: any): EnvironmentVariable {
-    const isSecret = Boolean(value?.isSecret ?? value?.is_secret);
-    const hasValue = Boolean(value?.hasValue ?? value?.has_value ?? value?.value);
+    const isSecret = Boolean(value?.isSecret);
+    const hasValue = Boolean(value?.hasValue ?? value?.value);
     return {
       key: String(value?.key ?? ''),
       value: typeof value?.value === 'string' ? value.value : '',
-      value_preview: typeof value?.value_preview === 'string' ? value.value_preview : value?.valuePreview,
-      valuePreview: typeof value?.valuePreview === 'string' ? value.valuePreview : value?.value_preview,
-      has_value: hasValue,
+      valuePreview: typeof value?.valuePreview === 'string' ? value.valuePreview : undefined,
       hasValue,
       isSecret,
-      is_secret: isSecret,
     };
   }
 
@@ -80,8 +74,8 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
           key: newVar.key,
           value: newVar.value,
           scope: 'runtime',
-          var_type: 'string',
-          is_secret: newVar.isSecret || false
+          varType: 'string',
+          isSecret: newVar.isSecret || false
         })
       });
 
@@ -112,7 +106,7 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
 
       if (response.ok) {
         const updated = [...variables];
-        updated[index] = normalizeEnvVariable({ ...variable, hasValue: true, has_value: true });
+        updated[index] = normalizeEnvVariable({ ...variable, hasValue: true });
         setVariables(updated);
         setEditingIndex(null);
       }
@@ -200,7 +194,7 @@ export function EnvironmentSettings({ projectId }: EnvironmentSettingsProps) {
                     <span className="text-slate-400">=</span>
                     <span className="flex-1 font-mono text-sm text-slate-600 ">
                       {variable.isSecret
-                        ? variable.valuePreview ?? variable.value_preview ?? (variable.hasValue ? '••••••••' : '')
+                        ? variable.valuePreview ?? (variable.hasValue ? '••••••••' : '')
                         : variable.value}
                     </span>
                     {variable.isSecret && (

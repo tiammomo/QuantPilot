@@ -50,7 +50,7 @@ export interface CreateProjectInput {
 
 export interface UpdateProjectInput {
   name?: string;
-  description?: string;
+  description?: string | null;
   status?: ProjectStatus;
   /** Preview runtime metadata. */
   previewUrl?: string | null;

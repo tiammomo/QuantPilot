@@ -405,8 +405,7 @@ export async function POST(request: NextRequest) {
           end: typeof body.end === 'string' ? body.end : undefined,
           period: typeof body.period === 'string' ? body.period : undefined,
           adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
-          includeValuationFactors:
-            body.includeValuationFactors === true || body.include_valuation_factors === true,
+          includeValuationFactors: body.includeValuationFactors === true,
         }),
         201
       );
@@ -424,8 +423,7 @@ export async function POST(request: NextRequest) {
           period: typeof body.period === 'string' ? body.period : undefined,
           adjustment: typeof body.adjustment === 'string' ? body.adjustment : undefined,
           maxBatches: typeof body.maxBatches === 'number' ? body.maxBatches : undefined,
-          includeValuationFactors:
-            body.includeValuationFactors === true || body.include_valuation_factors === true,
+          includeValuationFactors: body.includeValuationFactors === true,
         }),
         201
       );

@@ -44,7 +44,7 @@ function request(
   return new NextRequest('http://localhost/api/projects', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'idempotency-key': 'create-test' },
-    body: JSON.stringify({ project_id: projectId, name: 'New project', ...extra }),
+    body: JSON.stringify({ projectId, name: 'New project', ...extra }),
   });
 }
 
@@ -116,6 +116,22 @@ describe('POST /api/projects quota orchestration', () => {
       }),
       { ownerId: 'member-1' },
     );
+  });
+
+  it('rejects legacy aliases before reserving quota', async () => {
+    const response = await POST(new NextRequest('http://localhost/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project_id: 'legacy-project', name: 'Legacy project' }),
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: 'INVALID_PROJECT_REQUEST',
+    });
+    expect(mocks.reserveQuota).not.toHaveBeenCalled();
+    expect(mocks.createProject).not.toHaveBeenCalled();
   });
 
   it('releases the reservation when project creation fails', async () => {

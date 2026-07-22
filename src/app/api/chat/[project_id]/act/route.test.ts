@@ -81,4 +81,27 @@ describe('act route request project scope', () => {
     expect(mocks.createMessage).not.toHaveBeenCalled();
     expect(mocks.updateProjectActivity).not.toHaveBeenCalled();
   });
+
+  it('rejects legacy request aliases before loading project state', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/chat/project-a/act', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          instruction: '生成量化看板',
+          request_id: 'legacy-request-id',
+          selected_model: 'local_qwen:qwen3.5-9b-q5km',
+        }),
+      }) as never,
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      success: false,
+      error: 'INVALID_ACT_REQUEST',
+    });
+    expect(mocks.getProjectById).not.toHaveBeenCalled();
+    expect(mocks.upsertRequest).not.toHaveBeenCalled();
+  });
 });

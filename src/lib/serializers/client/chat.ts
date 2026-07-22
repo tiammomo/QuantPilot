@@ -29,10 +29,8 @@ const deriveMessageId = (raw: any): string => {
   const explicitIdCandidates = [
     raw?.id,
     raw?.messageId,
-    raw?.message_id,
     raw?.uuid,
     raw?.messageUuid,
-    raw?.message_uuid,
   ];
 
   for (const candidate of explicitIdCandidates) {
@@ -42,12 +40,11 @@ const deriveMessageId = (raw: any): string => {
     }
   }
 
-  const project = pickFirstString(raw?.projectId) ?? pickFirstString(raw?.project_id) ?? '';
+  const project = pickFirstString(raw?.projectId) ?? '';
   const role = pickFirstString(raw?.role) ?? 'assistant';
-  const type = pickFirstString(raw?.messageType) ?? pickFirstString(raw?.message_type) ?? 'chat';
+  const type = pickFirstString(raw?.messageType) ?? 'chat';
   const created =
     pickFirstString(raw?.createdAt) ??
-    pickFirstString(raw?.created_at) ??
     pickFirstString(raw?.timestamp) ??
     '';
 
@@ -148,27 +145,25 @@ export const normalizeChatContent = (value: unknown): string => {
 };
 
 export const toChatMessage = (raw: any): ChatMessage => {
-  const createdAt = raw?.createdAt ?? raw?.created_at ?? new Date().toISOString();
-  const updatedAt = raw?.updatedAt ?? raw?.updated_at ?? createdAt;
-  const metadata = normalizeMetadata(
-    raw?.metadata ?? raw?.metadata_json ?? raw?.metadataJson,
-  );
+  const createdAt = raw?.createdAt ?? new Date().toISOString();
+  const updatedAt = raw?.updatedAt ?? createdAt;
+  const metadata = normalizeMetadata(raw?.metadata ?? raw?.metadataJson);
 
   return {
     id: deriveMessageId(raw),
-    projectId: raw?.projectId ?? raw?.project_id ?? '',
+    projectId: raw?.projectId ?? '',
     role: raw?.role ?? 'assistant',
-    messageType: raw?.messageType ?? raw?.message_type ?? 'chat',
+    messageType: raw?.messageType ?? 'chat',
     content: normalizeChatContent(raw?.content),
     metadata,
-    parentMessageId: raw?.parentMessageId ?? raw?.parent_message_id ?? null,
-    conversationId: raw?.conversationId ?? raw?.conversation_id ?? null,
-    cliSource: raw?.cliSource ?? raw?.cli_source ?? null,
-    requestId: raw?.requestId ?? raw?.request_id ?? undefined,
+    parentMessageId: raw?.parentMessageId ?? null,
+    conversationId: raw?.conversationId ?? null,
+    cliSource: raw?.cliSource ?? null,
+    requestId: raw?.requestId ?? undefined,
     createdAt,
     updatedAt,
-    isStreaming: raw?.isStreaming ?? raw?.is_streaming ?? false,
-    isFinal: raw?.isFinal ?? raw?.is_final ?? false,
-    isOptimistic: raw?.isOptimistic ?? raw?.is_optimistic ?? false,
+    isStreaming: raw?.isStreaming ?? false,
+    isFinal: raw?.isFinal ?? false,
+    isOptimistic: raw?.isOptimistic ?? false,
   } satisfies ChatMessage;
 };

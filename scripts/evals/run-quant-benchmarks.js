@@ -2068,7 +2068,7 @@ async function runLiveProductE2eCase(testCase, options) {
         requestId,
         selectedModel: options.model,
         quantCapabilityId: testCase.capabilityId,
-        quantCapabilitySource: 'benchmark',
+        quantCapabilitySource: 'manual',
         isInitialPrompt: true,
       }),
     },

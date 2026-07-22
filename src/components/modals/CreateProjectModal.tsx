@@ -64,7 +64,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const [selectedCLI, setSelectedCLI] = useState<string>('moagent');
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
   const [selectedCapability, setSelectedCapability] = useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
-  const [fallbackEnabled, setFallbackEnabled] = useState(false);
   const [useDefaultSettings, setUseDefaultSettings] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initializationStep, setInitializationStep] = useState('');
@@ -119,7 +118,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         const preferredCLI =
           effectiveCLIs.find((cli) => cli.id === defaultCLI)?.id ?? effectiveCLIs[0]?.id ?? 'moagent';
         setSelectedCLI(preferredCLI);
-        setFallbackEnabled(false);
 
         const preferredModelSetting = settings.cli_settings?.[preferredCLI]?.model;
         if (preferredModelSetting) {
@@ -140,7 +138,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         setSelectedCLI(fallbackCLI);
         const fallbackModel = effectiveCLIs[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
         setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
-        setFallbackEnabled(false);
       }
     } catch (error) {
       console.error('Failed to load global settings:', error);
@@ -151,7 +148,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       setSelectedCLI(fallbackCLI);
       const fallbackModel = available[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
       setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
-      setFallbackEnabled(false);
     }
   }, []);
 
@@ -279,13 +275,11 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     // Reset to global defaults or fallback
     if (globalSettings) {
       setSelectedCLI(globalSettings.default_cli || 'moagent');
-      setFallbackEnabled(false);
       const cliSettings = globalSettings.cli_settings?.[globalSettings.default_cli || 'moagent'];
       setSelectedModel(sanitizeModel(globalSettings.default_cli || 'moagent', cliSettings?.model));
     } else {
       setSelectedCLI('moagent');
       setSelectedModel(DEFAULT_MODEL_ID);
-      setFallbackEnabled(false);
     }
 
     // Close modal and navigate to chat with initial prompt
@@ -364,29 +358,15 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     const wsCleanup = connectToProjectWebSocket(projectUuid);
 
     try {
-      const projectData: any = {
-        project_id: projectUuid,
+      const projectData = {
+        projectId: projectUuid,
         name,
         description: prompt,
         initialPrompt: prompt,
-        preferredCli: finalCLI,
-        fallbackEnabled,
         selectedModel: finalModel,
         quantCapabilityId: selectedCapability,
-        cli_settings: {
-          [finalCLI]: {
-            model: finalModel
-          }
-        }
+        quantCapabilitySource: 'manual' as const,
       };
-
-      // Add URL and image if provided
-      if (websiteUrl) {
-        projectData.websiteUrl = websiteUrl;
-      }
-      if (imageUrl) {
-        projectData.imageUrl = imageUrl;
-      }
 
       console.log('Sending project data:', JSON.stringify(projectData, null, 2));
 

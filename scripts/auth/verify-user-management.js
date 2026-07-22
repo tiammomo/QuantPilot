@@ -98,7 +98,7 @@ async function main() {
     }
     const createProject = await api(memberPage, '/api/projects', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, name: 'Authorization E2E Project' }),
+      body: JSON.stringify({ projectId, name: 'Authorization E2E Project' }),
     });
     if (createProject.status !== 201) throw new Error(`Member project creation failed: ${createProject.status}`);
 

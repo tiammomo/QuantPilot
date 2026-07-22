@@ -8,6 +8,7 @@ export * from './query-rewrite';
 export * from './query-rewrite-llm';
 export * from './intent';
 export * from './workspace';
+export * from './image-attachment-context';
 export * from './data-agent-projection';
 export * from './agent-tools/factory';
 export * from './agent-tools/dashboard-contract';

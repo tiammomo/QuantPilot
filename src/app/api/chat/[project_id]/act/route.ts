@@ -17,20 +17,25 @@ import {
   normalizeModelId,
 } from "@/lib/constants/models";
 import { streamManager } from "@/lib/services/stream";
-import type { ChatActRequest } from "@/types/backend";
 import { generateProjectId } from "@/lib/utils";
 import path from "path";
 import fs from "fs/promises";
 import { randomUUID } from "crypto";
+import { ImageAssetError } from "@/lib/server/image-assets";
 import {
-  configuredMaxImageBytes,
-  decodeBase64Image,
-  ImageAssetError,
-  resolveExistingProjectAssetPath,
-  resolveProjectAssetPath,
-  resolveProjectAssetsPath,
-  validateImageBytes,
-} from "@/lib/server/image-assets";
+  ChatActContractError,
+  MAX_CHAT_ACT_IMAGE_ATTACHMENTS,
+  parseChatActRequest,
+} from "@/lib/quant/chat-act-contract";
+import {
+  MAX_DATA_AGENT_TOTAL_IMAGE_BYTES,
+  normalizeDataAgentImageAttachment,
+  type ProcessedDataAgentImageAttachment,
+} from "@/lib/data-agent";
+import {
+  buildFinanceAttachmentInstruction,
+  writeFinanceAttachmentContext,
+} from "@/lib/domains/finance";
 import { serializeMessage } from "@/lib/serializers/chat";
 import {
   assertUserRequestProjectBinding,
@@ -158,7 +163,7 @@ type CliRuntime = {
     instruction: string,
     model?: string,
     requestId?: string,
-    images?: ProcessedImageAttachment[],
+    images?: ProcessedDataAgentImageAttachment[],
     personalization?: PersonalizationCapsule | null,
     governedKnowledge?: GovernedKnowledgeCapsule | null,
   ) => Promise<MoAgentCandidateSubmission>;
@@ -207,12 +212,6 @@ async function missingAgentInputArtifacts(
     }),
   );
   return checks.flatMap((value) => (value === null ? [] : [value]));
-}
-
-function coerceString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || "./data/projects";
@@ -1805,288 +1804,6 @@ function runValidationAfterExecution(params: {
   })();
 }
 
-const MAX_IMAGE_ATTACHMENTS = 8;
-const MAX_IMAGE_BYTES = configuredMaxImageBytes();
-const MAX_TOTAL_IMAGE_BYTES = Math.min(
-  25 * 1024 * 1024,
-  MAX_IMAGE_ATTACHMENTS * MAX_IMAGE_BYTES,
-);
-
-function isPathInside(basePath: string, candidatePath: string): boolean {
-  const relative = path.relative(basePath, candidatePath);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-}
-
-async function mirrorAssetToProjectPublic(
-  projectRoot: string,
-  filename: string,
-  sourcePath: string,
-): Promise<string> {
-  const [canonicalProjectRoot, canonicalAssetsRoot] = await Promise.all([
-    fs.realpath(/* turbopackIgnore: true */ projectRoot),
-    fs.realpath(path.dirname(/* turbopackIgnore: true */ sourcePath)),
-  ]);
-  if (!isPathInside(canonicalProjectRoot, canonicalAssetsRoot)) {
-    throw new ImageAssetError(
-      "Project attachment storage is outside the project workspace",
-    );
-  }
-  const uploadsDir = path.join(
-    /* turbopackIgnore: true */ canonicalProjectRoot,
-    "public",
-    "uploads",
-  );
-  await fs.mkdir(/* turbopackIgnore: true */ uploadsDir, { recursive: true });
-  const destinationPath = path.join(
-    /* turbopackIgnore: true */ uploadsDir,
-    filename,
-  );
-  await fs.copyFile(
-    /* turbopackIgnore: true */ sourcePath,
-    /* turbopackIgnore: true */ destinationPath,
-  );
-  return `/uploads/${filename}`;
-}
-
-async function materializeBase64Image(
-  projectId: string,
-  projectRoot: string,
-  base64: string,
-  nameHint?: string,
-  mimeType?: string,
-): Promise<{
-  path: string;
-  filename: string;
-  publicUrl: string;
-  mimeType: string;
-  size: number;
-}> {
-  const buffer = decodeBase64Image(base64, { maxBytes: MAX_IMAGE_BYTES });
-  const detected = validateImageBytes(buffer, {
-    ...(mimeType ? { declaredMimeType: mimeType } : {}),
-    maxBytes: MAX_IMAGE_BYTES,
-  });
-  const safeName =
-    nameHint && nameHint.trim() ? nameHint.trim() : `image-${randomUUID()}`;
-  const filename = `${safeName.slice(0, 80).replace(/[^a-zA-Z0-9-_]/g, "-") || "image"}-${randomUUID()}${detected.extension}`;
-  const assetsDir = resolveProjectAssetsPath(projectId);
-  await fs.mkdir(/* turbopackIgnore: true */ assetsDir, { recursive: true });
-  const absolutePath = resolveProjectAssetPath(projectId, filename);
-  await fs.writeFile(/* turbopackIgnore: true */ absolutePath, buffer, {
-    flag: "wx",
-  });
-  const publicUrl = await mirrorAssetToProjectPublic(
-    projectRoot,
-    filename,
-    absolutePath,
-  );
-  return {
-    path: `assets/${filename}`,
-    filename,
-    publicUrl,
-    mimeType: detected.mimeType,
-    size: buffer.byteLength,
-  };
-}
-
-type RawImageAttachment = Record<string, unknown>;
-
-type ProcessedImageAttachment = {
-  name: string;
-  path: string;
-  url: string;
-  publicUrl?: string;
-  originalName?: string;
-  mimeType?: string;
-  size?: number;
-};
-
-async function normalizeImageAttachment(
-  projectId: string,
-  projectRoot: string,
-  raw: RawImageAttachment,
-  index: number,
-): Promise<ProcessedImageAttachment> {
-  const name =
-    typeof raw.name === "string" && raw.name.trim().length > 0
-      ? raw.name.trim().slice(0, 256)
-      : `Image ${index + 1}`;
-
-  const pathValue =
-    typeof raw.path === "string" && raw.path.trim().length > 0
-      ? raw.path.trim()
-      : null;
-
-  const base64DataCandidate =
-    typeof raw.base64_data === "string"
-      ? raw.base64_data
-      : typeof raw.base64Data === "string"
-        ? raw.base64Data
-        : null;
-
-  const mimeTypeCandidate =
-    typeof raw.mime_type === "string"
-      ? raw.mime_type
-      : typeof raw.mimeType === "string"
-        ? raw.mimeType
-        : undefined;
-
-  if (pathValue) {
-    const asset = await resolveExistingProjectAssetPath(projectId, pathValue);
-    if (asset.size > MAX_IMAGE_BYTES) {
-      throw new ImageAssetError(
-        `Image must be smaller than ${Math.floor(MAX_IMAGE_BYTES / 1024 / 1024)}MB`,
-        413,
-      );
-    }
-    const bytes = await fs.readFile(
-      /* turbopackIgnore: true */ asset.absolutePath,
-    );
-    const detected = validateImageBytes(bytes, {
-      ...(mimeTypeCandidate ? { declaredMimeType: mimeTypeCandidate } : {}),
-      maxBytes: MAX_IMAGE_BYTES,
-    });
-    const publicUrl = await mirrorAssetToProjectPublic(
-      projectRoot,
-      asset.filename,
-      asset.absolutePath,
-    );
-    return {
-      name,
-      path: asset.relativePath,
-      url: `/api/assets/${projectId}/${asset.filename}`,
-      publicUrl,
-      originalName:
-        typeof raw.original_name === "string"
-          ? raw.original_name.slice(0, 256)
-          : undefined,
-      mimeType: detected.mimeType,
-      size: bytes.byteLength,
-    };
-  }
-
-  if (base64DataCandidate) {
-    const materialized = await materializeBase64Image(
-      projectId,
-      projectRoot,
-      base64DataCandidate,
-      name,
-      mimeTypeCandidate,
-    );
-    return {
-      name,
-      path: materialized.path,
-      url: `/api/assets/${projectId}/${materialized.filename}`,
-      publicUrl: materialized.publicUrl,
-      mimeType: materialized.mimeType,
-      size: materialized.size,
-    };
-  }
-
-  throw new ImageAssetError(
-    "Each image attachment must reference an uploaded project asset",
-  );
-}
-
-async function writeAttachmentContext(params: {
-  projectRoot: string;
-  projectId: string;
-  requestId: string;
-  images: ProcessedImageAttachment[];
-}): Promise<string | null> {
-  if (params.images.length === 0) {
-    return null;
-  }
-
-  const quantDir = path.join(
-    /* turbopackIgnore: true */ params.projectRoot,
-    ".data-agent",
-  );
-  const relativePath = ".data-agent/attachments.json";
-  const absolutePath = path.join(
-    /* turbopackIgnore: true */ params.projectRoot,
-    relativePath,
-  );
-  const payload = {
-    schemaVersion: 1,
-    projectId: params.projectId,
-    requestId: params.requestId,
-    createdAt: new Date().toISOString(),
-    instruction:
-      "这些图片由用户随本次问题上传。Agent 必须先读取本文件并检查图片，再解析其中的股票、持仓、成本、现金、盈亏、仓位等字段。",
-    attachments: params.images.map((image, index) => ({
-      id: `image-${index + 1}`,
-      name: image.name,
-      path: image.path,
-      url: image.url,
-      publicUrl: image.publicUrl ?? null,
-      mimeType: image.mimeType ?? null,
-      size: image.size ?? null,
-    })),
-    extractionContract: {
-      requiredSkill: "image-extraction",
-      requiredTool: "quant_extract_uploaded_image",
-      portfolioScreenshotFields: [
-        "account_total_asset",
-        "cash_available",
-        "market_value",
-        "daily_pnl",
-        "total_pnl",
-        "position_ratio",
-        "holdings[].name",
-        "holdings[].symbol_if_visible_or_resolved",
-        "holdings[].quantity",
-        "holdings[].cost_price",
-        "holdings[].current_price",
-        "holdings[].market_value",
-        "holdings[].pnl",
-        "holdings[].pnl_percent",
-      ],
-      rule: "无法确定的截图字段必须写 null，并在 evidence/data_quality.json 说明不确定性，不允许编造。",
-    },
-  };
-
-  await fs.mkdir(/* turbopackIgnore: true */ quantDir, { recursive: true });
-  await fs.writeFile(
-    /* turbopackIgnore: true */ absolutePath,
-    `${JSON.stringify(payload, null, 2)}\n`,
-    "utf8",
-  );
-  return relativePath;
-}
-
-function buildImageAttachmentInstruction(params: {
-  attachmentContextPath: string | null;
-  images: ProcessedImageAttachment[];
-}): string {
-  if (params.images.length === 0) {
-    return "";
-  }
-
-  const imageList = params.images
-    .map((image, index) => {
-      return `${index + 1}. ${image.name}：${image.path}`;
-    })
-    .join("\n");
-
-  return `
-
-图片附件处理要求：
-- 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".data-agent/attachments.json"}，再检查图片内容，不要忽略附件。
-- 先使用 \`image-extraction\` skill，并调用原生工具 \`quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
-- 当前不接入额外视觉模型或第三方 OCR；无法可靠识别的截图字段必须写 null，并在证据文件中列出需要用户确认的内容。
-- 对识别出的股票名称必须使用 quant-symbol-resolver 或 /api/v1/symbols/resolve 解析代码，再获取真实行情、K 线、指标和必要的基本面数据。
-- 必须把图片提取结果写入 evidence/image_extraction.json；没有 OCR/视觉结果时也要写明 visualRecognition.status 和 needs_manual_confirmation。
-- 最终 dashboard-data.json 必须保留 portfolio、holdings、assets、comparison 和 imageExtraction 字段；imageExtraction 要说明哪些字段来自截图识别、哪些来自行情接口补全。
-- 如果当前运行时无法直接识别图片视觉内容，也必须基于附件清单和文件路径继续处理，并明确列出需要人工确认的截图字段。
-
-图片路径：
-${imageList}`;
-}
-
 /**
  * POST /api/chat/[project_id]/act
  * Execute AI command
@@ -2123,27 +1840,42 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const actorUserId = authSession?.user.id ?? null;
     const contentLength = Number(request.headers.get("content-length"));
     const maxRequestBytes =
-      Math.ceil((MAX_TOTAL_IMAGE_BYTES * 4) / 3) + 2 * 1024 * 1024;
+      MAX_DATA_AGENT_TOTAL_IMAGE_BYTES + 2 * 1024 * 1024;
     if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
       return NextResponse.json(
         { success: false, error: "Request attachments are too large" },
         { status: 413 },
       );
     }
-    const rawBody = await request.json().catch(() => ({}));
-    const body = (
-      rawBody && typeof rawBody === "object" ? rawBody : {}
-    ) as ChatActRequest & Record<string, unknown>;
-    const legacyBody = body as Record<string, unknown>;
-    const rawInstruction =
-      typeof body.instruction === "string" ? body.instruction : "";
-    const rawDisplayInstruction =
-      coerceString((body as Record<string, unknown>).displayInstruction) ??
-      coerceString(legacyBody["display_instruction"]);
-    const requestId =
-      coerceString(body.requestId) ??
-      coerceString(legacyBody["request_id"]) ??
-      generateProjectId();
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "INVALID_JSON", message: "Request body must be valid JSON." },
+        { status: 400 },
+      );
+    }
+    let body;
+    try {
+      body = parseChatActRequest(rawBody);
+    } catch (error) {
+      if (error instanceof ChatActContractError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "INVALID_ACT_REQUEST",
+            message: error.message,
+            issues: error.issues,
+          },
+          { status: 400 },
+        );
+      }
+      throw error;
+    }
+    const rawInstruction = body.instruction;
+    const rawDisplayInstruction = body.displayInstruction;
+    const requestId = body.requestId ?? generateProjectId();
     const ingressDecision = validateMoAgentIngressInput({
       instruction: rawInstruction,
       displayInstruction: rawDisplayInstruction,
@@ -2156,18 +1888,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const rawImages: RawImageAttachment[] = Array.isArray(
-      (body as Record<string, unknown>).images,
-    )
-      ? ((body as Record<string, unknown>).images as RawImageAttachment[])
-      : Array.isArray(legacyBody["images"])
-        ? (legacyBody["images"] as RawImageAttachment[])
-        : [];
-    if (rawImages.length > MAX_IMAGE_ATTACHMENTS) {
+    const rawImages = body.images;
+    if (rawImages.length > MAX_CHAT_ACT_IMAGE_ATTACHMENTS) {
       return NextResponse.json(
         {
           success: false,
-          error: `At most ${MAX_IMAGE_ATTACHMENTS} image attachments are allowed`,
+          error: `At most ${MAX_CHAT_ACT_IMAGE_ATTACHMENTS} image attachments are allowed`,
         },
         { status: 413 },
       );
@@ -2340,24 +2066,22 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       .replace(/\n*Image #\d+ path: [^\n]+/g, "")
       .trim();
 
-    const conversationId =
-      coerceString(body.conversationId) ??
-      coerceString(legacyBody["conversation_id"]);
+    const conversationId = body.conversationId;
 
-    const processedImages: ProcessedImageAttachment[] = [];
+    const processedImages: ProcessedDataAgentImageAttachment[] = [];
     let totalImageBytes = 0;
     try {
       for (let index = 0; index < rawImages.length; index += 1) {
-        const normalized = await normalizeImageAttachment(
-          project_id,
+        const normalized = await normalizeDataAgentImageAttachment({
+          projectId: project_id,
           projectRoot,
-          rawImages[index],
+          attachment: rawImages[index],
           index,
-        );
+        });
         totalImageBytes += normalized.size ?? 0;
-        if (totalImageBytes > MAX_TOTAL_IMAGE_BYTES) {
+        if (totalImageBytes > MAX_DATA_AGENT_TOTAL_IMAGE_BYTES) {
           throw new ImageAssetError(
-            `Image attachments exceed the ${Math.floor(MAX_TOTAL_IMAGE_BYTES / 1024 / 1024)}MB total limit`,
+            `Image attachments exceed the ${Math.floor(MAX_DATA_AGENT_TOTAL_IMAGE_BYTES / 1024 / 1024)}MB total limit`,
             413,
           );
         }
@@ -2374,13 +2098,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       throw error;
     }
 
-    const attachmentContextPath = await writeAttachmentContext({
+    const attachmentContextPath = await writeFinanceAttachmentContext({
       projectRoot,
       projectId: project_id,
       requestId,
       images: processedImages,
     });
-    const imageAttachmentInstruction = buildImageAttachmentInstruction({
+    const imageAttachmentInstruction = buildFinanceAttachmentInstruction({
       attachmentContextPath,
       images: processedImages,
     });
@@ -2425,22 +2149,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     const selectedModelRaw =
-      coerceString(body.selectedModel) ??
-      coerceString(legacyBody["selected_model"]) ??
-      project.selectedModel ??
-      getDefaultModelForCli(cliPreference);
+      body.selectedModel ?? project.selectedModel ?? getDefaultModelForCli(cliPreference);
     const selectedModel = normalizeModelId(cliPreference, selectedModelRaw);
 
-    const quantCapabilityId =
-      coerceString((body as Record<string, unknown>).quantCapabilityId) ??
-      coerceString(legacyBody["quant_capability_id"]) ??
-      coerceString((body as Record<string, unknown>).capabilityId) ??
-      coerceString(legacyBody["capability_id"]);
-    const quantCapabilitySource =
-      coerceString((body as Record<string, unknown>).quantCapabilitySource) ??
-      coerceString(legacyBody["quant_capability_source"]) ??
-      coerceString((body as Record<string, unknown>).capabilitySource) ??
-      coerceString(legacyBody["capability_source"]);
+    const quantCapabilityId = body.quantCapabilityId;
+    const quantCapabilitySource = body.quantCapabilitySource;
 
     await ensureProjectLlmConfiguration({
       projectId: project_id,
@@ -2451,10 +2164,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       settings: project.settings,
     });
 
-    const isInitialPrompt =
-      body.isInitialPrompt === true ||
-      legacyBody["is_initial_prompt"] === true ||
-      legacyBody["is_initial_prompt"] === "true";
+    const isInitialPrompt = body.isInitialPrompt;
 
     const previousRunPlan = await readQuantRunPlan(projectPath);
     const clarificationContinuation = buildClarificationContinuation({

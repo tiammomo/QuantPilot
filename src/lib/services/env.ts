@@ -16,14 +16,10 @@ export interface EnvVarRecord {
   id: string;
   key: string;
   value: string;
-  value_preview: string;
   valuePreview: string;
-  has_value: boolean;
   hasValue: boolean;
   scope: string;
-  var_type: string;
   varType: string;
-  is_secret: boolean;
   isSecret: boolean;
   description?: string | null;
 }
@@ -77,14 +73,10 @@ function mapEnvVar(model: EnvVar, options: { revealSecretValues?: boolean } = {}
     id: model.id,
     key: model.key,
     value: exposedValue,
-    value_preview: valuePreview,
     valuePreview,
-    has_value: plainValue.length > 0,
     hasValue: plainValue.length > 0,
     scope: model.scope,
-    var_type: model.varType,
     varType: model.varType,
-    is_secret: model.isSecret,
     isSecret: model.isSecret,
     description: model.description,
   };

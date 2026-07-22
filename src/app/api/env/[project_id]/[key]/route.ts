@@ -3,6 +3,7 @@ import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
 import { updateEnvVar, deleteEnvVar } from '@/lib/services/env';
+import { envVarValueUpdateSchema } from '@/lib/server/env-contract';
 
 interface RouteContext {
   params: Promise<{ project_id: string; key: string }>;
@@ -16,15 +17,15 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       action: 'project.secrets.write',
       projectId: project_id,
     });
-    const body = await request.json();
-    if (typeof body?.value !== 'string') {
+    const parsed = envVarValueUpdateSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'value must be a string' },
+        { success: false, error: 'INVALID_ENV_REQUEST', issues: parsed.error.issues },
         { status: 400 },
       );
     }
 
-    const updated = await updateEnvVar(project_id, key, body.value);
+    const updated = await updateEnvVar(project_id, key, parsed.data.value);
     if (!updated) {
       return NextResponse.json(
         { success: false, error: 'Environment variable not found' },

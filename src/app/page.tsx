@@ -160,33 +160,28 @@ export default function HomePage() {
   const normalizeProjectPayload = useCallback(
     (project: any): ProjectSummary => {
       const preferred = sanitizeAssistant(
-        project?.preferredCli ?? project?.preferred_cli
+        project?.preferredCli
       );
       const selected = normalizeModelForAssistant(
         preferred,
-        project?.selectedModel ?? project?.selected_model
+        project?.selectedModel
       );
       return {
         id: project.id,
         name: project.name,
         description: project.description ?? null,
         status: project.status,
-        previewUrl: project.previewUrl ?? project.preview_url ?? null,
-        createdAt:
-          project.createdAt ?? project.created_at ?? new Date().toISOString(),
-        updatedAt: project.updatedAt ?? project.updated_at,
-        lastActiveAt: project.lastActiveAt ?? project.last_active_at ?? null,
-        lastMessageAt:
-          project.lastMessageAt ?? project.last_message_at ?? null,
-        initialPrompt: project.initialPrompt ?? project.initial_prompt ?? null,
+        previewUrl: project.previewUrl ?? null,
+        createdAt: project.createdAt ?? new Date().toISOString(),
+        updatedAt: project.updatedAt,
+        lastActiveAt: project.lastActiveAt ?? null,
+        lastMessageAt: project.lastMessageAt ?? null,
+        initialPrompt: project.initialPrompt ?? null,
         services: project.services,
         preferredCli: preferred as ProjectSummary["preferredCli"],
         selectedModel: selected,
-        fallbackEnabled:
-          project.fallbackEnabled ?? project.fallback_enabled ?? false,
-        quantCapabilityId: getQuantCapability(
-          project.quantCapabilityId ?? project.quant_capability_id
-        ).id,
+        fallbackEnabled: project.fallbackEnabled ?? false,
+        quantCapabilityId: getQuantCapability(project.quantCapabilityId).id,
       };
     },
     [sanitizeAssistant, normalizeModelForAssistant]
@@ -487,10 +482,9 @@ export default function HomePage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            project_id: projectId,
+            projectId,
             name: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
             initialPrompt: prompt.trim(),
-            preferredCli: selectedAssistant,
             selectedModel,
             quantCapabilityId: selectedCapability,
             quantCapabilitySource: "manual",
@@ -506,7 +500,7 @@ export default function HomePage() {
       }
 
       setCreationStep(uploadedImages.length > 0 ? `正在上传研究材料（0/${uploadedImages.length}）` : "正在提交研究问题");
-      const imageData: Array<{ name: string; path: string; public_url?: string }> = [];
+      const imageData: Array<{ name: string; path: string }> = [];
       const nextImages = [...uploadedImages];
       if (uploadedImages.length > 0) {
         for (let index = 0; index < uploadedImages.length; index += 1) {
@@ -530,7 +524,6 @@ export default function HomePage() {
           const uploaded = {
             name: result.filename || image.name,
             path: result.path as string,
-            public_url: typeof result.public_url === "string" ? result.public_url : undefined,
           };
           imageData.push(uploaded);
           nextImages[index] = { ...image, name: uploaded.name, path: uploaded.path };
@@ -550,7 +543,6 @@ export default function HomePage() {
           displayInstruction: visibleInstruction,
           images: imageData,
           isInitialPrompt: true,
-          cliPreference: selectedAssistant,
           selectedModel,
           quantCapabilityId: selectedCapability,
           quantCapabilitySource: "manual",

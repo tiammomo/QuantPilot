@@ -320,10 +320,9 @@ async function createOrResumeCase(input: {
       method: 'POST',
       headers: { 'Idempotency-Key': `task-e2e-project-${campaign}-${item.id.toLowerCase()}` },
       data: {
-        project_id: projectId,
+        projectId,
         name: taskTitle(campaign, item),
         initialPrompt: item.question,
-        preferredCli: 'moagent',
         selectedModel: item.model,
         quantCapabilityId: item.capabilityId,
         // Every dataset row is an explicit capability selection. Mark it as
@@ -359,7 +358,6 @@ async function createOrResumeCase(input: {
         requestId,
         images: [],
         isInitialPrompt: snapshot.status === 'idle',
-        cliPreference: 'moagent',
         selectedModel: item.model,
         quantCapabilityId: item.capabilityId,
         quantCapabilitySource: 'manual',

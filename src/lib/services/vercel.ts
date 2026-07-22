@@ -245,7 +245,7 @@ export async function connectVercelProject(
             key: envVar.key,
             value: envVar.value,
             target: ['production', 'preview', 'development'],
-            type: envVar.is_secret ? 'encrypted' : 'plain',
+            type: envVar.isSecret ? 'encrypted' : 'plain',
           },
         },
       );

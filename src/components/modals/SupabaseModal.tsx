@@ -234,32 +234,32 @@ export default function SupabaseModal({ isOpen, onClose, projectId, projectName,
         key: 'NEXT_PUBLIC_SUPABASE_URL',
         value: `https://${project.id}.supabase.co`,
         scope: 'runtime',
-        var_type: 'string',
-        is_secret: false,
+        varType: 'string',
+        isSecret: false,
         description: 'Supabase project URL'
       },
       {
         key: 'NEXT_PUBLIC_SUPABASE_ANON_KEY',
         value: apiKeys.anon,
         scope: 'runtime',
-        var_type: 'string',
-        is_secret: false,
+        varType: 'string',
+        isSecret: false,
         description: 'Supabase anonymous key for client-side'
       },
       {
         key: 'SUPABASE_SERVICE_ROLE_KEY',
         value: apiKeys.service_role,
         scope: 'runtime',
-        var_type: 'string',
-        is_secret: true,
+        varType: 'string',
+        isSecret: true,
         description: 'Supabase service role key for server-side'
       },
       {
         key: 'DATABASE_URL',
         value: `postgres://postgres:${dbPassword}@db.${project.id}.supabase.co:5432/postgres`,
         scope: 'runtime',
-        var_type: 'string',
-        is_secret: true,
+        varType: 'string',
+        isSecret: true,
         description: 'PostgreSQL database connection URL'
       }
     ];

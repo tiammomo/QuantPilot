@@ -506,7 +506,6 @@ export default function ChatPage() {
         displayInstruction: initialPrompt.trim(),
         images: [],
         isInitialPrompt: true,
-        cliPreference: preferredCli,
         conversationId: conversationId || undefined,
         requestId,
         selectedModel,
@@ -527,27 +526,15 @@ export default function ChatPage() {
 
       const result = await r.json();
       const returnedConversationId =
-        typeof result?.conversationId === 'string'
-          ? result.conversationId
-          : typeof result?.conversation_id === 'string'
-          ? result.conversation_id
-          : undefined;
+        typeof result?.conversationId === 'string' ? result.conversationId : undefined;
       if (returnedConversationId) {
         setConversationId(returnedConversationId);
       }
 
       const resolvedRequestId =
-        typeof result?.requestId === 'string'
-          ? result.requestId
-          : typeof result?.request_id === 'string'
-          ? result.request_id
-          : requestId;
+        typeof result?.requestId === 'string' ? result.requestId : requestId;
       const userMessageId =
-        typeof result?.userMessageId === 'string'
-          ? result.userMessageId
-          : typeof result?.user_message_id === 'string'
-          ? result.user_message_id
-          : '';
+        typeof result?.userMessageId === 'string' ? result.userMessageId : '';
 
       createRequest(resolvedRequestId, userMessageId, initialPrompt, 'act');
       setPrompt('');
@@ -561,7 +548,7 @@ export default function ChatPage() {
     } finally {
       setIsRunning(false);
     }
-  }, [initialPromptSent, preferredCli, conversationId, projectId, selectedModel, createRequest]);
+  }, [initialPromptSent, conversationId, projectId, selectedModel, createRequest]);
 
   // Guarded trigger that can be called from multiple places safely
   const triggerInitialPromptIfNeeded = useCallback(() => {
@@ -612,13 +599,11 @@ const persistProjectPreferences = useCallback(
     if (changes.preferredCli) {
       const sanitizedPreferredCli = sanitizeCli(changes.preferredCli);
       payload.preferredCli = sanitizedPreferredCli;
-      payload.preferred_cli = sanitizedPreferredCli;
     }
     if (changes.selectedModel) {
       const targetCli = sanitizeCli(changes.preferredCli ?? preferredCli);
       const normalized = sanitizeModel(targetCli, changes.selectedModel);
       payload.selectedModel = normalized;
-      payload.selected_model = normalized;
     }
     if (Object.keys(payload).length === 0) return;
 
@@ -679,9 +664,9 @@ const persistProjectPreferences = useCallback(
             body: JSON.stringify({
               content: `Switched to ${cliLabel} (${modelLabel})`,
               role: 'system',
-              message_type: 'info',
-              cli_source: targetCli,
-              conversation_id: conversationId || undefined,
+              messageType: 'info',
+              cliSource: targetCli,
+              conversationId: conversationId || undefined,
             }),
           });
         } catch (messageError) {
@@ -1955,17 +1940,9 @@ const persistProjectPreferences = useCallback(
       const project = payload?.data ?? payload;
       setProjectAvailability({ projectId, status: 'available' });
       const rawPreferredCli =
-        typeof project?.preferredCli === 'string'
-          ? project.preferredCli
-          : typeof project?.preferred_cli === 'string'
-          ? project.preferred_cli
-          : undefined;
+        typeof project?.preferredCli === 'string' ? project.preferredCli : undefined;
       const rawSelectedModel =
-        typeof project?.selectedModel === 'string'
-          ? project.selectedModel
-          : typeof project?.selected_model === 'string'
-          ? project.selected_model
-          : undefined;
+        typeof project?.selectedModel === 'string' ? project.selectedModel : undefined;
 
       console.log('📋 Loading project info:', {
         preferredCli: rawPreferredCli,
@@ -2282,8 +2259,6 @@ const persistProjectPreferences = useCallback(
           name: result.filename || filename,
           path: result.path,
           url: `/api/assets/${projectId}/${result.filename}`,
-          public_url: typeof result.public_url === 'string' ? result.public_url : undefined,
-          publicUrl: typeof result.public_url === 'string' ? result.public_url : undefined,
         };
       };
 
@@ -2292,7 +2267,7 @@ const persistProjectPreferences = useCallback(
           cli: preferredCli,
           requestId
         });
-      const processedImages: { name: string; path: string; url?: string; public_url?: string; publicUrl?: string }[] = [];
+      const processedImages: { name: string; path: string; url?: string }[] = [];
 
       for (let i = 0; i < imagesToUse.length; i += 1) {
         const image = imagesToUse[i];
@@ -2300,19 +2275,15 @@ const persistProjectPreferences = useCallback(
           id: image.id,
           filename: image.filename,
           hasPath: !!image.path,
-          hasPublicUrl: !!image.publicUrl,
           hasAssetUrl: !!image.assetUrl
         });
         if (image?.path) {
           const name = image.filename || image.name || `Image ${i + 1}`;
           const candidateUrl = typeof image.assetUrl === 'string' ? image.assetUrl : undefined;
-          const candidatePublicUrl = typeof image.publicUrl === 'string' ? image.publicUrl : undefined;
           const processedImage = {
             name,
             path: image.path,
             url: candidateUrl && candidateUrl.startsWith('/') ? candidateUrl : undefined,
-            public_url: candidatePublicUrl,
-            publicUrl: candidatePublicUrl,
           };
           console.log(`🖼️ Created processed image ${i}:`, processedImage);
           processedImages.push(processedImage);
@@ -2337,9 +2308,8 @@ const persistProjectPreferences = useCallback(
       const requestBody = {
         instruction: finalMessage,
         displayInstruction: visibleMessage,
-        images: processedImages,
+        images: processedImages.map((image) => ({ name: image.name, path: image.path })),
         isInitialPrompt: false,
-        cliPreference: preferredCli,
         conversationId: conversationId || undefined,
         requestId,
         selectedModel,
@@ -2353,8 +2323,7 @@ const persistProjectPreferences = useCallback(
         images: processedImages.map(img => ({
           name: img.name,
           hasPath: !!img.path,
-          hasUrl: !!img.url,
-          hasPublicUrl: !!img.publicUrl
+          hasUrl: !!img.url
         }))
       });
 
@@ -2381,7 +2350,6 @@ const persistProjectPreferences = useCallback(
                     name: img.name,
                     path: img.path,
                     url: img.url,
-                    publicUrl: img.publicUrl ?? img.public_url,
                   })),
                 }
               : undefined,
@@ -2465,27 +2433,15 @@ const persistProjectPreferences = useCallback(
       });
 
       const returnedConversationId =
-        typeof result?.conversationId === 'string'
-          ? result.conversationId
-          : typeof result?.conversation_id === 'string'
-          ? result.conversation_id
-          : undefined;
+        typeof result?.conversationId === 'string' ? result.conversationId : undefined;
       if (returnedConversationId) {
         setConversationId(returnedConversationId);
       }
 
       const resolvedRequestId =
-        typeof result?.requestId === 'string'
-          ? result.requestId
-          : typeof result?.request_id === 'string'
-          ? result.request_id
-          : requestId;
+        typeof result?.requestId === 'string' ? result.requestId : requestId;
       const userMessageId =
-        typeof result?.userMessageId === 'string'
-          ? result.userMessageId
-          : typeof result?.user_message_id === 'string'
-          ? result.user_message_id
-          : '';
+        typeof result?.userMessageId === 'string' ? result.userMessageId : '';
 
       createRequest(resolvedRequestId, userMessageId, finalMessage, effectiveMode);
 

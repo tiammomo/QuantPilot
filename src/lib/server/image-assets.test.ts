@@ -60,7 +60,8 @@ describe('image asset validation', () => {
       relativePath: 'assets/safe.png',
       filename: 'safe.png',
     });
-    await expect(resolveExistingProjectAssetPath('project-safe', outside)).rejects.toThrow(/outside this project/);
+    await expect(resolveExistingProjectAssetPath('project-safe', outside)).rejects.toThrow(/project-relative/);
+    await expect(resolveExistingProjectAssetPath('project-safe', 'safe.png')).rejects.toThrow(/directly inside/);
     await fs.symlink(outside, path.join(assets, 'link.png'));
     await expect(resolveExistingProjectAssetPath('project-safe', 'assets/link.png')).rejects.toThrow(/not found/);
   });

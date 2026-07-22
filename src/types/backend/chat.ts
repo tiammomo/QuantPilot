@@ -28,45 +28,6 @@ export interface Message {
   requestId?: string | null;
 }
 
-export interface ImageAttachment {
-  name: string;
-  /**
-   * Publicly accessible URL for rendering (e.g. /api/assets/.. or /uploads/..)
-   */
-  url?: string;
-  publicUrl?: string;
-  public_url?: string;
-  /**
-   * Absolute filesystem path for agent consumption.
-   */
-  path?: string;
-  /**
-   * Legacy camelCase fields
-   */
-  base64Data?: string;
-  mimeType?: string;
-  /**
-   * Legacy snake_case fields (retained for backward compatibility with older clients)
-   */
-  base64_data?: string;
-  mime_type?: string;
-}
-
-export interface ChatActRequest {
-  instruction: string;
-  allowGlobs?: string[];
-  conversationId?: string;
-  cliPreference?: string;
-  fallbackEnabled?: boolean;
-  images?: ImageAttachment[];
-  isInitialPrompt?: boolean;
-  selectedModel?: string;
-  requestId?: string;
-  quantCapabilityId?: string;
-  capabilityId?: string;
-  quantCapabilitySource?: 'manual' | 'default' | 'inferred';
-}
-
 export interface CreateMessageInput {
   id?: string;
   projectId: string;

@@ -70,8 +70,6 @@ export function useCLI({ projectId }: UseCLIOptions) {
     const preferredRaw =
       typeof data?.preferredCli === 'string'
         ? data.preferredCli
-        : typeof data?.preferred_cli === 'string'
-        ? data.preferred_cli
         : DEFAULT_ACTIVE_CLI;
 
     const preferredCli = sanitizeActiveCli(preferredRaw, DEFAULT_ACTIVE_CLI);
@@ -79,15 +77,11 @@ export function useCLI({ projectId }: UseCLIOptions) {
     const fallbackEnabled =
       typeof data?.fallbackEnabled === 'boolean'
         ? data.fallbackEnabled
-        : typeof data?.fallback_enabled === 'boolean'
-        ? data.fallback_enabled
         : false;
 
     const rawModel =
       typeof data?.selectedModel === 'string'
         ? data.selectedModel
-        : typeof data?.selected_model === 'string'
-        ? data.selected_model
         : undefined;
     const normalizedModel = normalizeModelForCli(preferredCli, rawModel, preferredCli);
 
@@ -169,10 +163,10 @@ export function useCLI({ projectId }: UseCLIOptions) {
       const project = payload?.data ?? payload ?? {};
 
       const responseCli = sanitizeActiveCli(
-        project.preferredCli ?? project.preferred_cli ?? sanitizedInput,
+        project.preferredCli ?? sanitizedInput,
         DEFAULT_ACTIVE_CLI
       );
-      const rawSelected = project.selectedModel ?? project.selected_model;
+      const rawSelected = project.selectedModel;
 
       setPreference(prev => {
         const normalizedSelected =
@@ -209,12 +203,12 @@ export function useCLI({ projectId }: UseCLIOptions) {
       const project = payload?.data ?? payload ?? {};
 
       const cliForNormalization = sanitizeActiveCli(
-        project.preferredCli ?? project.preferred_cli ?? preference?.preferredCli ?? DEFAULT_ACTIVE_CLI,
+        project.preferredCli ?? preference?.preferredCli ?? DEFAULT_ACTIVE_CLI,
         DEFAULT_ACTIVE_CLI
       );
       const normalized = normalizeModelForCli(
         cliForNormalization,
-        project.selectedModel ?? project.selected_model ?? modelId,
+        project.selectedModel ?? modelId,
         cliForNormalization
       );
 

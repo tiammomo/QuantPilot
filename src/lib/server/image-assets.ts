@@ -145,11 +145,7 @@ export function resolveProjectAssetPath(projectId: string, filename: string): st
   return assertContained(assetsRoot, path.join(assetsRoot, filename));
 }
 
-/**
- * Resolve an already-uploaded image without trusting a client supplied host path.
- * Absolute paths are accepted only as a temporary compatibility shape and must
- * exactly identify the same file below this project's dedicated assets folder.
- */
+/** Resolve an already-uploaded image from the current project's asset namespace. */
 export async function resolveExistingProjectAssetPath(
   projectId: string,
   inputPath: string,
@@ -161,26 +157,19 @@ export async function resolveExistingProjectAssetPath(
     throw new ImageAssetError('Invalid asset path');
   }
 
-  const normalizedInput = inputPath.replaceAll('\\', '/').replace(/^\.\//, '');
-  const relativePath = path.isAbsolute(inputPath)
-    ? null
-    : normalizedInput.startsWith('assets/')
-      ? normalizedInput
-      : normalizedInput.includes('/')
-        ? null
-        : `assets/${normalizedInput}`;
+  if (path.isAbsolute(inputPath) || /^[a-zA-Z]:[\\/]/.test(inputPath)) {
+    throw new ImageAssetError('Asset path must be project-relative');
+  }
+  const normalizedInput = inputPath.replace(/^\.\//, '');
   const filename = path.basename(inputPath);
   assertSafeSegment(filename, 'asset filename', true);
-  if (relativePath !== null && relativePath !== `assets/${filename}`) {
+  const relativePath = `assets/${filename}`;
+  if (normalizedInput !== relativePath) {
     throw new ImageAssetError('Asset path must identify a file directly inside this project assets folder');
   }
 
   const assetsRoot = resolveProjectAssetsPath(projectId);
   const expectedPath = resolveProjectAssetPath(projectId, filename);
-  if (path.isAbsolute(inputPath) && path.resolve(inputPath) !== expectedPath) {
-    throw new ImageAssetError('Asset path is outside this project');
-  }
-
   const rootStat = await fs.lstat(assetsRoot).catch(() => null);
   if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) {
     throw new ImageAssetError('Project assets folder is unavailable');

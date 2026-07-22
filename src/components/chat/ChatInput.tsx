@@ -283,7 +283,7 @@ export default function ChatInput({
           path: result.path,
           url: imageUrl,
           assetUrl: `/api/assets/${projectId}/${result.filename}`,
-          publicUrl: typeof result.public_url === 'string' ? result.public_url : undefined
+          publicUrl: typeof result.publicUrl === 'string' ? result.publicUrl : undefined
         };
 
         console.log('📸 Created UploadedImage object:', newImage);

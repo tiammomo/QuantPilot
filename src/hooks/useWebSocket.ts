@@ -167,7 +167,7 @@ export function useWebSocket({
               const rawData = envelope.data as Record<string, unknown> | undefined;
               const requestId = (() => {
                 if (!rawData) return undefined;
-                const direct = rawData.requestId ?? rawData.request_id;
+                const direct = rawData.requestId;
                 return typeof direct === 'string' ? direct : undefined;
               })();
               const payload: RealtimeStatus = {

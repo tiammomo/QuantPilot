@@ -2170,7 +2170,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           const rawData = (envelope.data as Record<string, unknown> | undefined) ?? undefined;
           const requestId = (() => {
             if (!rawData) return undefined;
-            const direct = rawData.requestId ?? rawData.request_id;
+            const direct = rawData.requestId;
             return typeof direct === 'string' ? direct : undefined;
           })();
           const payload: RealtimeStatus = {
@@ -3483,7 +3483,6 @@ const ToolResultMessage = ({
                                         };
 
                                         pushCandidate((attachment as Record<string, unknown>)?.publicUrl);
-                                        pushCandidate((attachment as Record<string, unknown>)?.public_url);
                                         pushCandidate((attachment as Record<string, unknown>)?.url);
                                         pushCandidate((attachment as Record<string, unknown>)?.assetUrl);
 

@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
@@ -21,6 +22,14 @@ import { serializeMessages, serializeMessage } from '@/lib/serializers/chat';
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
+
+const createMessageSchema = z.object({
+  content: z.string().trim().min(1).max(200_000),
+  role: z.enum(['assistant', 'user', 'system', 'tool']).default('user'),
+  messageType: z.enum(['chat', 'tool_use', 'tool_result', 'error', 'info', 'system']).optional(),
+  conversationId: z.string().trim().min(1).max(256).optional(),
+  cliSource: z.literal('moagent').optional(),
+}).strict();
 
 /**
  * GET /api/chat/[project_id]/messages
@@ -137,51 +146,17 @@ export async function POST(
       action: projectRouteAction('chat-data', request.method),
       projectId: project_id,
     });
-    const payload = await request.json();
-
-    const content =
-      typeof payload.content === 'string' ? payload.content.trim() : '';
-    if (!content) {
-      return NextResponse.json(
-        { success: false, error: 'content is required' },
-        { status: 400 }
-      );
-    }
-
-    const role = typeof payload.role === 'string' ? payload.role : 'user';
-    const rawMessageType = typeof payload.message_type === 'string' ? payload.message_type.toLowerCase() : undefined;
-    const messageType: CreateMessageInput['messageType'] = ((): CreateMessageInput['messageType'] => {
-      switch (rawMessageType) {
-        case 'chat':
-        case 'tool_use':
-        case 'error':
-        case 'info':
-          return rawMessageType;
-        default:
-          return role === 'system' ? 'info' : 'chat';
-      }
-    })();
-
-    const conversationIdValue =
-      typeof payload.conversationId === 'string'
-        ? payload.conversationId
-        : typeof payload.conversation_id === 'string'
-        ? payload.conversation_id
-        : undefined;
-    const cliSourceValue =
-      typeof payload.cliSource === 'string'
-        ? payload.cliSource
-        : typeof payload.cli_source === 'string'
-        ? payload.cli_source
-        : undefined;
+    const payload = createMessageSchema.parse(await request.json());
+    const messageType: CreateMessageInput['messageType'] =
+      payload.messageType ?? (payload.role === 'system' ? 'info' : 'chat');
 
     const input: CreateMessageInput = {
       projectId: project_id,
-      role,
+      role: payload.role,
       messageType,
-      content,
-      conversationId: conversationIdValue,
-      cliSource: cliSourceValue,
+      content: payload.content,
+      conversationId: payload.conversationId,
+      cliSource: payload.cliSource,
     };
 
     const message = await createMessage(input);
@@ -190,6 +165,12 @@ export async function POST(
     return res;
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { success: false, error: 'INVALID_MESSAGE_REQUEST', issues: error.issues },
+        { status: 400 },
+      );
+    }
     console.error('[API] Failed to create message:', error);
     return NextResponse.json(
       {
@@ -218,8 +199,7 @@ export async function DELETE(
       projectId: project_id,
     });
     const { searchParams } = new URL(request.url);
-    const conversationId =
-      searchParams.get('conversationId') ?? searchParams.get('conversation_id') ?? undefined;
+    const conversationId = searchParams.get('conversationId') ?? undefined;
 
     const deleted = await deleteMessagesByProjectId(project_id, conversationId || undefined);
 

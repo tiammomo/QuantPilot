@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
@@ -21,6 +22,19 @@ import { serializeProject } from '@/lib/serializers/project';
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
+
+const updateProjectRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().max(20_000).nullable().optional(),
+  status: z.enum(['idle', 'running', 'stopped', 'error', 'initializing', 'active', 'failed']).optional(),
+  previewUrl: z.string().trim().max(2_048).nullable().optional(),
+  previewPort: z.number().int().min(1).max(65_535).nullable().optional(),
+  preferredCli: z.literal('moagent').optional(),
+  selectedModel: z.string().trim().min(1).max(256).optional(),
+  settings: z.string().max(1_000_000).optional(),
+}).strict().refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one project field is required.',
+});
 
 /**
  * GET /api/projects/[project_id]
@@ -76,7 +90,20 @@ export async function PUT(
       action: projectRouteAction('project', request.method),
       projectId: project_id,
     });
-    const body = await request.json();
+    const rawBody = await request.json().catch(() => null);
+    const parsed = updateProjectRequestSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({
+        success: false,
+        error: 'INVALID_PROJECT_REQUEST',
+        message: '项目更新请求必须使用当前 camelCase 合同。',
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.') || '$',
+          message: issue.message,
+        })),
+      }, { status: 400 });
+    }
+    const body = parsed.data;
 
     const input: UpdateProjectInput = {
       name: body.name,

@@ -3,6 +3,7 @@ import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
 import { listEnvVars, createEnvVar } from '@/lib/services/env';
+import { envVarWriteSchema } from '@/lib/server/env-contract';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -42,26 +43,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       action: 'project.secrets.write',
       projectId: project_id,
     });
-    const body = await request.json();
-    if (!body?.key || typeof body.key !== 'string') {
+    const parsed = envVarWriteSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: 'key is required' },
+        { success: false, error: 'INVALID_ENV_REQUEST', issues: parsed.error.issues },
         { status: 400 },
       );
     }
-    if (typeof body.value !== 'string') {
-      return NextResponse.json(
-        { success: false, error: 'value must be a string' },
-        { status: 400 },
-      );
-    }
+    const body = parsed.data;
 
     const record = await createEnvVar(project_id, {
       key: body.key,
       value: body.value,
       scope: body.scope,
-      varType: body.var_type ?? body.varType,
-      isSecret: body.is_secret ?? body.isSecret,
+      varType: body.varType,
+      isSecret: body.isSecret,
       description: body.description,
     });
 

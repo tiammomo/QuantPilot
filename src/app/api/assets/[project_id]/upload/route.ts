@@ -104,9 +104,9 @@ export async function POST(request: Request, { params }: RouteContext) {
       success: true,
       path: `assets/${uniqueName}`,
       filename: uniqueName,
-      original_filename: originalName,
-      public_path: projectPublicPath ? `public/uploads/${uniqueName}` : null,
-      public_url: publicUrl,
+      originalFilename: originalName,
+      publicPath: projectPublicPath ? `public/uploads/${uniqueName}` : null,
+      publicUrl,
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);

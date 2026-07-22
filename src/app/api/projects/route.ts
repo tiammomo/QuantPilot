@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { getAllProjects, createProject } from '@/lib/services/project';
 import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
@@ -34,6 +35,16 @@ import {
   reserveQuota,
   settleQuotaReservation,
 } from '@/lib/quota';
+
+const createProjectRequestSchema = z.object({
+  projectId: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/),
+  name: z.string().trim().min(1).max(120),
+  initialPrompt: z.string().trim().max(200_000).optional(),
+  selectedModel: z.string().trim().min(1).max(256).optional(),
+  description: z.string().trim().max(20_000).nullable().optional(),
+  quantCapabilityId: z.string().trim().min(1).max(128).optional(),
+  quantCapabilitySource: z.enum(['manual', 'default', 'inferred']).optional(),
+}).strict();
 
 async function requireProjectListPermission(session: ProjectAuthSession | null): Promise<void> {
   if (!session || isPlatformAdmin(session.user)) return;
@@ -91,33 +102,27 @@ export async function POST(request: NextRequest) {
       action: 'project.create',
     });
     const session = actionContext.session;
-    const body = await request.json();
-    const projectId = typeof body.project_id === 'string' ? body.project_id.trim() : '';
-    const projectName = typeof body.name === 'string' ? body.name.trim() : '';
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(projectId)) {
+    const rawBody = await request.json().catch(() => null);
+    const parsed = createProjectRequestSchema.safeParse(rawBody);
+    if (!parsed.success) {
       return createErrorResponse(
-        'INVALID_PROJECT_ID',
-        'project_id 只能包含字母、数字、下划线和连字符，长度为 1 到 100。',
+        'INVALID_PROJECT_REQUEST',
+        '项目创建请求必须使用当前 camelCase 合同。',
         400,
       );
     }
-    if (!projectName || projectName.length > 120) {
-      return createErrorResponse('INVALID_PROJECT_NAME', 'name 长度必须为 1 到 120。', 400);
-    }
-    const quantCapability = getQuantCapability(
-      body.quantCapabilityId || body.quant_capability_id || body.capabilityId || body.capability_id
-    );
+    const body = parsed.data;
+    const quantCapability = getQuantCapability(body.quantCapabilityId);
 
     const input: CreateProjectInput = {
-      project_id: projectId,
-      name: projectName,
-      initialPrompt: body.initialPrompt || body.initial_prompt,
+      project_id: body.projectId,
+      name: body.name,
+      initialPrompt: body.initialPrompt ?? '',
       preferredCli: 'moagent',
-      selectedModel: normalizeMoAgentModelId(body.selectedModel ?? body.selected_model),
-      description: body.description,
+      selectedModel: normalizeMoAgentModelId(body.selectedModel),
+      description: body.description ?? undefined,
       quantCapabilityId: quantCapability.id,
-      quantCapabilitySource:
-        body.quantCapabilitySource || body.quant_capability_source || body.capabilitySource || body.capability_source,
+      quantCapabilitySource: body.quantCapabilitySource,
     };
 
     if (session) {

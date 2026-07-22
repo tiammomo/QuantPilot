@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const cliPreference = 'moagent';
     const selectedModel = normalizeMoAgentModelId(
-      body?.selectedModel ?? body?.selected_model ?? project.selectedModel,
+      body?.selectedModel ?? project.selectedModel,
     );
     const requestId =
       typeof body?.requestId === 'string' && body.requestId.trim().length > 0
@@ -87,7 +87,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         displayInstruction: instruction,
         images: [],
         isInitialPrompt: true,
-        cliPreference,
         selectedModel,
         requestId,
       }),
