@@ -20,7 +20,7 @@ import {
   MEMORY_INTEGRATION_CAPABILITIES,
   type PersonalizationCapsule,
 } from '../../src/lib/platform/memory/types';
-import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/quant/query-rewrite-llm';
+import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/domains/finance/query-rewrite-llm';
 import { buildQuantPilotUserPrompt } from '../../src/lib/services/moagent-prompts';
 
 const argv = process.argv.slice(2);

@@ -28,17 +28,18 @@ function dateFromProjectId(projectId) {
 
 async function inferProject(projectDirName) {
   const repoPath = path.join(PROJECTS_DIR, projectDirName);
-  const manifest = await readJson(path.join(repoPath, '.quantpilot', 'manifest.json'));
-  const generationState = await readJson(path.join(repoPath, '.quantpilot', 'generation-state.json'));
+  const workspace = await readJson(path.join(repoPath, '.data-agent', 'workspace.json'));
+  const profile = await readJson(path.join(repoPath, '.data-agent', 'profile.json'));
+  const generationState = await readJson(path.join(repoPath, '.data-agent', 'generation-state.json'));
   const packageJson = await readJson(path.join(repoPath, 'package.json'));
   const stat = await fs.stat(repoPath);
-  const createdAt = manifest?.createdAt ? new Date(manifest.createdAt) : dateFromProjectId(projectDirName);
+  const createdAt = workspace?.createdAt ? new Date(workspace.createdAt) : dateFromProjectId(projectDirName);
   const updatedAt = generationState?.updatedAt ? new Date(generationState.updatedAt) : stat.mtime;
-  const quantCapabilityId = manifest?.quant?.capabilityId;
+  const capabilityId = profile?.selectedCapabilityId;
 
   return {
     id: projectDirName,
-    name: manifest?.projectName || packageJson?.name || projectDirName,
+    name: workspace?.projectName || packageJson?.name || projectDirName,
     description: generationState?.originalInstruction
       ? String(generationState.originalInstruction).slice(0, 240)
       : null,
@@ -51,11 +52,11 @@ async function inferProject(projectDirName) {
     repoPath,
     initialPrompt: generationState?.originalInstruction || '',
     templateType: 'nextjs',
-    preferredCli: manifest?.runtime?.cli || generationState?.cliPreference || 'moagent',
-    selectedModel: manifest?.runtime?.model || generationState?.selectedModel || null,
+    preferredCli: workspace?.runtime?.executorId || generationState?.cliPreference || 'moagent',
+    selectedModel: workspace?.runtime?.modelId || generationState?.selectedModel || null,
     settings: JSON.stringify({
       quant: {
-        capabilityId: quantCapabilityId || 'market_overview',
+        capabilityId: capabilityId || 'stock_diagnosis',
         status: 'recovered_from_workspace',
       },
     }),

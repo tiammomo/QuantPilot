@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { QuantRunPlan } from '@/lib/quant/workspace';
+import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildWorkspaceProgressMessage,

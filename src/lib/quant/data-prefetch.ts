@@ -2,8 +2,8 @@ import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/quant/workspace';
-import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import { appendQuantWorkspaceEvent, ensureQuantWorkspace, QuantRunPlan } from '@/lib/domains/finance/workspace';
+import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -813,7 +813,7 @@ async function syncRunPlanSymbols(params: {
     return;
   }
 
-  const runPlanPath = path.join(params.projectPath, '.quantpilot', 'run_plan.json');
+  const runPlanPath = path.join(params.projectPath, '.data-agent', 'finance-run-plan.json');
   const runPlan = await readJson(runPlanPath);
   if (!runPlan) {
     return;
@@ -852,9 +852,10 @@ function isInside(parent: string, candidate: string): boolean {
 }
 
 function resolveInsideProject(projectPath: string, inputPath: string): string {
-  const resolved = path.isAbsolute(inputPath)
-    ? path.resolve(inputPath)
-    : path.resolve(projectPath, inputPath);
+  if (path.isAbsolute(inputPath) || path.win32.isAbsolute(inputPath)) {
+    throw new Error(`附件路径必须使用工作空间相对路径：${inputPath}`);
+  }
+  const resolved = path.resolve(projectPath, inputPath);
   if (!isInside(projectPath, resolved)) {
     throw new Error(`附件路径必须位于当前生成项目内：${inputPath}`);
   }
@@ -945,7 +946,7 @@ async function buildImageExtractionEvidence(
   runId: string,
   warnings: string[]
 ): Promise<JsonRecord | null> {
-  const contextPath = path.join(projectPath, '.quantpilot', 'attachments.json');
+  const contextPath = path.join(projectPath, '.data-agent', 'attachments.json');
   const context = await readJson(contextPath);
   const attachments = Array.isArray(context?.attachments)
     ? context.attachments.map(asRecord).filter((item): item is JsonRecord => Boolean(item))
@@ -958,15 +959,10 @@ async function buildImageExtractionEvidence(
   const images: JsonRecord[] = [];
   for (let index = 0; index < attachments.length; index += 1) {
     const attachment = attachments[index];
-    const sourcePath =
-      typeof attachment.absolutePath === 'string'
-        ? attachment.absolutePath
-        : typeof attachment.path === 'string'
-          ? attachment.path
-          : null;
+    const sourcePath = typeof attachment.path === 'string' ? attachment.path : null;
 
     if (!sourcePath) {
-      warnings.push(`上传图片附件 ${String(attachment.name ?? index + 1)} 缺少 path/absolutePath。`);
+      warnings.push(`上传图片附件 ${String(attachment.name ?? index + 1)} 缺少工作空间相对 path。`);
       continue;
     }
 
@@ -1009,7 +1005,7 @@ async function buildImageExtractionEvidence(
     status: 'metadata_ready',
     createdAt: now,
     runId,
-    attachmentContextPath: '.quantpilot/attachments.json',
+    attachmentContextPath: '.data-agent/attachments.json',
     images,
     visualRecognition: {
       status: 'requires_vision_provider',
@@ -1064,7 +1060,7 @@ async function augmentEvidenceWithImageExtraction(projectPath: string, imageExtr
     id: 'uploaded_image_attachment',
     name: '用户上传持仓截图',
     source: 'uploaded_image',
-    endpoint: 'UPLOAD .quantpilot/attachments.json',
+    endpoint: 'UPLOAD .data-agent/attachments.json',
     artifact_path: 'evidence/image_extraction.json',
     row_count: images.length,
     fetched_at: createdAt,

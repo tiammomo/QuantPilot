@@ -187,9 +187,9 @@ if (!route.includes('import("@/lib/services/cli/moagent")')) {
 }
 
 const queryRewriteRoute = read('src/app/api/quant/query/rewrite/route.ts');
-const queryRewriteAdapter = read('src/lib/quant/query-rewrite-llm.ts');
-const queryRewriteRuntime = read('src/lib/quant/query-rewrite.ts');
-const queryRewriteWorkspace = read('src/lib/quant/workspace.ts');
+const queryRewriteAdapter = read('src/lib/domains/finance/query-rewrite-llm.ts');
+const queryRewriteRuntime = read('src/lib/domains/finance/query-rewrite.ts');
+const queryRewriteWorkspace = read('src/lib/domains/finance/workspace.ts');
 const queryRewritePrefetch = read('src/lib/quant/data-prefetch.ts');
 const chatInput = read('src/components/chat/ChatInput.tsx');
 const homePage = read('src/app/page.tsx');

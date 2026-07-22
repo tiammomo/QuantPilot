@@ -17,7 +17,6 @@ export interface Message {
   id: string;
   projectId: string;
   conversationId: string | null;
-  sessionId: string | null;
   role: 'assistant' | 'user' | 'system' | 'tool';
   content: string;
   messageType: 'chat' | 'tool_use' | 'tool_result' | 'error' | 'info' | 'system';
@@ -75,7 +74,6 @@ export interface CreateMessageInput {
   messageType: 'chat' | 'tool_use' | 'tool_result' | 'error' | 'info' | 'system';
   content: string;
   metadata?: MessageMetadata | null;
-  sessionId?: string | null;
   conversationId?: string | null;
   cliSource?: string | null;
   requestId?: string | null;

@@ -21,7 +21,7 @@ async function writeJson(filePath, value) {
 }
 
 async function createBaseProject(projectPath) {
-  await writeJson(path.join(projectPath, '.quantpilot/run_plan.json'), {
+  await writeJson(path.join(projectPath, '.data-agent/finance-run-plan.json'), {
     schemaVersion: 1,
     capabilityId: 'market_analysis',
     symbols: ['600519'],

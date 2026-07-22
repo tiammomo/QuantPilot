@@ -126,7 +126,7 @@ function evidenceDecision(input: {
     candidateVersion,
     missionSpecSha256: SPEC_HASH,
     validation: {
-      reportPath: '.quantpilot/validation.json',
+      reportPath: '.data-agent/validation.json',
       reportSha256: `sha256:${'4'.repeat(64)}`,
       runId: REQUEST_ID,
       checks: [],

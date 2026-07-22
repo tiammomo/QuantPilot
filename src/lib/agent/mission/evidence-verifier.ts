@@ -18,7 +18,7 @@ const FORBIDDEN_RECURSIVE_SEGMENTS = new Set([
   '.next',
   'node_modules',
   '.git',
-  '.quantpilot',
+  '.data-agent',
 ]);
 
 type JsonRecord = Record<string, unknown>;
@@ -63,7 +63,7 @@ export interface MoAgentEvidenceDecision {
     candidateVersion: number;
     missionSpecSha256: string;
     validation: {
-      reportPath: '.quantpilot/validation.json';
+      reportPath: string;
       reportSha256: string;
       runId: string | null;
       checks: MoAgentValidationCheckEvidence[];
@@ -707,7 +707,7 @@ export async function verifyMoAgentMissionEvidence(input: {
   let checks: MoAgentValidationCheckEvidence[] = [];
   let reportLoadFailure: ReturnType<typeof classifyValidation> = null;
   try {
-    reportFile = await readBoundedWorkspaceFile(root, '.quantpilot/validation.json');
+    reportFile = await readBoundedWorkspaceFile(root, input.missionSpec.validationReportPath);
   } catch (error) {
     if (error instanceof MoAgentEvidenceVerificationError &&
       ['REQUIRED_ARTIFACT_MISSING', 'REQUIRED_ARTIFACT_NOT_FILE', 'EVIDENCE_ARTIFACT_TOO_LARGE']
@@ -787,7 +787,7 @@ export async function verifyMoAgentMissionEvidence(input: {
   try {
     authoritativeReportFile = await readBoundedWorkspaceFile(
       root,
-      '.quantpilot/validation.json',
+      input.missionSpec.validationReportPath,
     );
   } catch (error) {
     if (error instanceof MoAgentEvidenceVerificationError &&
@@ -827,7 +827,7 @@ export async function verifyMoAgentMissionEvidence(input: {
   const secondSubjectHash = framedManifestHash(secondManifest.subjects);
   const secondEvidenceHash = framedManifestHash(secondManifest.evidence);
   const manifestedValidation = secondManifest.evidence.find((artifact) =>
-    artifact.path === '.quantpilot/validation.json');
+    artifact.path === input.missionSpec.validationReportPath);
   if (
     Boolean(manifestedValidation) !== authoritativeReportAvailable ||
     (manifestedValidation && manifestedValidation.sha256 !== authoritativeReportFile.sha256)
@@ -890,7 +890,7 @@ export async function verifyMoAgentMissionEvidence(input: {
     candidateVersion: input.candidateVersion,
     missionSpecSha256: suppliedMissionSpecHash,
     validation: {
-      reportPath: '.quantpilot/validation.json',
+      reportPath: input.missionSpec.validationReportPath,
       reportSha256: authoritativeReportFile.sha256,
       runId: authoritativeReportRunId,
       checks: authoritativeChecks,

@@ -817,7 +817,7 @@ export function createWriteFileTool(options: MoAgentFileToolOptions): MoAgentToo
   const runtime = createRuntime(options);
   return {
     name: 'write_file',
-    description: 'Atomically create or replace an allowed workspace file. package files, scripts, env files, and .quantpilot are always denied.',
+    description: 'Atomically create or replace an allowed workspace file. Package files, scripts, env files, and platform-owned control directories are always denied.',
     effect: 'workspace_write',
     idempotency: 'reconcile_required',
     inputSchema: {

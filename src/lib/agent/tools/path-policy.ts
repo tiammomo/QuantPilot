@@ -2,13 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { MoAgentToolError } from './errors';
 
-const PERMANENTLY_READ_ONLY_DIRECTORY = '.quantpilot';
+const PLATFORM_OWNED_DIRECTORIES = new Set(['.data-agent']);
 const FORBIDDEN_DIRECTORY_SEGMENTS = new Set([
   '.git',
   '.moagent-mutation-journal',
   '.moagent-workspace.lock',
   '.next',
-  '.quantpilot',
+  '.data-agent',
   'node_modules',
   'scripts',
 ]);
@@ -47,7 +47,7 @@ const STYLE_PATTERN = /\.(?:css|scss|sass|less)$/i;
 const SOURCE_PATTERN = /\.(?:css|ts|tsx)$/i;
 const SOURCE_DIRECTORIES = new Set(['hooks', 'lib', 'src', 'types']);
 const VIRTUAL_WORKSPACE_ROOTS = new Set([
-  '.quantpilot',
+  '.data-agent',
   'app',
   'components',
   'data_file',
@@ -180,8 +180,8 @@ async function nearestExistingAncestor(candidate: string): Promise<{
 }
 
 function isPlatformOwned(relativePath: string): boolean {
-  return relativePath === PERMANENTLY_READ_ONLY_DIRECTORY ||
-    relativePath.startsWith(`${PERMANENTLY_READ_ONLY_DIRECTORY}/`);
+  const firstSegment = relativePath.split('/')[0]?.toLowerCase();
+  return PLATFORM_OWNED_DIRECTORIES.has(firstSegment);
 }
 
 function assertNotSensitiveReadPath(relativePath: string): void {
@@ -210,7 +210,7 @@ function assertNotSensitiveWritePath(relativePath: string): void {
   if (isPlatformOwned(relativePath)) {
     throw new MoAgentToolError(
       'PLATFORM_PATH_READ_ONLY',
-      '.quantpilot is platform-owned and permanently read-only to MoAgent.',
+      'Data Agent control directories are platform-owned and permanently read-only to MoAgent.',
     );
   }
   if (segments.some((segment) => FORBIDDEN_DIRECTORY_SEGMENTS.has(segment.toLowerCase()))) {

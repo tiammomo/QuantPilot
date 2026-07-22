@@ -15,7 +15,7 @@ async function createProject() {
     path.join(os.tmpdir(), 'quantpilot-validation-stale-'),
   );
   temporaryProjects.push(projectPath);
-  await fs.mkdir(path.join(projectPath, '.quantpilot'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, '.data-agent'), { recursive: true });
   return projectPath;
 }
 
@@ -33,7 +33,7 @@ function validationReport(
     schemaVersion: 1,
     runId,
     projectId: 'project-stale-report',
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status,
     passed: status === 'passed',
     checks: [],
@@ -57,7 +57,7 @@ describe('validation report freshness', () => {
       const projectPath = await createProject();
       const reportPath = path.join(
         projectPath,
-        '.quantpilot',
+        '.data-agent',
         'validation.json',
       );
       const artifactPath = path.join(
@@ -116,12 +116,12 @@ describe('validation report freshness', () => {
     const projectPath = await createProject();
     const reportPath = path.join(
       projectPath,
-      '.quantpilot',
+      '.data-agent',
       'validation.json',
     );
     const generationStatePath = path.join(
       projectPath,
-      '.quantpilot',
+      '.data-agent',
       'generation-state.json',
     );
     await writeJson(reportPath, validationReport('passed', 'run-previous'));

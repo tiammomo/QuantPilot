@@ -414,7 +414,7 @@ function suggestedActionsForResult(result: QuantEvalResult): string[] {
     if (check.id.includes('data')) actions.add('检查 data_file/final/dashboard-data.json、evidence/sources.json 和 data_quality.json。');
   });
   if (result.eventAudit?.errorCount) {
-    actions.add('检查 .quantpilot/events.jsonl 中 error 事件，补齐阶段化执行事件。');
+    actions.add('检查 .data-agent/events.jsonl 中 error 事件，补齐阶段化执行事件。');
   }
   if (!actions.size) {
     actions.add('查看失败用例的 failures 和 validation checks，定位生成链路的第一个失败点。');

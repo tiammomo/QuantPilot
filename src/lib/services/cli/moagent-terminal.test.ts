@@ -57,11 +57,16 @@ vi.mock('@/lib/agent/skills', () => ({
   compileMoAgentSkills: mocks.compileSkills,
 }));
 
-vi.mock('@/lib/agent/tools', () => ({
-  createMoAgentTools: mocks.createTools,
+vi.mock('@/lib/domains/finance', () => ({
+  createFinanceMoAgentTools: mocks.createTools,
   createInspectDashboardContractTool: mocks.createInspector,
   isDashboardSpecCapabilitySupported: mocks.supportsCompiler,
-  MOAGENT_PREPARED_SOURCE_WRITE_GLOBS: ['app/page.tsx', 'app/globals.css'],
+  FINANCE_PREPARED_SOURCE_WRITE_GLOBS: ['app/page.tsx', 'app/globals.css'],
+  getFinanceSkillCapabilityDescriptor: vi.fn((id: string) => ({
+    id,
+    status: 'ready',
+    requiredSkillIds: ['dashboard-visualization'],
+  })),
 }));
 
 vi.mock('@/lib/services/moagent-prompts', () => ({
@@ -90,7 +95,7 @@ vi.mock('@/lib/services/moagent-recovery', () => ({
   auditPrismaMoAgentRecovery: mocks.auditRecovery,
 }));
 
-vi.mock('@/lib/quant/workspace', () => ({
+vi.mock('@/lib/domains/finance/workspace', () => ({
   readQuantRunPlan: mocks.readRunPlan,
 }));
 
@@ -237,7 +242,7 @@ describe('MoAgent terminal ownership', () => {
     mocks.compileSkills.mockResolvedValue({
       systemContext: 'verified skill context',
       taskContext: 'verified task skill context',
-      resolvedSkillIds: ['run-planner'],
+      selectedSkillIds: ['run-planner'],
       skills: [],
     });
     mocks.createDurableSession.mockResolvedValue({
@@ -546,7 +551,7 @@ describe('MoAgent terminal ownership', () => {
         metadataJson: JSON.stringify({
           toolName: 'QuantPilot 自动验证',
           validationStatus: 'failed',
-          reportPath: '.quantpilot/validation.json',
+          reportPath: '.data-agent/validation.json',
         }),
       },
       {
@@ -628,7 +633,7 @@ describe('MoAgent terminal ownership', () => {
         cliSource: 'moagent',
         metadataJson: JSON.stringify({
           validationStatus: 'failed',
-          reportPath: '.quantpilot/validation.json',
+          reportPath: '.data-agent/validation.json',
         }),
       },
       {
@@ -678,8 +683,8 @@ describe('MoAgent terminal ownership', () => {
     expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       capabilityId: 'asset_comparison',
       phase: 'data-preparation',
-      hasAttachments: false,
-      hasResolvedSymbols: false,
+      activatedSkillIds: [],
+      excludedSkillIds: ['image-extraction'],
       templateId: expect.any(String),
       variantId: expect.any(String),
       availableToolNames: ['submit_result'],
@@ -733,8 +738,8 @@ describe('MoAgent terminal ownership', () => {
       capabilityId: 'stock_diagnosis',
       requiredSkillIds: ['dashboard-visualization'],
       phase: 'workspace-generation',
-      hasAttachments: false,
-      hasResolvedSymbols: false,
+      activatedSkillIds: [],
+      excludedSkillIds: ['image-extraction'],
       templateId: expect.any(String),
       variantId: expect.any(String),
       availableToolNames: ['submit_result'],
@@ -954,7 +959,7 @@ describe('MoAgent terminal ownership', () => {
     expect(mocks.compileSkills).toHaveBeenCalledWith(expect.objectContaining({
       capabilityId: 'stock_diagnosis',
       phase: 'data-preparation',
-      hasResolvedSymbols: true,
+      excludedSkillIds: ['image-extraction', 'quant-symbol-resolver'],
     }));
     expect(mocks.compileSkills.mock.calls[0]?.[0]).not.toHaveProperty('requiredSkillIds');
     expect(mocks.createTools).toHaveBeenCalledWith(expect.objectContaining({

@@ -1,8 +1,23 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
-import { QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH } from '@/lib/quant/artifacts';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import {
+  DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+  DATA_AGENT_EVENTS_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
+  DATA_AGENT_PLAN_RELATIVE_PATH,
+  DATA_AGENT_PROFILE_RELATIVE_PATH,
+  DATA_AGENT_TASK_RELATIVE_PATH,
+  DATA_AGENT_VALIDATION_RELATIVE_PATH,
+  DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
+  DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+} from '@/lib/data-agent/workspace-layout';
+import {
+  FINANCE_QUERY_REWRITE_RELATIVE_PATH,
+  FINANCE_RUN_PLAN_RELATIVE_PATH,
+} from '@/lib/domains/finance/workspace-artifacts';
+import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/domains/finance/workspace';
 
 export type QuantArtifactContractStatus = 'passed' | 'failed' | 'warning';
 
@@ -52,6 +67,87 @@ const optionalTimeRange = z.union([
     endDate: z.string().optional(),
   }).passthrough(),
 ]).nullable().optional();
+
+const workspaceSchema = z.object({
+  schemaVersion: z.literal(1),
+  workspaceId: nonEmptyString,
+  projectId: nonEmptyString,
+  projectName: nonEmptyString,
+  platform: nonEmptyString,
+  runtime: z.object({
+    framework: z.literal('MoAgent'),
+    executorId: nonEmptyString,
+    modelId: nonEmptyString,
+    modelProfileId: nonEmptyString,
+  }),
+  createdAt: nonEmptyString,
+  updatedAt: nonEmptyString,
+});
+
+const profileSchema = z.object({
+  schemaVersion: z.literal(1),
+  profile: z.object({
+    id: nonEmptyString,
+    version: nonEmptyString,
+    domainPackIds: z.array(nonEmptyString).min(1),
+    defaultCapabilityId: nonEmptyString,
+    deliveryPackId: nonEmptyString,
+  }).passthrough(),
+  selectedCapabilityId: nonEmptyString,
+  selectionSource: z.enum(['manual', 'default', 'inferred']),
+  updatedAt: nonEmptyString,
+}).passthrough();
+
+const taskSchema = z.object({
+  schemaVersion: z.literal(1),
+  originalQuery: nonEmptyString,
+  objective: nonEmptyString,
+  entities: z.array(z.unknown()),
+  resolvedEntities: z.array(z.unknown()),
+  metrics: z.array(z.unknown()),
+  dimensions: z.array(z.unknown()),
+  filters: z.array(z.unknown()),
+  output: z.enum(['answer', 'table', 'chart', 'dashboard', 'report', 'dataset']),
+  domainHints: z.array(nonEmptyString),
+  status: z.enum(['ready', 'partial', 'needs_clarification', 'refused']),
+  issues: z.array(z.unknown()),
+}).passthrough();
+
+const dataAgentPlanSchema = z.object({
+  schemaVersion: z.literal(1),
+  runId: nonEmptyString,
+  status: z.enum(['planned', 'needs_clarification', 'refused']),
+  profile: z.object({
+    id: nonEmptyString,
+    version: nonEmptyString,
+    domainPackIds: z.array(nonEmptyString).min(1),
+    deliveryPackId: nonEmptyString,
+  }),
+  capabilityId: nonEmptyString,
+  taskArtifact: z.literal(DATA_AGENT_TASK_RELATIVE_PATH),
+  domainPlanArtifact: z.literal(FINANCE_RUN_PLAN_RELATIVE_PATH),
+  expectedArtifacts: z.array(nonEmptyString),
+  validationRuleIds: z.array(nonEmptyString),
+  createdAt: nonEmptyString,
+  updatedAt: nonEmptyString,
+});
+
+const financeQueryRewriteSchema = z.object({
+  schemaVersion: z.literal(4),
+  originalQuery: nonEmptyString,
+  normalizedQuery: nonEmptyString,
+  rewrittenQuery: nonEmptyString,
+  status: z.enum(['ready', 'partial', 'needs_clarification', 'refused']),
+  confidence: z.number().min(0).max(1),
+  capabilityHint: nonEmptyString,
+  targetCandidates: z.array(z.string()),
+  resolvedSymbols: z.array(z.unknown()),
+  unresolvedTargets: z.array(z.string()),
+  ambiguousTargets: z.array(z.unknown()),
+  outputIntent: z.enum(['dashboard', 'answer']),
+  broadUniverse: z.boolean(),
+  issues: z.array(z.unknown()),
+}).passthrough();
 
 const runPlanSchema = z.object({
   schemaVersion: z.literal(1),
@@ -265,13 +361,18 @@ function inspectRunPlan(value: unknown) {
   const expectedArtifacts = Array.isArray(record?.expectedArtifacts) ? record.expectedArtifacts : [];
   const errors: string[] = [];
   [
-    '.quantpilot/run_plan.json',
-    '.quantpilot/generation-state.json',
-    '.quantpilot/generation-queue.json',
-    '.quantpilot/events.jsonl',
-    '.quantpilot/artifact-contracts.json',
-    '.quantpilot/visual-validation.json',
-    '.quantpilot/validation.json',
+    DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+    DATA_AGENT_PROFILE_RELATIVE_PATH,
+    DATA_AGENT_TASK_RELATIVE_PATH,
+    DATA_AGENT_PLAN_RELATIVE_PATH,
+    FINANCE_QUERY_REWRITE_RELATIVE_PATH,
+    FINANCE_RUN_PLAN_RELATIVE_PATH,
+    DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
+    DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
+    DATA_AGENT_EVENTS_RELATIVE_PATH,
+    DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+    DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
+    DATA_AGENT_VALIDATION_RELATIVE_PATH,
     'evidence/sources.json',
     'evidence/data_quality.json',
     'data_file/final/dashboard-data.json',
@@ -319,9 +420,44 @@ function inspectDataQuality(value: unknown) {
 
 const CONTRACTS: ContractDefinition[] = [
   {
+    id: 'workspace_contract',
+    label: 'Data Agent 工作空间契约',
+    relativePath: DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+    required: true,
+    schema: workspaceSchema,
+  },
+  {
+    id: 'profile_contract',
+    label: 'Agent Profile 契约',
+    relativePath: DATA_AGENT_PROFILE_RELATIVE_PATH,
+    required: true,
+    schema: profileSchema,
+  },
+  {
+    id: 'task_contract',
+    label: 'Data Agent Task 契约',
+    relativePath: DATA_AGENT_TASK_RELATIVE_PATH,
+    required: true,
+    schema: taskSchema,
+  },
+  {
+    id: 'data_agent_plan_contract',
+    label: 'Data Agent 执行计划契约',
+    relativePath: DATA_AGENT_PLAN_RELATIVE_PATH,
+    required: true,
+    schema: dataAgentPlanSchema,
+  },
+  {
+    id: 'finance_query_rewrite_contract',
+    label: 'Finance Query Rewrite 契约',
+    relativePath: FINANCE_QUERY_REWRITE_RELATIVE_PATH,
+    required: true,
+    schema: financeQueryRewriteSchema,
+  },
+  {
     id: 'run_plan_contract',
     label: '运行计划契约',
-    relativePath: '.quantpilot/run_plan.json',
+    relativePath: FINANCE_RUN_PLAN_RELATIVE_PATH,
     required: true,
     schema: runPlanSchema,
     extraValidate: inspectRunPlan,
@@ -329,7 +465,7 @@ const CONTRACTS: ContractDefinition[] = [
   {
     id: 'generation_state_contract',
     label: '生成状态契约',
-    relativePath: '.quantpilot/generation-state.json',
+    relativePath: '.data-agent/generation-state.json',
     required: true,
     schema: generationStateSchema,
     extraValidate: inspectGenerationState,
@@ -337,21 +473,21 @@ const CONTRACTS: ContractDefinition[] = [
   {
     id: 'validation_contract',
     label: '验证报告契约',
-    relativePath: '.quantpilot/validation.json',
+    relativePath: '.data-agent/validation.json',
     required: false,
     schema: validationSchema,
   },
   {
     id: 'generation_queue_contract',
     label: '生成队列契约',
-    relativePath: '.quantpilot/generation-queue.json',
+    relativePath: '.data-agent/generation-queue.json',
     required: false,
     schema: queueSchema,
   },
   {
     id: 'visual_validation_contract',
     label: '视觉验收契约',
-    relativePath: '.quantpilot/visual-validation.json',
+    relativePath: '.data-agent/visual-validation.json',
     required: false,
     schema: visualValidationSchema,
   },
@@ -471,14 +607,14 @@ export async function validateQuantArtifactContracts(params: {
     requestId: params.requestId ?? null,
     status,
     passed: status !== 'failed',
-    reportPath: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+    reportPath: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
     checks,
     createdAt: now,
     updatedAt: now,
   };
 
   await fs.writeFile(
-    path.join(projectPath, QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH),
+    path.join(projectPath, DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH),
     `${JSON.stringify(report, null, 2)}\n`,
     'utf8'
   );
@@ -487,7 +623,7 @@ export async function validateQuantArtifactContracts(params: {
     stage: 'validation',
     status: status === 'failed' ? 'error' : status === 'warning' ? 'warning' : 'success',
     run_id: params.requestId ?? undefined,
-    artifact_path: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+    artifact_path: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
     summary: status === 'failed'
       ? `产物契约未通过：${requiredFailures.length} 个必需契约失败。`
       : status === 'warning'
@@ -499,7 +635,7 @@ export async function validateQuantArtifactContracts(params: {
 }
 
 export async function readQuantArtifactContractReport(projectPath: string): Promise<QuantArtifactContractReport | null> {
-  const content = await fs.readFile(path.join(projectPath, QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH), 'utf8').catch(() => null);
+  const content = await fs.readFile(path.join(projectPath, DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH), 'utf8').catch(() => null);
   if (!content) return null;
   try {
     const parsed = JSON.parse(content);

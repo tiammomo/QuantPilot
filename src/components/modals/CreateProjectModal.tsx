@@ -10,7 +10,7 @@ import {
   DEFAULT_QUANT_CAPABILITY_ID,
   QUANT_CAPABILITIES,
   type QuantCapabilityId,
-} from '@/lib/quant/capabilities';
+} from '@/lib/domains/finance/capabilities';
 
 import type { CreateProjectCLIOption, GlobalSettings } from '@/types';
 

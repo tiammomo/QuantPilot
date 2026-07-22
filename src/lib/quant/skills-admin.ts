@@ -76,10 +76,10 @@ export interface SkillDiffData {
 }
 
 const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-const SKILLS_DIR = path.join(ROOT, '.claude', 'skills');
-const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
-const CHANGELOG_PATH = path.join(ROOT, '.claude', 'skills.changelog.json');
-const LOCK_PATH = path.join(ROOT, '.claude', 'skills.lock.json');
+const SKILLS_DIR = path.join(ROOT, '.moagent', 'skills');
+const REGISTRY_PATH = path.join(ROOT, '.moagent', 'skills.registry.json');
+const CHANGELOG_PATH = path.join(ROOT, '.moagent', 'skills.changelog.json');
+const LOCK_PATH = path.join(ROOT, '.moagent', 'skills.lock.json');
 const TEMP_DIR = path.join(ROOT, 'tmp', 'skill-uploads');
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -165,7 +165,7 @@ async function getPackageDir() {
   const policy = isRecord(registry.policy) ? registry.policy : {};
   const configured = typeof policy.packageDir === 'string'
     ? policy.packageDir.replaceAll('\\', '/')
-    : '.claude/skill-packages';
+    : '.moagent/skill-packages';
   if (!configured || path.isAbsolute(configured) || configured.split('/').includes('..')) {
     throw new Error('registry.policy.packageDir 必须是仓库内安全相对路径。');
   }

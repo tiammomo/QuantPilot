@@ -195,7 +195,7 @@ async function main() {
   const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-research-guardrails-'));
 
   try {
-    await writeJson(path.join(projectPath, '.quantpilot/run_plan.json'), researchPlan(researchQuestion));
+    await writeJson(path.join(projectPath, '.data-agent/finance-run-plan.json'), researchPlan(researchQuestion));
     await writeJson(path.join(projectPath, 'data_file/final/dashboard-data.json'), finalData());
     await createLegacySelectionPage(projectPath);
 

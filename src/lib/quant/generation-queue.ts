@@ -4,11 +4,11 @@ import path from "node:path";
 import type { AgentGenerationJob } from "@prisma/client";
 
 import { withMoAgentWorkspaceResourceLock } from "@/lib/agent/runtime/workspace-resource-lock";
-import { QUANT_GENERATION_QUEUE_RELATIVE_PATH } from "@/lib/quant/artifacts";
+import { DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH } from "@/lib/data-agent/workspace-layout";
 import {
   appendQuantWorkspaceEvent,
   ensureQuantWorkspace,
-} from "@/lib/quant/workspace";
+} from "@/lib/domains/finance/workspace";
 import {
   currentMoAgentGenerationDispatchFence,
   currentMoAgentGenerationDispatchSession,
@@ -71,7 +71,7 @@ export class QuantGenerationCancelledError extends Error {
 }
 
 function queuePath(projectPath: string) {
-  return path.join(projectPath, QUANT_GENERATION_QUEUE_RELATIVE_PATH);
+  return path.join(projectPath, DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH);
 }
 
 function projectionStatus(status: string): QuantGenerationQueueStatus {
@@ -160,7 +160,7 @@ async function appendLifecycleEvent(params: {
     stage: "queue",
     status: params.status,
     run_id: params.requestId,
-    artifact_path: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
+    artifact_path: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
     summary: params.summary,
     created_at: new Date().toISOString(),
   });

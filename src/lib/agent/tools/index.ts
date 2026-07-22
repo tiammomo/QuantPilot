@@ -1,82 +1,63 @@
 import type { MoAgentTool } from '@/lib/agent/types';
-import { createInspectDashboardContractTool } from './dashboard-contract';
-import { createApplyDashboardSpecTool } from './dashboard-spec';
+import { firstPartyContextReceiptProjector } from './context-receipts';
 import { createMoAgentFileTools, type MoAgentFileToolOptions } from './filesystem';
-import {
-  createImageExtractionTool,
-  type MoAgentImageExtractionToolOptions,
-} from './image-extraction';
-import { createQuantApiGetTool, type MoAgentQuantApiToolOptions } from './quant-api';
 import { createSemanticEditTool } from './semantic-edit';
 import { createQueryJsonTool, createQueryTextFileTool } from './structured-read';
 import { createSubmitResultTool } from './submit-result';
-import { firstPartyContextReceiptProjector } from './context-receipts';
+import { composeMoAgentToolset } from './toolset';
+
+export type MoAgentToolProfile = 'generation' | 'repair';
+export type MoAgentPreparedToolSurface = 'standard' | 'custom';
 
 export interface CreateMoAgentToolsOptions extends MoAgentFileToolOptions {
   profile?: MoAgentToolProfile;
-  /** Trusted per-run override for the profile's extra write surface. */
   profileAllowedWriteGlobs?: readonly string[];
-  quantApi?: MoAgentQuantApiToolOptions;
-  /** Disable the live quant-data tool when the platform already prepared all datasets. */
-  includeQuantApi?: boolean;
-  /** Expose batched query_json/query_text_file readers plus mutation tools; removes generic discovery/scanning. */
   targetedReadsOnly?: boolean;
-  /**
-   * Minimise the provider-visible schema for an already prepared workspace.
-   * Standard mode keeps a recoverable compiler path; custom mode exposes only
-   * bounded structured reads plus hash-guarded semantic edits.
-   */
-  preparedSurface?: 'standard' | 'custom';
-  /** Expose the trusted platform-template compiler for prepared dashboard generations. */
-  includeDashboardSpec?: boolean;
-  /** Expose source/data contract inspection when orchestration has not already preflighted it. */
-  includeDashboardInspector?: boolean;
-  /** Expose hash-guarded AST/CSS/range edits after targeted source reads. */
+  preparedSurface?: MoAgentPreparedToolSurface;
+  /** Domain/delivery-owned compiler used by a deterministic standard lane. */
+  preparedCompilerTool?: MoAgentTool | null;
+  /** Domain/delivery inspectors exposed only before a prepared contract exists. */
+  inspectionTools?: readonly MoAgentTool[];
   includeSemanticEdit?: boolean;
-  /**
-   * Trusted orchestration allowlist for mutating tools. This narrows repair
-   * episodes to one mutation strategy instead of asking the model to choose
-   * among overlapping write/edit/patch/compiler surfaces.
-   */
   allowedMutationToolNames?: readonly string[];
-  imageExtraction?: Omit<MoAgentImageExtractionToolOptions, 'workspaceRoot'>;
-  includeImageExtraction?: boolean;
-  /** Product-specific typed tools (for example image extraction). */
+  /** Trusted typed tools registered by the application composition root. */
+  trustedAdditionalTools?: readonly MoAgentTool[];
+  /** Trusted tools intentionally ordered after the terminal submission schema. */
+  trustedTrailingTools?: readonly MoAgentTool[];
+  /** Plugin tools cross an untrusted receipt-projector boundary. */
   additionalTools?: readonly MoAgentTool[];
+  /** Trusted application/domain projector registry composed ahead of core defaults. */
+  contextReceiptProjector?: (
+    toolName: string,
+  ) => MoAgentTool['projectContextReceipt'] | undefined;
 }
 
-export type MoAgentToolProfile = 'generation' | 'repair';
-
-/** Generation authors source/UI only; platform-prepared final/evidence stay untouched. */
+/** Generation authors source/UI only; data/evidence writes require explicit domain scope. */
 export const MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS = [] as const;
 
-/** Platform-prefetched data is queried structurally instead of replayed raw. */
+/** Structured data/evidence paths supported by the generic workspace reader. */
 export const MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS = [
+  'data/**/*.json',
   'data_file/final/**/*.json',
   'evidence/**/*.json',
 ] as const;
 
-/** Prepared dashboards may only mutate the app entry surface they render. */
-export const MOAGENT_PREPARED_SOURCE_WRITE_GLOBS = [
-  'app/page.tsx',
-  'app/globals.css',
-] as const;
-
-const MOAGENT_GENERIC_READ_TOOL_NAMES = new Set([
+const GENERIC_READ_TOOL_NAMES = new Set([
   'list_files',
   'read_file',
   'read_file_range',
   'search_files',
 ]);
 
-export function allowedWriteGlobsForMoAgentProfile(profile: MoAgentToolProfile): readonly string[] {
-  // Repair must supply its platform-compiled failure scope explicitly.
+export function allowedWriteGlobsForMoAgentProfile(
+  profile: MoAgentToolProfile,
+): readonly string[] {
   return profile === 'repair' ? [] : MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS;
 }
 
 /**
- * The first-party MoAgent tool set deliberately contains no Bash/shell tool.
- * All filesystem and quant-data capabilities are typed and policy constrained.
+ * Product-neutral workspace Tool factory. Domain packages contribute only
+ * typed tools and a prepared compiler; no finance endpoint is enabled here.
  */
 export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentTool[] {
   const profile = options.profile ?? 'generation';
@@ -87,148 +68,77 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
     ...(options.profileAllowedWriteGlobs ?? allowedWriteGlobsForMoAgentProfile(profile)),
     ...(options.allowedWriteGlobs ?? []),
   ];
-  const structuredJsonReadGlobs = options.structuredJsonReadGlobs ?? (
-    profile === 'generation' ? MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS : []
-  );
   const workspaceOptions = {
     ...options,
     allowedWriteGlobs,
-    structuredJsonReadGlobs,
+    structuredJsonReadGlobs: options.structuredJsonReadGlobs ?? (
+      profile === 'generation' ? MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS : []
+    ),
   };
+  if (options.preparedSurface && options.includeDefaultWriteGlobs !== false) {
+    throw new Error(
+      'MoAgent prepared surfaces require includeDefaultWriteGlobs=false and an explicit write scope.',
+    );
+  }
   const fileTools = createMoAgentFileTools(workspaceOptions);
-  const dashboardSpecTool = options.includeDashboardSpec
-    ? createApplyDashboardSpecTool(workspaceOptions)
-    : null;
   const semanticEditTool = options.includeSemanticEdit
     ? createSemanticEditTool(workspaceOptions)
     : null;
-  const queryJsonTool = createQueryJsonTool(options);
-  const queryTextFileTool = createQueryTextFileTool(options);
+  const queryJsonTool = createQueryJsonTool(workspaceOptions);
+  const queryTextFileTool = createQueryTextFileTool(workspaceOptions);
   const submitResultTool = createSubmitResultTool({
     workspaceRoot: options.workspaceRoot,
     timeoutMs: options.timeoutMs,
   });
-  if (
-    options.preparedSurface &&
-    (options.includeQuantApi !== false ||
-      options.includeImageExtraction !== false ||
-      (options.additionalTools?.length ?? 0) > 0)
-  ) {
-    throw new Error(
-      'MoAgent prepared surfaces require quant API, image extraction, and additional tools to be disabled.',
-    );
-  }
-  if (options.preparedSurface && options.includeDefaultWriteGlobs !== false) {
-    throw new Error(
-      'MoAgent prepared surfaces require includeDefaultWriteGlobs=false and an explicit app-only write scope.',
-    );
-  }
-  if (
-    options.preparedSurface &&
-    allowedWriteGlobs.some((glob) =>
-      !MOAGENT_PREPARED_SOURCE_WRITE_GLOBS.includes(
-        glob as (typeof MOAGENT_PREPARED_SOURCE_WRITE_GLOBS)[number],
-      ))
-  ) {
-    throw new Error('MoAgent prepared surfaces reject write globs outside the certified app source scope.');
-  }
-  if (options.preparedSurface === 'standard' && !dashboardSpecTool) {
-    throw new Error('MoAgent prepared standard surface requires apply_dashboard_spec.');
+  if (options.preparedSurface === 'standard' && !options.preparedCompilerTool) {
+    throw new Error('MoAgent prepared standard surface requires a domain delivery compiler.');
   }
   if (options.preparedSurface === 'custom' && !semanticEditTool) {
     throw new Error('MoAgent prepared custom surface requires semantic_edit.');
   }
-  const preparedTools: MoAgentTool[] | null = options.preparedSurface === 'standard'
-    ? [
-        dashboardSpecTool!,
-        submitResultTool,
-      ]
+  if (
+    options.preparedSurface &&
+    ((options.inspectionTools?.length ?? 0) > 0 ||
+      (options.trustedAdditionalTools?.length ?? 0) > 0 ||
+      (options.trustedTrailingTools?.length ?? 0) > 0 ||
+      (options.additionalTools?.length ?? 0) > 0)
+  ) {
+    throw new Error('MoAgent prepared surfaces reject inspection, domain data and plugin tools.');
+  }
+
+  const trustedTools: MoAgentTool[] = options.preparedSurface === 'standard'
+    ? [options.preparedCompilerTool!, submitResultTool]
     : options.preparedSurface === 'custom'
       ? [queryJsonTool, queryTextFileTool, semanticEditTool!, submitResultTool]
-      : null;
-  const candidateTools: MoAgentTool[] = [
-    ...(preparedTools ?? [
-      ...(options.targetedReadsOnly
-        ? fileTools.filter((tool) => !MOAGENT_GENERIC_READ_TOOL_NAMES.has(tool.name))
-        : fileTools),
-      ...(options.includeDashboardInspector === false
-        ? []
-        : [createInspectDashboardContractTool(options)]),
-      queryJsonTool,
-      queryTextFileTool,
-      ...(dashboardSpecTool ? [dashboardSpecTool] : []),
-      ...(semanticEditTool ? [semanticEditTool] : []),
-      ...(options.includeQuantApi === false ? [] : [createQuantApiGetTool({
-        timeoutMs: options.timeoutMs,
-        maxOutputChars: options.maxOutputChars,
-        ...options.quantApi,
-      })]),
-      submitResultTool,
-      ...(options.includeImageExtraction === false ? [] : [createImageExtractionTool({
-        workspaceRoot: options.workspaceRoot,
-        timeoutMs: options.timeoutMs,
-        maxOutputChars: options.maxOutputChars,
-        ...options.imageExtraction,
-      })]),
-      ...(options.additionalTools ?? []),
-    ]),
-  ];
-  const allowedMutationToolNames = options.allowedMutationToolNames
-    ? new Set(options.allowedMutationToolNames)
-    : null;
-  const registeredMutationToolNames = new Set(
-    candidateTools
-      // Missing effect is conservatively external_write everywhere else in
-      // the runtime; the orchestration allowlist must use the same rule.
-      .filter((tool) => {
-        const effect = tool.effect ?? 'external_write';
-        return effect === 'workspace_write' || effect === 'external_write';
-      })
-      .map((tool) => tool.name),
-  );
-  if (
-    allowedMutationToolNames &&
-    [...allowedMutationToolNames].some((name) => !registeredMutationToolNames.has(name))
-  ) {
-    const unknown = [...allowedMutationToolNames]
-      .filter((name) => !registeredMutationToolNames.has(name));
-    throw new Error(`Unknown MoAgent mutation tool allowlist entries: ${unknown.join(', ')}`);
-  }
-  const tools = allowedMutationToolNames
-    ? candidateTools.filter((tool) => {
-        const effect = tool.effect ?? 'external_write';
-        return (
-          effect !== 'workspace_write' && effect !== 'external_write'
-        ) || allowedMutationToolNames.has(tool.name);
-      })
-    : candidateTools;
-  const seen = new Set<string>();
-  const additionalTools = new Set(options.additionalTools ?? []);
-  for (const tool of tools) {
-    if (seen.has(tool.name)) throw new Error(`Duplicate MoAgent tool name: ${tool.name}`);
-    seen.add(tool.name);
-  }
-  return tools.map((tool) => {
-    if (additionalTools.has(tool)) {
-      // Trust is assigned by the framework, never inherited from a product
-      // supplied tool object.
-      const { projectContextReceipt: _untrustedProjector, ...untrustedTool } = tool;
-      return untrustedTool;
-    }
-    const projectContextReceipt = firstPartyContextReceiptProjector(tool.name);
-    return projectContextReceipt ? { ...tool, projectContextReceipt } : tool;
+      : [
+          ...(options.targetedReadsOnly
+            ? fileTools.filter((tool) => !GENERIC_READ_TOOL_NAMES.has(tool.name))
+            : fileTools),
+          ...(options.inspectionTools ?? []),
+          queryJsonTool,
+          queryTextFileTool,
+          ...(options.preparedCompilerTool ? [options.preparedCompilerTool] : []),
+          ...(semanticEditTool ? [semanticEditTool] : []),
+          ...(options.trustedAdditionalTools ?? []),
+          submitResultTool,
+          ...(options.trustedTrailingTools ?? []),
+        ];
+  return composeMoAgentToolset({
+    trustedTools,
+    extensionTools: options.additionalTools,
+    allowedMutationToolNames: options.allowedMutationToolNames,
+    contextReceiptProjector: (toolName) =>
+      options.contextReceiptProjector?.(toolName) ??
+      firstPartyContextReceiptProjector(toolName),
   });
 }
 
 export * from './errors';
-export * from './dashboard-contract';
 export * from './context-receipts';
-export * from './dashboard-spec';
 export * from './filesystem';
-export * from './image-extraction';
 export * from './path-policy';
-export * from './quant-api';
 export * from './runtime';
 export * from './semantic-edit';
 export * from './structured-read';
 export * from './submit-result';
+export * from './toolset';

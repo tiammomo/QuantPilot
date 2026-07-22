@@ -76,7 +76,7 @@ export function normalizeSkillLockSnapshot(value: unknown): QuantEvalRun['metada
 }
 
 export async function readCurrentSkillLockSnapshot(): Promise<QuantEvalRun['metadata']['skillLockSnapshot']> {
-  const lockPath = path.join(ROOT, '.claude', 'skills.lock.json');
+  const lockPath = path.join(ROOT, '.moagent', 'skills.lock.json');
   const parsed = await readJson(lockPath).catch(() => null);
   return normalizeSkillLockSnapshot(parsed);
 }

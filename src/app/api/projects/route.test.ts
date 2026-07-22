@@ -22,7 +22,7 @@ vi.mock('@/lib/serializers/project', () => ({
   serializeProject: (project: unknown) => project,
   serializeProjects: (projects: unknown) => projects,
 }));
-vi.mock('@/lib/quant/capabilities', () => ({
+vi.mock('@/lib/domains/finance/capabilities', () => ({
   getQuantCapability: () => ({ id: 'stock-research' }),
 }));
 vi.mock('@/lib/auth/audit', () => ({

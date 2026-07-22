@@ -16,7 +16,6 @@ export interface QuantCoreSkill {
   scripts?: string[];
   references?: string[];
   endpoints?: string[];
-  legacyAliases?: string[];
   validation?: string[];
 }
 
@@ -24,17 +23,14 @@ export interface QuantSkillsRegistry {
   schemaVersion: 1;
   policy: {
     targetCoreSkillCount: number;
-    allowLegacyAliases: boolean;
-    installLegacyByDefault?: boolean;
     packageFormat?: 'tgz';
     packageDir?: string;
     description: string;
   };
   coreSkills: QuantCoreSkill[];
-  legacyAliases: Record<string, string>;
 }
 
-const REGISTRY_PATH = path.join(process.cwd(), '.claude', 'skills.registry.json');
+const REGISTRY_PATH = path.join(process.cwd(), '.moagent', 'skills.registry.json');
 
 const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
   {
@@ -99,14 +95,11 @@ const FALLBACK_REGISTRY: QuantSkillsRegistry = {
   schemaVersion: 1,
   policy: {
     targetCoreSkillCount: 11,
-    allowLegacyAliases: true,
-    installLegacyByDefault: false,
     packageFormat: 'tgz',
-    packageDir: '.claude/skill-packages',
+    packageDir: '.moagent/skill-packages',
     description: 'Fallback QuantPilot skills registry.',
   },
   coreSkills: FALLBACK_CORE_SKILLS,
-  legacyAliases: {},
 };
 
 let cachedRegistry: { mtimeMs: number; value: QuantSkillsRegistry } | null = null;
@@ -151,64 +144,27 @@ export function getCoreQuantSkillIds(registry: QuantSkillsRegistry): string[] {
   return registry.coreSkills.map((skill) => skill.id);
 }
 
-export function getLegacyQuantSkillIds(registry: QuantSkillsRegistry): string[] {
-  return Object.keys(registry.legacyAliases ?? {});
-}
-
-export function getDefaultQuantSkillIds(
-  registry: QuantSkillsRegistry,
-  options: { includeLegacy?: boolean } = {}
-): string[] {
-  const ids = new Set(
-    registry.coreSkills
-      .filter((skill) => skill.status === 'stable')
-      .map((skill) => skill.id),
-  );
-  const includeLegacy = options.includeLegacy ?? registry.policy.installLegacyByDefault ?? false;
-
-  if (includeLegacy) {
-    for (const alias of getLegacyQuantSkillIds(registry)) {
-      ids.add(alias);
-    }
-  }
-
-  return Array.from(ids);
-}
-
-export function resolveQuantSkillId(registry: QuantSkillsRegistry, skillId: string): string {
-  return registry.legacyAliases?.[skillId] ?? skillId;
-}
-
-export function normalizeQuantSkillIds(registry: QuantSkillsRegistry, skillIds: string[]): string[] {
-  return Array.from(new Set(skillIds.map((skillId) => resolveQuantSkillId(registry, skillId))));
-}
-
-export function describeQuantSkillAliases(registry: QuantSkillsRegistry, skillIds: string[]): string[] {
-  return skillIds.flatMap((skillId) => {
-    const target = registry.legacyAliases?.[skillId];
-    return target ? [`${skillId}->${target}`] : [];
-  });
+export function getDefaultQuantSkillIds(registry: QuantSkillsRegistry): string[] {
+  return registry.coreSkills
+    .filter((skill) => skill.status === 'stable')
+    .map((skill) => skill.id);
 }
 
 export function getQuantSkillPackagePath(registry: QuantSkillsRegistry, skillId: string): string {
-  const packageDir = registry.policy.packageDir ?? '.claude/skill-packages';
+  const packageDir = registry.policy.packageDir ?? '.moagent/skill-packages';
   return path.join(process.cwd(), packageDir, `${skillId}.tgz`);
 }
 
 export function describeQuantSkillsForPrompt(registry: QuantSkillsRegistry): string {
   const coreLines = registry.coreSkills.map((skill) => {
-    const aliasText = skill.legacyAliases?.length
-      ? `；兼容别名：${skill.legacyAliases.join(', ')}`
-      : '';
     const scriptText = skill.scripts?.length ? `；脚本：${skill.scripts.join(', ')}` : '';
     const referenceText = skill.references?.length ? `；参考：${skill.references.join(', ')}` : '';
-    return `- ${skill.id}（${skill.name}，${skill.status}，v${skill.version}）：${skill.boundary}${aliasText}${scriptText}${referenceText}`;
+    return `- ${skill.id}（${skill.name}，${skill.status}，v${skill.version}）：${skill.boundary}${scriptText}${referenceText}`;
   });
 
   return [
     'QuantPilot skills 治理：',
     `- 目标核心 skill 数量：${registry.policy.targetCoreSkillCount}`,
-    `- 默认安装 legacy alias：${registry.policy.installLegacyByDefault ? '是' : '否'}`,
     `- 规则：${registry.policy.description}`,
     ...coreLines,
   ].join('\n');

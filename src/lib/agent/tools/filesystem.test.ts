@@ -43,14 +43,14 @@ describe('MoAgent typed filesystem tools', () => {
     workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-workspace-'));
     outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-outside-'));
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
-    await fs.mkdir(path.join(workspace, '.quantpilot'), { recursive: true });
+    await fs.mkdir(path.join(workspace, '.data-agent'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'app', 'page.tsx'), [
       'export default function Page() {',
       '  return <main>Quant dashboard</main>;',
       '}',
       '',
     ].join('\n'));
-    await fs.writeFile(path.join(workspace, '.quantpilot', 'run_plan.json'), '{"status":"ready"}\n');
+    await fs.writeFile(path.join(workspace, '.data-agent', 'finance-run-plan.json'), '{"status":"ready"}\n');
     await fs.writeFile(path.join(outside, 'secret.txt'), 'host secret\n');
   });
 
@@ -190,21 +190,21 @@ describe('MoAgent typed filesystem tools', () => {
     await expect(fs.stat(path.join(outside, 'stolen.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('keeps .quantpilot permanently read-only even when a profile supplies a wildcard', async () => {
+  it('keeps .data-agent permanently read-only even when a profile supplies a wildcard', async () => {
     const options = { workspaceRoot: workspace, allowedWriteGlobs: ['**'] };
-    const read = await invoke(createReadFileTool(options), { path: '.quantpilot/run_plan.json' });
+    const read = await invoke(createReadFileTool(options), { path: '.data-agent/finance-run-plan.json' });
     expect(read).toMatchObject({ ok: true });
 
     await expect(invoke(createWriteFileTool(options), {
-      path: '.quantpilot/run_plan.json',
+      path: '.data-agent/finance-run-plan.json',
       content: '{}\n',
     })).resolves.toMatchObject({ ok: false, error: { code: 'PLATFORM_PATH_READ_ONLY' } });
-    await expect(fs.readFile(path.join(workspace, '.quantpilot', 'run_plan.json'), 'utf8'))
+    await expect(fs.readFile(path.join(workspace, '.data-agent', 'finance-run-plan.json'), 'utf8'))
       .resolves.toBe('{"status":"ready"}\n');
   });
 
-  it('detects a writable-looking symlink alias that resolves into .quantpilot', async () => {
-    await fs.symlink(path.join(workspace, '.quantpilot'), path.join(workspace, 'app', 'platform-alias'));
+  it('detects a writable-looking symlink alias that resolves into .data-agent', async () => {
+    await fs.symlink(path.join(workspace, '.data-agent'), path.join(workspace, 'app', 'platform-alias'));
     await expect(invoke(createWriteFileTool({
       workspaceRoot: workspace,
       allowedWriteGlobs: ['**'],
@@ -212,7 +212,7 @@ describe('MoAgent typed filesystem tools', () => {
       path: 'app/platform-alias/forged.ts',
       content: 'export const forged = true;\n',
     })).resolves.toMatchObject({ ok: false, error: { code: 'PLATFORM_PATH_READ_ONLY' } });
-    await expect(fs.stat(path.join(workspace, '.quantpilot', 'forged.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.stat(path.join(workspace, '.data-agent', 'forged.ts'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('atomically writes, uniquely edits, and applies structured patches to allowed source files', async () => {

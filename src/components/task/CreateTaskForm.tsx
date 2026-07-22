@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { QuantCapabilityId } from "@/lib/quant/capabilities";
+import type { QuantCapabilityId } from "@/lib/domains/finance/capabilities";
 import type { ActiveCliId } from "@/lib/utils/cliOptions";
 
 interface ModelOption {

@@ -25,7 +25,7 @@ function report(passed: boolean): QuantValidationReport {
   return {
     schemaVersion: 1,
     projectId: 'benchmark-project',
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status: passed ? 'passed' : 'failed',
     passed,
     createdAt: timestamp,

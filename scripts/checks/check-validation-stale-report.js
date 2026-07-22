@@ -23,12 +23,12 @@ async function writeJson(filePath, value) {
 async function main() {
   const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-stale-validation-'));
   try {
-    await writeJson(path.join(projectPath, '.quantpilot/validation.json'), {
+    await writeJson(path.join(projectPath, '.data-agent/validation.json'), {
       schemaVersion: 1,
       projectId: 'stale-validation-smoke',
       status: 'failed',
       passed: false,
-      reportPath: '.quantpilot/validation.json',
+      reportPath: '.data-agent/validation.json',
       checks: [
         {
           id: 'final_data_file',

@@ -2,7 +2,7 @@ import {
   DEFAULT_QUANT_CAPABILITY_ID,
   QUANT_CAPABILITY_GROUPS,
   serializeQuantCapabilities,
-} from '@/lib/quant/capabilities';
+} from '@/lib/domains/finance/capabilities';
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
 
@@ -14,8 +14,6 @@ export interface CapabilityCenterSkillRef {
   version: string;
   status: string;
   health: string;
-  requestedId: string;
-  viaAlias: boolean;
 }
 
 export interface CapabilityCenterItem {
@@ -31,10 +29,6 @@ export interface CapabilityCenterItem {
   executionCapabilityId: string;
   requiredSkills: CapabilityCenterSkillRef[];
   missingSkills: string[];
-  legacySkillAliases: Array<{
-    alias: string;
-    target: string;
-  }>;
   dataEndpoints: string[];
   expectedArtifacts: string[];
   validationRules: string[];
@@ -380,12 +374,10 @@ export async function getCapabilityCenterData(): Promise<CapabilityCenterData> {
     fetchMarketRegistry(),
   ]);
   const skillMap = new Map(skillsData.skills.map((skill) => [skill.id, skill]));
-  const aliasMap = new Map(Object.entries(skillsData.legacyAliases ?? {}));
   const capabilities = serializeQuantCapabilities().map((capability): CapabilityCenterItem => {
     const requiredSkillIds = asStringArray(capability.requiredSkills);
     const requiredSkills = requiredSkillIds.flatMap((skillId) => {
-      const resolvedSkillId = aliasMap.get(skillId) ?? skillId;
-      const skill = skillMap.get(resolvedSkillId);
+      const skill = skillMap.get(skillId);
       if (!skill) return [];
       return [{
         id: skill.id,
@@ -393,15 +385,9 @@ export async function getCapabilityCenterData(): Promise<CapabilityCenterData> {
         version: skill.version,
         status: skill.status,
         health: skill.health.status,
-        requestedId: skillId,
-        viaAlias: resolvedSkillId !== skillId,
       }];
     });
-    const missingSkills = requiredSkillIds.filter((skillId) => !skillMap.has(aliasMap.get(skillId) ?? skillId));
-    const legacySkillAliases = requiredSkillIds.flatMap((skillId) => {
-      const target = aliasMap.get(skillId);
-      return target ? [{ alias: skillId, target }] : [];
-    });
+    const missingSkills = requiredSkillIds.filter((skillId) => !skillMap.has(skillId));
     const skillErrors = requiredSkills.filter((skill) => skill.health === 'error').length;
     const dataEndpoints = asStringArray(capability.dataEndpoints);
     return {
@@ -417,7 +403,6 @@ export async function getCapabilityCenterData(): Promise<CapabilityCenterData> {
       executionCapabilityId: capability.executionCapabilityId,
       requiredSkills,
       missingSkills,
-      legacySkillAliases,
       dataEndpoints,
       expectedArtifacts: asStringArray(capability.expectedArtifacts),
       validationRules: asStringArray(capability.validationRules),

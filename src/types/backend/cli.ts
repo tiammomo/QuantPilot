@@ -4,23 +4,6 @@
 
 export type CLIType = 'moagent';
 
-export type SessionType = 'chat' | 'code_gen' | 'error_fix';
-
-export type SessionStatus = 'active' | 'ended' | 'error';
-
-export interface Session {
-  id: string;
-  projectId: string;
-  sessionType: SessionType;
-  cliType: CLIType;
-  sessionId: string; // QuantPilot conversation/session record, not a provider session
-  modelName?: string;
-  contextTokens?: number;
-  status: SessionStatus;
-  createdAt: Date;
-  endedAt?: Date;
-}
-
 export interface CLIModel {
   id: string;
   name: string;

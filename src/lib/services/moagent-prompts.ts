@@ -4,12 +4,11 @@ import type { MoAgentSkillPhase } from '@/lib/agent/skills';
 import {
   assessDashboardSpecReadiness,
   isDashboardSpecCapabilitySupported,
-} from '@/lib/agent/tools/dashboard-spec';
-import { assessQuantDatasetIdentity } from '@/lib/quant/data-identity';
-import { getQuantCapability } from '@/lib/quant/capabilities';
-import { readQuantRunPlan, type QuantRunPlan } from '@/lib/quant/workspace';
-import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
-import type { ProjectLlmConfig } from '@/lib/config/llm';
+} from '@/lib/domains/finance/agent-tools/dashboard-spec';
+import { assessQuantDatasetIdentity } from '@/lib/domains/finance/data-identity';
+import { getQuantCapability } from '@/lib/domains/finance/capabilities';
+import { readQuantRunPlan, type QuantRunPlan } from '@/lib/domains/finance/workspace';
+import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -27,42 +26,14 @@ async function readJsonRecord(filePath: string): Promise<JsonRecord | null> {
   }
 }
 
-type QuantManifest = {
-  llm?: ProjectLlmConfig;
-  quant?: {
-    capabilityId?: string;
-    agentType?: string;
-    subAgentKey?: string;
-    requiredSkills?: string[];
-    dataEndpoints?: string[];
-    expectedArtifacts?: string[];
-    validationRules?: string[];
-  };
-};
-
-export async function readQuantPilotManifest(projectPath: string): Promise<QuantManifest | null> {
-  try {
-    const content = await fs.readFile(path.join(projectPath, '.quantpilot', 'manifest.json'), 'utf8');
-    const parsed = JSON.parse(content);
-    return parsed && typeof parsed === 'object' ? (parsed as QuantManifest) : null;
-  } catch {
-    return null;
-  }
-}
-
 function buildCapabilityContext(
-  manifest: QuantManifest | null,
   runPlan: QuantRunPlan | null = null,
 ): string {
-  const quant = manifest?.quant;
   const runCapabilityId = runPlan?.requestedCapabilityId ?? runPlan?.capabilityId;
-  const capability = getQuantCapability(runCapabilityId ?? quant?.capabilityId);
-  const shouldInheritManifest = !runCapabilityId || quant?.capabilityId === capability.id;
+  const capability = getQuantCapability(runCapabilityId);
   const validationRules = runPlan?.validationRules?.length
     ? runPlan.validationRules
-    : shouldInheritManifest && quant?.validationRules?.length
-      ? quant.validationRules
-      : capability.validationRules;
+    : capability.validationRules;
   const serializedTemplate = serializeQuantVisualizationTemplate(capability.id, {
     instruction: runPlan?.question,
     symbolCount: runPlan?.symbols?.length,
@@ -86,7 +57,7 @@ function buildCapabilityContext(
 
   return `任务合同：
 - 能力：${capability.id} / ${capability.name}；执行能力：${runPlan?.executionCapabilityId ?? capability.executionCapabilityId}
-- LLM：${runPlan?.llm?.provider ?? manifest?.llm?.provider ?? 'openai'} / ${runPlan?.llm?.model ?? manifest?.llm?.model ?? 'local_qwen:qwen3.5-9b-q5km'}；Query Rewrite：${(runPlan?.llm?.queryRewrite.enabled ?? manifest?.llm?.queryRewrite.enabled ?? true) ? 'LLM-first' : 'disabled（失败关闭）'}
+- LLM：${runPlan?.llm?.provider ?? 'openai'} / ${runPlan?.llm?.model ?? 'local_qwen:qwen3.5-9b-q5km'}；Query Rewrite：${(runPlan?.llm?.queryRewrite.enabled ?? true) ? 'LLM-first' : 'disabled（失败关闭）'}
 - 标的：${runPlan?.symbols?.join(', ') || '以只读运行计划为准'}
 - 页面模板：${visualization.templateId} / ${visualization.variantId}（${visualization.variantName}）
 - 布局与密度：${visualization.layout} / ${visualization.density}
@@ -284,7 +255,6 @@ export async function assessPlatformPreparedQuantArtifacts(
 export async function buildQuantPilotTaskPrompt(
   instruction: string,
   projectPath: string,
-  manifest: QuantManifest | null = null,
   options: {
     runPlan?: QuantRunPlan | null;
     platformPrepared?: boolean;
@@ -315,7 +285,7 @@ export async function buildQuantPilotTaskPrompt(
 
 ${instruction.trim()}`;
   }
-  const capabilityContext = buildCapabilityContext(manifest, runPlan);
+  const capabilityContext = buildCapabilityContext(runPlan);
   const modeConstraints = prepared && options.hasAttachments
     ? `附件证据补充模式：
 - 保留平台已有 final/evidence，只通过图片提取 typed tool 补充附件事实、置信边界和人工确认缺口。
@@ -382,7 +352,7 @@ export function buildQuantPilotSystemPrompt(
 You are QuantPilot's first-party workspace agent.
 
 ## Immutable execution contract
-- Work only through provider-exposed typed tools inside the current workspace. Never use shell/subprocesses, read credentials, modify the parent platform, or mutate \`.quantpilot/**\`.
+- Work only through provider-exposed typed tools inside the current workspace. Never use shell/subprocesses, read credentials, modify the parent platform, or mutate \`.data-agent/**\`.
 - Preserve authoritative financial facts and same-origin data binding. Never fabricate, hard-code, or silently replace missing market data.
 - When editing dashboard sources, keep strict Next.js App Router TypeScript with the existing local toolchain and no remote assets or new styling dependency.
 - Keep hidden reasoning private. The platform owns the visible five-stage progress. Keep assistant text empty on tool turns; never repeat progress, tables, Todo/Skill placeholders, or tool narration.

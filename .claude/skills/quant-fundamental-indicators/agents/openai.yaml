@@ -1,4 +1,0 @@
-interface:
-  display_name: "财务衍生指标"
-  short_description: "校验盈利质量指标的报告期、样本、计算口径、缺失项和质量结论"
-  default_prompt: "Use $quant-fundamental-indicators to validate period-aware derived fundamental metrics for this company."

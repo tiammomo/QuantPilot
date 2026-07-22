@@ -184,9 +184,9 @@ export function useWebSocket({
                 const payload: RealtimeStatus = {
                   status: 'connected',
                   message: 'Realtime channel connected',
-                  sessionId: envelope.data.sessionId,
+                  requestId: envelope.data.runId,
                 };
-                handleStatus('connected', payload, envelope.data.sessionId);
+                handleStatus('connected', payload, envelope.data.runId);
               }
               break;
             case 'preview_error':

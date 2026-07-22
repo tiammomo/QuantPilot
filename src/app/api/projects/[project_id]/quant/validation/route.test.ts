@@ -121,7 +121,7 @@ function validationReport(passed: boolean) {
     status: passed ? "passed" : "failed",
     passed,
     projectId,
-    reportPath: ".quantpilot/validation.json",
+    reportPath: ".data-agent/validation.json",
     checks: passed
       ? [{ id: "next_build", name: "Build", status: "passed", summary: "ok" }]
       : [

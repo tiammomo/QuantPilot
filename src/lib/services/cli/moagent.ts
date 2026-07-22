@@ -22,10 +22,6 @@ import { MoAgentDeterministicToolPlanProvider } from '@/lib/agent/providers/dete
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import { compileMoAgentSkills } from '@/lib/agent/skills';
 import {
-  createInspectDashboardContractTool,
-  createMoAgentTools,
-  isDashboardSpecCapabilitySupported,
-  MOAGENT_PREPARED_SOURCE_WRITE_GLOBS,
   type MoAgentToolProfile,
 } from '@/lib/agent/tools';
 import type {
@@ -76,9 +72,9 @@ import {
   isUserRequestCancelled,
   markUserRequestAsRunning,
 } from '@/lib/services/user-requests';
-import { DEFAULT_QUANT_CAPABILITY_ID } from '@/lib/quant/capabilities';
-import { readQuantRunPlan } from '@/lib/quant/workspace';
-import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import { DEFAULT_QUANT_CAPABILITY_ID } from '@/lib/domains/finance/capabilities';
+import { readQuantRunPlan } from '@/lib/domains/finance/workspace';
+import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
 import {
   quantValidationRepairWritableGlobs,
   readQuantValidationReport,
@@ -93,6 +89,13 @@ import {
 } from '@/lib/platform/context/integration-scope';
 import type { PersonalizationCapsule } from '@/lib/platform/memory';
 import type { GovernedKnowledgeCapsule } from '@/lib/platform/knowledge';
+import {
+  createFinanceMoAgentTools,
+  createInspectDashboardContractTool,
+  FINANCE_PREPARED_SOURCE_WRITE_GLOBS,
+  getFinanceSkillCapabilityDescriptor,
+  isDashboardSpecCapabilitySupported,
+} from '@/lib/domains/finance';
 
 export type MoAgentImageAttachment = {
   name: string;
@@ -397,7 +400,7 @@ async function buildBoundedHistory(
       return metadata?.isQuantPilotPipelineStep !== true &&
         metadata?.toolName !== 'QuantPilot 自动验证' &&
         !(typeof metadata?.validationStatus === 'string' &&
-          metadata?.reportPath === '.quantpilot/validation.json');
+          metadata?.reportPath === '.data-agent/validation.json');
     });
   const selected: MoAgentMessage[] = [];
   let characters = 0;
@@ -794,15 +797,15 @@ async function executeMoAgentPhase(
     }
     const repairNeedsSourceWrites = repairWriteGlobs?.some((glob) => glob.startsWith('app/')) ?? false;
     const repairUsesCertifiedSourceScope = repairWriteGlobs?.every((glob) =>
-      MOAGENT_PREPARED_SOURCE_WRITE_GLOBS.includes(
-        glob as (typeof MOAGENT_PREPARED_SOURCE_WRITE_GLOBS)[number],
+      FINANCE_PREPARED_SOURCE_WRITE_GLOBS.includes(
+        glob as (typeof FINANCE_PREPARED_SOURCE_WRITE_GLOBS)[number],
       ),
     ) ?? false;
     const repairProfileWriteGlobs = repairWriteGlobs;
     const runtimeProfileWriteGlobs = profile === 'repair'
       ? repairProfileWriteGlobs
       : preparedIntent
-        ? [...MOAGENT_PREPARED_SOURCE_WRITE_GLOBS]
+        ? [...FINANCE_PREPARED_SOURCE_WRITE_GLOBS]
         : undefined;
     const canWriteDashboardSource = profile !== 'repair' || repairNeedsSourceWrites;
     // Validation repair has already received a deterministic platform repair
@@ -837,7 +840,7 @@ async function executeMoAgentPhase(
           ]
         : [];
     const maxToolOutputChars = positiveIntegerEnv('MOAGENT_TOOL_OUTPUT_CHARS', 6_000);
-    const tools = createMoAgentTools({
+    const tools = createFinanceMoAgentTools({
       workspaceRoot: workspace,
       profile,
       ...(runtimeProfileWriteGlobs
@@ -875,10 +878,18 @@ async function executeMoAgentPhase(
         // back to the default quant capability avoids the compiler's broad
         // "all stable skills" mode, which includes platform-only UI guidance.
         capabilityId: capabilityId ?? DEFAULT_QUANT_CAPABILITY_ID,
+        capability: getFinanceSkillCapabilityDescriptor(
+          capabilityId ?? DEFAULT_QUANT_CAPABILITY_ID,
+        ),
         ...(selectedSkillIds ? { requiredSkillIds: selectedSkillIds } : {}),
         phase: skillPhase,
-        hasAttachments: Boolean(images?.length),
-        hasResolvedSymbols: Boolean(runPlan?.symbols?.length),
+        activatedSkillIds: images?.length
+          ? ['image-extraction', 'data-quality']
+          : [],
+        excludedSkillIds: [
+          ...(!images?.length ? ['image-extraction'] : []),
+          ...(runPlan?.symbols?.length ? ['quant-symbol-resolver'] : []),
+        ],
         templateId,
         variantId,
         availableToolNames,
@@ -886,7 +897,7 @@ async function executeMoAgentPhase(
           ? positiveIntegerEnv('MOAGENT_PREFETCHED_SKILL_CONTEXT_CHARS', 4_000)
           : positiveIntegerEnv('MOAGENT_SKILL_CONTEXT_CHARS', 6_000),
       }),
-      buildQuantPilotTaskPrompt(instruction, workspace, null, {
+      buildQuantPilotTaskPrompt(instruction, workspace, {
         runPlan,
         platformPrepared,
         preparedIntent,
@@ -1434,7 +1445,7 @@ async function executeMoAgentPhase(
       usage: result.usage,
       lane: phaseGraph.lane,
       providerMode: phaseGraph.providerMode,
-      skills: skillBundle.resolvedSkillIds,
+      skills: skillBundle.selectedSkillIds,
       candidateWorkspaceSha256: candidate.workspaceSha256,
     });
     executionCompleted = true;

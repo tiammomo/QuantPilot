@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { rewriteQuantQuery } from '@/lib/quant/query-rewrite';
-import { writeInitialRunPlan } from '@/lib/quant/workspace';
+import { rewriteQuantQuery } from '@/lib/domains/finance/query-rewrite';
+import { writeInitialRunPlan } from '@/lib/domains/finance/workspace';
 import {
   assessPlatformPreparedQuantArtifacts,
   buildQuantPilotSystemPrompt,
@@ -197,7 +197,6 @@ describe('MoAgent QuantPilot prompts', () => {
     const prompt = await buildQuantPilotTaskPrompt(
       '失败 ID：visual_presentation\n唯一可写范围：app/**',
       projectPath,
-      null,
       { phase: 'validation-repair', platformPrepared: true },
     );
 
@@ -214,7 +213,7 @@ describe('MoAgent QuantPilot prompts', () => {
 
     expect(prompt).toContain('# MoAgent Kernel');
     expect(prompt).toContain('typed tools');
-    expect(prompt).toContain('`.quantpilot/**`');
+    expect(prompt).toContain('`.data-agent/**`');
     expect(prompt).toContain('submit_result');
     expect(prompt).toContain('artifact=final_dashboard');
     expect(prompt).toContain('never invent public/data/dashboard.json');

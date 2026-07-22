@@ -31,7 +31,6 @@ interface RegistrySkill {
   scripts?: string[];
   references?: string[];
   endpoints?: string[];
-  legacyAliases?: string[];
   validation?: string[];
 }
 
@@ -62,7 +61,6 @@ export interface SkillItem {
   references: string[];
   endpoints: string[];
   validation: string[];
-  legacyAliases: string[];
   changelog: {
     currentRelease: SkillRelease | null;
     releases: SkillRelease[];
@@ -124,7 +122,6 @@ export interface SkillsDashboardData {
     scopes: Record<SkillScope, number>;
   };
   skills: SkillItem[];
-  legacyAliases: Record<string, string>;
   lock: {
     schemaVersion: number;
     packageFormat: string;
@@ -153,10 +150,10 @@ export interface SkillSourceDirectory {
 }
 
 const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-const SKILLS_DIR = path.join(ROOT, '.claude', 'skills');
-const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
-const CHANGELOG_PATH = path.join(ROOT, '.claude', 'skills.changelog.json');
-const LOCK_PATH = path.join(ROOT, '.claude', 'skills.lock.json');
+const SKILLS_DIR = path.join(ROOT, '.moagent', 'skills');
+const REGISTRY_PATH = path.join(ROOT, '.moagent', 'skills.registry.json');
+const CHANGELOG_PATH = path.join(ROOT, '.moagent', 'skills.changelog.json');
+const LOCK_PATH = path.join(ROOT, '.moagent', 'skills.lock.json');
 
 async function readJson(filePath: string): Promise<JsonRecord> {
   const content = await fs.readFile(/* turbopackIgnore: true */ filePath, 'utf8');
@@ -361,13 +358,13 @@ function normalizeSkillScope(value: RegistrySkill['scope']): SkillScope {
 function resolvePackageDirectory(policy: JsonRecord): string {
   const configured = typeof policy.packageDir === 'string'
     ? policy.packageDir.replaceAll('\\', '/')
-    : '.claude/skill-packages';
+    : '.moagent/skill-packages';
   if (
     !configured ||
     path.isAbsolute(configured) ||
     configured.split('/').includes('..')
   ) {
-    return path.join(ROOT, '.claude', 'skill-packages');
+    return path.join(ROOT, '.moagent', 'skill-packages');
   }
   return path.resolve(/* turbopackIgnore: true */ ROOT, configured);
 }
@@ -408,10 +405,6 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
   const lockSkills = lock.skills && typeof lock.skills === 'object'
     ? lock.skills as Record<string, SkillLockEntry>
     : {};
-  const legacyAliases = registry.legacyAliases && typeof registry.legacyAliases === 'object'
-    ? registry.legacyAliases as Record<string, string>
-    : {};
-
   const skills = await Promise.all(coreSkills.map(async (skill) => {
     const sourceDir = path.join(SKILLS_DIR, skill.id);
     const skillFilePath = path.join(sourceDir, 'SKILL.md');
@@ -521,12 +514,6 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       references: asStringArray(skill.references),
       endpoints: asStringArray(skill.endpoints),
       validation: asStringArray(skill.validation),
-      legacyAliases: Array.from(new Set([
-        ...asStringArray(skill.legacyAliases),
-        ...Object.entries(legacyAliases)
-          .filter(([, target]) => target === skill.id)
-          .map(([alias]) => alias),
-      ])),
       changelog: {
         currentRelease,
         releases,
@@ -608,7 +595,6 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
     policy,
     totals,
     skills,
-    legacyAliases,
     lock: {
       schemaVersion: lock.schemaVersion ?? 1,
       packageFormat: lock.packageFormat ?? String(policy.packageFormat ?? 'tgz'),

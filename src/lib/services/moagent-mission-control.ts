@@ -12,7 +12,11 @@ import {
   verifyMoAgentMissionEvidence,
 } from '@/lib/agent/mission';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
-import type { QuantRunPlan } from '@/lib/quant/workspace';
+import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
+import {
+  createFinanceMissionDefinition,
+  QUANTPILOT_AGENT_PROFILE,
+} from '@/lib/domains/finance';
 import { captureMoAgentCandidate } from '@/lib/services/moagent-candidate';
 import { MoAgentMissionVerificationSession } from '@/lib/services/moagent-mission-verification-session';
 import {
@@ -52,9 +56,21 @@ export async function createQuantMoAgentMission(input: {
     capabilityId:
       input.runPlan.requestedCapabilityId ?? input.runPlan.capabilityId,
     runPlanId: input.runPlan.runId,
-    symbols: input.runPlan.symbols,
-    expectedArtifacts: input.runPlan.expectedArtifacts,
+    composition: {
+      profileId: QUANTPILOT_AGENT_PROFILE.id,
+      profileVersion: QUANTPILOT_AGENT_PROFILE.version,
+      domainPackIds: [...QUANTPILOT_AGENT_PROFILE.domainPackIds],
+      deliveryPackId: QUANTPILOT_AGENT_PROFILE.deliveryPackId,
+    },
+    entities: input.runPlan.symbols.map((symbol) => ({
+      entityType: 'finance.security',
+      canonicalId: symbol,
+    })),
     maxRepairAttempts: input.maxRepairAttempts,
+    definition: createFinanceMissionDefinition({
+      maxRepairAttempts: input.maxRepairAttempts,
+      expectedArtifacts: input.runPlan.expectedArtifacts,
+    }),
     createdAt: input.runPlan.createdAt,
   });
   const mission = await ensureMoAgentMission({ spec });

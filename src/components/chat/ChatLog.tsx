@@ -651,7 +651,6 @@ const buildToolMessageKey = (
 
   addPart('request', message.requestId);
   addPart('parent', message.parentMessageId);
-  addPart('session', message.sessionId);
   addPart('type', message.messageType);
   addPart('role', message.role);
 
@@ -1749,7 +1748,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
     addPart('request', message.requestId);
     addPart('parent', message.parentMessageId);
-    addPart('session', message.sessionId);
     addPart('type', message.messageType);
     addPart('role', message.role);
     addPart('cli', message.cliSource);
@@ -2188,9 +2186,9 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           const payload: RealtimeStatus = {
             status: 'connected',
             message: 'Realtime channel connected',
-            sessionId: envelope.data?.sessionId,
+            requestId: envelope.data?.runId,
           };
-          handleRealtimeStatus('connected', payload, envelope.data?.sessionId);
+          handleRealtimeStatus('connected', payload, envelope.data?.runId);
           break;
         }
         case 'preview_error': {

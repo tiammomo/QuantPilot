@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hashMoAgentProvenance } from '@/lib/services/moagent-provenance';
 import { compileMoAgentMissionSpec } from './compiler';
+import { createTestMissionDefinition } from './test-support';
 import {
   MoAgentEvidenceVerificationError,
   verifyMoAgentMissionEvidence,
@@ -32,8 +33,15 @@ function missionSpec(): MoAgentMissionSpec {
     objective: '生成通过独立证据验收的看板',
     capabilityId: 'technical_analysis',
     runPlanId: 'request-evidence',
-    symbols: ['600519'],
+    composition: {
+      profileId: 'test.data-agent',
+      profileVersion: '1.0.0',
+      domainPackIds: ['test.data'],
+      deliveryPackId: 'workspace.next-dashboard',
+    },
+    entities: [{ entityType: 'test.entity', canonicalId: '600519' }],
     maxRepairAttempts: 2,
+    definition: createTestMissionDefinition({ maxRepairAttempts: 2 }),
     createdAt: CREATED_AT,
   });
 }
@@ -87,7 +95,7 @@ async function createWorkspace(input: {
     if (!artifact.required || artifact.role === 'control' || omitted.has(artifact.path)) {
       continue;
     }
-    if (artifact.path === '.quantpilot/validation.json') {
+    if (artifact.path === spec.validationReportPath) {
       await writeFile(root, artifact.path, input.report ?? validationReport(spec));
     } else {
       await writeFile(root, artifact.path, {
@@ -165,7 +173,7 @@ describe('MoAgent EvidenceVerifier', () => {
     expect([
       ...first.payload.artifacts.items,
       ...first.payload.artifacts.evidenceItems,
-    ].map((item) => item.path)).not.toContain('.quantpilot/generation-state.json');
+    ].map((item) => item.path)).not.toContain('.data-agent/state.json');
   });
 
   it('accepts when every optional source surface is absent', async () => {
@@ -205,7 +213,7 @@ describe('MoAgent EvidenceVerifier', () => {
 
   it('rejects a validation report missing a required check without probing preview', async () => {
     const spec = missionSpec();
-    const checks = passedChecks(spec).filter((check) => check.id !== 'market_proxy');
+    const checks = passedChecks(spec).filter((check) => check.id !== 'visual_presentation');
     const fixture = await createWorkspace({
       spec,
       report: validationReport(spec, { checks }),
@@ -220,7 +228,7 @@ describe('MoAgent EvidenceVerifier', () => {
     expect(decision).toMatchObject({
       verdict: 'rejected',
       reasonCodes: ['REQUIRED_VALIDATION_CHECK_MISSING'],
-      failedCheckIds: ['market_proxy'],
+      failedCheckIds: ['visual_presentation'],
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -239,7 +247,7 @@ describe('MoAgent EvidenceVerifier', () => {
     expect(decision).toMatchObject({
       verdict: 'rejected',
       reasonCodes: ['VALIDATION_CHECK_DUPLICATED'],
-      failedCheckIds: ['artifact_policy'],
+      failedCheckIds: ['next_build'],
     });
   });
 
@@ -290,8 +298,8 @@ describe('MoAgent EvidenceVerifier', () => {
       spec,
       report: validationReport(spec, { status: 'failed', passed: false, checks }),
       omitted: [
-        '.quantpilot/visual-validation.json',
-        '.quantpilot/artifact-contracts.json',
+        '.data-agent/visual-validation.json',
+        '.data-agent/artifact-contracts.json',
       ],
     });
 
@@ -304,12 +312,12 @@ describe('MoAgent EvidenceVerifier', () => {
     ]);
     expect(decision.payload.artifacts.issues).toEqual([
       {
-        path: '.quantpilot/artifact-contracts.json',
+        path: '.data-agent/artifact-contracts.json',
         role: 'evidence',
         code: 'REQUIRED_ARTIFACT_MISSING',
       },
       {
-        path: '.quantpilot/visual-validation.json',
+        path: '.data-agent/visual-validation.json',
         role: 'evidence',
         code: 'REQUIRED_ARTIFACT_MISSING',
       },
@@ -391,7 +399,7 @@ describe('MoAgent EvidenceVerifier', () => {
     });
     const changedContent = `${JSON.stringify(changedReport, null, 2)}\n`;
     const fetchImpl = vi.fn(async () => {
-      await writeFile(fixture.root, '.quantpilot/validation.json', changedReport);
+      await writeFile(fixture.root, fixture.spec.validationReportPath, changedReport);
       return new Response('<!doctype html><main>ready</main>', { status: 200 });
     });
 

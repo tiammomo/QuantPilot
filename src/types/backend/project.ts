@@ -28,11 +28,6 @@ export interface Project {
   repoPath?: string;
   initialPrompt?: string;
   templateType?: TemplateType;
-  /**
-   * Deprecated database compatibility value mapped from the historical
-   * active_claude_session_id column. MoAgent never consumes or mutates it.
-   */
-  legacyRuntimeSessionId?: string | null;
   preferredCli?: string;
   selectedModel?: string;
   fallbackEnabled: boolean;
@@ -57,9 +52,7 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   status?: ProjectStatus;
-  /**
-   * Legacy preview metadata retained for backward compatibility.
-   */
+  /** Preview runtime metadata. */
   previewUrl?: string | null;
   previewPort?: number | null;
   preferredCli?: string;

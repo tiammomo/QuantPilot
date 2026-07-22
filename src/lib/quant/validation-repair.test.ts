@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { rewriteQuantQuery } from './query-rewrite';
+import { rewriteQuantQuery } from '@/lib/domains/finance/query-rewrite';
 import {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
@@ -26,7 +26,7 @@ function failedReport(projectId = 'project-validation'): QuantValidationReport {
   return {
     schemaVersion: 1,
     projectId,
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status: 'failed',
     passed: false,
     createdAt: timestamp,
@@ -54,7 +54,7 @@ function visualOnlyFailedReport(projectId = 'project-visual-validation'): QuantV
   return {
     schemaVersion: 1,
     projectId,
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status: 'failed',
     passed: false,
     createdAt: timestamp,
@@ -72,7 +72,7 @@ function visualOnlyFailedReport(projectId = 'project-visual-validation'): QuantV
 }
 
 describe('validation repair ownership', () => {
-  it('keeps every .quantpilot artifact platform-owned in Agent repair instructions', () => {
+  it('keeps every .data-agent artifact platform-owned in Agent repair instructions', () => {
     const report = failedReport();
     const plan = buildQuantValidationRepairPlan(report);
     const instruction = buildQuantValidationRepairInstruction(report, {
@@ -81,9 +81,9 @@ describe('validation repair ownership', () => {
     const writableGlobs = quantValidationRepairWritableGlobs(report);
 
     expect(plan.steps.flatMap((step) => step.actions).join('\n')).not.toMatch(
-      /修复 \.quantpilot|修改 \.quantpilot|把 \.quantpilot\/run_plan/,
+      /修复 \.data-agent|修改 \.data-agent|把 \.data-agent\/run_plan/,
     );
-    expect(instruction).toContain('整个 `.quantpilot/**`');
+    expect(instruction).toContain('整个 `.data-agent/**`');
     expect(instruction).toContain('结构修复和重新生成由平台负责');
     expect(instruction).toContain('data_file/final/** 和 evidence/**');
     expect(instruction).not.toContain('唯一可写范围：app/**');
@@ -102,7 +102,7 @@ describe('validation repair ownership', () => {
 
     expect(instruction).toContain('失败 ID：visual_presentation');
     expect(instruction).toContain('唯一可写范围：app/page.tsx 和 app/globals.css');
-    expect(instruction).toContain('.quantpilot/visual-validation.json（仅失败 viewport 和其截图路径）');
+    expect(instruction).toContain('.data-agent/visual-validation.json（仅失败 viewport 和其截图路径）');
     expect(instruction).toContain('visual_presentation：失败 viewport 的首屏主体可见');
     expect(instruction).toContain('typed tools');
     expect(instruction).not.toContain('data_file/final/**');
@@ -151,7 +151,7 @@ describe('validation repair ownership', () => {
       queryRewrite,
     });
     const plan = JSON.parse(
-      await fs.readFile(path.join(projectPath, '.quantpilot', 'run_plan.json'), 'utf8'),
+      await fs.readFile(path.join(projectPath, '.data-agent', 'finance-run-plan.json'), 'utf8'),
     ) as Record<string, unknown>;
 
     expect(result.runPlanRebuilt).toBe(true);

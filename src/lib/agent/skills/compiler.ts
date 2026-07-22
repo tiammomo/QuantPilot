@@ -3,10 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
 import * as tar from 'tar';
-import {
-  getQuantCapability,
-  isQuantCapabilityId,
-} from '@/lib/quant/capabilities';
 import type {
   CompileMoAgentSkillsOptions,
   CompileMoAgentSkillsResult,
@@ -27,13 +23,12 @@ const MIN_CONTEXT_BUDGET = 256;
 const MAX_PACKAGE_ENTRIES = 500;
 const MAX_PACKAGE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_PACKAGE_TOTAL_BYTES = 50 * 1024 * 1024;
-const COMPATIBILITY_STATE_DIRECTORY = '.claude';
 const MOAGENT_DIRECTORY = '.moagent';
 const DEFAULT_CAPSULE_REGISTRY_PATH = 'config/moagent-skill-capsules.json';
 const DEFAULT_SKILL_PHASE: MoAgentSkillPhase = 'data-preparation';
 const FORBIDDEN_RUNTIME_SKILL_PATTERNS = [
   /mcp__/i,
-  /\.claude\/skills\//i,
+  /\.moagent\/skills\//i,
   /\bcurl\b/i,
   /\bbash\b/i,
   /\bpython3?\b/i,
@@ -45,7 +40,6 @@ const FORBIDDEN_RUNTIME_SKILL_PATTERNS = [
 type LoadedSkill = {
   registry: MoAgentSkillRegistryEntry;
   lock: MoAgentSkillLockEntry;
-  requestedIds: string[];
   markdown: string;
   source: 'source' | 'package';
   sourceDirectory: string | null;
@@ -351,7 +345,6 @@ async function readSkillMarkdownFromPackage(packagePath: string, skillId: string
 
 function adaptSkillTextForMoAgent(value: string): string {
   return value
-    .replaceAll('.claude/skills/', '.moagent/skills/')
     .replaceAll('mcp__QuantPilotImage__quant_extract_uploaded_image', 'quant_extract_uploaded_image')
     .replaceAll(
       'mcp__MiniMax__understand_image',
@@ -528,9 +521,8 @@ async function loadSkill(params: {
   sourceSkillsPath: string;
   registry: MoAgentSkillRegistryEntry;
   lock: MoAgentSkillLockEntry | undefined;
-  requestedIds: string[];
 }): Promise<LoadedSkill> {
-  const { root, registry, requestedIds } = params;
+  const { root, registry } = params;
   const lock = params.lock;
   if (!lock) throw new Error(`MoAgent Skills lock 缺少 ${registry.id}。`);
   if (lock.version !== registry.version) {
@@ -568,7 +560,7 @@ async function loadSkill(params: {
 
   const packageCandidate = lock.packagePath
     ? resolveFromRoot(root, lock.packagePath)
-    : path.resolve(root, COMPATIBILITY_STATE_DIRECTORY, 'skill-packages', `${registry.id}.tgz`);
+    : path.resolve(root, MOAGENT_DIRECTORY, 'skill-packages', `${registry.id}.tgz`);
   assertInside(root, packageCandidate, 'packagePath');
   const packageExists = await pathExists(packageCandidate);
   if (packageExists) {
@@ -586,7 +578,6 @@ async function loadSkill(params: {
     return {
       registry,
       lock,
-      requestedIds,
       markdown: adaptSkillTextForMoAgent(sourceMarkdown),
       source: 'source',
       sourceDirectory,
@@ -608,7 +599,6 @@ async function loadSkill(params: {
   return {
     registry,
     lock,
-    requestedIds,
     markdown: adaptSkillTextForMoAgent(
       await readSkillMarkdownFromPackage(packageCandidate, registry.id),
     ),
@@ -926,37 +916,42 @@ function selectRequestedSkillIds(
   requested: string[];
   installationRequested: string[];
 } {
-  if (options.capabilityId && !isQuantCapabilityId(options.capabilityId)) {
-    throw new Error(`MoAgent 不支持量化 capability：${options.capabilityId}。`);
+  if (
+    options.capability &&
+    options.capabilityId &&
+    options.capability.id !== options.capabilityId
+  ) {
+    throw new Error(
+      `MoAgent Skill capability identity mismatch: ${options.capabilityId} != ${options.capability.id}.`,
+    );
   }
   const phase = options.phase ?? DEFAULT_SKILL_PHASE;
   let capabilityId: string | null = null;
   let requested: string[];
   if (options.requiredSkillIds !== undefined) {
     requested = [...options.requiredSkillIds];
-    capabilityId = options.capabilityId ?? null;
+    capabilityId = options.capability?.id ?? options.capabilityId ?? null;
+  } else if (options.capability) {
+    capabilityId = options.capability.id;
+    requested = [...options.capability.requiredSkillIds];
   } else if (options.capabilityId) {
-    const capability = getQuantCapability(options.capabilityId);
-    capabilityId = capability.id;
-    requested = [...capability.requiredSkills];
+    throw new Error(
+      `MoAgent capability ${options.capabilityId} requires a domain-owned capability descriptor.`,
+    );
   } else {
     requested = registry.coreSkills
       .filter((skill) => skill.status === 'stable')
       .map((skill) => skill.id);
   }
   requested.push(...(options.additionalSkillIds ?? []));
-  if (options.hasAttachments && phase !== 'planning' && phase !== 'platform-ui') {
-    requested.push('image-extraction');
-    requested.push('data-quality');
-  }
+  requested.push(...(options.activatedSkillIds ?? []));
   const installationRequested = Array.from(new Set(requested.filter(Boolean)));
+  const excludedSkillIds = new Set(options.excludedSkillIds ?? []);
   if (options.requiredSkillIds === undefined) {
     requested = requested.filter((requestedId) => {
-      const resolvedId = registry.legacyAliases?.[requestedId] ?? requestedId;
-      const capsule = capsuleRegistry.skills[resolvedId];
+      const capsule = capsuleRegistry.skills[requestedId];
       if (!capsule?.phases.includes(phase)) return false;
-      if (resolvedId === 'image-extraction' && !options.hasAttachments) return false;
-      if (resolvedId === 'quant-symbol-resolver' && options.hasResolvedSymbols) return false;
+      if (excludedSkillIds.has(requestedId)) return false;
       return true;
     });
   }
@@ -969,8 +964,8 @@ function selectRequestedSkillIds(
 }
 
 /**
- * Compiles verified QuantPilot skill packages into a bounded MoAgent system context.
- * The legacy-compatible `.claude` files are inputs only; runtime discovery is never used.
+ * Compiles verified domain skill packages into a bounded MoAgent system context.
+ * Compiles the canonical `.moagent` registry and packages; runtime discovery is never used.
  */
 export async function compileMoAgentSkills(
   options: CompileMoAgentSkillsOptions = {},
@@ -978,15 +973,15 @@ export async function compileMoAgentSkills(
   const root = path.resolve(options.repositoryRoot ?? process.cwd());
   const registryPath = resolveFromRoot(
     root,
-    options.registryPath ?? path.join(COMPATIBILITY_STATE_DIRECTORY, 'skills.registry.json'),
+    options.registryPath ?? path.join(MOAGENT_DIRECTORY, 'skills.registry.json'),
   );
   const lockPath = resolveFromRoot(
     root,
-    options.lockPath ?? path.join(COMPATIBILITY_STATE_DIRECTORY, 'skills.lock.json'),
+    options.lockPath ?? path.join(MOAGENT_DIRECTORY, 'skills.lock.json'),
   );
   const sourceSkillsPath = resolveFromRoot(
     root,
-    options.sourceSkillsPath ?? path.join(COMPATIBILITY_STATE_DIRECTORY, 'skills'),
+    options.sourceSkillsPath ?? path.join(MOAGENT_DIRECTORY, 'skills'),
   );
   const capsuleRegistryPath = resolveFromRoot(
     root,
@@ -1022,33 +1017,17 @@ export async function compileMoAgentSkills(
   }
 
   const registryById = new Map(registry.coreSkills.map((skill) => [skill.id, skill]));
-  if (selection.capabilityId) {
-    const capability = getQuantCapability(selection.capabilityId);
-    if (capability.status === 'ready') {
-      const plannedDependencies = capability.requiredSkills
-        .map((requestedId) => registry.legacyAliases?.[requestedId] ?? requestedId)
-        .filter((skillId) => registryById.get(skillId)?.status === 'planned');
-      if (plannedDependencies.length > 0) {
-        throw new Error(
-          `Ready capability ${capability.id} 不能依赖 planned Skill：${Array.from(new Set(plannedDependencies)).join('、')}。`,
-        );
-      }
+  if (options.capability?.status === 'ready') {
+    const plannedDependencies = options.capability.requiredSkillIds
+      .filter((skillId) => registryById.get(skillId)?.status === 'planned');
+    if (plannedDependencies.length > 0) {
+      throw new Error(
+        `Ready capability ${options.capability.id} 不能依赖 planned Skill：${Array.from(new Set(plannedDependencies)).join('、')}。`,
+      );
     }
   }
-  const aliases: Record<string, string> = {};
-  const requestedByResolved = new Map<string, string[]>();
-  for (const requestedId of selection.requested) {
-    const aliasTarget = registry.legacyAliases?.[requestedId];
-    if (aliasTarget && !registry.policy.allowLegacyAliases) {
-      throw new Error(`MoAgent Skills registry 不允许 legacy alias：${requestedId}。`);
-    }
-    const resolved = aliasTarget ?? requestedId;
-    if (aliasTarget) aliases[requestedId] = resolved;
-    requestedByResolved.set(resolved, [...(requestedByResolved.get(resolved) ?? []), requestedId]);
-  }
-
   const loaded: LoadedSkill[] = [];
-  for (const [skillId, requestedIds] of requestedByResolved) {
+  for (const skillId of selection.requested) {
     const skill = registryById.get(skillId);
     if (!skill) throw new Error(`MoAgent Skill ${skillId} 未在 registry 注册。`);
     if (skill.status === 'deprecated') {
@@ -1083,7 +1062,6 @@ export async function compileMoAgentSkills(
       sourceSkillsPath,
       registry: skill,
       lock: lock.skills[skillId],
-      requestedIds,
     }));
   }
 
@@ -1132,7 +1110,6 @@ export async function compileMoAgentSkills(
 
   const skills: CompiledMoAgentSkill[] = loaded.map((skill, index) => ({
     id: skill.registry.id,
-    requestedIds: skill.requestedIds,
     name: skill.registry.name,
     version: skill.registry.version,
     status: skill.registry.status,
@@ -1154,15 +1131,7 @@ export async function compileMoAgentSkills(
   let installReceipt: MoAgentSkillsInstallReceipt | null = null;
   if (options.installToWorkspace) {
     const installableById = new Map(loaded.map((skill) => [skill.registry.id, skill]));
-    const installationRequestedByResolved = new Map<string, string[]>();
-    for (const requestedId of selection.installationRequested) {
-      const resolvedId = registry.legacyAliases?.[requestedId] ?? requestedId;
-      installationRequestedByResolved.set(
-        resolvedId,
-        [...(installationRequestedByResolved.get(resolvedId) ?? []), requestedId],
-      );
-    }
-    for (const [skillId, requestedIds] of installationRequestedByResolved) {
+    for (const skillId of selection.installationRequested) {
       if (installableById.has(skillId)) continue;
       const skill = registryById.get(skillId);
       if (!skill) throw new Error(`MoAgent Skill ${skillId} 未在 registry 注册。`);
@@ -1174,7 +1143,6 @@ export async function compileMoAgentSkills(
         sourceSkillsPath,
         registry: skill,
         lock: lock.skills[skillId],
-        requestedIds,
       }));
     }
     installReceipt = await installSkills({
@@ -1186,9 +1154,7 @@ export async function compileMoAgentSkills(
   return {
     runtime: 'MoAgent',
     capabilityId: selection.capabilityId,
-    requestedSkillIds: selection.requested,
-    resolvedSkillIds: loaded.map((skill) => skill.registry.id),
-    aliases,
+    selectedSkillIds: loaded.map((skill) => skill.registry.id),
     phase: selection.phase,
     systemContext,
     taskContext,

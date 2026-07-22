@@ -5,10 +5,10 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 
 const root = process.cwd();
-const registryPath = path.join(root, '.claude', 'skills.registry.json');
-const skillsDir = path.join(root, '.claude', 'skills');
+const registryPath = path.join(root, '.moagent', 'skills.registry.json');
+const skillsDir = path.join(root, '.moagent', 'skills');
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-const configuredPackageDir = registry.policy?.packageDir || '.claude/skill-packages';
+const configuredPackageDir = registry.policy?.packageDir || '.moagent/skill-packages';
 if (
   typeof configuredPackageDir !== 'string' ||
   !configuredPackageDir ||
@@ -18,7 +18,7 @@ if (
   fail('registry.policy.packageDir must be a safe repository-relative path');
 }
 const packageDir = path.resolve(root, configuredPackageDir);
-const lockPath = path.join(root, '.claude', 'skills.lock.json');
+const lockPath = path.join(root, '.moagent', 'skills.lock.json');
 const transactionId = `${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
 
 function fail(message) {
@@ -271,9 +271,7 @@ function readLockFile() {
 
 function getSkillVersion(skillId) {
   const coreSkill = registry.coreSkills.find((skill) => skill.id === skillId);
-  if (coreSkill?.version) return coreSkill.version;
-  const target = registry.legacyAliases?.[skillId];
-  return registry.coreSkills.find((skill) => skill.id === target)?.version || null;
+  return coreSkill?.version || null;
 }
 
 function packageSkill(skillId) {
@@ -377,15 +375,13 @@ function commitArtifacts(outputs, lock) {
 }
 
 const rawArgs = process.argv.slice(2);
-const includeLegacy = rawArgs.includes('--include-legacy');
-const requested = rawArgs.filter((arg) => arg !== '--include-legacy');
+const requested = rawArgs;
 const coreIds = registry.coreSkills.map((skill) => skill.id);
-const aliasIds = Object.keys(registry.legacyAliases || {});
 for (const skillId of requested) {
   if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(skillId)) {
     fail(`unsafe skill id: ${skillId}`);
   }
-  if (!coreIds.includes(skillId) && !aliasIds.includes(skillId)) {
+  if (!coreIds.includes(skillId)) {
     fail(`unknown skill id: ${skillId}`);
   }
 }
@@ -395,21 +391,7 @@ const scriptCheck = spawnSync(
   { cwd: root, stdio: 'inherit' },
 );
 if (scriptCheck.status !== 0) fail('skill script validation failed');
-function resolvePackageSkillId(skillId) {
-  const sourceDir = path.join(skillsDir, skillId);
-  if (fs.existsSync(sourceDir)) {
-    return skillId;
-  }
-  const target = registry.legacyAliases?.[skillId];
-  if (target && fs.existsSync(path.join(skillsDir, target))) {
-    console.log(`[package-skills] alias ${skillId} -> ${target}`);
-    return target;
-  }
-  return skillId;
-}
-
-const rawSkillIds = requested.length ? requested : [...coreIds, ...(includeLegacy ? aliasIds : [])];
-const skillIds = Array.from(new Set(rawSkillIds.map(resolvePackageSkillId)));
+const skillIds = Array.from(new Set(requested.length ? requested : coreIds));
 const lock = readLockFile();
 lock.schemaVersion = 1;
 lock.packageFormat = registry.policy.packageFormat || 'tgz';
@@ -426,13 +408,6 @@ for (const skillId of skillIds) {
     packageSha256: output.packageSha256,
     fileCount: output.fileCount,
   };
-}
-
-const packagedCoreIds = new Set(skillIds.filter((skillId) => coreIds.includes(skillId)));
-for (const [alias, target] of Object.entries(registry.legacyAliases || {})) {
-  if (!packagedCoreIds.has(target) || !fs.existsSync(path.join(skillsDir, alias))) continue;
-  const aliasLock = lock.skills[alias];
-  if (aliasLock) aliasLock.version = getSkillVersion(alias);
 }
 
 try {

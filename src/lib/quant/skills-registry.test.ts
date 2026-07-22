@@ -7,18 +7,14 @@ describe('skills registry defaults', () => {
       schemaVersion: 1,
       policy: {
         targetCoreSkillCount: 2,
-        allowLegacyAliases: true,
-        installLegacyByDefault: false,
         description: 'test',
       },
       coreSkills: [
         { id: 'stable-skill', name: 'Stable', version: '1.0.0', status: 'stable', boundary: 'stable' },
         { id: 'planned-skill', name: 'Planned', version: '1.0.0', status: 'planned', boundary: 'planned' },
       ],
-      legacyAliases: { legacy: 'stable-skill' },
     };
 
     expect(getDefaultQuantSkillIds(registry)).toEqual(['stable-skill']);
-    expect(getDefaultQuantSkillIds(registry, { includeLegacy: true })).toEqual(['stable-skill', 'legacy']);
   });
 });

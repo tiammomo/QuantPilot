@@ -5,10 +5,10 @@ const yaml = require('js-yaml');
 const tar = require('tar');
 
 const root = process.cwd();
-const registryPath = path.join(root, '.claude', 'skills.registry.json');
-const skillsDir = path.join(root, '.claude', 'skills');
-const changelogPath = path.join(root, '.claude', 'skills.changelog.json');
-const lockPath = path.join(root, '.claude', 'skills.lock.json');
+const registryPath = path.join(root, '.moagent', 'skills.registry.json');
+const skillsDir = path.join(root, '.moagent', 'skills');
+const changelogPath = path.join(root, '.moagent', 'skills.changelog.json');
+const lockPath = path.join(root, '.moagent', 'skills.lock.json');
 const capsuleRegistryPath = path.join(root, 'config', 'moagent-skill-capsules.json');
 
 function fail(message) {
@@ -17,7 +17,7 @@ function fail(message) {
 }
 
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-const configuredPackageDir = registry.policy?.packageDir || '.claude/skill-packages';
+const configuredPackageDir = registry.policy?.packageDir || '.moagent/skill-packages';
 if (
   typeof configuredPackageDir !== 'string' ||
   !configuredPackageDir ||
@@ -27,7 +27,6 @@ if (
   fail('registry.policy.packageDir must be a safe repository-relative path');
 }
 const packageDir = path.resolve(root, configuredPackageDir);
-const checkLegacyPackages = process.argv.includes('--include-legacy');
 const checkLock = process.argv.includes('--check-lock');
 
 function sha256(buffer) {
@@ -62,6 +61,40 @@ const forbiddenSkillFiles = new Set([
   'INSTALLATION_GUIDE.md',
   'QUICK_REFERENCE.md',
 ]);
+
+const obsoleteSkillIds = [
+  'quant-a-share-history',
+  'quant-index-etf-market',
+  'quant-comparison',
+  'quant-fundamental-financials',
+  'quant-fundamental-indicators',
+  'quant-announcement-events',
+  'quant-technical-indicators',
+  'quant-run-planner',
+  'quant-image-extraction',
+  'quant-data-quality',
+  'quant-visualization-html',
+];
+
+const obsoleteContractFragments = [
+  '.quantpilot/',
+  '.claude/skills/',
+];
+
+function assertCurrentSkillContract(filePath, sourceDir, skillId) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const relativePath = path.relative(sourceDir, filePath).replaceAll(path.sep, '/');
+  for (const obsoleteSkillId of obsoleteSkillIds) {
+    if (source.includes(obsoleteSkillId)) {
+      fail(`skill ${skillId} references removed Skill ID ${obsoleteSkillId} in ${relativePath}`);
+    }
+  }
+  for (const fragment of obsoleteContractFragments) {
+    if (source.includes(fragment)) {
+      fail(`skill ${skillId} references removed contract path ${fragment} in ${relativePath}`);
+    }
+  }
+}
 
 function assertRegularDirectory(dir, label) {
   const stat = fs.existsSync(dir) ? fs.lstatSync(dir) : null;
@@ -183,6 +216,10 @@ function validateCompleteSkillPackage(skillId) {
   }
   if (scriptFiles.length === 0) {
     fail(`complete skill ${skillId} must contain at least one executable script resource`);
+  }
+
+  for (const filePath of [skillFile, agentFile, ...referenceFiles, ...scriptFiles]) {
+    assertCurrentSkillContract(filePath, sourceDir, skillId);
   }
 
   const skillSource = fs.readFileSync(skillFile, 'utf8');
@@ -354,7 +391,7 @@ const validCapsulePhases = new Set([
 ]);
 const forbiddenCapsuleInstructions = [
   /mcp__/i,
-  /\.claude\/skills\//i,
+  /\.moagent\/skills\//i,
   /\bcurl\b/i,
   /\bbash\b/i,
   /\bpython3?\b/i,
@@ -615,49 +652,11 @@ for (const skill of registry.coreSkills) {
 
 validateCapsuleRegistry(ids);
 
-const aliases = registry.legacyAliases || {};
-for (const [alias, target] of Object.entries(aliases)) {
-  if (!ids.has(target)) {
-    fail(`legacy alias ${alias} points to unknown core skill ${target}`);
-  }
-
-  const aliasSkillFile = path.join(skillsDir, alias, 'SKILL.md');
-  const aliasSourceExists = fs.existsSync(aliasSkillFile);
-
-  const packagePath = path.join(packageDir, `${alias}.tgz`);
-  if (checkLegacyPackages && aliasSourceExists && fs.existsSync(packageDir) && !fs.existsSync(packagePath)) {
-    fail(`legacy alias package not found: ${path.relative(root, packagePath)}`);
-  }
-  if (checkLegacyPackages && checkLock && aliasSourceExists) {
-    const lockEntry = lock.skills?.[alias];
-    const targetVersion = registry.coreSkills.find((skill) => skill.id === target)?.version;
-    if (!lockEntry) fail(`missing lock entry for legacy alias source: ${alias}`);
-    validateLockPackagePath(alias, lockEntry, packagePath);
-    if (lockEntry.version !== targetVersion) {
-      fail(`lock version mismatch for legacy alias ${alias}: target=${targetVersion}, lock=${lockEntry.version}`);
-    }
-    const sourceHash = hashSkillSource(alias);
-    if (
-      lockEntry.sourceSha256 !== sourceHash.sourceSha256 ||
-      lockEntry.fileCount !== sourceHash.fileCount
-    ) {
-      fail(`source hash mismatch for legacy alias ${alias}; run npm run package:skills -- --include-legacy`);
-    }
-    const packageSha256 = sha256(fs.readFileSync(packagePath));
-    if (lockEntry.packageSha256 !== packageSha256) {
-      fail(`package hash mismatch for legacy alias ${alias}; run npm run package:skills -- --include-legacy`);
-    }
-    const packageSourceHash = hashPackagedSkillSource(packagePath, alias);
-    if (
-      packageSourceHash.sourceSha256 !== lockEntry.sourceSha256 ||
-      packageSourceHash.fileCount !== lockEntry.fileCount
-    ) {
-      fail(`package content does not match source lock for legacy alias ${alias}`);
-    }
-  }
+if ('legacyAliases' in registry) {
+  fail('registry.legacyAliases is obsolete; register canonical Skill IDs only');
 }
 
-const knownSkillIds = new Set([...ids, ...Object.keys(aliases)]);
+const knownSkillIds = ids;
 const sourceEntries = fs.readdirSync(skillsDir, { withFileTypes: true })
   .filter((entry) => entry.name !== '.DS_Store');
 for (const entry of sourceEntries) {
@@ -670,7 +669,7 @@ for (const entry of sourceEntries) {
 const sourceSkillIds = sourceEntries.map((entry) => entry.name).sort();
 for (const sourceSkillId of sourceSkillIds) {
   if (!knownSkillIds.has(sourceSkillId)) {
-    fail(`skill source directory is not registered as a core skill or alias: ${sourceSkillId}`);
+    fail(`skill source directory is not registered as a core skill: ${sourceSkillId}`);
   }
   const resources = validateCompleteSkillPackage(sourceSkillId);
   const coreSkill = registry.coreSkills.find((skill) => skill.id === sourceSkillId);
@@ -689,11 +688,7 @@ for (const sourceSkillId of sourceSkillIds) {
 }
 
 for (const skill of registry.coreSkills) {
-  for (const alias of skill.legacyAliases || []) {
-    if (aliases[alias] !== skill.id) {
-      fail(`core skill ${skill.id} legacyAliases includes ${alias}, but registry.legacyAliases does not map it back`);
-    }
-  }
+  if ('legacyAliases' in skill) fail(`core skill ${skill.id} contains obsolete legacyAliases`);
 }
 
 if (registry.coreSkills.length > registry.policy.targetCoreSkillCount) {
@@ -703,5 +698,5 @@ if (registry.coreSkills.length > registry.policy.targetCoreSkillCount) {
 }
 
 console.log(
-  `[skills-registry] ok: ${registry.coreSkills.length} core skills, ${Object.keys(aliases).length} legacy aliases${checkLegacyPackages ? ', legacy packages checked' : ''}`
+  `[skills-registry] ok: ${registry.coreSkills.length} canonical core skills`
 );

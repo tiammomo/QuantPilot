@@ -13,7 +13,6 @@ export interface RealtimeMessage {
   metadata?: MessageMetadata | null;
   parentMessageId?: string | null;
   conversationId?: string | null;
-  sessionId?: string | null;
   cliSource?: string | null;
   requestId?: string | null;
   createdAt: string;
@@ -26,7 +25,6 @@ export interface RealtimeMessage {
 export interface RealtimeStatus {
   status: string;
   message?: string;
-  sessionId?: string;
   requestId?: string;
   metadata?: Record<string, unknown>;
 }
@@ -36,7 +34,6 @@ export type StreamTransport = 'sse' | 'websocket';
 export interface ConnectionInfo {
   projectId: string;
   timestamp: string;
-  sessionId?: string;
   runtime?: string;
   runId?: string;
   /** Stable runtime-event cursor when the connection originates from an agent run. */

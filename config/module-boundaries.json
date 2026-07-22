@@ -71,7 +71,6 @@
       "owner": "platform",
       "paths": [
         "src/lib/platform/**",
-        "src/lib/services/project.ts",
         "src/lib/services/project-services.ts",
         "src/lib/services/settings.ts",
         "src/lib/services/tokens.ts",
@@ -88,17 +87,15 @@
         "src/app/api/infrastructure/**"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "quant-core"
+        "shared-kernel"
       ],
       "publicSurface": [
         "@/lib/platform/service-catalog",
         "@/lib/platform/memory",
-        "@/lib/services/project",
         "@/lib/services/settings"
       ],
       "migrationNotes": [
-        "project.ts 仍引用 quant capability 默认值；后续应把项目默认量化配置移到 quant-core 的 public adapter。"
+        "金融项目创建服务已归入 quant-core；后续新增通用 ProjectCatalog，不把默认 Domain Pack 写回平台核心。"
       ]
     },
     {
@@ -113,25 +110,61 @@
         "src/lib/services/preview.ts",
         "src/lib/services/user-requests.ts",
         "src/lib/agent/**",
-        "src/lib/services/moagent-prompts.ts",
-        "src/lib/services/cli/**",
-        "src/app/api/chat/**",
-        "src/app/[project_id]/**",
-        "src/components/chat/**"
+        "src/lib/services/moagent-candidate.ts",
+        "src/lib/services/moagent-checkpoint*.ts",
+        "src/lib/services/moagent-execution-error*.ts",
+        "src/lib/services/moagent-generation-*.ts",
+        "src/lib/services/moagent-mission-store*.ts",
+        "src/lib/services/moagent-mission-verification-session*.ts",
+        "src/lib/services/moagent-provenance*.ts",
+        "src/lib/services/moagent-recovery*.ts",
+        "src/lib/services/moagent-run-store*.ts",
+        "src/lib/services/moagent-turn-metrics*.ts"
       ],
       "dependsOn": [
         "shared-kernel",
-        "platform-core",
-        "quant-core"
+        "platform-core"
       ],
       "publicSurface": [
         "@/lib/services/agent-runtime",
-        "@/lib/services/cli/moagent",
         "@/lib/agent/core",
         "@/lib/agent/providers/deepseek",
         "@/lib/agent/providers/openai-compatible",
         "@/lib/agent/tools",
         "@/lib/agent/skills"
+      ]
+    },
+    {
+      "id": "data-agent-core",
+      "name": "通用 Data Agent",
+      "summary": "LLM-first 数据任务合同、Agent Profile、Domain Pack、Connector 与数据交付编排边界。",
+      "owner": "data-agent-platform",
+      "paths": [
+        "src/lib/data-agent/**"
+      ],
+      "dependsOn": [
+        "shared-kernel",
+        "agent-runtime"
+      ],
+      "publicSurface": [
+        "@/lib/data-agent"
+      ]
+    },
+    {
+      "id": "finance-domain",
+      "name": "金融量化 Domain Pack",
+      "summary": "金融能力目录、证券 Resolver、行情工具、金融 Mission 合同与金融可视化配置。",
+      "owner": "quant-platform",
+      "paths": [
+        "src/lib/domains/finance/**"
+      ],
+      "dependsOn": [
+        "shared-kernel",
+        "agent-runtime",
+        "data-agent-core"
+      ],
+      "publicSurface": [
+        "@/lib/domains/finance"
       ]
     },
     {
@@ -141,26 +174,37 @@
       "owner": "quant-platform",
       "paths": [
         "src/lib/quant/**",
+        "src/lib/services/project.ts",
+        "src/lib/services/moagent-mission-control.ts",
+        "src/lib/services/moagent-prompts*.ts",
+        "src/lib/services/cli/**",
         "src/app/api/quant/**",
+        "src/app/api/chat/**",
+        "src/app/[project_id]/**",
         "src/app/api/research/**",
         "src/app/strategy-platform/**",
         "src/app/research-reports/**",
         "src/app/business-knowledge/**",
         "src/components/quant/skills-*.tsx",
         "src/components/quant/workspace-*.tsx",
-        "src/components/quant/console-primitives.tsx"
+        "src/components/quant/console-primitives.tsx",
+        "src/components/chat/**"
       ],
       "dependsOn": [
         "shared-kernel",
         "platform-core",
         "agent-runtime",
+        "data-agent-core",
+        "finance-domain",
         "ui-kit"
       ],
       "publicSurface": [
-        "@/lib/quant/capabilities",
+        "@/lib/domains/finance",
+        "@/lib/services/project",
+        "@/lib/services/cli/moagent",
         "@/lib/quant/research-reports",
         "@/lib/quant/strategies",
-        "@/lib/quant/workspace",
+        "@/lib/domains/finance",
         "@/lib/quant/validation"
       ],
       "migrationNotes": [
@@ -235,7 +279,7 @@
         "services/market-data/src/quantpilot_market_data/repositories"
       ],
       "migrationNotes": [
-        "database.py 已降为兼容门面；analytics、bars、coverage、foundation、ingestion、sector_flow、screener、universes、upserts 已迁入 repositories/。新增 SQL 禁止写入 database.py，必须优先落到对应 repository。"
+        "旧 database.py 兼容门面已删除；连接与转换工具只进入 database_core.py，业务 SQL 只进入对应 repository。"
       ]
     }
   ],
@@ -267,6 +311,36 @@
         "reason": "通用 UI 不能直接依赖运维领域。"
       },
       {
+        "from": "src/lib/agent/**",
+        "to": "src/lib/quant/**",
+        "reason": "MoAgent Framework 不能依赖金融应用核心。"
+      },
+      {
+        "from": "src/lib/agent/**",
+        "to": "src/lib/domains/**",
+        "reason": "MoAgent Framework 不能依赖业务 Domain Pack。"
+      },
+      {
+        "from": "src/lib/agent/**",
+        "to": "src/lib/data-agent/**",
+        "reason": "MoAgent Framework 是 Data Agent 的下层运行时，不能反向依赖。"
+      },
+      {
+        "from": "src/lib/data-agent/**",
+        "to": "src/lib/quant/**",
+        "reason": "通用 Data Agent 不能依赖金融应用实现。"
+      },
+      {
+        "from": "src/lib/data-agent/**",
+        "to": "src/lib/domains/**",
+        "reason": "通用 Data Agent 只能消费注册合同，不能反向依赖具体 Domain Pack。"
+      },
+      {
+        "from": "src/lib/domains/finance/**",
+        "to": "src/lib/quant/**",
+        "reason": "Finance Domain Pack 不能反向依赖 QuantPilot 产品编排层。"
+      },
+      {
         "from": "services/market-data/**",
         "to": "src/**",
         "reason": "Python 后端不能依赖 Next.js 前端源码。"
@@ -292,10 +366,52 @@
         "nextAction": "压缩 comparison/selection/holding 模板重复 helper，同时保持每类模板独立构建。"
       },
       {
-        "path": "services/market-data/src/quantpilot_market_data/database.py",
-        "maxLines": 400,
-        "targetLines": 180,
-        "nextAction": "保持兼容门面，不再承接 SQL；新增持久化能力必须进入 repositories/，再由 service 或 legacy facade 显式导出。"
+        "path": "src/app/[project_id]/chat/page.tsx",
+        "maxLines": 4150,
+        "targetLines": 1800,
+        "nextAction": "把 generation controller、preview reconciliation、message transport 和页面布局拆入独立 hooks/components，页面只保留组合。"
+      },
+      {
+        "path": "src/app/api/chat/[project_id]/act/route.ts",
+        "maxLines": 3730,
+        "targetLines": 1400,
+        "nextAction": "拆出请求解析、身份与配额、query rewrite、data prefetch、mission dispatch 和 terminal response；route 只做 HTTP 编排。"
+      },
+      {
+        "path": "src/components/chat/ChatLog.tsx",
+        "maxLines": 3700,
+        "targetLines": 1400,
+        "nextAction": "拆出消息状态模型、工具结果视图、生成进度和预览恢复组件，避免单一 UI 同时承担协议兼容与渲染。"
+      },
+      {
+        "path": "src/lib/agent/core/run-engine.ts",
+        "maxLines": 2800,
+        "targetLines": 1600,
+        "nextAction": "按 planning、tool loop、context checkpoint、verification 和 terminalization 拆分；core 只维护状态机。"
+      },
+      {
+        "path": "src/lib/quant/validation.ts",
+        "maxLines": 3180,
+        "targetLines": 1600,
+        "nextAction": "按 artifact、data contract、visual、repair 和 acceptance pipeline 拆分，保留单一 validation facade。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch.ts",
+        "maxLines": 2050,
+        "targetLines": 1200,
+        "nextAction": "将通用数据计划、金融 endpoint adapter、证据落盘和错误归一化拆开。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/models.py",
+        "maxLines": 1640,
+        "targetLines": 900,
+        "nextAction": "按 quotes、research、ingestion、financials、analytics 分拆 Pydantic contracts，并由 models package 统一导出。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/api.py",
+        "maxLines": 1550,
+        "targetLines": 700,
+        "nextAction": "收敛为 app factory 和 router 注册；业务 endpoint 必须进入 routers/，use case 必须进入 services/。"
       },
       {
         "path": "src/app/strategy-platform/StrategyPlatformClient.tsx",

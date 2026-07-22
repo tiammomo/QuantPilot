@@ -1,4 +1,0 @@
-interface:
-  display_name: "指数与 ETF 行情"
-  short_description: "校验指数和 ETF 标识、历史行情、资产类型与数据覆盖"
-  default_prompt: "Use $quant-index-etf-market to validate local index or ETF market data for this analysis."

@@ -1,14 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '@/lib/db/client';
-import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/quant/workspace';
+import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/domains/finance/workspace';
 import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
 import {
-  QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
-  QUANT_GENERATION_QUEUE_RELATIVE_PATH,
-  QUANT_GENERATION_STATE_RELATIVE_PATH,
-  QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
-} from '@/lib/quant/artifacts';
+  DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
+  DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
+} from '@/lib/data-agent/workspace-layout';
 import { readQuantArtifactContractReport, type QuantArtifactContractReport } from '@/lib/quant/artifact-contracts';
 import { readQuantGenerationQueue, type QuantGenerationQueueState } from '@/lib/quant/generation-queue';
 import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
@@ -223,8 +223,8 @@ const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
 const MAX_TIMELINE_EVENTS = 220;
 const MAX_WORKSPACE_EVENTS = 160;
 const FALLBACK_EVENT_TIMESTAMP = '1970-01-01T00:00:00.000Z';
-const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
-const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
+const VALIDATION_REPORT_RELATIVE_PATH = '.data-agent/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.data-agent/validation-repair-plan.json';
 
 const STAGES: Array<{ id: GenerationStageId; label: string }> = [
   { id: 'request', label: '请求' },
@@ -372,7 +372,7 @@ async function readWorkspaceEvents(
   projectPath: string,
   limit = MAX_WORKSPACE_EVENTS,
 ): Promise<Array<QuantWorkspaceEvent & JsonRecord>> {
-  const filePath = path.join(projectPath, '.quantpilot', 'events.jsonl');
+  const filePath = path.join(projectPath, '.data-agent', 'events.jsonl');
   const content = await fs.readFile(filePath, 'utf8').catch(() => '');
   return content
     .split('\n')
@@ -577,7 +577,7 @@ function buildRunPlanEvent(projectId: string, runPlan: Awaited<ReturnType<typeof
       summary: compact(runPlan.question || `${runPlan.capabilityId} · ${runPlan.symbols.join('、')}` || '已生成执行计划'),
       timestamp: runPlan.updatedAt ?? runPlan.createdAt,
       requestId: runPlan.runId ?? null,
-      artifactPath: '.quantpilot/run_plan.json',
+      artifactPath: '.data-agent/finance-run-plan.json',
       metadata: {
         capabilityId: runPlan.capabilityId,
         requestedCapabilityId: runPlan.requestedCapabilityId,
@@ -675,7 +675,7 @@ function buildGenerationStateEvents(projectId: string, state: QuantGenerationSta
       summary: compact(step.summary || step.status),
       timestamp: step.completedAt ?? step.startedAt ?? state.updatedAt,
       requestId: state.requestId,
-      artifactPath: QUANT_GENERATION_STATE_RELATIVE_PATH,
+      artifactPath: DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
       metadata: {
         runStatus: state.status,
         stepStatus: step.status,
@@ -708,7 +708,7 @@ function buildGenerationQueueEvents(projectId: string, queue: QuantGenerationQue
         summary: compact(item.instructionPreview || '生成任务已进入队列'),
         timestamp: item.queuedAt,
         requestId: item.requestId,
-        artifactPath: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
+        artifactPath: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
         metadata: {
           queueStatus: item.status,
           cliPreference: item.cliPreference,
@@ -727,7 +727,7 @@ function buildGenerationQueueEvents(projectId: string, queue: QuantGenerationQue
         summary: '生成任务从队列取出并开始执行。',
         timestamp: item.startedAt,
         requestId: item.requestId,
-        artifactPath: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
+        artifactPath: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
         metadata: {
           queueStatus: item.status,
         },
@@ -744,7 +744,7 @@ function buildGenerationQueueEvents(projectId: string, queue: QuantGenerationQue
         summary: item.errorMessage ? compact(item.errorMessage) : `生成任务状态：${item.status}`,
         timestamp: item.completedAt,
         requestId: item.requestId,
-        artifactPath: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
+        artifactPath: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
         metadata: {
           queueStatus: item.status,
         },
@@ -769,7 +769,7 @@ function buildArtifactContractEvents(projectId: string, report: QuantArtifactCon
         : `契约检查未通过：${report.checks.filter((check) => check.status === 'failed').length} 项失败。`,
       timestamp: report.updatedAt,
       requestId: report.requestId ?? null,
-      artifactPath: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+      artifactPath: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
       metadata: {
         failed: report.checks.filter((check) => check.status === 'failed').map((check) => check.id),
         warnings: report.checks.filter((check) => check.status === 'warning').map((check) => check.id),
@@ -793,7 +793,7 @@ function buildVisualValidationEvents(projectId: string, report: QuantVisualValid
         : `视觉验收未通过：${report.failures.length} 个阻断项。`,
       timestamp: report.updatedAt,
       requestId: report.requestId ?? null,
-      artifactPath: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      artifactPath: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
       metadata: {
         screenshots: report.viewports.map((viewport) => viewport.screenshotPath),
         failures: report.failures,
@@ -925,7 +925,7 @@ function buildNextActions(params: {
     actions.push(`优先处理 ${latestError.title}：${latestError.summary}`);
   }
   if (params.repairPlan.needed) {
-    actions.push(`执行 ${params.repairPlan.path ?? '.quantpilot/validation-repair-plan.json'} 中的 ${params.repairPlan.stepCount} 个修复步骤。`);
+    actions.push(`执行 ${params.repairPlan.path ?? '.data-agent/validation-repair-plan.json'} 中的 ${params.repairPlan.stepCount} 个修复步骤。`);
   }
   if (params.validation.passed === false) {
     actions.push('修复后重新运行自动验证，确认 validation.json 变为通过。');
@@ -1000,7 +1000,7 @@ async function inspectProjectTrace(
     queued: generationQueue.items.filter((item) => item.status === 'queued').length,
     failed: generationQueue.items.filter((item) => item.status === 'failed').length,
     updatedAt: generationQueue.updatedAt ?? null,
-    path: QUANT_GENERATION_QUEUE_RELATIVE_PATH,
+    path: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
     items: generationQueue.items.slice(0, 12).map((item) => ({
       requestId: item.requestId,
       status: item.status,
@@ -1025,7 +1025,7 @@ async function inspectProjectTrace(
     failedChecks: artifactContracts?.checks.filter((check) => check.status === 'failed').length ?? 0,
     warningChecks: artifactContracts?.checks.filter((check) => check.status === 'warning').length ?? 0,
     updatedAt: artifactContracts?.updatedAt ?? null,
-    path: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+    path: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
     checks: artifactContracts?.checks.map((check) => ({
       id: check.id,
       label: check.label,
@@ -1048,7 +1048,7 @@ async function inspectProjectTrace(
     failedChecks: visualValidation?.failures.length ?? 0,
     warningChecks: visualValidation?.warnings.length ?? 0,
     updatedAt: visualValidation?.updatedAt ?? null,
-    path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+    path: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
     screenshots: visualValidation?.viewports.map((viewport) => viewport.screenshotPath) ?? [],
     previewUrl: visualValidation?.previewUrl ?? null,
     viewports: visualValidation?.viewports.map((viewport) => ({
@@ -1134,7 +1134,7 @@ async function inspectProjectTrace(
           repairAttemptCount: generationState.repairAttemptCount,
           maxRepairAttempts: generationState.maxRepairAttempts,
           updatedAt: generationState.updatedAt,
-          path: QUANT_GENERATION_STATE_RELATIVE_PATH,
+          path: DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
           steps: generationState.steps.map((step) => ({
             id: step.id,
             label: step.label,

@@ -168,12 +168,6 @@ export async function POST(
         : typeof payload.conversation_id === 'string'
         ? payload.conversation_id
         : undefined;
-    const sessionIdValue =
-      typeof payload.sessionId === 'string'
-        ? payload.sessionId
-        : typeof payload.session_id === 'string'
-        ? payload.session_id
-        : undefined;
     const cliSourceValue =
       typeof payload.cliSource === 'string'
         ? payload.cliSource
@@ -187,7 +181,6 @@ export async function POST(
       messageType,
       content,
       conversationId: conversationIdValue,
-      sessionId: sessionIdValue,
       cliSource: cliSourceValue,
     };
 

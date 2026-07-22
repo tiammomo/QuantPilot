@@ -5,6 +5,24 @@ import path from 'node:path';
 import * as tar from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
 import { compileMoAgentSkills, installMoAgentSkillsForWorkspace } from './compiler';
+import type { MoAgentSkillCapabilityDescriptor } from './types';
+
+const TEST_CAPABILITY_SKILLS = {
+  stock_diagnosis: ['query-rewrite', 'run-planner', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'quant-fundamentals', 'data-quality', 'dashboard-visualization'],
+  technical_analysis: ['query-rewrite', 'run-planner', 'image-extraction', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'data-quality', 'dashboard-visualization'],
+  fundamental_analysis: ['query-rewrite', 'run-planner', 'image-extraction', 'quant-symbol-resolver', 'quant-market-data', 'quant-fundamentals', 'data-quality', 'dashboard-visualization'],
+  asset_comparison: ['query-rewrite', 'run-planner', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'quant-fundamentals', 'data-quality', 'dashboard-visualization'],
+  sector_rotation: ['query-rewrite', 'run-planner', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'data-quality', 'dashboard-visualization'],
+  strategy_research: ['query-rewrite', 'run-planner', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'quant-backtest', 'data-quality', 'dashboard-visualization'],
+  backtest_review: ['query-rewrite', 'run-planner', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'quant-backtest', 'data-quality', 'dashboard-visualization'],
+  portfolio_risk: ['query-rewrite', 'run-planner', 'image-extraction', 'quant-symbol-resolver', 'quant-market-data', 'quant-indicators', 'data-quality', 'dashboard-visualization'],
+} as const;
+
+function getFinanceSkillCapabilityDescriptor(
+  id: keyof typeof TEST_CAPABILITY_SKILLS,
+): MoAgentSkillCapabilityDescriptor {
+  return { id, status: 'ready', requiredSkillIds: TEST_CAPABILITY_SKILLS[id] };
+}
 
 const temporaryDirectories: string[] = [];
 
@@ -17,12 +35,12 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 async function createPackageOnlyFixture(skillId: string) {
   const repositoryRoot = process.cwd();
   const fixtureRoot = await temporaryDirectory('moagent-package-only-');
-  const fixtureState = path.join(fixtureRoot, '.claude');
+  const fixtureState = path.join(fixtureRoot, '.moagent');
   const fixtureConfig = path.join(fixtureRoot, 'config');
   const fixturePackageDir = path.join(fixtureState, 'skill-packages');
   const [registry, lock, capsuleRegistry] = await Promise.all([
-    fs.readFile(path.join(repositoryRoot, '.claude', 'skills.registry.json'), 'utf8').then(JSON.parse),
-    fs.readFile(path.join(repositoryRoot, '.claude', 'skills.lock.json'), 'utf8').then(JSON.parse),
+    fs.readFile(path.join(repositoryRoot, '.moagent', 'skills.registry.json'), 'utf8').then(JSON.parse),
+    fs.readFile(path.join(repositoryRoot, '.moagent', 'skills.lock.json'), 'utf8').then(JSON.parse),
     fs.readFile(path.join(repositoryRoot, 'config', 'moagent-skill-capsules.json'), 'utf8').then(JSON.parse),
   ]);
   const skill = registry.coreSkills.find((entry: { id: string }) => entry.id === skillId);
@@ -34,13 +52,12 @@ async function createPackageOnlyFixture(skillId: string) {
   const packagePath = path.join(fixturePackageDir, `${skillId}.tgz`);
   await Promise.all([
     fs.copyFile(
-      path.join(repositoryRoot, '.claude', 'skill-packages', `${skillId}.tgz`),
+      path.join(repositoryRoot, '.moagent', 'skill-packages', `${skillId}.tgz`),
       packagePath,
     ),
     fs.writeFile(path.join(fixtureState, 'skills.registry.json'), JSON.stringify({
       ...registry,
       coreSkills: [skill],
-      legacyAliases: {},
     })),
     fs.writeFile(path.join(fixtureState, 'skills.lock.json'), JSON.stringify({
       ...lock,
@@ -70,22 +87,23 @@ describe('compileMoAgentSkills', () => {
   it('selects phase-compatible capsules, validates hashes, and obeys the total character budget', async () => {
     const result = await compileMoAgentSkills({
       capabilityId: 'technical_analysis',
+      capability: getFinanceSkillCapabilityDescriptor('technical_analysis'),
       phase: 'data-preparation',
-      hasResolvedSymbols: true,
+      excludedSkillIds: ['image-extraction', 'quant-symbol-resolver'],
       maxSystemContextChars: 6_000,
     });
 
     expect(result.runtime).toBe('MoAgent');
-    expect(result.resolvedSkillIds).toContain('quant-market-data');
-    expect(result.resolvedSkillIds).toContain('quant-indicators');
-    expect(result.resolvedSkillIds).not.toContain('quant-backtest');
+    expect(result.selectedSkillIds).toContain('quant-market-data');
+    expect(result.selectedSkillIds).toContain('quant-indicators');
+    expect(result.selectedSkillIds).not.toContain('quant-backtest');
     expect(result.totalCharacters).toBeLessThanOrEqual(6_000);
-    expect(result.resolvedSkillIds).not.toContain('run-planner');
-    expect(result.resolvedSkillIds).not.toContain('image-extraction');
+    expect(result.selectedSkillIds).not.toContain('run-planner');
+    expect(result.selectedSkillIds).not.toContain('image-extraction');
     expect(result.systemContext).toContain('# MoAgent Skill Manifest');
     expect(result.taskContext).toContain('# MoAgent Skill Capsules');
     expect(result.taskContext).toContain('quant_api_get');
-    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('.claude/skills/');
+    expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('.moagent/skills/');
     expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('mcp__QuantPilotImage__');
     expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('workspaceResponseContract');
     expect(`${result.systemContext}\n${result.taskContext}`).not.toContain('正在理解问题');
@@ -108,8 +126,9 @@ describe('compileMoAgentSkills', () => {
     async (capabilityId, templateId) => {
       const result = await compileMoAgentSkills({
         capabilityId,
+        capability: getFinanceSkillCapabilityDescriptor(capabilityId),
         phase: 'data-preparation',
-        hasResolvedSymbols: true,
+        excludedSkillIds: ['image-extraction', 'quant-symbol-resolver'],
         templateId,
         maxSystemContextChars: 6_000,
       });
@@ -125,6 +144,7 @@ describe('compileMoAgentSkills', () => {
   it('injects only the selected dashboard scenario and judgement reference fragments', async () => {
     const result = await compileMoAgentSkills({
       capabilityId: 'asset_comparison',
+      capability: getFinanceSkillCapabilityDescriptor('asset_comparison'),
       requiredSkillIds: ['dashboard-visualization'],
       phase: 'workspace-generation',
       templateId: 'stock-selection',
@@ -149,16 +169,18 @@ describe('compileMoAgentSkills', () => {
   it('activates attachment skills independently of capability and rejects incompatible tools', async () => {
     const result = await compileMoAgentSkills({
       capabilityId: 'stock_diagnosis',
+      capability: getFinanceSkillCapabilityDescriptor('stock_diagnosis'),
       phase: 'data-preparation',
-      hasAttachments: true,
-      hasResolvedSymbols: true,
+      activatedSkillIds: ['image-extraction', 'data-quality'],
+      excludedSkillIds: ['quant-symbol-resolver'],
       maxSystemContextChars: 5_000,
     });
-    expect(result.resolvedSkillIds).toContain('image-extraction');
-    expect(result.resolvedSkillIds).toContain('data-quality');
+    expect(result.selectedSkillIds).toContain('image-extraction');
+    expect(result.selectedSkillIds).toContain('data-quality');
 
     await expect(compileMoAgentSkills({
       capabilityId: 'stock_diagnosis',
+      capability: getFinanceSkillCapabilityDescriptor('stock_diagnosis'),
       requiredSkillIds: ['image-extraction'],
       phase: 'data-preparation',
       availableToolNames: ['quant_api_get'],
@@ -168,6 +190,7 @@ describe('compileMoAgentSkills', () => {
   it('accepts both prepared dashboard surfaces and rejects an incomplete mutation route', async () => {
     const common = {
       capabilityId: 'stock_diagnosis' as const,
+      capability: getFinanceSkillCapabilityDescriptor('stock_diagnosis'),
       requiredSkillIds: ['dashboard-visualization'],
       phase: 'workspace-generation' as const,
       maxSystemContextChars: 5_000,
@@ -179,7 +202,7 @@ describe('compileMoAgentSkills', () => {
         'apply_dashboard_spec',
         'submit_result',
       ],
-    })).resolves.toMatchObject({ resolvedSkillIds: ['dashboard-visualization'] });
+    })).resolves.toMatchObject({ selectedSkillIds: ['dashboard-visualization'] });
     await expect(compileMoAgentSkills({
       ...common,
       availableToolNames: [
@@ -188,7 +211,7 @@ describe('compileMoAgentSkills', () => {
         'semantic_edit',
         'submit_result',
       ],
-    })).resolves.toMatchObject({ resolvedSkillIds: ['dashboard-visualization'] });
+    })).resolves.toMatchObject({ selectedSkillIds: ['dashboard-visualization'] });
     await expect(compileMoAgentSkills({
       ...common,
       availableToolNames: ['query_json', 'submit_result'],
@@ -198,6 +221,7 @@ describe('compileMoAgentSkills', () => {
   it('fails closed instead of cutting a runtime capsule mid-section', async () => {
     await expect(compileMoAgentSkills({
       capabilityId: 'technical_analysis',
+      capability: getFinanceSkillCapabilityDescriptor('technical_analysis'),
       requiredSkillIds: ['dashboard-visualization'],
       phase: 'workspace-generation',
       templateId: 'technical-timing',
@@ -205,22 +229,23 @@ describe('compileMoAgentSkills', () => {
     })).rejects.toThrow('拒绝截断');
   });
 
-  it('normalizes compatible aliases without installing an alias runtime directory', async () => {
-    const result = await compileMoAgentSkills({
+  it('rejects removed aliases instead of silently selecting another skill', async () => {
+    await expect(compileMoAgentSkills({
       requiredSkillIds: ['quant-technical-indicators'],
       maxSystemContextChars: 4_000,
-    });
-
-    expect(result.aliases).toEqual({ 'quant-technical-indicators': 'quant-indicators' });
-    expect(result.resolvedSkillIds).toEqual(['quant-indicators']);
-    expect(result.skills[0].requestedIds).toEqual(['quant-technical-indicators']);
+    })).rejects.toThrow('未在 registry 注册');
   });
 
-  it('rejects unknown capabilities even when explicit skills are supplied', async () => {
+  it('accepts domain capability labels with explicit skills and rejects descriptor identity drift', async () => {
     await expect(compileMoAgentSkills({
       capabilityId: 'unknown-capability',
       requiredSkillIds: ['data-quality'],
-    })).rejects.toThrow('不支持量化 capability');
+    })).resolves.toMatchObject({ capabilityId: 'unknown-capability' });
+    await expect(compileMoAgentSkills({
+      capabilityId: 'unknown-capability',
+      capability: getFinanceSkillCapabilityDescriptor('technical_analysis'),
+      requiredSkillIds: ['data-quality'],
+    })).rejects.toThrow('capability identity mismatch');
   });
 
   it('installs verified assets only under the workspace .moagent directory', async () => {
@@ -266,6 +291,7 @@ describe('compileMoAgentSkills', () => {
     const workspace = await temporaryDirectory('moagent-skills-full-mirror-');
     const receipt = await installMoAgentSkillsForWorkspace(workspace, {
       capabilityId: 'technical_analysis',
+      capability: getFinanceSkillCapabilityDescriptor('technical_analysis'),
       additionalSkillIds: ['platform-ui-product-design'],
     });
 
@@ -393,11 +419,11 @@ describe('compileMoAgentSkills', () => {
   it('fails closed when a compatible source directory no longer matches its lock hash', async () => {
     const repositoryRoot = process.cwd();
     const fixtureRoot = await temporaryDirectory('moagent-skills-fixture-');
-    const fixtureState = path.join(fixtureRoot, '.claude');
+    const fixtureState = path.join(fixtureRoot, '.moagent');
     const fixtureConfig = path.join(fixtureRoot, 'config');
     const [registry, lock, capsuleRegistry] = await Promise.all([
-      fs.readFile(path.join(repositoryRoot, '.claude', 'skills.registry.json'), 'utf8').then(JSON.parse),
-      fs.readFile(path.join(repositoryRoot, '.claude', 'skills.lock.json'), 'utf8').then(JSON.parse),
+      fs.readFile(path.join(repositoryRoot, '.moagent', 'skills.registry.json'), 'utf8').then(JSON.parse),
+      fs.readFile(path.join(repositoryRoot, '.moagent', 'skills.lock.json'), 'utf8').then(JSON.parse),
       fs.readFile(path.join(repositoryRoot, 'config', 'moagent-skill-capsules.json'), 'utf8').then(JSON.parse),
     ]);
     const skill = registry.coreSkills.find((entry: { id: string }) => entry.id === 'image-extraction');
@@ -406,12 +432,12 @@ describe('compileMoAgentSkills', () => {
     await fs.mkdir(fixtureConfig, { recursive: true });
     await Promise.all([
       fs.cp(
-        path.join(repositoryRoot, '.claude', 'skills', 'image-extraction'),
+        path.join(repositoryRoot, '.moagent', 'skills', 'image-extraction'),
         path.join(fixtureState, 'skills', 'image-extraction'),
         { recursive: true },
       ),
       fs.copyFile(
-        path.join(repositoryRoot, '.claude', 'skill-packages', 'image-extraction.tgz'),
+        path.join(repositoryRoot, '.moagent', 'skill-packages', 'image-extraction.tgz'),
         path.join(fixtureState, 'skill-packages', 'image-extraction.tgz'),
       ),
       fs.writeFile(
@@ -426,7 +452,6 @@ describe('compileMoAgentSkills', () => {
       fs.writeFile(path.join(fixtureState, 'skills.registry.json'), JSON.stringify({
         ...registry,
         coreSkills: [skill],
-        legacyAliases: {},
       })),
       fs.writeFile(path.join(fixtureState, 'skills.lock.json'), JSON.stringify({
         ...lock,

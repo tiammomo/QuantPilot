@@ -67,7 +67,7 @@
     "check:standalone-runtime": "node scripts/checks/check-standalone-runtime.js",
     "doctor": "node scripts/checks/doctor.js",
     "doctor:full": "node scripts/checks/doctor.js --full",
-    "check:skills": "node scripts/checks/check-skills-registry.js --check-lock --include-legacy && node scripts/checks/check-skill-scripts.js",
+    "check:skills": "node scripts/checks/check-skills-registry.js --check-lock && node scripts/checks/check-skill-scripts.js",
     "check:skills:metadata": "node scripts/checks/check-skills-registry.js",
     "check:skills:scripts": "node scripts/checks/check-skill-scripts.js",
     "package:skills": "node scripts/skills/package-skills.js",
@@ -201,8 +201,8 @@
         "to": "public"
       },
       {
-        "from": ".claude",
-        "to": ".claude"
+        "from": ".moagent",
+        "to": ".moagent"
       },
       {
         "from": "scripts/security",

@@ -1,6 +1,6 @@
 import { getAllProjects } from '@/lib/services/project';
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
-import { getQuantCapability, type QuantCapabilityId } from '@/lib/quant/capabilities';
+import { getQuantCapability, type QuantCapabilityId } from '@/lib/domains/finance/capabilities';
 import { serializeProjects } from '@/lib/serializers/project';
 import type { Project } from '@/types';
 

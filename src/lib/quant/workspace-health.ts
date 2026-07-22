@@ -1,14 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { getAllProjects } from '@/lib/services/project';
-import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/quant/workspace';
+import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/domains/finance/workspace';
 import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
 import {
-  QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
-  QUANT_GENERATION_QUEUE_RELATIVE_PATH,
-  QUANT_GENERATION_STATE_RELATIVE_PATH,
-  QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
-} from '@/lib/quant/artifacts';
+  DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
+  DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
+  DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
+} from '@/lib/data-agent/workspace-layout';
 import { readQuantArtifactContractReport } from '@/lib/quant/artifact-contracts';
 import { readQuantGenerationQueue } from '@/lib/quant/generation-queue';
 import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
@@ -154,20 +154,25 @@ const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
 const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
   ? PROJECTS_DIR
   : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
-const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
-const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
+const VALIDATION_REPORT_RELATIVE_PATH = '.data-agent/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.data-agent/validation-repair-plan.json';
 
 const REQUIRED_ARTIFACTS = [
-  { id: 'run_plan', label: 'Run Plan', path: '.quantpilot/run_plan.json' },
-  { id: 'generation_state', label: '生成状态', path: QUANT_GENERATION_STATE_RELATIVE_PATH },
-  { id: 'generation_queue', label: '生成队列', path: QUANT_GENERATION_QUEUE_RELATIVE_PATH },
-  { id: 'events', label: '事件日志', path: '.quantpilot/events.jsonl' },
+  { id: 'workspace', label: 'Data Agent Workspace', path: '.data-agent/workspace.json' },
+  { id: 'profile', label: 'Agent Profile', path: '.data-agent/profile.json' },
+  { id: 'task', label: 'Data Agent Task', path: '.data-agent/task.json' },
+  { id: 'plan', label: 'Data Agent Plan', path: '.data-agent/plan.json' },
+  { id: 'query_rewrite', label: 'Finance Query Rewrite', path: '.data-agent/finance-query-rewrite.json' },
+  { id: 'run_plan', label: 'Run Plan', path: '.data-agent/finance-run-plan.json' },
+  { id: 'generation_state', label: '生成状态', path: DATA_AGENT_GENERATION_STATE_RELATIVE_PATH },
+  { id: 'generation_queue', label: '生成队列', path: DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH },
+  { id: 'events', label: '事件日志', path: '.data-agent/events.jsonl' },
   { id: 'final_data', label: '最终数据', path: 'data_file/final/dashboard-data.json' },
   { id: 'sources', label: '数据来源', path: 'evidence/sources.json' },
   { id: 'data_quality', label: '数据质量', path: 'evidence/data_quality.json' },
-  { id: 'artifact_contracts', label: '产物契约', path: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH },
-  { id: 'visual_validation', label: '视觉验收', path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH },
-  { id: 'validation', label: '验证报告', path: '.quantpilot/validation.json' },
+  { id: 'artifact_contracts', label: '产物契约', path: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH },
+  { id: 'visual_validation', label: '视觉验收', path: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH },
+  { id: 'validation', label: '验证报告', path: '.data-agent/validation.json' },
   { id: 'page', label: '页面入口', path: 'app/page.tsx' },
 ];
 
@@ -339,7 +344,7 @@ function buildDataQualitySummary(dataQuality: JsonRecord | null, sources: JsonRe
 }
 
 async function readEvents(projectPath: string): Promise<QuantWorkspaceEvent[]> {
-  const filePath = path.join(projectPath, '.quantpilot', 'events.jsonl');
+  const filePath = path.join(projectPath, '.data-agent', 'events.jsonl');
   const content = await fs.readFile(filePath, 'utf8').catch(() => '');
   return content
     .split('\n')
@@ -387,7 +392,7 @@ function buildNextActions(params: {
   if (params.validation.status === 'failed') {
     actions.push('重新运行自动验证，并按失败 check 生成修复指令。');
   } else if (params.validation.status === 'unknown') {
-    actions.push('运行一次自动验证，生成 .quantpilot/validation.json。');
+    actions.push('运行一次自动验证，生成 .data-agent/validation.json。');
   }
   if (params.dataQuality.status === 'warning') {
     actions.push('检查 evidence/data_quality.json 中的数据缺口，并在页面结论中说明限制。');
@@ -568,7 +573,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
     failedChecks: artifactContractReport?.checks.filter((check) => check.status === 'failed').length ?? 0,
     warningChecks: artifactContractReport?.checks.filter((check) => check.status === 'warning').length ?? 0,
     updatedAt: artifactContractReport?.updatedAt ?? null,
-    path: QUANT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
+    path: DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
   };
   const visualValidation: WorkspaceHealthItem['visualValidation'] = {
     status: visualValidationReport
@@ -584,7 +589,7 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
     failedChecks: visualValidationReport?.failures.length ?? 0,
     warningChecks: visualValidationReport?.warnings.length ?? 0,
     updatedAt: visualValidationReport?.updatedAt ?? null,
-    path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+    path: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
   };
   const blockers = lifecycleInProgress
     ? 0

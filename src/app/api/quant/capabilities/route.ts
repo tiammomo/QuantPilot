@@ -4,7 +4,7 @@ import { authErrorResponse } from '@/lib/auth/http';
 import {
   DEFAULT_QUANT_CAPABILITY_ID,
   serializeQuantCapabilities,
-} from '@/lib/quant/capabilities';
+} from '@/lib/domains/finance/capabilities';
 
 export async function GET(request: NextRequest) {
   try {

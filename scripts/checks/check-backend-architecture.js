@@ -247,15 +247,19 @@ assertIncludes('services/market-data/src/quantpilot_market_data/repositories/ana
   '__all__',
 ]);
 
-const serviceFiles = listFilesRecursive('services/market-data/src/quantpilot_market_data/services')
-  .filter((file) =>
-  /^services\/market-data\/src\/quantpilot_market_data\/services\/.*\.py$/.test(file)
-);
-for (const file of serviceFiles) {
+const backendPythonFiles = listFilesRecursive('services/market-data/src/quantpilot_market_data')
+  .filter((file) => file.endsWith('.py'));
+for (const file of backendPythonFiles) {
   const source = read(file);
-  if (source.includes('from quantpilot_market_data.database import')) {
-    fail(`${file} should depend on repositories/* instead of database.py`);
+  if (
+    source.includes('from quantpilot_market_data.database import') ||
+    source.includes('import quantpilot_market_data.database')
+  ) {
+    fail(`${file} must depend on database_core.py or repositories/*; database.py was removed`);
   }
+}
+if (exists('services/market-data/src/quantpilot_market_data/database.py')) {
+  fail('database.py is a removed compatibility facade and must not be restored');
 }
 assertIncludes('services/market-data/src/quantpilot_market_data/services/caching.py', [
   'read_cached_response',
@@ -327,12 +331,8 @@ if (generatedTracked.length > 0) {
 }
 
 const apiLines = lineCount('services/market-data/src/quantpilot_market_data/api.py');
-const databaseLines = lineCount('services/market-data/src/quantpilot_market_data/database.py');
 if (apiLines > 1800) {
   warn(`api.py has ${apiLines} lines; new endpoints should move into routers/ and services/.`);
-}
-if (databaseLines > 2200) {
-  info(`database.py has ${databaseLines} lines; new storage logic should move into repositories/.`);
 }
 
 for (const message of infos) {

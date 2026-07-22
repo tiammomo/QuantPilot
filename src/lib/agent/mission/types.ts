@@ -80,15 +80,45 @@ export interface MoAgentMissionNodeSpec {
   acceptancePredicates: string[];
 }
 
+/**
+ * Trusted product/domain projection used to compile a MissionSpec. MoAgent
+ * owns lifecycle semantics, while applications own artifacts, validation
+ * checks, node tools and delivery acceptance rules.
+ */
+export interface MoAgentMissionDefinition {
+  id: string;
+  version: string;
+  validationReportPath: string;
+  artifacts: MoAgentArtifactRequirement[];
+  requiredValidationCheckIds: string[];
+  allowedValidationWarnings: string[];
+  nodes: MoAgentMissionNodeSpec[];
+  acceptancePredicates: MoAgentAcceptancePredicate[];
+}
+
+export interface MoAgentMissionCompositionRef {
+  profileId: string;
+  profileVersion: string;
+  domainPackIds: string[];
+  deliveryPackId: string;
+}
+
+export interface MoAgentExpectedEntityRef {
+  entityType: string;
+  canonicalId: string;
+}
+
 export interface MoAgentMissionSpec {
   schemaVersion: 1;
   framework: 'MoAgent';
   projectId: string;
   requestId: string;
   objectiveSha256: string;
+  composition: MoAgentMissionCompositionRef;
   capabilityId: string;
   runPlanId: string;
-  expectedSymbols: string[];
+  validationReportPath: string;
+  expectedEntities: MoAgentExpectedEntityRef[];
   artifacts: MoAgentArtifactRequirement[];
   requiredValidationCheckIds: string[];
   allowedValidationWarnings: string[];

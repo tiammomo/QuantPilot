@@ -4,7 +4,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = process.cwd();
-const skillsDir = path.join(root, '.claude', 'skills');
+const skillsDir = path.join(root, '.moagent', 'skills');
 const pycacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quantpilot-skill-pyc-'));
 
 function fail(message, result) {

@@ -56,7 +56,6 @@ export interface MoAgentSkillRegistryEntry {
   scripts?: string[];
   references?: string[];
   endpoints?: string[];
-  legacyAliases?: string[];
   validation?: string[];
 }
 
@@ -64,14 +63,11 @@ export interface MoAgentSkillsRegistry {
   schemaVersion: 1;
   policy: {
     targetCoreSkillCount?: number;
-    allowLegacyAliases?: boolean;
-    installLegacyByDefault?: boolean;
     packageFormat?: 'tgz';
     packageDir?: string;
     description?: string;
   };
   coreSkills: MoAgentSkillRegistryEntry[];
-  legacyAliases?: Record<string, string>;
 }
 
 export interface MoAgentSkillLockEntry {
@@ -92,7 +88,6 @@ export type MoAgentSkillSource = 'source' | 'package';
 
 export interface CompiledMoAgentSkill {
   id: string;
-  requestedIds: string[];
   name: string;
   version: string;
   status: MoAgentSkillStatus;
@@ -128,19 +123,33 @@ export interface MoAgentSkillsInstallReceipt {
   >;
 }
 
+/**
+ * Product-neutral capability projection consumed by the Skill compiler.
+ * Domain packages own the source capability model and project only the fields
+ * required for deterministic Skill selection.
+ */
+export interface MoAgentSkillCapabilityDescriptor {
+  id: string;
+  status: 'ready' | 'planned' | 'deprecated';
+  requiredSkillIds: readonly string[];
+}
+
 export interface CompileMoAgentSkillsOptions {
-  /** QuantPilot repository containing the legacy-compatible registry/lock inputs. */
+  /** Repository containing the configured registry/lock inputs. */
   repositoryRoot?: string;
+  /** Domain-owned, product-neutral capability projection. */
+  capability?: MoAgentSkillCapabilityDescriptor | null;
+  /** Stable label retained in receipts when explicit skill IDs are supplied. */
   capabilityId?: string | null;
-  /** Explicit skill IDs take precedence over capabilityId. Legacy aliases are accepted by policy. */
+  /** Explicit canonical Skill IDs take precedence over capability selection. */
   requiredSkillIds?: readonly string[];
   additionalSkillIds?: readonly string[];
   /** Runtime phase used to activate only compatible skill capsules. */
   phase?: MoAgentSkillPhase;
-  /** Attachments activate image extraction independently of the quant capability. */
-  hasAttachments?: boolean;
-  /** A resolved run plan makes the planner and symbol resolver redundant in the executor. */
-  hasResolvedSymbols?: boolean;
+  /** Domain-owned skills activated by the current task context. */
+  activatedSkillIds?: readonly string[];
+  /** Domain-owned skills made redundant or invalid by the current task context. */
+  excludedSkillIds?: readonly string[];
   /** Selects the exact scenario reference fragment for dashboard generation. */
   templateId?: string | null;
   variantId?: string | null;
@@ -158,9 +167,7 @@ export interface CompileMoAgentSkillsOptions {
 export interface CompileMoAgentSkillsResult {
   runtime: 'MoAgent';
   capabilityId: string | null;
-  requestedSkillIds: string[];
-  resolvedSkillIds: string[];
-  aliases: Record<string, string>;
+  selectedSkillIds: string[];
   phase: MoAgentSkillPhase;
   systemContext: string;
   taskContext: string;

@@ -17,7 +17,7 @@ const temporaryProjects: string[] = [];
 async function createProject() {
   const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-scaffold-'));
   temporaryProjects.push(projectPath);
-  await fs.mkdir(path.join(projectPath, '.quantpilot'), { recursive: true });
+  await fs.mkdir(path.join(projectPath, '.data-agent'), { recursive: true });
   await fs.mkdir(path.join(projectPath, 'data_file', 'final'), { recursive: true });
   await fs.mkdir(path.join(projectPath, 'app'), { recursive: true });
   return projectPath;
@@ -90,7 +90,7 @@ describe('restoreQuantDashboardTemplate', () => {
     const projectPath = await createProject();
     await Promise.all([
       fs.writeFile(
-        path.join(projectPath, '.quantpilot', 'run_plan.json'),
+        path.join(projectPath, '.data-agent', 'finance-run-plan.json'),
         JSON.stringify({
           status: 'planned',
           capabilityId: 'technical_analysis',

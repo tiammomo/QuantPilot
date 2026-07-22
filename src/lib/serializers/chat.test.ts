@@ -9,7 +9,6 @@ function messageWith(content: string, metadata: Record<string, unknown>): Messag
     id: 'message-1',
     projectId: 'project-1',
     conversationId: null,
-    sessionId: null,
     role: 'tool',
     content,
     messageType: 'tool_result',

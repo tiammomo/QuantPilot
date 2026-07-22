@@ -12,7 +12,7 @@ import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
 import { normalizeMoAgentModelId } from '@/lib/constants/models';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
-import { getQuantCapability } from '@/lib/quant/capabilities';
+import { getQuantCapability } from '@/lib/domains/finance/capabilities';
 import { getProjectAuthConfig } from '@/lib/config/auth';
 import {
   AuthorizationError,

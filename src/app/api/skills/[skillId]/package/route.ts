@@ -8,8 +8,8 @@ import { authErrorResponse } from '@/lib/auth/http';
 type JsonRecord = Record<string, unknown>;
 
 const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-const REGISTRY_PATH = path.join(ROOT, '.claude', 'skills.registry.json');
-const PACKAGE_DIR = path.join(ROOT, '.claude', 'skill-packages');
+const REGISTRY_PATH = path.join(ROOT, '.moagent', 'skills.registry.json');
+const PACKAGE_DIR = path.join(ROOT, '.moagent', 'skill-packages');
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));

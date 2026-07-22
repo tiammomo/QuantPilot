@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { authErrorResponse } from '@/lib/auth/http';
-import { rewriteQuantQuery } from '@/lib/quant/query-rewrite';
+import { rewriteQuantQuery } from '@/lib/domains/finance/query-rewrite';
 import {
   ApiIdempotencyConflictError,
   claimApiOperation,

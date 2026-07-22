@@ -15,8 +15,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.requireAction }));
-vi.mock('@/lib/quant/query-rewrite', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/quant/query-rewrite')>();
+vi.mock('@/lib/domains/finance/query-rewrite', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/domains/finance/query-rewrite')>();
   mocks.rewriteQuantQuery.mockImplementation(actual.rewriteQuantQuery);
   return { ...actual, rewriteQuantQuery: mocks.rewriteQuantQuery };
 });

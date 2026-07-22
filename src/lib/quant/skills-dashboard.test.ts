@@ -17,7 +17,6 @@ describe('skills dashboard package health', () => {
       expect(skill.references.length).toBeGreaterThan(0);
       expect(skill.scripts.length).toBeGreaterThan(0);
       expect(skill.changelog.currentRelease?.snapshot?.exists).toBe(true);
-      expect(new Set(skill.legacyAliases).size).toBe(skill.legacyAliases.length);
     }
   });
 });

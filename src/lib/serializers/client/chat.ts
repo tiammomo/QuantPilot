@@ -163,7 +163,6 @@ export const toChatMessage = (raw: any): ChatMessage => {
     metadata,
     parentMessageId: raw?.parentMessageId ?? raw?.parent_message_id ?? null,
     conversationId: raw?.conversationId ?? raw?.conversation_id ?? null,
-    sessionId: raw?.sessionId ?? raw?.session_id ?? null,
     cliSource: raw?.cliSource ?? raw?.cli_source ?? null,
     requestId: raw?.requestId ?? raw?.request_id ?? undefined,
     createdAt,

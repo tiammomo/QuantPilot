@@ -10,9 +10,9 @@ import {
   appendQuantWorkspaceEvent,
   ensureQuantWorkspace,
   writeInitialRunPlan,
-} from '@/lib/quant/workspace';
-import type { QuantRunPlan } from '@/lib/quant/workspace';
-import type { QuantQueryRewriteResult } from '@/lib/quant/query-rewrite';
+} from '@/lib/domains/finance/workspace';
+import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
+import type { QuantQueryRewriteResult } from '@/lib/domains/finance/query-rewrite';
 import { validateQuantArtifactContracts } from '@/lib/quant/artifact-contracts';
 import { validateQuantVisualPresentation } from '@/lib/quant/visual-validation';
 import {
@@ -153,10 +153,10 @@ interface CommandResult {
 }
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const VALIDATION_REPORT_RELATIVE_PATH = '.quantpilot/validation.json';
-const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.quantpilot/validation-repair-plan.json';
+const VALIDATION_REPORT_RELATIVE_PATH = '.data-agent/validation.json';
+const VALIDATION_REPAIR_PLAN_RELATIVE_PATH = '.data-agent/validation-repair-plan.json';
 const VALIDATION_STALE_ARTIFACT_PATHS = [
-  '.quantpilot/run_plan.json',
+  '.data-agent/finance-run-plan.json',
   'app/page.tsx',
   'app/globals.css',
   'app/layout.tsx',
@@ -175,7 +175,7 @@ const DASHBOARD_TEMPLATE_RESTORE_CHECK_IDS = new Set([
   'chart_presence',
 ]);
 const DASHBOARD_TEMPLATE_PROTECTED_ARTIFACT_PATHS = [
-  '.quantpilot/run_plan.json',
+  '.data-agent/finance-run-plan.json',
   'data_file/final/dashboard-data.json',
   'evidence/sources.json',
   'evidence/data_quality.json',
@@ -1251,7 +1251,7 @@ async function checkArtifactPolicy(
   projectPath: string
 ): Promise<Omit<QuantValidationCheck, 'id' | 'name' | 'durationMs'>> {
   const requiredArtifacts = [
-    '.quantpilot/run_plan.json',
+    '.data-agent/finance-run-plan.json',
     'app/page.tsx',
     'data_file/final/dashboard-data.json',
     'evidence/sources.json',
@@ -1462,7 +1462,7 @@ function pickSymbolCode(value: unknown): string | null {
 }
 
 async function readRunPlan(projectPath: string): Promise<Record<string, unknown> | null> {
-  const raw = await readTextFile(path.join(projectPath, '.quantpilot', 'run_plan.json'));
+  const raw = await readTextFile(path.join(projectPath, '.data-agent', 'finance-run-plan.json'));
   if (!raw) {
     return null;
   }
@@ -1475,7 +1475,7 @@ async function readRunPlan(projectPath: string): Promise<Record<string, unknown>
 
 async function readCurrentQuantRunId(projectPath: string): Promise<string | null> {
   const generationStateRaw = await readTextFile(
-    path.join(projectPath, '.quantpilot', 'generation-state.json'),
+    path.join(projectPath, '.data-agent', 'generation-state.json'),
   );
   if (generationStateRaw) {
     try {
@@ -2360,7 +2360,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
       ];
     case 'visual_presentation':
       return [
-        '只查看 .quantpilot/visual-validation.json 指向的失败 viewport、截图与指标。',
+        '只查看 .data-agent/visual-validation.json 指向的失败 viewport、截图与指标。',
         '修复桌面/移动端布局：首屏不能空白，不能横向溢出，文本不能互相遮挡。',
         '把独立白色圆角卡片网格合并为连续金融工作台：主画布共用背景，以细分区线、连续指标带、主图、矩阵和表格建立层级；移除重复圆角、阴影和 card 套 card。',
         '指标带按实际数量均衡分栏；移除桌面端 N+1 孤项和大片空白，避免金额、价格和百分比拆行或竖排。',
@@ -2369,7 +2369,7 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
     case 'final_data_file':
       return [
         '生成或修复 data_file/final/dashboard-data.json。',
-        '读取 .quantpilot/run_plan.json 和现有 raw/final/evidence 数据，按真实数据重组 final 文件，不要只创建空 JSON。',
+        '读取 .data-agent/finance-run-plan.json 和现有 raw/final/evidence 数据，按真实数据重组 final 文件，不要只创建空 JSON。',
         '确保 final 数据包含 symbol/name/source/as_of、quote.price/change_percent/quote_time，以及 kline.bars[] 或 history.bars[]；每根 K 线至少包含 date/open/high/low/close/volume 或 amount。',
         '多标的任务必须覆盖 run_plan.symbols 中的全部代码，并写入 requestedSymbols、assets[] 与 comparison.rows[]；comparison.rows[] 必须包含 symbol/name、价格或收益、回撤/波动/成交额等可排序字段。',
         'final 数据必须包含 visualization.template_id、variant_id、required_components 和 rendered_components，并与 run_plan.visualization.templateId 对齐。',
@@ -2382,8 +2382,8 @@ function actionsForFailedCheck(check: QuantValidationCheck): string[] {
       ];
     case 'artifact_contracts':
       return [
-        '只查看 .quantpilot/artifact-contracts.json 中失败的契约项。',
-        '只修复 evidence/*.json 或 data_file/final/dashboard-data.json 的结构字段；run_plan、generation-state 和其他 .quantpilot 结构由平台重建。',
+        '只查看 .data-agent/artifact-contracts.json 中失败的契约项。',
+        '只修复 evidence/*.json 或 data_file/final/dashboard-data.json 的结构字段；run_plan、generation-state 和其他 .data-agent 结构由平台重建。',
       ];
     case 'artifact_policy':
       return [
@@ -2487,13 +2487,13 @@ function formatChineseList(values: string[]): string {
 
 function targetedReadsForFailedChecks(failedChecks: QuantValidationCheck[]): string[] {
   const paths = new Set<string>([
-    '.quantpilot/validation.json（仅失败项）',
-    '.quantpilot/validation-repair-plan.json（仅本轮步骤）',
+    '.data-agent/validation.json（仅失败项）',
+    '.data-agent/validation-repair-plan.json（仅本轮步骤）',
   ]);
   for (const check of failedChecks) {
     switch (check.id) {
       case 'visual_presentation':
-        paths.add('.quantpilot/visual-validation.json（仅失败 viewport 和其截图路径）');
+        paths.add('.data-agent/visual-validation.json（仅失败 viewport 和其截图路径）');
         paths.add('app/page.tsx 与 app/globals.css（只读相关区段）');
         break;
       case 'next_build':
@@ -2501,14 +2501,14 @@ function targetedReadsForFailedChecks(failedChecks: QuantValidationCheck[]): str
         paths.add('失败详情点名的 app/** 文件与相关导入');
         break;
       case 'final_data_file':
-        paths.add('.quantpilot/run_plan.json（只读 symbols/visualization）');
+        paths.add('.data-agent/finance-run-plan.json（只读 symbols/visualization）');
         paths.add('data_file/final/dashboard-data.json');
         break;
       case 'evidence_files':
         paths.add('evidence/sources.json 与 evidence/data_quality.json');
         break;
       case 'artifact_contracts':
-        paths.add('.quantpilot/artifact-contracts.json（仅失败契约）');
+        paths.add('.data-agent/artifact-contracts.json（仅失败契约）');
         paths.add('失败契约指向的 final/evidence 文件');
         break;
       case 'dashboard_data_binding':
@@ -2657,8 +2657,8 @@ export async function repairQuantPlatformOwnedArtifacts(params: {
     stage: 'validation_repair',
     status: 'success',
     run_id: params.requestId,
-    artifact_path: '.quantpilot/run_plan.json',
-    summary: '平台已根据原始请求重建只读 run_plan，Agent 无需且不得修改 .quantpilot。',
+    artifact_path: '.data-agent/finance-run-plan.json',
+    summary: '平台已根据原始请求重建只读 run_plan，Agent 无需且不得修改 .data-agent。',
   });
 
   return { runPlanRebuilt: true };
@@ -2829,7 +2829,7 @@ export function buildQuantValidationRepairInstruction(
 修复范围：
 - 失败 ID：${failedCheckIds.join('、') || '报告状态异常但未提供失败 ID'}
 - 唯一可写范围：${formatChineseList(writablePaths)}
-- 整个 \`.quantpilot/**\` 是平台只读计划、报告与状态；你不得修改它。其结构修复和重新生成由平台负责。
+- 整个 \`.data-agent/**\` 是平台只读计划、报告与状态；你不得修改它。其结构修复和重新生成由平台负责。
 - 定向读取：${targetedReads.join('；')}
 - 不要扫描或通读未被失败项指向的目录和文件。
 

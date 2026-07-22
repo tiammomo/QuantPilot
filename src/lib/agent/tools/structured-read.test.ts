@@ -456,7 +456,6 @@ describe('MoAgent structured read tools', () => {
     const generation = createMoAgentTools({
       workspaceRoot: workspace,
       profile: 'generation',
-      includeImageExtraction: false,
     });
     const read = generation.find((tool) => tool.name === 'read_file')!;
     const range = generation.find((tool) => tool.name === 'read_file_range')!;

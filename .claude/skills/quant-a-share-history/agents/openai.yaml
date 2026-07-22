@@ -1,4 +1,0 @@
-interface:
-  display_name: "A 股历史行情"
-  short_description: "校验和组织本地 A 股历史 K 线、复权与样本覆盖"
-  default_prompt: "Use $quant-a-share-history to validate and organize local A-share historical bars for this analysis."

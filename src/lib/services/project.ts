@@ -11,8 +11,23 @@ import {
   normalizeMoAgentModelId,
 } from '@/lib/constants/models';
 import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
-import { buildQuantProjectSettings, getQuantCapability } from '@/lib/quant/capabilities';
-import { serializeQuantVisualizationTemplate } from '@/lib/quant/visualization-templates';
+import { buildQuantProjectSettings, getQuantCapability } from '@/lib/domains/finance/capabilities';
+import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
+import {
+  getFinanceSkillCapabilityDescriptor,
+  QUANTPILOT_AGENT_PROFILE,
+} from '@/lib/domains/finance';
+import type {
+  DataAgentProfileSelection,
+  DataAgentWorkspaceDescriptor,
+} from '@/lib/data-agent';
+import {
+  DATA_AGENT_EVENTS_RELATIVE_PATH,
+  DATA_AGENT_PROFILE_RELATIVE_PATH,
+  DATA_AGENT_ROOT_RELATIVE_PATH,
+  DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+} from '@/lib/data-agent';
+import { FINANCE_RUN_PLAN_RELATIVE_PATH } from '@/lib/domains/finance/workspace-artifacts';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import { deleteProjectWithOwnedQuota } from '@/lib/quota/allocation-reconciliation';
 
@@ -64,7 +79,7 @@ function normalizeCapabilitySource(value?: string | null): 'manual' | 'default' 
   return value === 'manual' || value === 'default' || value === 'inferred' ? value : 'default';
 }
 
-async function writeQuantPilotManifest(params: {
+async function writeDataAgentWorkspace(params: {
   projectPath: string;
   projectId: string;
   projectName: string;
@@ -78,9 +93,10 @@ async function writeQuantPilotManifest(params: {
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
   const selectedModel = normalizeMoAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
-  const quantPilotDir = path.join(params.projectPath, '.quantpilot');
-  await fs.mkdir(quantPilotDir, { recursive: true });
+  const dataAgentDir = path.join(params.projectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
+  const now = new Date().toISOString();
   await Promise.all([
+    fs.mkdir(dataAgentDir, { recursive: true }),
     fs.mkdir(path.join(params.projectPath, 'data_file', 'raw'), { recursive: true }),
     fs.mkdir(path.join(params.projectPath, 'data_file', 'intermediate'), { recursive: true }),
     fs.mkdir(path.join(params.projectPath, 'data_file', 'final'), { recursive: true }),
@@ -89,31 +105,36 @@ async function writeQuantPilotManifest(params: {
     fs.mkdir(path.join(params.projectPath, 'dashboard'), { recursive: true }),
   ]);
 
-  const manifest = {
+  const workspace: DataAgentWorkspaceDescriptor = {
     schemaVersion: 1,
+    workspaceId: params.projectId,
     projectId: params.projectId,
     projectName: params.projectName,
     platform: 'QuantPilot',
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     runtime: {
-      cli: params.preferredCli,
-      model: selectedModel,
-      llmProfileId: llm.profileId,
+      framework: 'MoAgent',
+      executorId: params.preferredCli,
+      modelId: selectedModel,
+      modelProfileId: llm.profileId,
     },
-    llm,
-    quant: {
-      ...buildQuantProjectSettings(capability.id),
-      capabilitySource,
-    },
+  };
+  const profileSelection: DataAgentProfileSelection = {
+    schemaVersion: 1,
+    profile: QUANTPILOT_AGENT_PROFILE,
+    selectedCapabilityId: capability.id,
+    selectionSource: capabilitySource,
+    updatedAt: now,
   };
 
   await fs.writeFile(
-    path.join(quantPilotDir, 'manifest.json'),
-    `${JSON.stringify(manifest, null, 2)}\n`,
+    path.join(params.projectPath, DATA_AGENT_WORKSPACE_RELATIVE_PATH),
+    `${JSON.stringify(workspace, null, 2)}\n`,
     'utf8'
   );
   await fs.writeFile(
-    path.join(quantPilotDir, 'run_plan.json'),
+    path.join(params.projectPath, FINANCE_RUN_PLAN_RELATIVE_PATH),
     `${JSON.stringify(
       {
         schemaVersion: 1,
@@ -147,8 +168,8 @@ async function writeQuantPilotManifest(params: {
         },
         expectedArtifacts: capability.expectedArtifacts,
         validationRules: capability.validationRules,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       },
       null,
       2
@@ -156,9 +177,14 @@ async function writeQuantPilotManifest(params: {
     'utf8'
   );
   await fs.writeFile(
-    path.join(quantPilotDir, 'events.jsonl'),
+    path.join(params.projectPath, DATA_AGENT_EVENTS_RELATIVE_PATH),
     '',
     { encoding: 'utf8', flag: 'a' }
+  );
+  await fs.writeFile(
+    path.join(params.projectPath, DATA_AGENT_PROFILE_RELATIVE_PATH),
+    `${JSON.stringify(profileSelection, null, 2)}\n`,
+    'utf8',
   );
 }
 
@@ -172,10 +198,10 @@ export async function ensureProjectLlmConfiguration(params: {
 }): Promise<void> {
   const selectedModel = normalizeMoAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
-  const quantPilotDir = path.join(params.projectPath, '.quantpilot');
-  const manifestPath = path.join(quantPilotDir, 'manifest.json');
-  await fs.mkdir(quantPilotDir, { recursive: true });
-  const existingManifest = await fs.readFile(manifestPath, 'utf8')
+  const dataAgentDir = path.join(params.projectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
+  const workspacePath = path.join(params.projectPath, DATA_AGENT_WORKSPACE_RELATIVE_PATH);
+  await fs.mkdir(dataAgentDir, { recursive: true });
+  const existingWorkspace = await fs.readFile(workspacePath, 'utf8')
     .then((content) => {
       const parsed = JSON.parse(content) as unknown;
       return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -183,29 +209,35 @@ export async function ensureProjectLlmConfiguration(params: {
         : {};
     })
     .catch(() => ({} as Record<string, unknown>));
-  const existingRuntime = existingManifest.runtime &&
-    typeof existingManifest.runtime === 'object' &&
-    !Array.isArray(existingManifest.runtime)
-    ? existingManifest.runtime as Record<string, unknown>
+  const existingRuntime = existingWorkspace.runtime &&
+    typeof existingWorkspace.runtime === 'object' &&
+    !Array.isArray(existingWorkspace.runtime)
+    ? existingWorkspace.runtime as Record<string, unknown>
     : {};
-  const nextManifest = {
+  const now = new Date().toISOString();
+  const nextWorkspace = {
     schemaVersion: 1,
+    workspaceId: params.projectId,
     projectId: params.projectId,
     projectName: params.projectName,
     platform: 'QuantPilot',
-    ...existingManifest,
+    ...existingWorkspace,
     runtime: {
       ...existingRuntime,
-      cli: params.preferredCli ?? 'moagent',
-      model: selectedModel,
-      llmProfileId: llm.profileId,
+      framework: 'MoAgent',
+      executorId: params.preferredCli ?? 'moagent',
+      modelId: selectedModel,
+      modelProfileId: llm.profileId,
     },
-    llm,
+    createdAt: typeof existingWorkspace.createdAt === 'string'
+      ? existingWorkspace.createdAt
+      : now,
+    updatedAt: now,
   };
-  const nextManifestContent = `${JSON.stringify(nextManifest, null, 2)}\n`;
-  const currentManifestContent = await fs.readFile(manifestPath, 'utf8').catch(() => null);
-  if (currentManifestContent !== nextManifestContent) {
-    await fs.writeFile(manifestPath, nextManifestContent, 'utf8');
+  const nextWorkspaceContent = `${JSON.stringify(nextWorkspace, null, 2)}\n`;
+  const currentWorkspaceContent = await fs.readFile(workspacePath, 'utf8').catch(() => null);
+  if (currentWorkspaceContent !== nextWorkspaceContent) {
+    await fs.writeFile(workspacePath, nextWorkspaceContent, 'utf8');
   }
 
   const nextSettings = mergeLlmSettings(params.settings, selectedModel);
@@ -276,7 +308,7 @@ export async function createProject(
   const preferredCli = 'moagent';
   const selectedModel = normalizeMoAgentModelId(input.selectedModel);
   const quantCapability = getQuantCapability(input.quantCapabilityId);
-  await writeQuantPilotManifest({
+  await writeDataAgentWorkspace({
     projectPath,
     projectId: input.project_id,
     projectName: input.name,
@@ -287,6 +319,7 @@ export async function createProject(
   });
   await installMoAgentSkillsForWorkspace(projectPath, {
     capabilityId: quantCapability.id,
+    capability: getFinanceSkillCapabilityDescriptor(quantCapability.id),
     additionalSkillIds: ['platform-ui-product-design'],
   });
 

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { QUANT_GENERATION_STATE_RELATIVE_PATH } from '@/lib/quant/artifacts';
-import { appendQuantWorkspaceEvent } from '@/lib/quant/workspace';
+import { DATA_AGENT_GENERATION_STATE_RELATIVE_PATH } from '@/lib/data-agent/workspace-layout';
+import { appendQuantWorkspaceEvent } from '@/lib/domains/finance/workspace';
 
 export type QuantGenerationStepId =
   | 'request_received'
@@ -86,7 +86,7 @@ function nowIso() {
 }
 
 function statePath(projectPath: string) {
-  return path.join(projectPath, QUANT_GENERATION_STATE_RELATIVE_PATH);
+  return path.join(projectPath, DATA_AGENT_GENERATION_STATE_RELATIVE_PATH);
 }
 
 function initialSteps(): QuantGenerationStep[] {
@@ -233,7 +233,7 @@ async function startQuantGenerationRunUnlocked(params: {
     stage: 'state_machine',
     status: 'pending',
     run_id: params.requestId,
-    artifact_path: QUANT_GENERATION_STATE_RELATIVE_PATH,
+    artifact_path: DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
     summary: '生成状态机已启动。',
     created_at: timestamp,
   });
@@ -317,7 +317,7 @@ async function updateQuantGenerationStepUnlocked(params: {
     stage: params.stepId,
     status: params.status === 'failed' ? 'error' : params.status === 'warning' ? 'warning' : params.status === 'running' ? 'pending' : 'success',
     run_id: params.requestId,
-    artifact_path: QUANT_GENERATION_STATE_RELATIVE_PATH,
+    artifact_path: DATA_AGENT_GENERATION_STATE_RELATIVE_PATH,
     summary: `${STEP_LABELS[params.stepId]}：${params.summary}`,
     created_at: timestamp,
   });

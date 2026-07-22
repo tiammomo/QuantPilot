@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { QUANT_VISUAL_VALIDATION_RELATIVE_PATH } from '@/lib/quant/artifacts';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import { DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH } from '@/lib/data-agent/workspace-layout';
+import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/domains/finance/workspace';
 
 export type QuantVisualValidationStatus = 'passed' | 'failed' | 'warning';
 
@@ -166,7 +166,7 @@ export function isVisualValidationInfrastructureError(error: unknown): boolean {
 async function writeReport(projectPath: string, report: QuantVisualValidationReport) {
   await ensureQuantWorkspace(projectPath);
   await fs.writeFile(
-    path.join(projectPath, QUANT_VISUAL_VALIDATION_RELATIVE_PATH),
+    path.join(projectPath, DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH),
     `${JSON.stringify(report, null, 2)}\n`,
     'utf8'
   );
@@ -503,7 +503,7 @@ export async function validateQuantVisualPresentation(params: {
       status,
       passed: status !== 'failed',
       previewUrl: params.previewUrl,
-      reportPath: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      reportPath: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
       screenshotDir: SCREENSHOT_DIR,
       viewports,
       failures,
@@ -517,7 +517,7 @@ export async function validateQuantVisualPresentation(params: {
       stage: 'validation',
       status: status === 'failed' ? 'error' : status === 'warning' ? 'warning' : 'success',
       run_id: params.requestId ?? undefined,
-      artifact_path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      artifact_path: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
       summary: status === 'failed'
         ? `视觉验收未通过：${failures.length} 个阻断项。`
         : status === 'warning'
@@ -539,7 +539,7 @@ export async function validateQuantVisualPresentation(params: {
       status: infrastructureUnavailable ? 'warning' : 'failed',
       passed: infrastructureUnavailable,
       previewUrl: params.previewUrl,
-      reportPath: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      reportPath: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
       screenshotDir: SCREENSHOT_DIR,
       viewports: [],
       failures: infrastructureUnavailable ? [] : [`视觉验收执行异常：${message}`],
@@ -553,7 +553,7 @@ export async function validateQuantVisualPresentation(params: {
       stage: 'validation',
       status: infrastructureUnavailable ? 'warning' : 'error',
       run_id: params.requestId ?? undefined,
-      artifact_path: QUANT_VISUAL_VALIDATION_RELATIVE_PATH,
+      artifact_path: DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH,
       summary: infrastructureUnavailable ? warning : '视觉验收执行异常。',
       created_at: updatedAt,
     });
@@ -566,7 +566,7 @@ export async function validateQuantVisualPresentation(params: {
 }
 
 export async function readQuantVisualValidationReport(projectPath: string): Promise<QuantVisualValidationReport | null> {
-  const content = await fs.readFile(path.join(projectPath, QUANT_VISUAL_VALIDATION_RELATIVE_PATH), 'utf8').catch(() => null);
+  const content = await fs.readFile(path.join(projectPath, DATA_AGENT_VISUAL_VALIDATION_RELATIVE_PATH), 'utf8').catch(() => null);
   if (!content) return null;
   try {
     const parsed = JSON.parse(content);

@@ -4,6 +4,7 @@ export type {
   CompileMoAgentSkillsResult,
   CompiledMoAgentSkill,
   MoAgentSkillCapsuleRegistry,
+  MoAgentSkillCapabilityDescriptor,
   MoAgentSkillCapsuleResource,
   MoAgentSkillLockEntry,
   MoAgentSkillPhase,

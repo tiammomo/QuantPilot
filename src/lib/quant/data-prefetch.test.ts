@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { QuantRunPlan } from './workspace';
+import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildFundamentalMetricComparison,
@@ -74,7 +74,7 @@ describe('quant data-prefetch symbol candidates', () => {
   it('does not parse symbols from the question after Query Rewrite has produced the run plan', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-prefetch-symbol-'));
     temporaryProjects.push(projectPath);
-    await fs.mkdir(path.join(projectPath, '.quantpilot'), { recursive: true });
+    await fs.mkdir(path.join(projectPath, '.data-agent'), { recursive: true });
 
     const now = '2026-07-15T02:29:30.000Z';
     const plan: QuantRunPlan = {
@@ -102,7 +102,7 @@ describe('quant data-prefetch symbol candidates', () => {
       updatedAt: now,
     };
     await fs.writeFile(
-      path.join(projectPath, '.quantpilot', 'run_plan.json'),
+      path.join(projectPath, '.data-agent', 'finance-run-plan.json'),
       `${JSON.stringify(plan, null, 2)}\n`,
       'utf8'
     );

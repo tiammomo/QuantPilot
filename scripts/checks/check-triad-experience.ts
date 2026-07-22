@@ -33,8 +33,8 @@ import {
   setPersonalMemoryEnabled,
 } from '../../src/lib/platform/memory/service';
 import type { PersonalizationCapsule } from '../../src/lib/platform/memory/types';
-import { rewriteQuantQuery } from '../../src/lib/quant/query-rewrite';
-import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/quant/query-rewrite-llm';
+import { rewriteQuantQuery } from '../../src/lib/domains/finance/query-rewrite';
+import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/domains/finance/query-rewrite-llm';
 import { buildQuantPilotUserPrompt } from '../../src/lib/services/moagent-prompts';
 
 type JsonRecord = Record<string, unknown>;

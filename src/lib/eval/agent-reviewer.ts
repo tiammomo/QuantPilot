@@ -118,7 +118,7 @@ export async function reviewAgentWorkspace(input: {
     boundedFile(input.projectPath, 'data_file/final/dashboard-data.json'),
     boundedFile(input.projectPath, 'evidence/sources.json'),
     boundedFile(input.projectPath, 'evidence/data_quality.json'),
-    boundedFile(input.projectPath, '.quantpilot/run_plan.json'),
+    boundedFile(input.projectPath, '.data-agent/finance-run-plan.json'),
   ]);
   const provider = llmConfig.provider === 'deepseek'
     ? new DeepSeekProvider({

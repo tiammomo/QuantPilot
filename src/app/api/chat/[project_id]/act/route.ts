@@ -56,9 +56,9 @@ import {
   reserveQuota,
   settleQuotaReservation,
 } from "@/lib/quota";
-import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/quant/workspace";
+import { readQuantRunPlan, writeInitialRunPlan } from "@/lib/domains/finance/workspace";
 import { prefetchQuantDataForRunPlan } from "@/lib/quant/data-prefetch";
-import { getQuantCapability } from "@/lib/quant/capabilities";
+import { getQuantCapability } from "@/lib/domains/finance/capabilities";
 import {
   createWorkspaceProgressPublisher,
   type WorkspaceProgressPublisher,
@@ -67,7 +67,7 @@ import { shouldEscalateStalledRepair } from "@/lib/quant/repair-convergence";
 import {
   buildClarificationContinuation,
   buildQuantClarificationMessage,
-} from "@/lib/quant/intent";
+} from "@/lib/domains/finance/intent";
 import {
   incrementQuantGenerationRepairAttempt,
   readQuantGenerationState,
@@ -1656,7 +1656,7 @@ function runValidationAfterExecution(params: {
       await markUserRequestAsFailed(
         params.projectId,
         repairRequestId,
-        "自动修复后仍未通过平台验证，请查看 .quantpilot/validation.json 和 .quantpilot/validation-repair-plan.json。",
+        "自动修复后仍未通过平台验证，请查看 .data-agent/validation.json 和 .data-agent/validation-repair-plan.json。",
       );
       if (activeRepairRequestId === repairRequestId) {
         activeRepairRequestId = null;
@@ -2003,9 +2003,9 @@ async function writeAttachmentContext(params: {
 
   const quantDir = path.join(
     /* turbopackIgnore: true */ params.projectRoot,
-    ".quantpilot",
+    ".data-agent",
   );
-  const relativePath = ".quantpilot/attachments.json";
+  const relativePath = ".data-agent/attachments.json";
   const absolutePath = path.join(
     /* turbopackIgnore: true */ params.projectRoot,
     relativePath,
@@ -2075,7 +2075,7 @@ function buildImageAttachmentInstruction(params: {
   return `
 
 图片附件处理要求：
-- 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".quantpilot/attachments.json"}，再检查图片内容，不要忽略附件。
+- 本次用户上传了 ${params.images.length} 张图片。先读取 ${params.attachmentContextPath ?? ".data-agent/attachments.json"}，再检查图片内容，不要忽略附件。
 - 先使用 \`image-extraction\` skill，并调用原生工具 \`quant_extract_uploaded_image\` 读取附件清单、校验图片文件、生成 imageExtraction 初始结构。不要只说“我看不到图片”。
 - 当前不接入额外视觉模型或第三方 OCR；无法可靠识别的截图字段必须写 null，并在证据文件中列出需要用户确认的内容。
 - 对识别出的股票名称必须使用 quant-symbol-resolver 或 /api/v1/symbols/resolve 解析代码，再获取真实行情、K 线、指标和必要的基本面数据。
@@ -2685,7 +2685,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             conversationId,
             cliSource: cliPreference,
             toolName: "query-rewrite",
-            target: ".quantpilot/query_rewrite.json",
+            target: ".data-agent/finance-query-rewrite.json",
             summary: "正在把用户问题整理为可执行的标的、周期和分析合同。",
             input: {
               question: planningInstruction,
@@ -2698,7 +2698,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             conversationId,
             cliSource: cliPreference,
             toolName: "run-planner",
-            target: ".quantpilot/run_plan.json",
+            target: ".data-agent/finance-run-plan.json",
             summary: "正在核对分析对象、时间范围、数据需求和验收规则。",
             input: {
               question: planningInstruction,
@@ -2783,7 +2783,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             cliSource: cliPreference,
             toolName: "query-rewrite",
             toolCallId: queryRewriteToolCallId,
-            target: ".quantpilot/query_rewrite.json",
+            target: ".data-agent/finance-query-rewrite.json",
             summary:
               runPlan.queryRewrite?.status === "refused"
                 ? "问题改写完成，安全策略已阻止确定性收益承诺。"
@@ -2803,7 +2803,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             cliSource: cliPreference,
             toolName: "run-planner",
             toolCallId: runPlannerToolCallId,
-            target: ".quantpilot/run_plan.json",
+            target: ".data-agent/finance-run-plan.json",
             summary:
               runPlan.status === "refused"
                 ? "请求触发确定性安全策略，停止进入取数和生成链路。"
@@ -2847,7 +2847,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               metadata: {
                 type: "intent_refusal",
                 refusal: runPlan.refusal,
-                runPlanPath: ".quantpilot/run_plan.json",
+                runPlanPath: ".data-agent/finance-run-plan.json",
                 isMissionFinal: true,
                 progressStatus: "refused",
               },
@@ -2920,7 +2920,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               metadata: {
                 type: "intent_clarification",
                 clarification: runPlan.clarification,
-                runPlanPath: ".quantpilot/run_plan.json",
+                runPlanPath: ".data-agent/finance-run-plan.json",
                 isMissionFinal: true,
                 progressStatus: "clarification",
                 ...(turnMetrics ? { turnMetrics } : {}),
@@ -3358,14 +3358,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               ? {
                   toolName: "query-rewrite",
                   toolCallId: queryRewriteToolCallId,
-                  target: ".quantpilot/query_rewrite.json",
+                  target: ".data-agent/finance-query-rewrite.json",
                 }
               : null,
             runPlannerToolCallId
               ? {
                   toolName: "run-planner",
                   toolCallId: runPlannerToolCallId,
-                  target: ".quantpilot/run_plan.json",
+                  target: ".data-agent/finance-run-plan.json",
                 }
               : null,
             dataRegistryToolCallId

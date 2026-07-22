@@ -1,4 +1,4 @@
-import type { QuantCapabilityId } from '@/lib/quant/capabilities';
+import type { QuantCapabilityId } from '@/lib/domains/finance/capabilities';
 
 export type StrategyStatus = 'ready' | 'planned' | 'research';
 export type StrategyRiskLevel = 'low' | 'medium' | 'high';

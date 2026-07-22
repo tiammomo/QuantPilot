@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "packageFormat": "tgz",
+  "skills": {
+    "quant-data-registry": {
+      "version": "0.5.0",
+      "packagePath": ".moagent/skill-packages/quant-data-registry.tgz",
+      "sourceSha256": "76607f589e8c52a8d8918c3fd274852f5285442aa4e0dff914b3f8c0130fe9f4",
+      "packageSha256": "3da03ff72bb77a40383f0c5f29eba438911324f9eb071e003731c50c951fd35f",
+      "fileCount": 4
+    },
+    "quant-symbol-resolver": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/quant-symbol-resolver.tgz",
+      "sourceSha256": "495b1ee647cdcf32eda59e1ff2cb9e1cf413362e80747d225c0cadf936610abd",
+      "packageSha256": "36c343d3d665d561c67b9d3f99f8585c8370d7c60b08e67bd28e19e8fdd2e878",
+      "fileCount": 4
+    },
+    "quant-market-data": {
+      "version": "0.5.1",
+      "packagePath": ".moagent/skill-packages/quant-market-data.tgz",
+      "sourceSha256": "aef0d9fe6d1803d4944fd498c25803fcbec3f1cd0d46c1f89019d008a4758bbe",
+      "packageSha256": "6d7a7967db77b10db7625f6c2316052f7c399d88bceba0a89048f650c65795e2",
+      "fileCount": 4
+    },
+    "quant-fundamentals": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/quant-fundamentals.tgz",
+      "sourceSha256": "d111027b7b61c5e7d3657ae6d738456bbd74b8c058cf81c2b450a3510c9488cb",
+      "packageSha256": "31b0ab094d8a8f74c64edf28a71beffce1173ed9b216ee0cb5e229a45c5e6c32",
+      "fileCount": 4
+    },
+    "quant-indicators": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/quant-indicators.tgz",
+      "sourceSha256": "81e9386e7432e40dd45cb3a6995bfac08c36fdf14421d24ffbb2a3ca56cb4f2d",
+      "packageSha256": "68d01e6d5b677dc3634fe53a069be294d79bfcba7ab4e6181736ae44db7f1ec0",
+      "fileCount": 6
+    },
+    "quant-backtest": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/quant-backtest.tgz",
+      "sourceSha256": "af4d587f7f8fab37950134580c2e7740a80b95bf1771aa4240374aa47291af5c",
+      "packageSha256": "10d33e8532dbd875148a9382269dcc983ef620b8738bc919aba8e15203d7e111",
+      "fileCount": 4
+    },
+    "run-planner": {
+      "version": "0.4.0",
+      "packagePath": ".moagent/skill-packages/run-planner.tgz",
+      "sourceSha256": "14132fdc346bc6da5c2d0b374553adabb2a1dc5df76722d033f6a460dc5bf1ae",
+      "packageSha256": "48ee4892d1fb605428aec7c548300ffb0952093fa4af26357d47fa9ce05261f5",
+      "fileCount": 4
+    },
+    "image-extraction": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/image-extraction.tgz",
+      "sourceSha256": "de93e973c2829d5d78f5b9c51b6b15945341bc6b4ed020095cc6b7496b3158bb",
+      "packageSha256": "be118e7b8363b78e3e136cbfc5e6232e24b515391e979e40f88318998d487788",
+      "fileCount": 4
+    },
+    "data-quality": {
+      "version": "0.4.0",
+      "packagePath": ".moagent/skill-packages/data-quality.tgz",
+      "sourceSha256": "12fad8e294d0000e1529258dcec7b6c4f9f9d462a48070fefd71c798635af19a",
+      "packageSha256": "d2f1fdae97385664d184783b454efce0be57a2730f4a8f6fb96ca2d119cbd4ba",
+      "fileCount": 4
+    },
+    "dashboard-visualization": {
+      "version": "0.6.0",
+      "packagePath": ".moagent/skill-packages/dashboard-visualization.tgz",
+      "sourceSha256": "76de18fecbb87799ca70039476e0fd17ee8d1eef7fb4e4dadf4346e024e270b3",
+      "packageSha256": "bdab9203e6bc0583084e8c17cb5b1b731989b84b5e404c97a31e08684f457007",
+      "fileCount": 6
+    },
+    "platform-ui-product-design": {
+      "version": "0.3.0",
+      "packagePath": ".moagent/skill-packages/platform-ui-product-design.tgz",
+      "sourceSha256": "3244cbc6b9402a372ef89b7f002ea95d933142a669c1e8649991e40a70c78b39",
+      "packageSha256": "98076ba93164449c77d65dcd32844308b2bdf102f0d586eaef2f2ca4d88d8bef",
+      "fileCount": 5
+    },
+    "query-rewrite": {
+      "version": "0.5.0",
+      "packagePath": ".moagent/skill-packages/query-rewrite.tgz",
+      "sourceSha256": "b05302bafcd815fa9784bc2ac76cf0f086d5da66fabb976e3582753185cef185",
+      "packageSha256": "916b86d6dcbdd6eb7d19d427367ba3d0846061dc8861b40fde6fb8c61f28dfa2",
+      "fileCount": 4
+    }
+  }
+}

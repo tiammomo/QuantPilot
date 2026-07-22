@@ -1,5 +1,5 @@
-import { getQuantCapability } from '@/lib/quant/capabilities';
-import type { QuantRunPlan } from '@/lib/quant/workspace';
+import { getQuantCapability } from '@/lib/domains/finance/capabilities';
+import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
 
 export const WORKSPACE_PROGRESS_TOTAL = 5 as const;
 

@@ -30,7 +30,7 @@ function failedReport(failedCheckIds: string[]): QuantValidationReport {
   return {
     schemaVersion: 1,
     projectId: 'dashboard-restore-test',
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status: 'failed',
     passed: false,
     checks,
@@ -71,13 +71,13 @@ async function createGeneratedProject() {
   };
 
   await Promise.all([
-    fs.mkdir(path.join(projectPath, '.quantpilot'), { recursive: true }),
+    fs.mkdir(path.join(projectPath, '.data-agent'), { recursive: true }),
     fs.mkdir(path.join(projectPath, 'app'), { recursive: true }),
     fs.mkdir(path.join(projectPath, 'data_file', 'final'), { recursive: true }),
     fs.mkdir(path.join(projectPath, 'evidence'), { recursive: true }),
   ]);
   await Promise.all([
-    fs.writeFile(path.join(projectPath, '.quantpilot', 'run_plan.json'), protectedContents.runPlan, 'utf8'),
+    fs.writeFile(path.join(projectPath, '.data-agent', 'finance-run-plan.json'), protectedContents.runPlan, 'utf8'),
     fs.writeFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'), protectedContents.finalData, 'utf8'),
     fs.writeFile(path.join(projectPath, 'evidence', 'sources.json'), protectedContents.sources, 'utf8'),
     fs.writeFile(path.join(projectPath, 'evidence', 'data_quality.json'), protectedContents.dataQuality, 'utf8'),
@@ -128,7 +128,7 @@ describe('dashboard template restore fallback', () => {
     expect(restoredPage).toContain('data-source-file={DATA_FILE}');
     expect(restoredPage).toContain('function getBars(');
     expect(restoredPage).toContain('K 线与量价结构');
-    await expect(fs.readFile(path.join(projectPath, '.quantpilot', 'run_plan.json'), 'utf8'))
+    await expect(fs.readFile(path.join(projectPath, '.data-agent', 'finance-run-plan.json'), 'utf8'))
       .resolves.toBe(protectedContents.runPlan);
     await expect(fs.readFile(path.join(projectPath, 'data_file', 'final', 'dashboard-data.json'), 'utf8'))
       .resolves.toBe(protectedContents.finalData);

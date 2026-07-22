@@ -40,7 +40,7 @@
       "requiresTools": [],
       "objective": "消费平台 LLM-first、Resolver 独立核验且带确定性安全决策的唯一 query rewrite 语义合同，统一标的、周期、分析重点、输出方式和执行状态。",
       "invariants": [
-        "只读取 .quantpilot/query_rewrite.json，不在 Agent 运行时改写平台合同。",
+        "只读取 .data-agent/finance-query-rewrite.json，不在 Agent 运行时改写平台合同。",
         "LLM 只拆语义且输出不可信；只有经过平台 Schema、原文字面片段和 symbols/resolve 核验的 resolvedSymbols 才能取数。",
         "llm_unavailable 是失败关闭状态，必须在规划和取数前停止，不得用关键词结果继续。",
         "ready 才进入完整取数；partial 和 needs_clarification 必须按 issue code 判断是否停止；refused 必须在取数前终止。",

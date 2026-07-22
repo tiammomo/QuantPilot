@@ -250,8 +250,8 @@ async function artifactEvidence(projectId: string, requestId: string): Promise<{
   failures: string[];
 }> {
   const workspace = path.join(projectRoot, projectId);
-  const generation = await fileJson(path.join(workspace, '.quantpilot', 'generation-state.json'));
-  const validation = await fileJson(path.join(workspace, '.quantpilot', 'validation.json'));
+  const generation = await fileJson(path.join(workspace, '.data-agent', 'generation-state.json'));
+  const validation = await fileJson(path.join(workspace, '.data-agent', 'validation.json'));
   const dashboard = await fileJson(path.join(workspace, 'data_file', 'final', 'dashboard-data.json'));
   const sources = await fileJson(path.join(workspace, 'evidence', 'sources.json'));
   const pageStat = await fs.stat(path.join(workspace, 'app', 'page.tsx')).catch(() => null);

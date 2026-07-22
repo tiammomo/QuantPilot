@@ -1,4 +1,0 @@
-interface:
-  display_name: "多标的对比"
-  short_description: "按统一窗口和口径校验多标的覆盖、指标、相对强弱和缺口说明"
-  default_prompt: "Use $quant-comparison to compare all requested symbols on one auditable window and metric basis."

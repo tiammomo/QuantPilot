@@ -21,7 +21,7 @@ model Project {
   description String?
   status      String  @default("idle") // idle, running, stopped, error
 
-  // Preview (legacy metadata retained for compatibility)
+  // Preview runtime metadata
   previewUrl  String? @map("preview_url")
   previewPort Int?    @map("preview_port")
 
@@ -31,10 +31,6 @@ model Project {
   // Initial setup
   initialPrompt String? @map("initial_prompt")
   templateType  String? @map("template_type") // nextjs, react, vue 等
-
-  // Deprecated compatibility column. MoAgent never reads or writes this value;
-  // keeping the mapping prevents `prisma db push` from dropping historical data.
-  legacyRuntimeSessionId String? @map("active_claude_session_id")
 
   // Agent Runtime Preferences. MoAgent rebuilds bounded context from messages.
   preferredCli    String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
@@ -51,7 +47,6 @@ model Project {
 
   // Relations
   messages                       Message[]
-  sessions                       Session[]
   envVars                        EnvVar[]
   serviceConnections             ProjectServiceConnection[]
   commits                        Commit[]
@@ -87,8 +82,7 @@ model Message {
   // Thread support
   parentMessageId String? @map("parent_message_id")
 
-  // Session
-  sessionId      String? @map("session_id")
+  // Conversation thread
   conversationId String? @map("conversation_id")
 
   // Performance tracking
@@ -110,47 +104,14 @@ model Message {
 
   // Relations
   project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  session    Session?    @relation(fields: [sessionId], references: [id])
   toolUsages ToolUsage[]
 
   @@index([projectId])
-  @@index([sessionId])
   @@index([createdAt])
   @@index([projectId, createdAt])
   @@index([cliSource])
   @@index([requestId])
   @@map("messages")
-}
-
-model Session {
-  id        String @id @default(cuid())
-  projectId String @map("project_id")
-
-  // Legacy application session records. Active MoAgent execution is tracked by
-  // UserRequest, AgentRun durable state, and the in-process cancellation registry,
-  // not this table.
-  sessionType String  @map("session_type") // chat, code_gen, error_fix
-  cliType     String  @map("cli_type") // legacy runtime identifier
-  sessionId   String  @map("session_id") // legacy application session identifier
-  modelName   String? @map("model_name")
-
-  // Context
-  contextTokens Int? @map("context_tokens")
-
-  // Status
-  status String @default("active") // active, ended, error
-
-  // Timestamps
-  createdAt DateTime  @default(now()) @map("created_at")
-  endedAt   DateTime? @map("ended_at")
-
-  // Relations
-  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  messages Message[]
-
-  @@index([projectId])
-  @@index([cliType])
-  @@map("sessions")
 }
 
 model ProjectServiceConnection {

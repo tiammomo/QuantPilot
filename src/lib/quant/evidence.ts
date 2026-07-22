@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/quant/workspace';
+import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/domains/finance/workspace';
 
 type JsonRecord = Record<string, unknown>;
 type EvidenceStatus = 'ok' | 'warning' | 'error';
@@ -535,7 +535,7 @@ export async function ensureBaselineEvidenceFiles(
     };
   }
 
-  const runPlan = await readJsonRecord(path.join(projectPath, '.quantpilot', 'run_plan.json'));
+  const runPlan = await readJsonRecord(path.join(projectPath, '.data-agent', 'finance-run-plan.json'));
   const now = new Date().toISOString();
   const runId = pickString(runPlan?.runId, runPlan?.run_id, finalData.runId, finalData.generatedAt, now) ?? now;
   const symbol = pickString(finalData.symbol, asRecord(finalData.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';

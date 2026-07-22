@@ -60,7 +60,7 @@ import {
   getQuantCapability,
   QUANT_CAPABILITIES,
   type QuantCapabilityId,
-} from "@/lib/quant/capabilities";
+} from "@/lib/domains/finance/capabilities";
 import { cn } from "@/lib/utils";
 import homeAnimeResearcher from "@/assets/home-anime-quant-researcher-v3.webp";
 import {

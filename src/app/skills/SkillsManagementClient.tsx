@@ -231,9 +231,8 @@ function buildFeatureRows(skill: CatalogSkillItem) {
         [
           ...skill.endpoints.map((endpoint) => `接口 ${endpoint}`),
           ...skill.scripts.map((script) => `脚本 ${script}`),
-          ...skill.legacyAliases.map((alias) => `兼容 ${alias}`),
         ],
-        "无额外接口、脚本或兼容别名"
+        "无额外接口或脚本"
       ),
     },
   ];
@@ -339,7 +338,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
       if (filter !== "all" && skill.health.status !== filter) return false;
       if (scopeFilter !== "all" && skill.scope !== scopeFilter) return false;
       if (!kw) return true;
-      return [skill.id, skill.name, skill.version, skill.status, skill.scope, SCOPE_LABELS[skill.scope], skill.boundary, ...skill.inputs, ...skill.outputs, ...skill.scripts, ...skill.legacyAliases]
+      return [skill.id, skill.name, skill.version, skill.status, skill.scope, SCOPE_LABELS[skill.scope], skill.boundary, ...skill.inputs, ...skill.outputs, ...skill.scripts]
         .join(" ").toLowerCase().includes(kw);
     });
   }, [payload.skills, query, filter, scopeFilter]);

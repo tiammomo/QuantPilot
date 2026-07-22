@@ -14,15 +14,15 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-b
 });
 
 const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../../src/lib/utils/scaffold.ts');
-const { writeInitialRunPlan } = jiti('../../src/lib/quant/workspace.ts');
-const { rewriteQuantQuery } = jiti('../../src/lib/quant/query-rewrite.ts');
+const { writeInitialRunPlan } = jiti('../../src/lib/domains/finance/workspace.ts');
+const { rewriteQuantQuery } = jiti('../../src/lib/domains/finance/query-rewrite.ts');
 const {
   serializeQuantVisualizationTemplate,
-} = jiti('../../src/lib/quant/visualization-templates.ts');
+} = jiti('../../src/lib/domains/finance/visualization-templates.ts');
 const {
   __dashboardSpecTesting,
-} = jiti('../../src/lib/agent/tools/dashboard-spec.ts');
-const { buildClarificationContinuation } = jiti('../../src/lib/quant/intent.ts');
+} = jiti('../../src/lib/domains/finance/agent-tools/dashboard-spec.ts');
+const { buildClarificationContinuation } = jiti('../../src/lib/domains/finance/intent.ts');
 const { prefetchQuantDataForRunPlan } = jiti('../../src/lib/quant/data-prefetch.ts');
 const {
   startQuantGenerationRun,
@@ -34,7 +34,7 @@ const {
   readQuantValidationReport,
   validateQuantProject,
 } = jiti('../../src/lib/quant/validation.ts');
-const { buildQuantProjectSettings } = jiti('../../src/lib/quant/capabilities.ts');
+const { buildQuantProjectSettings } = jiti('../../src/lib/domains/finance/capabilities.ts');
 const { previewManager } = jiti('../../src/lib/services/preview.ts');
 const {
   getDefaultModelForCli,
@@ -348,7 +348,7 @@ async function fileExists(filePath) {
 }
 
 async function readSkillLockSnapshot() {
-  const lockPath = path.resolve('.claude/skills.lock.json');
+  const lockPath = path.resolve('.moagent/skills.lock.json');
   const lock = await readJson(lockPath).catch(() => null);
   if (!lock || typeof lock !== 'object' || !lock.skills || typeof lock.skills !== 'object') {
     return { schemaVersion: null, skills: {} };
@@ -396,7 +396,7 @@ function reportCommand(argv, datasetVisibility) {
 }
 
 async function readEvents(projectPath) {
-  const eventsPath = path.join(projectPath, '.quantpilot', 'events.jsonl');
+  const eventsPath = path.join(projectPath, '.data-agent', 'events.jsonl');
   const content = await fs.readFile(eventsPath, 'utf8').catch(() => '');
   return content
     .split('\n')
@@ -623,7 +623,7 @@ async function writeBenchmarkImageAttachment({ projectPath, requestId, imageAtta
   const pngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAUAAAADwCAIAAABxLb1rAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAG0lEQVR4nO3BAQ0AAADCoPdPbQ43oAAAAAAAAAC4Gz+0AAFjTWbGAAAAAElFTkSuQmCC';
   await fs.writeFile(imagePath, Buffer.from(pngBase64, 'base64'));
-  await writeJson(path.join(projectPath, '.quantpilot', 'attachments.json'), {
+  await writeJson(path.join(projectPath, '.data-agent', 'attachments.json'), {
     schemaVersion: 1,
     projectId: path.basename(projectPath),
     requestId,
@@ -633,7 +633,6 @@ async function writeBenchmarkImageAttachment({ projectPath, requestId, imageAtta
         id: 'benchmark-image-1',
         name: fixtureName,
         path: path.relative(projectPath, imagePath).replaceAll(path.sep, '/'),
-        absolutePath: imagePath,
         mimeType: 'image/png',
         size: (await fs.stat(imagePath)).size,
         url: `/uploads/${requestId}/${fixtureName}`,
@@ -712,7 +711,7 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
     readArtifact('evidence/data_quality.json'),
     readArtifact('evidence/sources.json'),
     readArtifact('app/page.tsx', 'text'),
-    readArtifact('.quantpilot/run_plan.json'),
+    readArtifact('.data-agent/finance-run-plan.json'),
   ]);
 
   if (!finalData || !quality || !sources || !page || !runPlan) {
@@ -903,7 +902,7 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
   }
 
   if (testCase.expectedNoCardSurface) {
-    const visualReport = await readArtifact('.quantpilot/visual-validation.json');
+    const visualReport = await readArtifact('.data-agent/visual-validation.json');
     const viewports = Array.isArray(visualReport?.viewports) ? visualReport.viewports : [];
     assertCondition(viewports.length >= 2, '无卡片定制必须保留桌面端和移动端视觉证据。', failures);
     for (const viewport of viewports) {
@@ -1340,7 +1339,7 @@ async function runRepairPlanCase(testCase) {
   const report = {
     schemaVersion: 1,
     projectId,
-    reportPath: '.quantpilot/validation.json',
+    reportPath: '.data-agent/validation.json',
     status: 'failed',
     passed: false,
     createdAt: new Date().toISOString(),
@@ -1368,8 +1367,8 @@ async function runRepairPlanCase(testCase) {
     failures,
   );
   assertCondition(
-    instruction.includes('整个 `.quantpilot/**`') && instruction.includes('结构修复和重新生成由平台负责'),
-    '修复提示词应明确 .quantpilot 全部由平台维护。',
+    instruction.includes('整个 `.data-agent/**`') && instruction.includes('结构修复和重新生成由平台负责'),
+    '修复提示词应明确 .data-agent 全部由平台维护。',
     failures,
   );
   assertCondition(instruction.includes('data_file/final/dashboard-data.json'), '修复提示词应强调标准数据绑定。', failures);
@@ -1511,7 +1510,7 @@ async function runSourceDegradationCase(testCase) {
   };
   await writeJson(path.join(projectPath, 'data_file/final/dashboard-data.json'), finalData);
   await fs.appendFile(
-    path.join(projectPath, '.quantpilot/events.jsonl'),
+    path.join(projectPath, '.data-agent/events.jsonl'),
     `${JSON.stringify({
       event_type: 'data_prefetch_started',
       stage: 'data_collection',
@@ -1576,7 +1575,7 @@ async function runSourceDegradationCase(testCase) {
     limitations: ['降级信源的字段口径可能与主信源不同，需要在页面展示。'],
   });
   await fs.appendFile(
-    path.join(projectPath, '.quantpilot/events.jsonl'),
+    path.join(projectPath, '.data-agent/events.jsonl'),
     `${JSON.stringify({
       event_type: 'data_quality_checked',
       stage: 'data_quality',
@@ -1792,7 +1791,7 @@ function delay(ms) {
 
 async function readGenerationPrefetch(projectPath) {
   const generation = await readJson(
-    path.join(projectPath, '.quantpilot/generation-state.json'),
+    path.join(projectPath, '.data-agent/generation-state.json'),
   ).catch(() => null);
   const step = Array.isArray(generation?.steps)
     ? generation.steps.find((item) => item?.id === 'data_prefetch')
@@ -1828,7 +1827,7 @@ async function waitForAcceptedMission({ projectPath, projectId, requestId }) {
     }
     if (mission?.status === 'completed' && mission.acceptedReceipt) {
       const generation = await readJson(
-        path.join(projectPath, '.quantpilot/generation-state.json'),
+        path.join(projectPath, '.data-agent/generation-state.json'),
       ).catch(() => null);
       const request = await prisma.userRequest.findUnique({
         where: { id: requestId },

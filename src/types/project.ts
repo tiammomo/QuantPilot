@@ -1,5 +1,5 @@
 import type { CLIType } from './cli';
-import type { QuantCapabilityId } from '@/lib/quant/capabilities';
+import type { QuantCapabilityId } from '@/lib/domains/finance/capabilities';
 
 export type ProjectStatus =
   | 'idle'

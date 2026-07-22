@@ -1,0 +1,853 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "dateFormat": "YYYY-MM-DD",
+    "versioning": "semver",
+    "description": "每个核心 skill 的版本变更必须记录在这里；修改 SKILL.md、references、scripts 或输出契约时必须同步升级 registry 版本并新增 release。"
+  },
+  "skills": {
+  "query-rewrite": {
+    "releases": [
+      {
+        "version": "0.5.0",
+        "date": "2026-07-22",
+        "summary": "切换到唯一的 .data-agent 控制面和 Finance Domain Pack 合同。",
+        "changes": [
+          "权威语义产物改为 .data-agent/finance-query-rewrite.json。",
+          "LLM 审计信息从 workspace/profile 与 Finance Run Plan 读取。",
+          "删除旧工作空间路径和双写假设。"
+        ]
+      },
+      {
+        "version": "0.4.0",
+        "date": "2026-07-19",
+        "summary": "Query Rewrite 升级为 LLM-first 且失败关闭的 schema v4，删除关键词语义旁路和确定性降级结果。",
+        "changes": [
+          "preview 与 execution 均由用户选定模型通过 Tool Schema 解析语义。",
+          "时间范围、宽域范围和 answer-only 意图新增原文字面证据校验，标的仍由独立 Resolver 确认。",
+          "模型未配置、超时、失败或输出无效时返回 llm_unavailable，不再生成关键词降级合同。",
+          "Run Plan 与数据预取移除对原始问题的二次标的和周期解析。"
+        ]
+      },
+      {
+        "version": "0.3.0",
+        "date": "2026-07-16",
+        "summary": "把问题改写提升为规划唯一语义事实源，补齐部分解析修复、澄清隔离、安全拒答与项目级 LLM 配置合同。",
+        "changes": [
+          "部分 Resolver 命中不再阻止 LLM 清理错误候选；清理后重新执行全部标的核验。",
+          "新增 refused 安全状态，确定性涨停或收益承诺在取数与 Agent 执行前终止。",
+          "Run Plan 消费 analysisFocus、broadUniverse 和 capabilityHint，避免财务指标比较被误路由为多标的比较。",
+          "项目 Manifest、Settings 和 Run Plan 均携带不含密钥的完整 LLM profile。"
+        ]
+      },
+      {
+          "version": "0.2.0",
+          "date": "2026-07-16",
+          "summary": "升级为规则优先、LLM 按需增强且可安全降级的混合问题改写架构。",
+          "changes": [
+            "简单问题保持确定性毫秒级解析；复杂语义、非标准时间、指代或规则低置信度才进入 DeepSeek Tool Schema。",
+            "LLM 只输出语义字段，标的必须来自用户原文字面片段并继续通过 symbols/resolve 核验，禁止模型发明代码。",
+            "Query Rewrite 合同升级为 schemaVersion 2，新增 deterministic、hybrid_llm、deterministic_fallback 策略和可审计 LLM 状态、耗时、模型及 Token 用量。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-07-16",
+          "summary": "新增问题重写技能，在取数前形成版本化、可执行且可审计的量化查询合同。",
+          "changes": [
+            "统一提取自然语言中的标的、时间范围、分析重点、能力提示和输出意图。",
+            "输出 resolved、ambiguous、unresolved 与可重试故障的类型化状态，避免解析失败被误报为无数据。",
+            "新增 query-rewrite-contract.md、validate_query_rewrite.py 和 Agent 元数据，并接入运行计划、预取与任务合同。"
+          ]
+        }
+      ]
+    },
+    "run-planner": {
+      "releases": [
+        {
+          "version": "0.4.0",
+          "date": "2026-07-22",
+          "summary": "运行规划只消费 .data-agent 通用任务合同和 Finance Run Plan。",
+          "changes": [
+            "计划路径统一为 .data-agent/finance-run-plan.json。",
+            "工作空间元数据统一从 .data-agent/workspace.json 读取。",
+            "移除旧状态目录、旧文件名与兼容写入规则。"
+          ]
+        },
+        {
+          "version": "0.3.1",
+          "date": "2026-07-16",
+          "summary": "在生成运行计划前消费统一的 Query Rewrite 合同。",
+          "changes": [
+            "优先复用 finance-query-rewrite.json 中已确认的标的、周期、能力提示和澄清状态。",
+            "将 finance-query-rewrite.json 固化为平台只读输入，避免规划层重复解析用户原始文本。",
+            "未解析、歧义和解析服务故障分别进入类型化澄清或重试路径。"
+          ]
+        },
+        {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含任务合同 reference、确定性澄清脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 run-plan-contract.md，固化计划字段、澄清门禁和失败边界。",
+            "增强 intent_clarifier.py 的 JSON 文件/stdin 契约并保留既有参数兼容。",
+            "新增 agents/openai.yaml，并纳入完整技能包发布检查。"
+          ]
+        },
+        {
+          "version": "0.2.4",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "移除 skill 自行输出阶段日志和重复执行摘要的要求。",
+            "只向平台贡献业务场景、对象、时间、数据需求、输出形式和澄清缺口。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.2.3",
+          "date": "2026-07-14",
+          "summary": "统一平台只读运行计划与 Agent 执行边界。",
+          "changes": [
+            "明确 .data-agent 下的计划、状态和事件由平台在 Agent 启动前维护。",
+            "run-planner 只解释权威计划和澄清状态，不再要求 Agent 改写 run_plan 或 events。",
+            "平台预取与非完整预取场景都使用同一只读计划契约。"
+          ]
+        },
+        {
+          "version": "0.2.2",
+          "date": "2026-07-14",
+          "summary": "修复含证券、股份或公司后缀的标的名称被误判为泛词的问题。",
+          "changes": [
+            "可解析的证券名称在没有 6 位代码时也应直接进入标的解析。",
+            "最近怎么样、走势如何等问法默认按 120 个交易日综合诊断和可验证看板继续。",
+            "调整意图脚本的泛词匹配，仅拦截真实占位语，不再拦截中信证券、杭钢股份、有研新材等名称。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-06-04",
+          "summary": "增强二次对话看板修订的上下文继承和意图去噪规则。",
+          "changes": [
+            "要求无新标的的页面重构、删除、新增、保留等请求继承上一轮 run_plan 的 symbols、timeRange、capabilityId 和 visualization 模板。",
+            "明确平台附加的执行日志、过程说明和图片处理规则不得参与能力或模板判断。",
+            "收紧 portfolio_risk 触发条件，只有持仓、账户、仓位、成本、现金、盈亏、调仓或证券账户截图等明确语义才进入持仓分析。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-25",
+          "summary": "增强运行规划、澄清承接和场景化可视化模板字段。",
+          "changes": [
+            "新增 visualization.templateId、painPoints、dataSignals 和 finalDataContract 输出要求。",
+            "要求澄清回复合并上一轮问题后继续原 run plan。"
+          ]
+        }
+      ]
+    },
+    "quant-data-registry": {
+      "releases": [
+        {
+          "version": "0.5.0",
+          "date": "2026-07-22",
+          "summary": "数据路由 Skill 迁入唯一的 .moagent 权威源。",
+          "changes": [
+            "脚本调用路径统一为 .moagent/skills/quant-data-registry。",
+            "发布包与 lock 只记录规范 Skill ID。"
+          ]
+        },
+        {
+          "version": "0.4.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含数据路由合同和确定性信源选择器的完整技能包。",
+          "changes": [
+            "新增 registry-routing-contract.md，记录本地优先、覆盖、字段缺口和降级边界。",
+            "新增 select_data_route.py，以稳定 JSON 选择最小可审计数据路线。",
+            "新增 Agent 元数据，并要求 reference/script 均由 SKILL.md 直接导航。"
+          ]
+        },
+        {
+          "version": "0.3.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为数据集、端点、本地覆盖、provider、时效、缺口和降级路线。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.3.0",
+          "date": "2026-05-29",
+          "summary": "强化本地 PostgreSQL/TimescaleDB 优先的数据选择规则。",
+          "changes": [
+            "新增 /api/v1/research/universes/summary、/api/v1/research/data-coverage 和 /api/v1/research/bars/{symbol} 作为历史分析前置检查。",
+            "要求首页对话、生成工作空间和策略分析先说明本地覆盖，再决定是否补数。",
+            "交互式对话默认使用 universe summary、分页 members 和指定标的 bars，避免每次全量扫描 data-coverage。",
+            "明确外部 provider 只作为实时补充或本地缺口补数入口，补数后必须回读本地库。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-29",
+          "summary": "补充行情字段补数、provider 优先级和数据源知识库使用规则。",
+          "changes": [
+            "新增 Baostock / AKShare 历史 K 线补数字段规则，覆盖 amount、amplitude、change_percent、change_amount 和 turnover。",
+            "要求查询 docs/market-data-source-knowledge.md 后再选择历史行情 provider。",
+            "明确腾讯 K 线只能作为 OHLCV 兜底，不能视为成交额和换手率来源。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "建立数据注册、候选信源和降级规则说明能力。",
+          "changes": [
+            "约束后端 registry、provider candidates 和数据质量说明的使用边界。"
+          ]
+        }
+      ]
+    },
+    "quant-symbol-resolver": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-22",
+          "summary": "标的解析对齐 Finance Query Rewrite 的唯一语义合同。",
+          "changes": [
+            "只从 .data-agent/finance-query-rewrite.json 复用已确认标的。",
+            "脚本调用路径统一为 .moagent/skills/quant-symbol-resolver。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-16",
+          "summary": "接入 Query Rewrite 的标的解析结果并明确解析职责边界。",
+          "changes": [
+            "优先复用 finance-query-rewrite.json.resolvedSymbols，不再重复解析已经确认的标的。",
+            "保留单独调用解析 API 的兜底能力，并对不可用、无匹配和歧义返回不同状态。",
+            "统一标准代码、市场、资产类型、secid、来源和置信度的下游交接字段。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含解析合同和候选排序器的完整技能包。",
+          "changes": [
+            "新增 symbol-resolution-contract.md，固化唯一候选、同优先级歧义和输出字段。",
+            "新增 rank_candidates.py，确定性排序并区分 resolved、ambiguous 与 unresolved。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为原始标识、标准代码、名称、市场、资产类型和候选歧义。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "date": "2026-07-14",
+          "summary": "增加证券名称的自动优先级解析规则。",
+          "changes": [
+            "唯一同名 A 股优先于港股和债券候选，可直接继续生成。",
+            "以中信证券 600030.SH 作为同名跨市场解析示例。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "建立中文简称、代码、指数和 ETF 的标准化解析能力。",
+          "changes": [
+            "要求 run_plan.symbols 保持为证券代码字符串数组。"
+          ]
+        }
+      ]
+    },
+    "image-extraction": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-22",
+          "summary": "图片提取只消费 .data-agent 附件合同。",
+          "changes": [
+            "附件入口统一为 .data-agent/attachments.json。",
+            "脚本调用路径统一为 .moagent/skills/image-extraction。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含图片证据合同和提取结果归一化器的完整技能包。",
+          "changes": [
+            "新增 portfolio-image-contract.md，区分图片事实、接口事实和人工确认缺口。",
+            "新增 normalize_extraction.py，确定性规范持仓、成本、现金、盈亏和置信边界。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "移除独立的 Skill executing 占位模板。",
+            "用户可见贡献收敛为附件数量、图片哈希、识别字段、置信边界和人工确认缺口。",
+            "阶段编号、识别表和进度状态统一由平台维护。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "新增上传图片和持仓截图提取能力。",
+          "changes": [
+            "要求图片任务先读取 .data-agent/attachments.json 并调用 QuantPilotImage MCP 工具。",
+            "输出 evidence/image_extraction.json 与 dashboard-data.json.imageExtraction 契约。",
+            "视觉识别不可用时必须保留 null 字段并列出需要人工确认的信息。"
+          ]
+        }
+      ]
+    },
+    "quant-market-data": {
+      "releases": [
+        {
+          "version": "0.5.1",
+          "date": "2026-07-16",
+          "summary": "新增面向 Skills 的统一分析取数合同和部分失败隔离能力。",
+          "changes": [
+            "新增 /api/v1/analysis/context/{symbol}，一次返回实时、历史、技术、财务、基本面和公告区块。",
+            "历史行情与技术指标、财务摘要与衍生指标共享底层请求，避免重复访问 provider。",
+            "每个区块独立返回状态、耗时、数据质量和可重试错误，部分失败不再丢弃成功数据。"
+          ]
+        },
+        {
+          "version": "0.5.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含行情合同和 K 线载荷验证器的完整技能包。",
+          "changes": [
+            "新增 market-data-contract.md，固化本地优先、复权、字段和时效契约。",
+            "新增 validate_market_bars.py，检查 symbol、OHLC、日期排序、样本和异常行。",
+            "新增 Agent 元数据；legacy 行情 Skill 同步获得独立完整包。"
+          ]
+        },
+        {
+          "version": "0.4.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为标的、时间范围、粒度、记录数、来源、时效和取数缺口。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.4.0",
+          "date": "2026-05-29",
+          "summary": "将历史行情、策略分析和回测的数据入口调整为本地 TimescaleDB 优先。",
+          "changes": [
+            "新增本地数据库优先原则，要求历史 K 线、均线、涨跌停、成交额和换手率优先读取 /api/v1/research/bars/{symbol}。",
+            "补充股票池 summary、分页成员和本地 bars 的标准 curl 示例。",
+            "禁止本地库已有覆盖时优先请求外部历史 K 线接口。"
+          ]
+        },
+        {
+          "version": "0.3.0",
+          "date": "2026-05-29",
+          "summary": "接入本地历史 K 线高价值字段补数链路。",
+          "changes": [
+            "新增 /api/v1/ingestion/baostock/history 和 /api/v1/ingestion/akshare/history 作为字段补数端点。",
+            "要求 amount、amplitude、change_percent、change_amount 和 turnover 缺失时说明补数状态。",
+            "补充生成页面不得用成交量或涨跌幅伪造成交额和换手率的限制。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-25",
+          "summary": "整合实时行情、历史 K 线、指数 ETF、批量行情和多源 fallback。",
+          "changes": [
+            "合并 quant-a-share-history、quant-index-etf-market 和 quant-comparison 为兼容别名。",
+            "要求趋势类任务必须保留 K 线或明确错误面板。"
+          ]
+        }
+      ]
+    },
+    "quant-fundamentals": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-22",
+          "summary": "基本面、财务指标、估值和公告统一为单一规范 Skill。",
+          "changes": [
+            "删除对已废弃拆分 Skill ID 的兼容说明。",
+            "下游只调用 quant-fundamentals 规范 ID。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-16",
+          "summary": "接入每股经营现金流正式 API 字段和同报告期盈利质量比较合同。",
+          "changes": [
+            "财务与基本面响应正式暴露 operating_cash_flow_per_share，不再要求 Skill 读取 provider raw。",
+            "基本面指标新增同月同日报告期的 operating_cash_flow_per_share_yoy 和最新值摘要。",
+            "现金流与净利润增速比较必须对齐报告期、保留输入和缺失限制。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含基本面合同、估值脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 fundamentals-contract.md，固化报告期、财务、公告、估值和缺失字段边界。",
+            "保留并文档化 valuation_scenarios.py 的确定性输入输出。",
+            "财务与公告 legacy Skill 同步补齐 reference、script 和 Agent 元数据。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为报告期、财务与事件事实、估值假设、来源和缺失字段。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "将已由 QuantPilot typed API 与 MoAgent runtime capsule 承载的基本面能力提升为稳定能力。",
+          "changes": [
+            "确认财务、基本面指标和公告端点进入 ready capability 的受检执行链。",
+            "运行时只投影 typed-tool 兼容步骤，不向 MoAgent 暴露历史 Python/Shell 调用示例。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "建立基本面、财务衍生指标、公告事件和估值情景能力。",
+          "changes": [
+            "新增 valuation_scenarios.py，用于 PE/EPS 三档估值情景。",
+            "合并财务报表、财务指标和公告事件 legacy skill 边界。"
+          ]
+        }
+      ]
+    },
+    "quant-indicators": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-22",
+          "summary": "技术、风险、相关性、流动性和趋势计算统一为单一规范 Skill。",
+          "changes": [
+            "删除对已废弃技术指标 Skill ID 的承接说明。",
+            "下游只调用 quant-indicators 规范 ID。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含指标方法论、确定性计算脚本和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 technical-risk-methodology.md，记录窗口、复权、缺失值和风险指标口径。",
+            "统一文档化 correlation.py、liquidity.py 与 trend_template.py 的使用条件。",
+            "技术指标 legacy Skill 同步补齐独立合同与计算脚本。"
+          ]
+        },
+        {
+          "version": "0.1.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为指标、窗口、样本量、复权与缺失值口径、结果和限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.1.1",
+          "date": "2026-07-15",
+          "summary": "将已由 QuantPilot typed API 与 MoAgent runtime capsule 承载的指标能力提升为稳定能力。",
+          "changes": [
+            "确认技术指标、风险和数据质量步骤进入 ready capability 的受检执行链。",
+            "运行时优先使用 typed endpoint 与 final bars 的确定性计算，不暴露历史 Python/Shell 调用示例。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "建立技术指标、风险指标、相关性、流动性和趋势模板计算能力。",
+          "changes": [
+            "新增 trend_template.py，输出趋势状态、MA20/MA60、回撤和量能比。",
+            "保留 correlation.py 和 liquidity.py 作为多标的风险分析辅助脚本。"
+          ]
+        }
+      ]
+    },
+    "quant-backtest": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含回测合同和确定性结果验证器的完整技能包。",
+          "changes": [
+            "新增 backtest-contract.md，固化参数、样本、费用、净值、交易和限制。",
+            "新增 validate_backtest.py，检查可复现字段、曲线和统计一致性。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为策略参数、样本、费用、收益回撤、交易数和未建模限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-29",
+          "summary": "将回测技能调整为先检查本地 TimescaleDB bars 覆盖。",
+          "changes": [
+            "要求回测前读取 /api/v1/research/bars/{symbol} 并记录样本区间、行数和复权口径。",
+            "新增 backtest.localBarsCoverage 输出建议。",
+            "如果回测接口来源无法确认本地化，要求在数据质量中显式标记限制。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-25",
+          "summary": "建立策略参数、回测执行、净值曲线、回撤和交易明细能力。",
+          "changes": [
+            "要求说明费用、样本、滑点和策略限制。"
+          ]
+        }
+      ]
+    },
+    "data-quality": {
+      "releases": [
+        {
+          "version": "0.4.0",
+          "date": "2026-07-22",
+          "summary": "数据质量审计对齐 .data-agent/finance-run-plan.json。",
+          "changes": [
+            "runId 与证据追溯从 Finance Run Plan 校验。",
+            "只读边界统一为 .data-agent/**。",
+            "脚本调用路径统一为 .moagent/skills/data-quality。"
+          ]
+        },
+        {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含证据合同和确定性质量审计器的完整技能包。",
+          "changes": [
+            "新增 evidence-contract.md，固化 sources 与 data_quality 的字段及追溯关系。",
+            "新增 assess_data_quality.py，检查来源、时效、样本、缺失字段与警告。",
+            "新增 Agent 元数据和完整资源发布门禁。"
+          ]
+        },
+        {
+          "version": "0.2.2",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "数据质量摘要改为向平台提交，不再由 Skill 自行维护用户可见阶段。",
+            "用户可见贡献收敛为状态、来源、时效、样本量、缺失字段、警告和限制。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-14",
+          "summary": "将数据质量事件记录统一交由平台维护。",
+          "changes": [
+            "Agent 继续维护 evidence/sources.json 与 evidence/data_quality.json。",
+            "data_quality_checked 事件由平台写入只读 events，不再要求 skill 修改 .data-agent。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-25",
+          "summary": "增强证据文件、来源、时效、缺失字段和限制说明。",
+          "changes": [
+            "要求每个展示数据可追溯到 source。",
+            "统一 evidence/sources.json 与 evidence/data_quality.json 输出。"
+          ]
+        }
+      ]
+    },
+    "platform-ui-product-design": {
+      "releases": [
+        {
+          "version": "0.3.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含平台 UI 合同、状态矩阵验证器和 Agent 元数据的完整技能包。",
+          "changes": [
+            "新增 platform-ui-contract.md，固化状态、断点、可访问性和验收证据。",
+            "新增 validate_state_matrix.py，确定性检查 loading、empty、error、disabled、pending 与 long text。",
+            "保留 UI/UX 适配 reference，并强制从 SKILL.md 按需导航所有资源。"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度与问题识别表。",
+            "用户可见贡献收敛为目标页面、设计决策、响应式断点、交互状态和验证结果。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.2.0",
+          "date": "2026-05-28",
+          "summary": "接入 UI/UX Pro Max 方法论并沉淀 QuantPilot 适配层。",
+          "changes": [
+            "新增 references/ui-ux-pro-max-adapter.md，覆盖产品类型、页面模式、风格、配色、字体、UX、Next.js/shadcn 和图表规则。",
+            "将平台 UI 工作流调整为先做 UI/UX Pro Max 风格设计决策，再实施组件和页面。",
+            "把生成工作空间页面的审美和 UX 规则纳入本 skill 的触发范围。"
+          ]
+        },
+        {
+          "version": "0.1.0",
+          "date": "2026-05-28",
+          "summary": "建立 QuantPilot 主平台页面和组件的 UI 产品设计能力。",
+          "changes": [
+            "新增平台页面设计工作流，覆盖信息层级、组件复用、响应式和状态完整性。",
+            "明确主平台 UI 与生成工作空间金融看板的职责边界。",
+            "固化现有 shadcn 基础组件、量化控制台 primitives、语义状态色和分页验收要求。"
+          ]
+        }
+      ]
+    },
+    "dashboard-visualization": {
+      "releases": [
+        {
+          "version": "0.6.0",
+          "date": "2026-07-22",
+          "summary": "看板生成和修复全面切换到 .data-agent 平台合同。",
+          "changes": [
+            "规划、状态、队列、事件、验证和视觉报告统一从 .data-agent 只读。",
+            "模板选择只使用 .data-agent/finance-run-plan.json 和已验证 final/evidence。",
+            "删除旧路径、旧 manifest 和双写假设。"
+          ]
+        },
+        {
+          "version": "0.5.1",
+          "date": "2026-07-19",
+          "summary": "固化均衡指标带和用户侧隐藏内部审计/模板契约的生成规则。",
+          "changes": [
+            "指标带按实际数量分栏，禁止桌面端 6+1 孤项、大面积空白和数值拆行。",
+            "渠道端点、技术证据、模板名称和必备组件状态仅保留在后台产物，不再渲染为用户分区。",
+            "移动端奇数指标末项跨满整行，并由视觉验收拦截不均衡末行。"
+          ]
+        },
+        {
+          "version": "0.5.0",
+          "date": "2026-07-15",
+          "summary": "升级为包含完整数据合同、模板 references、验证脚本和 Agent 元数据的技能包。",
+          "changes": [
+            "新增 dashboard-data-contract.md，固化模板、标的覆盖、组件和禁止数据。",
+            "新增 validate_dashboard_contract.py，检查 final 数据形态、模板、标的与 mock/秘密风险。",
+            "保留场景模板和可视化判读的按需注入，完整资源不自动增加模型上下文。"
+          ]
+        },
+        {
+          "version": "0.4.8",
+          "date": "2026-07-15",
+          "summary": "接入平台统一的 Workspace 五阶段回答协作契约。",
+          "changes": [
+            "Skill 不再自行重启或重复平台进度、问题识别表或 Todo。",
+            "用户可见贡献收敛为模板与变体、数据绑定、必备组件、修改产物、视觉缺口和待验收项。",
+            "禁止占位执行文案与隐藏推理进入用户可见回答。"
+          ]
+        },
+        {
+          "version": "0.4.7",
+          "date": "2026-07-15",
+          "summary": "对齐 MoAgent 的分层提示、定向读取和平台验收边界。",
+          "changes": [
+            "移除对其他 UI skill 的额外加载要求，改为直接使用本 skill 与运行时注入的场景/判读 capsule。",
+            "标准生成与自动修复改为按模板标题、失败 ID、文件指针和缺失字段定向读取，避免顺序全量扫描上下文。",
+            "明确 .data-agent/finance-run-plan.json 永久只读；Agent 调用 submit_result 后停止，build、preview 和 validation 由平台统一执行。",
+            "新增 strategy-research 场景模板，覆盖策略假设、信号实验、参数敏感性和样本偏差说明。"
+          ]
+        },
+        {
+          "version": "0.4.6",
+          "date": "2026-07-15",
+          "summary": "将生成看板默认视觉语言切换为连续金融工作台。",
+          "changes": [
+            "要求行情、指标、图表、矩阵和表格在同一连续分析画布中通过细分区线建立层级。",
+            "禁止独立白色圆角卡片网格、悬浮阴影和 card 套 card，仅允许弹窗、浮层和显式告警脱离画布。",
+            "统一把指标卡语义改为连续指标带，并要求移动端宽表格只在所属数据区内部滚动。"
+          ]
+        },
+        {
+          "version": "0.4.5",
+          "date": "2026-07-14",
+          "summary": "将平台量化状态目录提升为完整只读边界。",
+          "changes": [
+            "明确 .data-agent 下计划、状态、队列、事件、契约与验证报告均由平台维护。",
+            "要求 Agent 只根据报告修改页面、final 数据或 evidence，不得追加事件或伪造验证状态。",
+            "与 Agent 工具权限层的只读拦截保持一致。"
+          ]
+        },
+        {
+          "version": "0.4.4",
+          "date": "2026-07-14",
+          "summary": "强化动态 JSON 嵌套对象的 TypeScript 守卫规则。",
+          "changes": [
+            "要求 financials.summary 等每一层嵌套对象都单独经过 asRecord。",
+            "增加 latest_report_date 的错误写法和可通过严格 TypeScript 的正确示例。",
+            "明确验证、视觉、契约、状态和队列报告由平台只读管理，禁止生成 workspace 伪造验证结果或安装浏览器规避验收。"
+          ]
+        },
+        {
+          "version": "0.4.3",
+          "date": "2026-07-14",
+          "summary": "固化平台预取模式，防止看板生成重写运行计划和权威数据。",
+          "changes": [
+            "run plan、final 数据和 evidence 齐备时直接进入看板增强，不再重复规划或取数。",
+            "平台预取模式下锁定 capability、symbols、templateId 和 variantId，避免单股别名被误判为多标的。",
+            "只允许根据具体验证失败修复 final/evidence，并继续禁止未经用户要求的交易执行建议。",
+            "平台预取模式禁止 Task/Todo 和 Agent 自行构建预览，减少无价值轮次。"
+          ]
+        },
+        {
+          "version": "0.4.2",
+          "date": "2026-06-04",
+          "summary": "强化多标的投研对比看板的具名图表和交易计划边界。",
+          "changes": [
+            "用户要求累计收益曲线、收益曲线、净值曲线或折线图时，必须绘制带日期轴、统一尺度和图例的时间序列折线图。",
+            "用户要求相关性矩阵、热力图或相关性与分散风险图谱时，必须绘制真实矩阵/热力图并展示标的标签、数值和颜色刻度。",
+            "未明确要求时禁止擅自新增短线交易计划、买卖点、止损、目标价或调仓指令，多标的投研页优先展示指标矩阵、收益/风险/流动性和信源。"
+          ]
+        },
+        {
+          "version": "0.4.1",
+          "date": "2026-06-04",
+          "summary": "增强金融可视化生成前的数据判读、指标口径和图表自检规则。",
+          "changes": [
+            "新增 references/visual_judgement.md，把时间字段、维度字段、指标字段、指标口径和图表选择纳入生成前判读。",
+            "要求收益、回撤、波动、胜率、仓位、ROE、换手率等口径敏感指标在卡片和摘要中说明时间窗口、覆盖对象和计算方法。",
+            "补充时间序列、双轴图、tooltip、排名图和缺数据空态的自检规则，避免通用图表协议被误套到金融看板。"
+          ]
+        },
+        {
+          "version": "0.4.0",
+          "date": "2026-05-30",
+          "summary": "强化生成看板的自动验证自修复能力。",
+          "changes": [
+            "要求验证失败时读取 validation、repair plan 和 visual-validation 报告，并实际修改页面、final 数据或 evidence。",
+            "针对真实数据形态检查失败，明确 dashboard-data.json 标准字段、模板 ID、多标的覆盖和页面绑定修复规则。",
+            "要求修复后继续运行构建和平台验证，不能停留在修复计划或验证失败兜底页。"
+          ]
+        },
+        {
+          "version": "0.3.9",
+          "date": "2026-05-30",
+          "summary": "新增模板族与页面变体自动匹配规则。",
+          "changes": [
+            "要求生成链路同时读取 visualization.templateId 和 variantId，避免所有可视化落成同一套通用页面。",
+            "沉淀多标的排名、相关性风险、流动性强弱、板块资金流、突破观察、调仓计划等具体页面变体。",
+            "要求 final 数据保留 variant_id、layout、first_viewport、variant_guidance 和 match_reasons，方便页面按变体组织首屏。"
+          ]
+        },
+        {
+          "version": "0.3.8",
+          "date": "2026-05-30",
+          "summary": "强化多标的看板主图质量，避免迷你 sparkline 冒充核心可视化。",
+          "changes": [
+            "要求多标的看板必须提供带坐标、日期、图例、数值标签或矩阵尺度的主图/对比图。",
+            "明确资产卡 sparkline 只能作为辅助图，不能替代收益、回撤、波动、K 线或矩阵主视图。",
+            "补充卡片数字不得被挤压成竖排，字段优先读取 comparison.rows[] 标准指标。"
+          ]
+        },
+        {
+          "version": "0.3.7",
+          "date": "2026-05-29",
+          "summary": "强化多标的对比看板的模板一致性和 TypeScript 动态字段渲染规则。",
+          "changes": [
+            "要求多标的、对比矩阵、排名和观察池问题必须使用 stock-selection/多标的对比结构，禁止降级成单股诊断页。",
+            "要求 dashboard-data.json.visualization.template_id 必须与 run_plan.visualization.templateId 对齐。",
+            "补充 JSX 渲染动态 JSON 字段前必须 String/format 转换，避免 unknown/object 导致 Next.js build 失败。"
+          ]
+        },
+        {
+          "version": "0.3.6",
+          "date": "2026-05-29",
+          "summary": "强化可视化看板的缺数据空态和截图验收反馈。",
+          "changes": [
+            "要求缺失行情、K 线或财务数据时显示专业待接入/待确认状态，避免首屏散落大量占位符。",
+            "要求图表区域保留 OHLC、均线、成交量或矩阵结构，并用空态文案说明数据写入后会自动渲染。",
+            "沉淀截图验收反馈，确保空数据页面也像可用金融工作台。"
+          ]
+        },
+        {
+          "version": "0.3.5",
+          "date": "2026-05-29",
+          "summary": "强化首页提问生成看板的首屏质量、字段优先级和移动端可用性。",
+          "changes": [
+            "要求默认生成看板首屏呈现真实金融内容、核心图表或矩阵、更新时间和数据状态。",
+            "明确实时行情字段优先读取 quote.previous_close/open/high/low/amount/turnover，避免用错误 K 线字段冒充昨收、成交额或换手率。",
+            "新增移动端无页面级横向溢出、宽表格内部滚动、长文本不撑爆卡片等硬性约束。"
+          ]
+        },
+        {
+          "version": "0.3.4",
+          "date": "2026-05-28",
+          "summary": "补充生成金融看板的 UI/UX Pro Max 视觉质量门槛。",
+          "changes": [
+            "要求生成页面参考 QuantPilot 的 UI/UX Pro Max 适配层，默认使用 Data-Dense Dashboard 结构。",
+            "新增首屏真实金融内容、图表表格 fallback、语义配色、响应式和动效约束。",
+            "明确功能正确但视觉粗糙或像默认模板的生成页面不算完成。"
+          ]
+        },
+        {
+          "version": "0.3.3",
+          "date": "2026-05-26",
+          "summary": "收紧持仓分析页面结构，避免生成占据首屏的巨型 hero。",
+          "changes": [
+            "要求 holding-analysis、调仓建议和截图持仓页面直接从账户摘要、持仓矩阵或核心风险面板开始。",
+            "禁止持仓分析页面使用 hero-band、深色大 VaR 卡或模板名称加巨型标题的首屏结构。",
+            "将 VaR、样本口径、刷新接口和非投资建议声明下沉到指标卡、风险模块、数据质量或底部说明。"
+          ]
+        },
+        {
+          "version": "0.3.2",
+          "date": "2026-05-25",
+          "summary": "新增生成产物策略约束，防止外部资源、mock 数据和敏感信息进入工作空间。",
+          "changes": [
+            "禁止外部 CDN、远程脚本、远程样式、远程媒体和浏览器直连外部接口。",
+            "要求页面只读取 final 数据文件或同源 /api/market，并保留 run plan、final 数据和 evidence 标准产物。",
+            "禁止 MOCK_DATA、SAMPLE_DATA、STATIC_QUOTES、示例数据、模拟数据和明文密钥。"
+          ]
+        },
+        {
+          "version": "0.3.1",
+          "date": "2026-05-25",
+          "summary": "增强生成页面的 TypeScript 稳定性约束，避免动态 JSON 字段推断导致 build 失败。",
+          "changes": [
+            "要求 dashboard-data.json 读取后统一使用 JsonRecord、asRecord、asArray 和 numeric 守卫。",
+            "要求 flatMap/map 中新增字段的动态对象显式标注为 JsonRecord。",
+            "禁止用 as any 掩盖页面类型错误，新增公告、财务、估值、相关性等模块后必须通过 Next.js build。"
+          ]
+        },
+        {
+          "version": "0.3.0",
+          "date": "2026-05-25",
+          "summary": "引入场景化可视化模板矩阵，按持仓、选股、个股、技术、基本面、回测和板块轮动生成差异化看板。",
+          "changes": [
+            "新增 references/scenario_templates.md。",
+            "要求页面按 visualization.templateId 覆盖场景痛点和必备组件。",
+            "要求 final 数据保留 visualization.template_id、required_components、rendered_components 和 pain_points。"
+          ]
+        }
+      ]
+    }
+  }
+}

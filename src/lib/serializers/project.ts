@@ -1,6 +1,6 @@
 import type { Project as ProjectEntity } from '@/types/backend';
 import type { Project } from '@/types';
-import { getQuantCapability } from '@/lib/quant/capabilities';
+import { getQuantCapability } from '@/lib/domains/finance/capabilities';
 
 function readQuantCapabilityId(settings?: string | null) {
   if (!settings) return null;
@@ -13,8 +13,6 @@ function readQuantCapabilityId(settings?: string | null) {
 }
 
 export function serializeProject(project: ProjectEntity): Project {
-  // legacyRuntimeSessionId intentionally stays server-only. It exists solely
-  // to preserve the historical physical column during Prisma schema sync.
   return {
     id: project.id,
     name: project.name,
