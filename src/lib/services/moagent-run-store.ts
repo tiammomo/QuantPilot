@@ -236,11 +236,16 @@ function resultReceipt(projection: RuntimeJsonObject, uncertain: boolean): Runti
 }
 
 function checkpointState(input: {
-  stage: 'run_started' | 'tools_completed' | 'model_turn_completed';
+  stage:
+    | 'run_started'
+    | 'tools_completed'
+    | 'model_turn_completed'
+    | 'waiting_for_external_input';
   turn: number;
   sourceSequence: number;
   completedOperationIds: readonly string[];
   progressOracle?: RuntimeJsonObject;
+  approvalId?: string;
 }): RuntimeJsonObject {
   return {
     recoveryMode: 'replan_required',
@@ -248,6 +253,7 @@ function checkpointState(input: {
     turn: input.turn,
     sourceSequence: input.sourceSequence,
     completedOperationIds: [...input.completedOperationIds],
+    ...(input.approvalId ? { approvalId: input.approvalId } : {}),
     ...(input.progressOracle ? { progressOracle: input.progressOracle } : {}),
   };
 }
@@ -378,6 +384,14 @@ export class MoAgentDurableRunSession {
 
       if (event.type === 'run_started') {
         await this.saveCheckpoint('run_started', 0, event.sequence);
+      } else if (event.type === 'tool_approval_requested') {
+        await this.saveCheckpoint(
+          'waiting_for_external_input',
+          event.turn,
+          event.sequence,
+          undefined,
+          event.request.approvalId,
+        );
       } else if (event.type === 'tool_completed' || event.type === 'tool_failed') {
         await this.saveCheckpoint('tools_completed', event.turn, event.sequence);
       } else if (event.type === 'progress_evaluated') {
@@ -596,16 +610,26 @@ export class MoAgentDurableRunSession {
       eventType: event.type,
       payload: projection,
       ...(cumulativeUsage ? { cumulativeUsage } : {}),
+      ...(event.type === 'tool_approval_requested'
+        ? { transitionStatus: 'waiting' as const }
+        : event.type === 'tool_approval_resolved'
+          ? { transitionStatus: 'running' as const }
+          : {}),
       occurredAt,
     });
     this.currentRun = appended.run;
   }
 
   private async saveCheckpoint(
-    stage: 'run_started' | 'tools_completed' | 'model_turn_completed',
+    stage:
+      | 'run_started'
+      | 'tools_completed'
+      | 'model_turn_completed'
+      | 'waiting_for_external_input',
     turn: number,
     sourceSequence: number,
     progressOracle?: RuntimeJsonObject,
+    approvalId?: string,
   ): Promise<void> {
     // appendEvent and tool ledger writes are idempotent. A redelivered event
     // must not fail on the checkpoint's (runId, sequence) uniqueness boundary.
@@ -621,6 +645,7 @@ export class MoAgentDurableRunSession {
       sourceSequence,
       completedOperationIds: this.completedOperationIds,
       ...(progressOracle ? { progressOracle } : {}),
+      ...(approvalId ? { approvalId } : {}),
     });
     const stateHash = hashMoAgentCheckpointPublicState(publicState);
     const saved = await this.repository.saveCheckpoint({

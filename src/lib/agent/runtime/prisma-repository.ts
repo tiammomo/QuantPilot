@@ -798,6 +798,16 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
     assertValidDate(input.occurredAt, 'event.occurredAt');
     const payload = clonePublicRuntimeJson(input.payload, 'agent event payload');
     if (input.cumulativeUsage) assertUsage(input.cumulativeUsage);
+    if (
+      input.transitionStatus !== undefined &&
+      input.transitionStatus !== 'running' &&
+      input.transitionStatus !== 'waiting'
+    ) {
+      throw new AgentRuntimeRepositoryError(
+        'INVALID_STATE',
+        'Event lifecycle transition must target running or waiting.',
+      );
+    }
     const existing = await this.findEventCollision(input);
     if (existing) return this.resolveExistingEvent(input, payload, existing);
 
@@ -808,9 +818,18 @@ export class PrismaAgentRuntimeRepository implements AgentRuntimeRepository {
           where: {
             ...fenceWhere(input, now),
             lastEventSequence: { lt: input.sequence },
+            ...(input.transitionStatus
+              ? {
+                  status:
+                    input.transitionStatus === 'waiting' ? 'running' : 'waiting',
+                }
+              : {}),
           },
           data: {
             lastEventSequence: input.sequence,
+            ...(input.transitionStatus
+              ? { status: input.transitionStatus }
+              : {}),
             ...(input.cumulativeUsage
               ? {
                   inputTokens: input.cumulativeUsage.inputTokens,

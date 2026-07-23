@@ -387,6 +387,15 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
       );
     }
     this.assertFence(input, now);
+    if (input.transitionStatus !== undefined) {
+      const expected = input.transitionStatus === 'waiting' ? 'running' : 'waiting';
+      if (run.status !== expected) {
+        throw new AgentRuntimeRepositoryError(
+          'INVALID_STATE',
+          `Agent run must be ${expected} before transitioning to ${input.transitionStatus}.`,
+        );
+      }
+    }
     if (input.sequence <= run.lastEventSequence) {
       throw new AgentRuntimeRepositoryError(
         'CONFLICT',
@@ -408,6 +417,7 @@ export class InMemoryAgentRuntimeRepository implements AgentRuntimeRepository {
       createdAt: new Date(now),
     };
     run.lastEventSequence = input.sequence;
+    if (input.transitionStatus !== undefined) run.status = input.transitionStatus;
     if (input.cumulativeUsage) {
       run.inputTokens = input.cumulativeUsage.inputTokens;
       run.outputTokens = input.cumulativeUsage.outputTokens;

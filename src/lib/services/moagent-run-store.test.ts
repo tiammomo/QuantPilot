@@ -171,6 +171,73 @@ function toolBase(sequence: number, toolCall = call()) {
 }
 
 describe('MoAgentDurableRunSession', () => {
+  it('atomically marks an approval wait and resumes without preparing the tool ledger', async () => {
+    const repository = new RecordingRepository({ now: () => new Date(START) });
+    const session = await createMoAgentDurableRunSession({
+      ...runOptions(repository),
+      heartbeatEnabled: false,
+    });
+
+    await session.record(runStarted());
+    await session.record({
+      ...eventBase(2),
+      type: 'tool_approval_requested',
+      turn: 1,
+      request: {
+        approvalId: 'approval_abcdefghijklmnop',
+        runId: 'moagent_durable-test',
+        turn: 1,
+        toolCallId: 'provider-call-private',
+        toolName: 'publish_report',
+        effect: 'external_write',
+        idempotency: 'operation_key',
+        inputSha256: 'a'.repeat(64),
+        publicInput: { channel: 'approved-reports' },
+        reason: 'Publishing is externally visible.',
+        allowedDecisions: ['approve', 'edit', 'reject'],
+        requestedAt: START.getTime(),
+        expiresAt: START.getTime() + 60_000,
+      },
+    });
+
+    expect(session.run.status).toBe('waiting');
+    expect(await repository.getLatestCheckpoint(session.run.id)).toMatchObject({
+      boundary: 'waiting_for_external_input',
+      publicState: {
+        recoveryMode: 'replan_required',
+        stage: 'waiting_for_external_input',
+        turn: 1,
+        sourceSequence: 2,
+        approvalId: 'approval_abcdefghijklmnop',
+        completedOperationIds: [],
+      },
+    });
+    expect(repository.calls).not.toContainEqual(expect.stringMatching(/^prepare:/));
+
+    await session.record({
+      ...eventBase(3),
+      type: 'tool_approval_resolved',
+      turn: 1,
+      approvalId: 'approval_abcdefghijklmnop',
+      toolCallId: 'provider-call-private',
+      toolName: 'publish_report',
+      decision: 'edit',
+      inputSha256: 'a'.repeat(64),
+      effectiveInputSha256: 'b'.repeat(64),
+      resolvedBy: 'reviewer-1',
+    });
+
+    expect(session.run.status).toBe('running');
+    expect((await repository.listEventsAfter(session.run.id, 0)).map((event) =>
+      event.eventType
+    )).toEqual([
+      'run_started',
+      'tool_approval_requested',
+      'tool_approval_resolved',
+    ]);
+    await session.close();
+  });
+
   it('persists a canonical ProgressOracle snapshot at the model-turn boundary', async () => {
     const repository = new RecordingRepository({ now: () => new Date(START) });
     const session = await createMoAgentDurableRunSession({

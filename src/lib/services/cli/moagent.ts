@@ -56,6 +56,7 @@ import {
   createPrismaMoAgentDurableRunSession,
   type MoAgentDurableRunSession,
 } from '@/lib/services/moagent-run-store';
+import { createPrismaMoAgentToolApprovalHandler } from '@/lib/services/moagent-tool-approval-store';
 import {
   hashMoAgentProvenance,
   hashMoAgentWorkspace,
@@ -1077,6 +1078,9 @@ async function executeMoAgentPhase(
       timeoutMs: Math.max(1, deadlineAt - Date.now()),
       requireTerminalTool: true,
       requireWorkspaceWriteBeforeTerminal: true,
+      toolApprovalHandler: createPrismaMoAgentToolApprovalHandler(
+        positiveIntegerEnv('MOAGENT_APPROVAL_POLL_INTERVAL_MS', 500),
+      ),
     });
 
     const startup = await withMoAgentWorkspaceResourceLock(workspace, async () => {
@@ -1125,6 +1129,15 @@ async function executeMoAgentPhase(
             effect: tool.effect,
             idempotency: tool.idempotency,
             observationCache: tool.observationCache,
+            approval: tool.approval
+              ? {
+                  reason: tool.approval.reason,
+                  allowedDecisions:
+                    tool.approval.allowedDecisions ?? ['approve', 'reject'],
+                  timeoutMs: tool.approval.timeoutMs ?? 10 * 60 * 1_000,
+                  publicInputProjector: 'first_party_v1',
+                }
+              : null,
             contextReceiptProjector: tool.projectContextReceipt ? 'first_party_v1' : null,
             terminal: tool.terminal === true,
           })))}`,
@@ -1293,6 +1306,44 @@ async function executeMoAgentPhase(
           }
           break;
         }
+        case 'tool_approval_requested':
+          publishStatus(
+            'tool_approval_required',
+            `MoAgent 正在等待确认：${event.request.reason}`,
+            {
+              runtime: 'moagent',
+              eventId: event.eventId,
+              sequence: event.sequence,
+              turn: event.turn,
+              approvalId: event.request.approvalId,
+              toolName: event.request.toolName,
+              effect: event.request.effect,
+              publicInput: event.request.publicInput,
+              allowedDecisions: [...event.request.allowedDecisions],
+              expiresAt: new Date(event.request.expiresAt).toISOString(),
+            },
+          );
+          break;
+        case 'tool_approval_resolved':
+          publishStatus(
+            'tool_approval_resolved',
+            event.decision === 'reject'
+              ? `工具 ${event.toolName} 的执行已拒绝。`
+              : event.decision === 'edit'
+                ? `工具 ${event.toolName} 的参数已修改并批准。`
+                : `工具 ${event.toolName} 已批准执行。`,
+            {
+              runtime: 'moagent',
+              eventId: event.eventId,
+              sequence: event.sequence,
+              turn: event.turn,
+              approvalId: event.approvalId,
+              toolName: event.toolName,
+              decision: event.decision,
+              ...(event.resolvedBy ? { resolvedBy: event.resolvedBy } : {}),
+            },
+          );
+          break;
         case 'tool_started': {
           const input = parseToolArguments(event.toolCall);
           const persistedInput = auditToolInput(event.toolCall.name, input);

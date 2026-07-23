@@ -38,8 +38,11 @@ if (provision.signal || provision.status !== 0) {
 
 const vitestPackage = require.resolve('vitest/package.json');
 const vitestBin = path.join(path.dirname(vitestPackage), 'vitest.mjs');
-const testFile = 'src/lib/agent/runtime/prisma-repository.integration.test.ts';
-const result = spawnSync(process.execPath, [vitestBin, 'run', testFile], {
+const testFiles = [
+  'src/lib/agent/runtime/prisma-repository.integration.test.ts',
+  'src/lib/services/moagent-tool-approval-store.integration.test.ts',
+];
+const result = spawnSync(process.execPath, [vitestBin, 'run', ...testFiles], {
   cwd: process.cwd(),
   env: { ...process.env, DATABASE_URL: databaseUrl },
   stdio: 'inherit',

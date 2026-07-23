@@ -33,11 +33,11 @@ model Project {
   templateType  String? @map("template_type") // nextjs, react, vue 等
 
   // Agent Runtime Preferences. MoAgent rebuilds bounded context from messages.
-  preferredCli   String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
-  selectedModel  String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
-  agentProfileId              String @default("quantpilot.finance-research") @map("agent_profile_id")
-  agentProfileVersion         String @default("1.0.0") @map("agent_profile_version")
-  dataAgentCompositionSha256  String @default("sha256:89436aed794ee3f03ae211a3d07ea6bc0c7fd94cd46663dba9f31917fcb8d575") @map("data_agent_composition_sha256")
+  preferredCli               String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
+  selectedModel              String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
+  agentProfileId             String  @default("quantpilot.finance-research") @map("agent_profile_id")
+  agentProfileVersion        String  @default("1.0.0") @map("agent_profile_version")
+  dataAgentCompositionSha256 String  @default("sha256:89436aed794ee3f03ae211a3d07ea6bc0c7fd94cd46663dba9f31917fcb8d575") @map("data_agent_composition_sha256")
 
   // Settings (JSON)
   settings String? // JSON string for additional settings
@@ -424,6 +424,7 @@ model AgentRun {
   events         AgentEvent[]
   checkpoints    AgentCheckpoint[]
   toolExecutions AgentToolExecution[]
+  toolApprovals  AgentToolApproval[]
 
   @@index([projectId, createdAt])
   @@index([requestId, createdAt])
@@ -666,6 +667,42 @@ model AgentToolExecution {
   @@index([runId, status])
   @@index([status, updatedAt])
   @@map("agent_tool_executions")
+}
+
+/// Human decision gate created before a mutating tool is prepared. Only a
+/// bounded public input projection is stored; original arguments stay in the
+/// active Worker and crash recovery replans instead of replaying them.
+model AgentToolApproval {
+  id                String    @id
+  runId             String    @map("run_id")
+  turn              Int
+  toolCallIdHash    String    @map("tool_call_id_hash")
+  toolName          String    @map("tool_name")
+  effect            String
+  idempotency       String
+  inputHash         String    @map("input_hash")
+  publicInput       Json      @map("public_input")
+  reason            String
+  allowedDecisions  String[]  @map("allowed_decisions")
+  status            String    @default("pending")
+  decision          String?
+  editedInput       Json?     @map("edited_input")
+  resolvedByActorId String?   @map("resolved_by_actor_id")
+  resolvedByUserId  String?   @map("resolved_by_user_id")
+  requestedAt       DateTime  @map("requested_at")
+  expiresAt         DateTime  @map("expires_at")
+  resolvedAt        DateTime? @map("resolved_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  run        AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  resolvedBy AuthUser? @relation("AgentToolApprovalResolver", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([runId, requestedAt])
+  @@index([status, expiresAt])
+  @@index([resolvedByActorId, resolvedAt])
+  @@index([resolvedByUserId, resolvedAt])
+  @@map("agent_tool_approvals")
 }
 
 /// Durable, product-level mission for one user request. AgentRun completion is
@@ -1086,37 +1123,38 @@ model EvalSchedule {
 // ============================================================
 
 model AuthUser {
-  id                  String                   @id
-  name                String
-  email               String                   @unique
-  emailVerified       Boolean                  @default(false) @map("email_verified")
-  image               String?
-  role                String                   @default("member")
-  banned              Boolean                  @default(false)
-  banReason           String?                  @map("ban_reason")
-  banExpires          DateTime?                @map("ban_expires")
-  mustChangePassword  Boolean                  @default(false) @map("must_change_password")
-  lastLoginAt         DateTime?                @map("last_login_at")
-  passwordChangedAt   DateTime?                @map("password_changed_at")
-  permissionProfileId String?                  @map("permission_profile_id")
-  quotaProfileId      String?                  @map("quota_profile_id")
-  accessVersion       Int                      @default(0) @map("access_version")
-  createdAt           DateTime                 @default(now()) @map("created_at")
-  updatedAt           DateTime                 @updatedAt @map("updated_at")
-  sessions            AuthSession[]
-  accounts            AuthAccount[]
-  ownedProjects       Project[]                @relation("ProjectOwner")
-  projectMemberships  ProjectMembership[]
-  auditEvents         AuthAuditEvent[]         @relation("AuthAuditActor")
-  permissionProfile   PermissionProfile?       @relation(fields: [permissionProfileId], references: [id], onDelete: SetNull)
-  permissionOverrides UserPermissionOverride[]
-  quotaProfile        QuotaProfile?            @relation(fields: [quotaProfileId], references: [id], onDelete: SetNull)
-  quotaOverrides      UserQuotaOverride[]
-  usageEvents         UsageEvent[]             @relation("UsageActor")
-  usageBuckets        UsageBucket[]
-  quotaReservations   QuotaReservation[]
-  initiatedRequests   UserRequest[]            @relation("UserRequestActor")
-  initiatedAgentRuns  AgentRun[]               @relation("AgentRunActor")
+  id                    String                   @id
+  name                  String
+  email                 String                   @unique
+  emailVerified         Boolean                  @default(false) @map("email_verified")
+  image                 String?
+  role                  String                   @default("member")
+  banned                Boolean                  @default(false)
+  banReason             String?                  @map("ban_reason")
+  banExpires            DateTime?                @map("ban_expires")
+  mustChangePassword    Boolean                  @default(false) @map("must_change_password")
+  lastLoginAt           DateTime?                @map("last_login_at")
+  passwordChangedAt     DateTime?                @map("password_changed_at")
+  permissionProfileId   String?                  @map("permission_profile_id")
+  quotaProfileId        String?                  @map("quota_profile_id")
+  accessVersion         Int                      @default(0) @map("access_version")
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
+  sessions              AuthSession[]
+  accounts              AuthAccount[]
+  ownedProjects         Project[]                @relation("ProjectOwner")
+  projectMemberships    ProjectMembership[]
+  auditEvents           AuthAuditEvent[]         @relation("AuthAuditActor")
+  permissionProfile     PermissionProfile?       @relation(fields: [permissionProfileId], references: [id], onDelete: SetNull)
+  permissionOverrides   UserPermissionOverride[]
+  quotaProfile          QuotaProfile?            @relation(fields: [quotaProfileId], references: [id], onDelete: SetNull)
+  quotaOverrides        UserQuotaOverride[]
+  usageEvents           UsageEvent[]             @relation("UsageActor")
+  usageBuckets          UsageBucket[]
+  quotaReservations     QuotaReservation[]
+  initiatedRequests     UserRequest[]            @relation("UserRequestActor")
+  initiatedAgentRuns    AgentRun[]               @relation("AgentRunActor")
+  resolvedToolApprovals AgentToolApproval[]      @relation("AgentToolApprovalResolver")
 
   @@index([role])
   @@index([banned])

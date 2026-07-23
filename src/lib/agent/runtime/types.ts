@@ -241,6 +241,11 @@ export interface AppendAgentEventInput extends AgentWriteFence {
    * lets crash recovery terminalize and meter an interrupted run accurately.
    */
   cumulativeUsage?: AgentTokenUsage;
+  /**
+   * Optional atomic lifecycle transition bound to this event. Only the
+   * running <-> waiting HITL transition is accepted by repositories.
+   */
+  transitionStatus?: Extract<ActiveAgentRunStatus, 'running' | 'waiting'>;
   occurredAt: Date;
 }
 

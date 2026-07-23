@@ -34,6 +34,39 @@ function toolEventBase(call = toolCall()) {
 }
 
 describe('MoAgent durable event projector', () => {
+  it('persists only the explicit public approval projection and input hashes', () => {
+    const projected = projectMoAgentEvent({
+      ...base,
+      type: 'tool_approval_requested',
+      turn: 2,
+      request: {
+        approvalId: 'approval_abcdefghijklmnop',
+        runId: base.runId,
+        turn: 2,
+        toolCallId: `private-call-${SECRET}`,
+        toolName: 'publish_report',
+        effect: 'external_write',
+        idempotency: 'operation_key',
+        inputSha256: 'a'.repeat(64),
+        publicInput: { channel: 'reviewed' },
+        reason: 'Publishing is externally visible.',
+        allowedDecisions: ['approve', 'edit', 'reject'],
+        requestedAt: 1_000,
+        expiresAt: 61_000,
+      },
+    });
+
+    expect(projected).toMatchObject({
+      approvalId: 'approval_abcdefghijklmnop',
+      toolName: 'publish_report',
+      publicInput: { channel: 'reviewed' },
+      inputSha256: 'a'.repeat(64),
+      allowedDecisions: ['approve', 'edit', 'reject'],
+    });
+    expect(JSON.stringify(projected)).not.toContain(SECRET);
+    expect(projected).not.toHaveProperty('toolCallId');
+  });
+
   it('provides exact UTF-8 byte and SHA-256 audit helpers', () => {
     expect(auditUtf8('量化 A')).toEqual({
       utf8Bytes: 8,

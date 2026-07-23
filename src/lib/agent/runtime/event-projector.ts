@@ -520,6 +520,38 @@ export function projectMoAgentEvent(event: MoAgentEvent): RuntimeJsonObject | nu
         },
       };
       break;
+    case 'tool_approval_requested':
+      projected = {
+        schemaVersion: EVENT_PROJECTION_VERSION,
+        turn: event.turn,
+        approvalId: safeName(event.request.approvalId, 'approval'),
+        toolName: safeName(event.request.toolName, 'tool'),
+        toolCallIdAudit: auditUtf8(event.request.toolCallId),
+        effect: event.request.effect,
+        idempotency: event.request.idempotency,
+        inputSha256: safeProgressFingerprint(event.request.inputSha256),
+        publicInput: event.request.publicInput,
+        reason: event.request.reason,
+        allowedDecisions: [...event.request.allowedDecisions],
+        requestedAt: event.request.requestedAt,
+        expiresAt: event.request.expiresAt,
+      };
+      break;
+    case 'tool_approval_resolved':
+      projected = {
+        schemaVersion: EVENT_PROJECTION_VERSION,
+        turn: event.turn,
+        approvalId: safeName(event.approvalId, 'approval'),
+        toolName: safeName(event.toolName, 'tool'),
+        toolCallIdAudit: auditUtf8(event.toolCallId),
+        decision: event.decision,
+        inputSha256: safeProgressFingerprint(event.inputSha256),
+        effectiveInputSha256: safeProgressFingerprint(event.effectiveInputSha256),
+        ...(event.resolvedBy
+          ? { resolvedBy: safeName(event.resolvedBy, 'actor') }
+          : {}),
+      };
+      break;
     case 'tool_started':
       projected = projectToolBase(event);
       break;
