@@ -11,12 +11,22 @@ const includeRuntime = process.argv.includes('--runtime');
 const includeProduction = process.argv.includes('--production');
 const generateContractEvidence = process.argv.includes('--eval-contract');
 const includeE2eEvidence = process.argv.includes('--e2e-evidence');
+const evidenceModel = String(
+  process.env.QUANTPILOT_RELEASE_EVIDENCE_MODEL
+  || process.env.QUANTPILOT_EVAL_MODEL
+  || 'local_qwen:qwen3.5-9b-q5km',
+).trim();
 
-if (includeE2eEvidence && !String(process.env.DEEPSEEK_API_KEY || '').trim()) {
-  console.error(
-    '[release] DEEPSEEK_API_KEY is required for release evidence; refusing to skip live MoAgent E2E.',
-  );
-  process.exit(1);
+if (includeE2eEvidence) {
+  const credentialName = evidenceModel === 'deepseek-v4-flash'
+    ? 'DEEPSEEK_API_KEY'
+    : 'MODELPORT_API_KEY';
+  if (!String(process.env[credentialName] || '').trim()) {
+    console.error(
+      `[release] ${credentialName} is required for ${evidenceModel} release evidence; refusing to skip live MoAgent E2E.`,
+    );
+    process.exit(1);
+  }
 }
 
 const checks = [
@@ -87,7 +97,12 @@ if (includeE2eEvidence) {
     [
       'Generate current-build live Mission E2E evidence',
       'npm',
-      ['run', 'benchmark:quant:e2e', '--', '--concurrency', '1', '--repeat', '2'],
+      [
+        'run', 'benchmark:quant:e2e', '--',
+        '--model', evidenceModel,
+        '--concurrency', '1',
+        '--repeat', '2',
+      ],
       ROOT,
     ],
     [
@@ -95,6 +110,7 @@ if (includeE2eEvidence) {
       'npm',
       [
         'run', 'eval:ci:e2e', '--',
+        '--model', evidenceModel,
         '--min-pass-rate', '100',
         '--min-average-score', '90',
         '--min-first-pass-rate', '75',

@@ -36,8 +36,6 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | --- | --- | --- |
 | `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 685 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
 | `src/app/[project_id]/chat/page.tsx` | 页面仍同时管理消息、生成、预览恢复与大部分布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
-| `src/app/api/chat/[project_id]/act/route.ts` | 严格请求合同和附件处理已经拆出，鉴权配额、Query Rewrite、取数和 Mission 派发仍集中在单一路由 | route 只保留请求校验与响应；应用流程迁入 use case |
-| `src/components/chat/ChatLog.tsx` | 消息协议解释、工具结果、进度状态和渲染耦合 | 拆成消息模型、工具视图、生成进度和内容 renderer |
 | `src/lib/agent/core/run-engine.ts` | Agent 状态机仍直接承接上下文、工具循环、验证与封存细节 | 按 planning、tool loop、checkpoint、verification、terminalization 拆分 |
 | `src/lib/quant/validation.ts` | artifact/data/visual/repair/acceptance 多条验证管线集中 | 拆成独立 validator，保留单一 facade |
 | `src/lib/quant/data-prefetch.ts` | 通用取数计划与金融 endpoint、证据落盘交织 | 抽离通用执行器与 Finance Data Adapter |
@@ -51,7 +49,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 
 ## 后续拆分顺序
 
-1. 先拆聊天主链：Act Use Case、Chat Page Controller 和 ChatLog renderer 是变更频率最高、回归半径最大的三个热点。
+1. 继续拆 Chat Page Controller：Act route 已降为 HTTP 接纳与 dispatch，ChatLog 已拆为状态控制器、协议运行时和纯视图；页面级 generation controller、preview reconciliation 与布局仍是聊天主链最大热点。
 2. 再拆验证与取数：把通用 Data Agent 执行合同和 Finance Adapter 从 `quant` 产品编排中进一步显式化。
 3. 拆市场数据 contracts 与 app factory，保证每个 router/service/repository 域可以独立测试。
 4. 随后拆策略平台与 `eval-core`，并把 dashboard Delivery Pack 提取为独立注册能力。

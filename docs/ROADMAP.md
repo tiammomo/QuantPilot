@@ -9,11 +9,11 @@
 QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基础设施已经具备可用主链路。现在最大的风险不再是“有没有功能”，而是：
 
 - 功能多，入口多，新同学不知道先看哪条路径。
-- 生成工作空间历史健康度不够稳定，旧项目里仍有验证失败、视觉失败或产物契约失败。
+- 生成链路已具备自动验证与修复，但仍需用持续新建的回归工作空间控制模型、模板和数据变化带来的漂移。
 - 策略平台和评测平台已经拆了一轮，但部分编排逻辑还偏重。
 - 数据能力已经有 K 线、覆盖率、ClickHouse 短线筛选，但财报质量、真实资金流、行业中性化和日频因子批处理仍需补齐。
 - 投研日报已经有观察池、报告契约、本地证据采样和企业微信/飞书/钉钉/Discord webhook adapter，后续要接新闻舆情源、LLM 摘要和定时 worker。
-- 后台队列和长任务目前还没有完全 worker 化，长期运行、暂停恢复和失败重试仍需要继续收敛。
+- generation 已由 PostgreSQL job/outbox 和独立 Worker 执行；评测、策略扫描和补数仍需统一暂停、恢复、失败重试与事件语义。
 - 本地 Qwen 与 DeepSeek Anthropic 上游已通过 ModelPort 的限定模型发现、鉴权、流式工具调用和续写验收；ModelPort 已为 OpenAI Chat Completions 应用本地 Qwen 默认思考策略，避免工具任务耗尽隐藏推理预算。Query Rewrite 已升级为 schema v4 LLM-first 合同，保持“大位科技”等原文实体，并在模型不可用时停止规划/预取，不再走关键词语义降级。Evolvable User Memory 已通过隔离 subject 的写入、召回、项目隔离、提示注入和 Outcome 闭环；AKEP 已通过自然语言检索、Citation、Usage 与 Feedback 幂等闭环。服务级固定 30 题体验集连续两轮 60/60 通过；任务级 campaign 进一步以 24 个 Qwen、6 个 ModelPort DeepSeek 的真实 Project 验证 `/act`、Workspace、Validation、Mission receipt、持久预览和任务抽屉，最终 30/30 READY。当前本地长期使用链路已打通；Memory 的持久治理、耐久审计、可信 JWT 和 production profile 仍是生产阻塞项。
 
 ## 精炼优先级快照
@@ -62,7 +62,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 生成后自动修复闭环 | 用户真正关心的是页面最终能不能用 | 验证失败后能产生 repair plan、实际修改页面/数据/证据，并重新跑验证 |
 | 视觉验证稳定化 | 很多失败不是功能坏，而是页面空白、布局粗糙或移动端溢出 | Playwright 视觉 smoke 覆盖首页、生成工作空间、评测平台、策略平台关键视图 |
 | 真实数据绑定强制化 | 防止“看起来生成成功但其实是 mock/占位数据” | artifact contract 能稳定识别 mock、远程资源、未绑定 final 数据和缺 evidence |
-| 旧 workspace 分批修复或归档 | 历史失败项目会污染用户对平台稳定性的判断 | 历史 workspace 标记为 healthy/warning/failed/archived，失败原因可追踪 |
+| 新工作空间持续回归 | 模型、模板和数据变化会造成生成质量漂移 | 每次关键变更新建隔离工作空间，保存 Mission/validation/preview 证据并按发布门禁判定 |
 
 对应文档：
 
@@ -98,7 +98,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 估值和财报质量 | 中期持有和基本面看板需要真实财报因子 | ROE、毛利率、净利率、营收同比、净利润同比、现金流质量有稳定表和披露日口径 |
 | 真实资金流 | 当前板块资金代理不能等价为主力净流入 | DDE/大单/主力净流入字段必须带 provider、更新时间、覆盖率和口径说明 |
 | 行业中性化 | 估值、质量、动量跨行业裸比较容易误导 | 行业内 rank、行业中位数、行业成分历史或至少当前行业映射可用 |
-| ClickHouse 分析层扩展 | 短线筛选已接入并完成聚合下推，后续需要更完整分析宽表 | 分析表有 freshness gate、同步状态、回退说明、特征缓存和数据质量元信息 |
+| ClickHouse 分析层扩展 | 短线筛选已接入并完成聚合下推，基础组件已按预期交易日判定 stale/partial，后续需要更完整分析宽表 | 同步任务也以同一 freshness gate 驱动，补齐回退说明、特征缓存和数据质量元信息 |
 
 对应文档：
 
@@ -115,7 +115,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | Worker 化 | 长任务不应长期依赖 Next.js 请求生命周期；该项已从 P2 提前 | 生成、评测、策略扫描、补数任务可由独立 worker 执行 |
 | MoAgent 收敛 checkpoint | ProgressOracle 不能只存在于请求进程内 | 已完成 `progress_evaluated`、canonical-hash checkpoint v2、恢复前完整性校验和停滞状态投影；后续由 worker dispatcher 消费 replan 信号，而不是恢复旧 Provider session |
 | Mission 与外层编排接管 | 进程退出不能让任务永久占用，旧 worker 也不能晚到覆盖 | 已完成 Mission verification lease/fencing、项目级 generation lease，以及过期 dispatch 在细粒度 lease 全部失活后原子关闭 UserRequest/Mission 的 replan reconciliation |
-| Durable dispatcher / outbox | `.data-agent/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、取消与崩溃封存；下一步拆出独立 polling worker 自动消费 pending/replan，Redis 只做可丢失唤醒 |
+| Durable dispatcher / outbox | `.data-agent/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、独立 polling worker、指数退避 replan、取消与崩溃封存；后续如引入 Redis，只把它用于可丢失唤醒 |
 | 暂停、恢复、停止语义统一 | 当前不同任务类型语义容易不一致 | 所有长任务都明确 checkpoint、resume offset、stop grace 和失败重试 |
 | 任务事件 outbox | 后续接 ClickHouse、日志或审计需要可重放事件 | 任务状态变化有事件记录，可用于运行治理中心和评测分析 |
 

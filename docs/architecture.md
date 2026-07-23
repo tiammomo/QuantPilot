@@ -11,7 +11,9 @@ flowchart LR
   F --> Q
   Q --> MP[ModelPort / Qwen 或受控直连]
   Q --> M[证券 Resolver / 市场数据 :8000]
-  Q --> G[Domain Mission -> MoAgent Graph]
+  Q --> J[(Generation Job / Outbox)]
+  J --> WK[独立 Data Agent Worker]
+  WK --> G[Domain Handler / Mission -> MoAgent Graph]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
   G --> R[MoAgent Runtime]
   G --> DB
@@ -55,13 +57,14 @@ flowchart LR
 2. 平台使用项目当前模型生成通用 `.data-agent/task.json` 与金融 `.data-agent/finance-query-rewrite.json`；模型负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
 3. 模型未配置、超时、失败或输出缺少原文字面证据时返回 `llm_unavailable` 并停止；不执行关键词降级。
 4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后同时生成 `.data-agent/plan.json` 和金融 `.data-agent/finance-run-plan.json`。
-5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据。
+5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据；Memory Recall 与 Knowledge Preparation 随 generation envelope 固化，执行时不重复检索。
 6. 平台根据 run plan 调用 `8000` 后端获取真实数据。
 7. 数据、来源和质量报告写入工作空间。
-8. Agent 通过 ModelPort 使用默认 Qwen，并结合 Skills、真实数据和有界知识 capsule 生成 Next.js 候选看板，以 `candidate_complete` 结束本次物理执行。
-9. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
-10. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
-11. 只有 accepted receipt 在数据库事务中关联到 Mission 后，请求才进入 `completed`；此后才为实际进入 Agent 的 Citation 记录 AKEP Usage。
+8. Web 在返回排队成功前持久化 Data Agent generation envelope 与 job/outbox；生产环境由独立 Worker claim、续租，本地 inline 也经过同一个 registry，并按 `domainPackId` 分派领域 handler。
+9. Agent 通过 ModelPort 使用默认 Qwen，并结合 Skills、真实数据和有界知识 capsule 生成 Next.js 候选看板，以 `candidate_complete` 结束本次物理执行。
+10. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
+11. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
+12. 只有 accepted receipt 在数据库事务中关联到 Mission 后，请求才进入 `completed`；此后才为实际进入 Agent 的 Citation 记录 AKEP Usage。
 
 ## 运行时
 
@@ -71,7 +74,7 @@ flowchart LR
 | `moagent` | `deepseek:deepseek-v4-flash`（日常可选） | QuantPilot 调 ModelPort OpenAI-compatible `/chat/completions`；ModelPort 调 DeepSeek Anthropic `/v1/messages` | 分析与生成 |
 | `moagent` | `deepseek-v4-flash`（备用直连） | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 绕过 ModelPort 的部署/CI 备用链路 |
 
-MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；项目级 generation lease、物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。generation lease 在 run plan 落盘前串行化外层编排，数据库唯一 active Mission slot 再保证同一项目不会被两个合规入口同时创建非终态 generation。
+MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程；它可以运行在 Web 的本地开发进程，也可以运行在生产独立 Worker 进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；generation job/outbox、项目级 generation lease、物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。generation lease 在 run plan 落盘前串行化外层编排，数据库唯一 active Mission slot 再保证同一项目不会被两个合规入口同时创建非终态 generation。
 
 模型和 CLI 的注册入口：
 

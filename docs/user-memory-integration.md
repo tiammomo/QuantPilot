@@ -139,7 +139,7 @@ MEMORY_REPO="../evolvable-user-memory"
 
 ### 推荐：Compose 持久化模式
 
-该模式会启动 PostgreSQL、Milvus、迁移任务、投影 worker、Memory API 和自带工作台，适合验证真实集成：
+该模式会启动 PostgreSQL、Milvus、迁移任务、投影 worker、Memory API 和自带工作台，适合验证真实集成。权威记忆和 append-only 授权审计默认持久化；隐私治理保持开发旁路，只有建立 ProcessingGrant 发放流程后才应显式切换为 `postgres`：
 
 ```bash
 cd "$MEMORY_REPO"
@@ -198,14 +198,13 @@ curl -fsS http://127.0.0.1:38089/readyz
   "production_ready": false,
   "production_blockers": [
     "configuration.persistent-governance",
-    "configuration.durable-audit",
     "configuration.trusted-jwt",
     "runtime.production-profile"
   ]
 }
 ```
 
-`/readyz` 应返回 `status=ready`，但它只表示当前依赖可服务；生产消费者还必须检查 `production_ready` 和机器可读的 `production_blockers`。如果根路径缺少契约字段，通常是旧进程或旧容器仍在运行。
+`/readyz` 应返回 `status=ready`，但它只表示当前依赖可服务；在 JWT 模式下它还会真实读取有界缓存中的 JWKS，URL 不可达或没有签名键时返回 `503`。生产消费者还必须检查 `production_ready` 和机器可读的 `production_blockers`。如果根路径缺少契约字段，通常是旧进程或旧容器仍在运行。
 
 ## 第二步：配置 QuantPilot
 
@@ -478,17 +477,18 @@ npm run check:integrations -- \
 - ModelPort 公布限定 Qwen 与 DeepSeek ID，错误凭据被拒绝，两个模型的工具流和续写都完整；DeepSeek 上游使用 Anthropic 协议。
 - Query Rewrite 状态是 `llm-applied`，目标保持“大位科技”。
 - Memory discovery 契约兼容且 `/readyz` 就绪。
+- 本地长期联调至少满足 PostgreSQL 权威存储和持久授权审计，验收输出为 `localDurabilityBaseline=passed`。
 - 写模式的偏好与 Outcome 重放幂等，同项目为 `applied`，另一个项目为 `empty`。
 - Qwen 能在 QuantPilot 构造的有界 personalization prompt 上完成强制工具调用和工具结果续写。
 
-`production_ready=false` 不会阻断当前本地 optional 模式，但它是生产发布门禁。治理能力已存在；如果运行实例仍报告 `configuration.persistent-governance`、`configuration.durable-audit`、`configuration.trusted-jwt` 或 `runtime.production-profile`，表示部署配置还没有启用相应持久化/可信身份实现，只能称为本地长期可用，不能称为生产就绪。
+`production_ready=false` 不会阻断当前本地 optional 模式，但它是生产发布门禁。默认 Compose 预期只剩 `configuration.persistent-governance`、`configuration.trusted-jwt` 和 `runtime.production-profile`；这准确表示本地还没有 ProcessingGrant 流程、可信身份和生产 profile。若仍出现 `authority.durable-storage`、`configuration.durable-audit` 或 `audit.durable-sink`，长期联调验收会直接失败，而不是把易失存储或日志审计误报为可用。JWT 模式下的 `identity.jwks-unavailable` 表示配置存在但签名键依赖当前不可用。
 
 ## 常见故障
 
 | 现象 | 通常原因 | 处理方式 |
 | --- | --- | --- |
 | 根路径 200，但 doctor 报 `INCOMPATIBLE_CONTRACT` | 运行的是未公布 `api_contract` 的旧进程/镜像 | 重启 `uv` 进程，或 `docker compose up --build -d` 后再次检查根路径 |
-| `/readyz` 返回 `not_ready` | PostgreSQL、Milvus required 投影或迁移未就绪 | 查看 Memory Compose 状态和后端日志；先恢复权威存储 |
+| `/readyz` 返回 `not_ready` | PostgreSQL、持久审计、治理、Milvus required 投影或 JWT/JWKS 未就绪 | 查看 Memory Compose 状态和后端日志；按根路径 blocker 恢复对应依赖 |
 | `/api/ready` 顶层为 true，但 memory 为 failed | Memory 是 optional，核心服务允许降级 | 继续检查 `components[].memory`，不要把顶层 true 当成集成成功 |
 | 新增/列表 API 返回 502 | 网络、超时、无效 JSON或外部契约错误 | 查 QuantPilot 日志中的安全错误码和 `x-request-id`，再查 Memory 日志 |
 | 聊天为 `empty` | 没有匹配偏好，或 product/project/key 被二次过滤 | 检查 `context.product=quantpilot`、项目 scope 和允许的键前缀 |

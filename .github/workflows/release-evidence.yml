@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 240
     env:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      QUANTPILOT_RELEASE_EVIDENCE_MODEL: deepseek-v4-flash
       DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public
       REDIS_URL: redis://127.0.0.1:36380/0
       QUANTPILOT_MARKET_API_URL: http://127.0.0.1:8000

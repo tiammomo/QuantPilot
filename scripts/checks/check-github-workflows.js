@@ -53,6 +53,9 @@ if (!/QUANTPILOT_AUTH_ADMIN_EMAIL:\s*auth-smoke-admin@quantpilot\.local/.test(qu
 if (!/node scripts\/evals\/run-contract-market-fixture\.js/.test(quality)) {
   failures.push('.github/workflows/quality.yml: contract evaluation must use the versioned market fixture');
 }
+if (!/npm run check:module-boundaries/.test(quality)) {
+  failures.push('.github/workflows/quality.yml: every PR must enforce module boundary guardrails');
+}
 if (/npm run dev:market/.test(quality)) {
   failures.push('.github/workflows/quality.yml: deterministic contract evaluation must not depend on public market APIs');
 }
@@ -81,8 +84,11 @@ for (const [description, pattern] of nightlyContracts) {
 }
 
 const release = fs.readFileSync(path.join(workflowDir, 'release-evidence.yml'), 'utf8');
+if (!/QUANTPILOT_RELEASE_EVIDENCE_MODEL:\s*deepseek-v4-flash/.test(release)) {
+  failures.push('.github/workflows/release-evidence.yml: hosted evidence must explicitly select the remote DeepSeek model');
+}
 if (!/DEEPSEEK_API_KEY is required; release evidence cannot be skipped/.test(release)) {
-  failures.push('.github/workflows/release-evidence.yml: release evidence must remain fail-closed without DEEPSEEK_API_KEY');
+  failures.push('.github/workflows/release-evidence.yml: hosted evidence must remain fail-closed without DEEPSEEK_API_KEY');
 }
 
 if (failures.length > 0) {

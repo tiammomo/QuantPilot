@@ -5,7 +5,7 @@
 ## 当前部署边界
 
 - Web、market-data、PostgreSQL/TimescaleDB、Redis 和 Loki 必须在受控内网通信；只由 HTTPS 反向代理公开 Web。
-- generation pipeline 已用 PostgreSQL job/outbox 在响应前持久化并 claim，项目级编排租约串行化 planning/data-prefetch、Agent execution 和 manual validation，AgentRun/Mission 分层 fencing 保护提交；进程崩溃会封存旧 attempt 并要求 replan，不会恢复 Provider 私有 session。当前 completion 仍由接收请求的 Web 进程启动，尚未拆出独立 polling worker，目标共享卷也未完成多主机断电验收；正式环境生成请求仍应路由到受控 generation worker/实例。
+- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `MOAGENT_DISPATCH_MODE=worker` 时，独立 generation worker 负责 claim、heartbeat、执行、验证和终态提交。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从原始请求、当前工作空间和 run plan 重新规划，不恢复 Provider 私有 session。目标共享卷仍需完成多主机断电验收。
 - `PROJECTS_DIR` 必须是持久化、可读写的文件系统，且与数据库备份保持同一恢复点。
 - 生产密钥由 secret manager 或 root-only `EnvironmentFile` 注入，不写入镜像、standalone 目录、日志或 Git。
 
@@ -13,7 +13,7 @@
 
 1. 从 [`.env.production.example`](../.env.production.example) 生成环境文件，替换全部占位值，并设置目录权限为 `0600`。
 2. 创建 `quantpilot` 系统用户以及 `/var/lib/quantpilot/projects`、`/var/backups/quantpilot`，只授予该用户所需权限。
-3. 先运行生产配置预检：
+3. 先运行生产配置预检。组件可以通过 `ENABLED=0` 明确关闭；只要启用，ModelPort、Memory 与 AKEP 就必须同时启用 required 模式、HTTPS 和各自的短期/作用域身份配置：
 
    ```bash
    npm run check:production -- --env-file /etc/quantpilot/quantpilot.env --require-bootstrap
@@ -44,6 +44,8 @@
 
    `/health` 只表示进程存活；只有 `/ready` 返回 200 才允许接流量。
 
+   启用了 Memory 的生产部署还必须执行 `npm run check:memory-production`；启用了四方长期链路的部署执行 `npm run check:integrations` 和 `npm run check:triad-experience`。配置预检不能替代真实身份、模型工具调用和受治理知识闭环。
+
 8. 用普通成员完成登录、提问、query rewrite、取数、workspace 生成和看板访问，用管理员确认用户/权限/配额审计页面。
 
 ## 每次发布
@@ -52,6 +54,7 @@
 
 1. 确认 CI 的 frontend、backend、authenticated lifecycle 和 contract evaluation 全部通过。
 2. 生成当前提交的评测证据；涉及 Agent 行为的版本还必须执行 live E2E evidence gate。
+   本地命令默认使用日常 Qwen/ModelPort；GitHub Hosted runner 无法访问本机 ModelPort，因此 workflow 显式设置 `QUANTPILOT_RELEASE_EVIDENCE_MODEL=deepseek-v4-flash` 并注入官方直连 Key。无论选择哪条路，benchmark 与独立 gate 都从同一显式模型参数读取，禁止“凭据与报告模型错配”。
 3. 创建并异地复制发布前备份：
 
    ```bash
@@ -86,6 +89,8 @@ npm run db:restore:release -- \
 
 - `quantpilot-web.service`：启动经过 production preflight 的 standalone Web；
 - `quantpilot-market-data.service`：按锁文件启动 market-data API；
+- `quantpilot-generation-worker.service`：消费 PostgreSQL generation job，执行领域 handler、自动验证和失败重试；
+- `quantpilot-market-maintenance.timer`：工作日收盘后刷新交易日历、执行可恢复的 Baostock `daily/qfq` autofill，并运行新鲜度与标的覆盖门禁；
 - `quantpilot-auth-cleanup.timer`：每日清理过期会话、验证记录，并执行审计保留策略；
 - `quantpilot-backup.timer`：每 6 小时生成一次带校验清单的备份。
 

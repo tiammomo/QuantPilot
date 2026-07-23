@@ -57,6 +57,9 @@ jobs:
       - name: Backend architecture guardrails
         run: npm run check:backend-architecture
 
+      - name: Module boundary guardrails
+        run: npm run check:module-boundaries
+
       - name: Service catalog guardrails
         run: npm run check:service-catalog
 

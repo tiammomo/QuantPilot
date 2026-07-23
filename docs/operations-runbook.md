@@ -49,7 +49,7 @@ QUANTPILOT_DEGRADATION_MODE=offline npm run dev
 npm run check:integrations
 ```
 
-成功表示 QuantPilot 默认 Qwen profile、ModelPort Qwen 与 DeepSeek 的模型发现/鉴权/工具流和续写、Qwen LLM Query Rewrite、Memory 契约和 readiness 均正常。DeepSeek 上游使用 ModelPort 的 Anthropic provider。该命令会产生真实模型 Token，但不写 Memory；输出不会包含凭据或记忆正文。
+成功表示 QuantPilot 默认 Qwen profile、ModelPort Qwen 与 DeepSeek 的模型发现/鉴权/工具流和续写、Qwen LLM Query Rewrite、Memory 契约和 readiness 均正常。DeepSeek 上游使用 ModelPort 的 Anthropic provider。该命令会产生真实模型 Token，但不写 Memory；输出不会包含凭据或记忆正文。AKEP 的检索、Citation、Usage 和 Feedback 由下方 `check:triad-experience` 验收，不把 Model/Memory 的只读探针误写成四方全链路。
 
 发布验收、契约升级或故障恢复后，执行 `npm run check:triad-experience`；跨平台 scope、模型或身份边界变更后再执行 `npm run check:triad-experience:large`。后者会使用四个固定合成 subject 执行真实 Memory 写入和反馈闭环，不要放进每分钟健康检查。
 
@@ -183,6 +183,15 @@ npm run check:market-freshness
 ```bash
 node scripts/checks/check-market-data-freshness.js --max-lag-sessions 1
 ```
+
+日常维护不再依赖人工打开策略平台。先用 dry-run 检查日期窗口和股票池，再执行交易日历刷新、Baostock `daily/qfq` autofill 和覆盖门禁。autofill 会先做本地覆盖预检，分批处理缺口，并提供任务心跳与停止语义；维护脚本重启时会观察同股票池的既有活动任务，不重复创建：
+
+```bash
+npm run market:maintain:dry-run
+npm run market:maintain
+```
+
+生产环境由 `deploy/systemd/quantpilot-market-maintenance.timer` 在工作日收盘后触发；服务失败必须通过 systemd/journal 监控进入值班告警。`QUANTPILOT_MARKET_FRESHNESS_MIN_SYMBOLS` 同时约束维护后的覆盖率，不能只用最新日期判断成功。
 
 快速 `doctor` 会把过期数据报告为 warning；上面的独立门禁会返回非零退出码，适合部署或定时任务。
 

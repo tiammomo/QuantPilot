@@ -340,6 +340,7 @@ generation dispatch 的关键配置是 `MOAGENT_DISPATCH_LEASE_TTL_MS=120000`、
 | `DEEPSEEK_API_KEY` | QuantPilot 官方直连 profile | 仅启用 direct 模式时 |
 | `QUANTPILOT_MEMORY_BEARER_TOKEN` | 本地单用户 Memory 调试 | 仅开发；生产禁止静态通配 token |
 | `QUANTPILOT_MEMORY_TOKEN_BROKER_CLIENT_SECRET` | QuantPilot 到可信 broker | 生产 Secret Manager |
+| `QUANTPILOT_KNOWLEDGE_OAUTH_CLIENT_SECRET` | QuantPilot 到 AKEP OAuth issuer | 生产 Secret Manager |
 
 密钥不得出现在 `config/llm.json`、`.env.example` 的真实值、前端请求、截图、生成 workspace、GitHub Actions 日志或故障文档中。日志只记录 provider/model、状态码、trace ID 和用量，不记录 Authorization header。
 
@@ -367,6 +368,8 @@ npm run check:triad-experience
 ```bash
 npm run check:production -- --env-file /secure/path/quantpilot.env
 ```
+
+生产预检采用按启用状态的严格合同：ModelPort 开启时要求 HTTPS、`REQUIRED=1`、受限客户端 Key 以及 organization/project/environment 三层稳定标识；完全关闭时必须同时关闭 `REQUIRED` 并提供官方直连 Key。Memory 开启时要求 `REQUIRED=1`、`REQUIRE_PRODUCTION_READY=1`、独占 tenant、HTTPS Token Broker 和非人类授权探针；Knowledge 开启时要求 `REQUIRED=1`、project Space、HTTPS OAuth client credentials。Memory/Knowledge 均禁止静态 bearer。明确关闭某组件时，其 `REQUIRED` 和生产 readiness 标志也必须显式置 `0`，避免部署意图含混。
 
 常见判断顺序：
 

@@ -398,86 +398,86 @@
     "largeFileBudgets": [
       {
         "path": "src/lib/utils/scaffold.ts",
-        "maxLines": 900,
-        "targetLines": 750,
+        "maxLines": 720,
+        "targetLines": 650,
         "nextAction": "保持 workspace writer 和模板选择职责；基础/专用模板必须留在独立模板模块，不再回填大段字符串。"
       },
       {
         "path": "src/lib/utils/scaffold-base-templates.ts",
-        "maxLines": 2800,
-        "targetLines": 2600,
+        "maxLines": 2600,
+        "targetLines": 2300,
         "nextAction": "继续提取模板内共享数据读取与格式化 helper，所有改动必须通过 check:scaffold-templates。"
       },
       {
         "path": "src/lib/utils/scaffold-dashboard-templates.ts",
-        "maxLines": 2800,
-        "targetLines": 2600,
+        "maxLines": 2575,
+        "targetLines": 2300,
         "nextAction": "压缩 comparison/selection/holding 模板重复 helper，同时保持每类模板独立构建。"
       },
       {
         "path": "src/app/[project_id]/chat/page.tsx",
-        "maxLines": 4150,
+        "maxLines": 4100,
         "targetLines": 1800,
         "nextAction": "把 generation controller、preview reconciliation、message transport 和页面布局拆入独立 hooks/components，页面只保留组合。"
       },
       {
         "path": "src/app/api/chat/[project_id]/act/route.ts",
-        "maxLines": 3420,
-        "targetLines": 1400,
-        "nextAction": "请求合同和附件处理已拆出；继续拆身份与配额、query rewrite、data prefetch、mission dispatch 和 terminal response，使 route 只做 HTTP 编排。"
+        "maxLines": 900,
+        "targetLines": 800,
+        "nextAction": "保持 route 只承担 HTTP 接纳和 dispatch；金融规划、取数、Mission 与执行逻辑必须留在应用服务和 Domain handler。"
       },
       {
         "path": "src/components/chat/ChatLog.tsx",
-        "maxLines": 3700,
-        "targetLines": 1400,
-        "nextAction": "拆出消息状态模型、工具结果视图、生成进度和预览恢复组件，避免单一 UI 同时承担协议兼容与渲染。"
+        "maxLines": 1400,
+        "targetLines": 900,
+        "nextAction": "保持状态控制器、结构化消息协议、工具视图和 Markdown renderer 分离；禁止恢复纯文本工具占位符推断。"
       },
       {
         "path": "src/lib/agent/core/run-engine.ts",
-        "maxLines": 2800,
+        "maxLines": 2790,
         "targetLines": 1600,
         "nextAction": "按 planning、tool loop、context checkpoint、verification 和 terminalization 拆分；core 只维护状态机。"
       },
       {
         "path": "src/lib/quant/validation.ts",
-        "maxLines": 3180,
+        "maxLines": 3140,
         "targetLines": 1600,
         "nextAction": "按 artifact、data contract、visual、repair 和 acceptance pipeline 拆分，保留单一 validation facade。"
       },
       {
         "path": "src/lib/quant/data-prefetch.ts",
-        "maxLines": 2050,
+        "maxLines": 2040,
         "targetLines": 1200,
         "nextAction": "将通用数据计划、金融 endpoint adapter、证据落盘和错误归一化拆开。"
       },
       {
         "path": "services/market-data/src/quantpilot_market_data/models.py",
-        "maxLines": 1640,
+        "maxLines": 1625,
         "targetLines": 900,
         "nextAction": "按 quotes、research、ingestion、financials、analytics 分拆 Pydantic contracts，并由 models package 统一导出。"
       },
       {
         "path": "services/market-data/src/quantpilot_market_data/api.py",
-        "maxLines": 1550,
+        "maxLines": 1540,
         "targetLines": 700,
         "nextAction": "收敛为 app factory 和 router 注册；业务 endpoint 必须进入 routers/，use case 必须进入 services/。"
       },
       {
         "path": "src/app/strategy-platform/StrategyPlatformClient.tsx",
-        "maxLines": 6500,
-        "targetLines": 1600,
+        "maxLines": 1100,
+        "targetLines": 900,
         "nextAction": "已拆 helpers、Knowledge、Universe、Kline、Sector、Factor、Foundation 视图；继续拆 dialogs、hooks 和 tables。"
       },
       {
         "path": "src/lib/quant/strategies.ts",
-        "maxLines": 1800,
-        "targetLines": 1200,
+        "maxLines": 1170,
+        "targetLines": 900,
         "nextAction": "已拆 catalog/types/scan repository/readiness/response mappers；继续拆 market API client 和 dashboard service。"
       },
       {
         "path": "src/lib/eval/runtime.ts",
-        "maxLines": 1300,
-        "targetLines": 1000,
+        "maxLines": 1080,
+        "targetLines": 850,
         "nextAction": "已拆 cases/sets、paths、runtime-utils 和 report/database mappers；继续拆 runs / queue / repairs / scheduling，保留 src/lib/eval 作为唯一公开入口。"
       }
     ]

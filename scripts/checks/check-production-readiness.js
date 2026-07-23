@@ -76,8 +76,14 @@ function httpsUrl(name) {
 if (value('QUANTPILOT_DEGRADATION_MODE') !== 'strict') {
   errors.push('QUANTPILOT_DEGRADATION_MODE 必须设置为 strict。');
 }
+if (value('NODE_ENV') !== 'production') {
+  errors.push('NODE_ENV 必须设置为 production。');
+}
 if (value('QUANTPILOT_AUTH_MODE') !== 'local') {
   errors.push('QUANTPILOT_AUTH_MODE 必须设置为 local。');
+}
+if (value('MOAGENT_DISPATCH_MODE') !== 'worker') {
+  errors.push('MOAGENT_DISPATCH_MODE 必须设置为 worker，并部署独立 generation worker。');
 }
 
 const appUrl = httpsUrl('NEXT_PUBLIC_APP_URL');
@@ -107,10 +113,12 @@ requireFlag('QUANTPILOT_DATABASE_ENABLED');
 requireFlag('QUANTPILOT_DATABASE_REQUIRED');
 requireFlag('QUANTPILOT_MARKET_API_ENABLED');
 requireFlag('QUANTPILOT_MARKET_API_REQUIRED');
+requireFlag('QUANTPILOT_MARKET_MAINTENANCE_ENABLED');
 requireFlag('QUANTPILOT_REDIS_CACHE_ENABLED');
 requireFlag('QUANTPILOT_REDIS_REQUIRED');
 requireFlag('QUANTPILOT_OBSERVABILITY_ENABLED');
 requireFlag('QUANTPILOT_OBSERVABILITY_REQUIRED');
+requireFlag('QUANTPILOT_GENERATED_SANDBOX');
 requireFlag('QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE', false);
 requireFlag('QUANTPILOT_REQUIRE_HIDDEN_EVAL');
 requireFlag('QUANTPILOT_REQUIRE_PRODUCTION_JUDGE_CALIBRATION');
@@ -119,8 +127,99 @@ requireFlag('QUANTPILOT_REQUIRE_INDEPENDENT_JUDGE');
 secureSecret('QUANTPILOT_AUTH_SECRET');
 secureSecret('QUANTPILOT_ADMIN_TOKEN');
 secureSecret('QUANTPILOT_MARKET_ADMIN_TOKEN');
-secureSecret('MODELPORT_API_KEY', 16);
 requireValue('ENCRYPTION_KEY', (configured) => /^[0-9a-f]{64}$/i.test(configured), 'ENCRYPTION_KEY 必须是 64 位十六进制随机值。');
+requireValue(
+  'PROJECTS_DIR',
+  (configured) => path.isAbsolute(configured) && configured !== '/' && !PLACEHOLDER_PATTERN.test(configured),
+  'PROJECTS_DIR 必须是非占位的绝对持久化目录，且不能是文件系统根目录。',
+);
+requireValue(
+  'MOAGENT_WORKSPACE_NAMESPACE',
+  (configured) => /^[a-z0-9][a-z0-9._-]{1,127}$/i.test(configured) && !PLACEHOLDER_PATTERN.test(configured),
+  'MOAGENT_WORKSPACE_NAMESPACE 必须是部署集群内稳定且非占位的工作空间命名空间。',
+);
+
+const modelPortEnabled = flag('QUANTPILOT_MODELPORT_ENABLED', true);
+if (modelPortEnabled) {
+  requireFlag('QUANTPILOT_MODELPORT_REQUIRED');
+  httpsUrl('QUANTPILOT_MODELPORT_URL');
+  secureSecret('MODELPORT_API_KEY', 16);
+  for (const name of [
+    'QUANTPILOT_MODELPORT_ORGANIZATION_ID',
+    'QUANTPILOT_MODELPORT_PROJECT_ID',
+    'QUANTPILOT_MODELPORT_ENVIRONMENT_ID',
+  ]) {
+    requireValue(
+      name,
+      (configured) => /^[a-z0-9][a-z0-9._-]{1,127}$/i.test(configured) && !PLACEHOLDER_PATTERN.test(configured),
+      `${name} 必须是稳定、非占位的隔离标识。`,
+    );
+  }
+} else {
+  requireFlag('QUANTPILOT_MODELPORT_REQUIRED', false);
+  secureSecret('DEEPSEEK_API_KEY', 16);
+  warnings.push('ModelPort 已关闭：生产环境将仅保留显式选择的 DeepSeek 官方直连，默认 Qwen 不可用。');
+}
+
+const knowledgeEnabled = flag('QUANTPILOT_KNOWLEDGE_ENABLED', false);
+if (knowledgeEnabled) {
+  requireFlag('QUANTPILOT_KNOWLEDGE_REQUIRED');
+  httpsUrl('QUANTPILOT_KNOWLEDGE_API_URL');
+  requireValue(
+    'QUANTPILOT_KNOWLEDGE_PURPOSE',
+    (configured) => /^[a-z][a-z0-9._:-]{0,127}$/.test(configured),
+    'QUANTPILOT_KNOWLEDGE_PURPOSE 必须是稳定的 purpose 标识。',
+  );
+  const spaces = value('QUANTPILOT_KNOWLEDGE_SPACES').split(',').map((item) => item.trim()).filter(Boolean);
+  if (spaces.length === 0 || spaces.some((configured) => {
+    try {
+      const parsed = new URL(configured);
+      return parsed.protocol !== 'https:' || Boolean(parsed.username || parsed.password);
+    } catch {
+      return true;
+    }
+  })) {
+    errors.push('QUANTPILOT_KNOWLEDGE_SPACES 必须包含至少一个无凭据的 HTTPS Space URI。');
+  }
+  requireFlag('QUANTPILOT_KNOWLEDGE_PROJECT_SPACES_ENABLED');
+  httpsUrl('QUANTPILOT_KNOWLEDGE_PROJECT_SPACE_BASE_URL');
+  if (value('QUANTPILOT_KNOWLEDGE_BEARER_TOKEN')) {
+    errors.push('生产环境禁止 QUANTPILOT_KNOWLEDGE_BEARER_TOKEN，必须使用 OAuth 短期凭据。');
+  }
+  httpsUrl('QUANTPILOT_KNOWLEDGE_OAUTH_TOKEN_URL');
+  requireValue('QUANTPILOT_KNOWLEDGE_OAUTH_CLIENT_ID', (configured) => configured.length <= 256 && !configured.includes(':'), 'QUANTPILOT_KNOWLEDGE_OAUTH_CLIENT_ID 无效。');
+  secureSecret('QUANTPILOT_KNOWLEDGE_OAUTH_CLIENT_SECRET', 16);
+  httpsUrl('QUANTPILOT_KNOWLEDGE_OAUTH_RESOURCE');
+} else {
+  requireFlag('QUANTPILOT_KNOWLEDGE_REQUIRED', false);
+}
+
+const memoryEnabled = flag('QUANTPILOT_MEMORY_ENABLED', false);
+if (memoryEnabled) {
+  requireFlag('QUANTPILOT_MEMORY_REQUIRED');
+  requireFlag('QUANTPILOT_MEMORY_REQUIRE_PRODUCTION_READY');
+  httpsUrl('QUANTPILOT_MEMORY_API_URL');
+  requireValue(
+    'QUANTPILOT_MEMORY_TENANT_ID',
+    (configured) => /^[a-z0-9][a-z0-9._-]{1,127}$/i.test(configured) && !PLACEHOLDER_PATTERN.test(configured),
+    'QUANTPILOT_MEMORY_TENANT_ID 必须是当前产品独占的稳定 tenant。',
+  );
+  if (value('QUANTPILOT_MEMORY_BEARER_TOKEN')) {
+    errors.push('生产环境禁止 QUANTPILOT_MEMORY_BEARER_TOKEN，必须使用短期 Token Broker。');
+  }
+  httpsUrl('QUANTPILOT_MEMORY_TOKEN_BROKER_URL');
+  requireValue('QUANTPILOT_MEMORY_TOKEN_BROKER_CLIENT_ID', (configured) => configured.length <= 256 && !configured.includes(':'), 'QUANTPILOT_MEMORY_TOKEN_BROKER_CLIENT_ID 无效。');
+  secureSecret('QUANTPILOT_MEMORY_TOKEN_BROKER_CLIENT_SECRET', 16);
+  requireValue('QUANTPILOT_MEMORY_TOKEN_AUDIENCE', (configured) => configured.length <= 512, 'QUANTPILOT_MEMORY_TOKEN_AUDIENCE 未正确配置。');
+  requireValue(
+    'QUANTPILOT_MEMORY_PRODUCTION_PROBE_SUBJECT_ID',
+    (configured) => /^[a-z0-9][a-z0-9._:-]{1,127}$/i.test(configured) && !PLACEHOLDER_PATTERN.test(configured),
+    'QUANTPILOT_MEMORY_PRODUCTION_PROBE_SUBJECT_ID 必须是已授权的非人类探针 subject。',
+  );
+} else {
+  requireFlag('QUANTPILOT_MEMORY_REQUIRED', false);
+  requireFlag('QUANTPILOT_MEMORY_REQUIRE_PRODUCTION_READY', false);
+}
 
 requireValue('DATABASE_URL', (configured) => {
   try {
@@ -169,11 +268,19 @@ if (value('QUANTPILOT_EVAL_DATASET_VISIBILITY') !== 'hidden') {
 }
 secureSecret('QUANTPILOT_REPLAY_HASH_KEY', 16);
 
+requireValue(
+  'QUANTPILOT_MARKET_MAINTENANCE_UNIVERSE_ID',
+  (configured) => /^[a-z0-9][a-z0-9._-]{1,127}$/i.test(configured),
+  'QUANTPILOT_MARKET_MAINTENANCE_UNIVERSE_ID 必须是稳定的股票池 ID。',
+);
+requireValue(
+  'QUANTPILOT_MARKET_FRESHNESS_MIN_SYMBOLS',
+  (configured) => Number.isSafeInteger(Number(configured)) && Number(configured) >= 1,
+  'QUANTPILOT_MARKET_FRESHNESS_MIN_SYMBOLS 必须是正整数。',
+);
+
 if (value('QUANTPILOT_ENABLE_INTERNAL_TOKEN_API') && flag('QUANTPILOT_ENABLE_INTERNAL_TOKEN_API')) {
   secureSecret('QUANTPILOT_INTERNAL_API_TOKEN');
-}
-if (value('QUANTPILOT_GENERATED_SANDBOX') === '0') {
-  errors.push('生产环境不得关闭 QUANTPILOT_GENERATED_SANDBOX。');
 }
 if (flag('GRAFANA_ANONYMOUS_ENABLED', false)) {
   errors.push('生产环境必须关闭 Grafana 匿名访问。');
