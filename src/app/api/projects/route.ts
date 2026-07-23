@@ -14,6 +14,7 @@ import { serializeProjects, serializeProject } from '@/lib/serializers/project';
 import { normalizeMoAgentModelId } from '@/lib/constants/models';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
 import { getQuantCapability } from '@/lib/domains/finance/capabilities';
+import { DEFAULT_DATA_AGENT_PROFILE_ID } from '@/lib/config/data-agent';
 import { getProjectAuthConfig } from '@/lib/config/auth';
 import {
   AuthorizationError,
@@ -44,6 +45,7 @@ const createProjectRequestSchema = z.object({
   description: z.string().trim().max(20_000).nullable().optional(),
   quantCapabilityId: z.string().trim().min(1).max(128).optional(),
   quantCapabilitySource: z.enum(['manual', 'default', 'inferred']).optional(),
+  agentProfileId: z.string().trim().regex(/^[a-z][a-z0-9._-]{1,127}$/).optional(),
 }).strict();
 
 async function requireProjectListPermission(session: ProjectAuthSession | null): Promise<void> {
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
       description: body.description ?? undefined,
       quantCapabilityId: quantCapability.id,
       quantCapabilitySource: body.quantCapabilitySource,
+      agentProfileId: body.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
     };
 
     if (session) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { NEXT_DASHBOARD_DELIVERY_PACK } from './delivery-packs';
 import type { DataAgentDomainPack, DataAgentProfile } from './contracts';
 import { DataAgentRegistry } from './registry';
 
@@ -48,19 +49,27 @@ const profile: DataAgentProfile = {
 
 describe('DataAgentRegistry', () => {
   it('resolves a profile and its default capability without product-specific logic', () => {
-    const resolved = new DataAgentRegistry()
+    const registry = new DataAgentRegistry()
+      .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
       .registerDomainPack(pack)
-      .registerProfile(profile)
-      .resolveProfile(profile.id);
+      .registerProfile(profile);
+    const resolved = registry.resolveProfile(profile.id);
 
     expect(resolved.defaultCapability.id).toBe('sales.overview');
     expect(resolved.domainPacks.map((item) => item.id)).toEqual(['sales.analytics']);
+    expect(resolved.deliveryPack.id).toBe('workspace.next-dashboard');
+    expect(registry.listProfiles().map((item) => item.id)).toEqual(['sales.studio']);
+    expect(registry.listDeliveryPacks().map((item) => item.id)).toEqual([
+      'workspace.next-dashboard',
+    ]);
   });
 
   it('fails closed for missing packs and duplicate registrations', () => {
     expect(() => new DataAgentRegistry().registerProfile(profile).resolveProfile(profile.id))
       .toThrow('missing domain pack');
-    const registry = new DataAgentRegistry().registerDomainPack(pack);
+    const registry = new DataAgentRegistry()
+      .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
+      .registerDomainPack(pack);
     expect(() => registry.registerDomainPack(pack)).toThrow('Duplicate Data Agent domain pack');
   });
 
@@ -100,6 +109,7 @@ describe('DataAgentRegistry', () => {
       }],
     };
     const registry = new DataAgentRegistry()
+      .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
       .registerDomainPack(mutablePack)
       .registerProfile(profile);
     mutablePack.capabilities[0].name = 'Mutated outside registry';
@@ -122,5 +132,18 @@ describe('DataAgentRegistry', () => {
       }],
       capabilities: [],
     })).toThrow('must declare required scopes');
+  });
+
+  it('fails closed for an unregistered or unsafe delivery pack', () => {
+    expect(() => new DataAgentRegistry()
+      .registerDomainPack(pack)
+      .registerProfile(profile)
+      .resolveProfile(profile.id)).toThrow('missing delivery pack');
+
+    expect(() => new DataAgentRegistry().registerDeliveryPack({
+      ...NEXT_DASHBOARD_DELIVERY_PACK,
+      id: 'workspace.unsafe',
+      artifactPaths: ['../host-secret'],
+    })).toThrow('safe workspace-relative POSIX paths');
   });
 });

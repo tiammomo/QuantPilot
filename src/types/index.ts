@@ -15,5 +15,4 @@ export interface GlobalSettings {
   preferences?: { theme?: 'light' | 'dark' | 'system'; autoSave?: boolean };
   cli_settings?: { [cliId: string]: CLIConfig };
   default_cli?: string;
-  fallback_enabled?: boolean;
 }

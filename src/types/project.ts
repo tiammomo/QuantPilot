@@ -38,13 +38,12 @@ export interface Project {
   };
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
-  fallbackEnabled?: boolean;
+  agentProfileId: string;
   quantCapabilityId?: QuantCapabilityId | null;
 }
 
 export interface ProjectSettings {
   preferredCli: CLIType;
-  fallbackEnabled: boolean;
   selectedModel?: string | null;
   quantCapabilityId?: QuantCapabilityId | null;
 }

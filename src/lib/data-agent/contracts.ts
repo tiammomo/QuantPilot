@@ -187,6 +187,21 @@ export interface DataAgentProfile {
   knowledgePolicyId?: string;
 }
 
+/**
+ * Product-neutral delivery contract. Domain packs decide what the analysis
+ * means; delivery packs decide how validated artifacts are laid out and served.
+ */
+export interface DataAgentDeliveryPackDescriptor {
+  id: string;
+  version: string;
+  name: string;
+  description: string;
+  supportedOutputs: DataAgentOutputKind[];
+  workspaceDirectories: string[];
+  artifactPaths: string[];
+  validatorIds: string[];
+}
+
 export interface DataAgentProfileSelection {
   schemaVersion: 1;
   profile: DataAgentProfile;
@@ -215,6 +230,7 @@ export interface DataAgentWorkspaceDescriptor {
 /** Runtime composition owned by an application/domain adapter, never by MoAgent core. */
 export interface DataAgentRuntimeComposition {
   profile: DataAgentProfile;
+  deliveryPack: DataAgentDeliveryPackDescriptor;
   domainPacks: DataAgentDomainPack[];
   capability: DataAgentCapabilityDescriptor;
   skillCapability: MoAgentSkillCapabilityDescriptor;

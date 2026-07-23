@@ -15,7 +15,7 @@ import { buildQuantProjectSettings, getQuantCapability } from '@/lib/domains/fin
 import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
 import {
   getFinanceSkillCapabilityDescriptor,
-  QUANTPILOT_AGENT_PROFILE,
+  resolveQuantPilotDataAgentProfile,
 } from '@/lib/domains/finance';
 import type {
   DataAgentProfileSelection,
@@ -85,25 +85,27 @@ async function writeDataAgentWorkspace(params: {
   projectName: string;
   preferredCli: string;
   selectedModel: string;
+  agentProfileId: string;
   quantCapabilityId?: string | null;
   quantCapabilitySource?: string | null;
 }) {
+  const resolvedProfile = resolveQuantPilotDataAgentProfile(params.agentProfileId);
   const capability = getQuantCapability(params.quantCapabilityId);
+  if (!resolvedProfile.domainPacks.some((pack) => (
+    pack.capabilities.some((candidate) => candidate.id === capability.id)
+  ))) {
+    throw new Error(
+      `Capability ${capability.id} is not registered for Data Agent profile ${resolvedProfile.profile.id}.`,
+    );
+  }
   const capabilitySource = normalizeCapabilitySource(params.quantCapabilitySource);
   const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
   const selectedModel = normalizeMoAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
-  const dataAgentDir = path.join(params.projectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
   const now = new Date().toISOString();
-  await Promise.all([
-    fs.mkdir(dataAgentDir, { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'data_file', 'raw'), { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'data_file', 'intermediate'), { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'data_file', 'final'), { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'evidence'), { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'scripts'), { recursive: true }),
-    fs.mkdir(path.join(params.projectPath, 'dashboard'), { recursive: true }),
-  ]);
+  await Promise.all(resolvedProfile.deliveryPack.workspaceDirectories.map((directory) => (
+    fs.mkdir(path.join(params.projectPath, directory), { recursive: true })
+  )));
 
   const workspace: DataAgentWorkspaceDescriptor = {
     schemaVersion: 1,
@@ -122,7 +124,7 @@ async function writeDataAgentWorkspace(params: {
   };
   const profileSelection: DataAgentProfileSelection = {
     schemaVersion: 1,
-    profile: QUANTPILOT_AGENT_PROFILE,
+    profile: resolvedProfile.profile,
     selectedCapabilityId: capability.id,
     selectionSource: capabilitySource,
     updatedAt: now,
@@ -195,7 +197,9 @@ export async function ensureProjectLlmConfiguration(params: {
   preferredCli?: string | null;
   selectedModel?: string | null;
   settings?: string | null;
+  agentProfileId?: string | null;
 }): Promise<void> {
+  resolveQuantPilotDataAgentProfile(params.agentProfileId ?? undefined);
   const selectedModel = normalizeMoAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
   const dataAgentDir = path.join(params.projectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
@@ -274,7 +278,6 @@ export async function getAllProjects(access?: {
   return projects.map(project => ({
     ...project,
     preferredCli: 'moagent',
-    fallbackEnabled: false,
     selectedModel: normalizeMoAgentModelId(project.selectedModel),
   })) as Project[];
 }
@@ -290,7 +293,6 @@ export async function getProjectById(id: string): Promise<Project | null> {
   return {
     ...project,
     preferredCli: 'moagent',
-    fallbackEnabled: false,
     selectedModel: normalizeMoAgentModelId(project.selectedModel),
   } as Project;
 }
@@ -302,6 +304,7 @@ export async function createProject(
   input: CreateProjectInput,
   access?: { ownerId: string },
 ): Promise<Project> {
+  const resolvedProfile = resolveQuantPilotDataAgentProfile(input.agentProfileId);
   // Create project directory
   const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
@@ -314,6 +317,7 @@ export async function createProject(
     projectName: input.name,
     preferredCli,
     selectedModel,
+    agentProfileId: resolvedProfile.profile.id,
     quantCapabilityId: quantCapability.id,
     quantCapabilitySource: input.quantCapabilitySource,
   });
@@ -334,6 +338,7 @@ export async function createProject(
       repoPath: projectPath,
       preferredCli,
       selectedModel,
+      agentProfileId: resolvedProfile.profile.id,
       settings: mergeProjectSettings(undefined, quantCapability.id, selectedModel),
       status: 'idle',
       templateType: 'nextjs',
@@ -357,7 +362,6 @@ export async function createProject(
   return {
     ...project,
     preferredCli: 'moagent',
-    fallbackEnabled: false,
     selectedModel,
   } as Project;
 }
@@ -384,7 +388,6 @@ export async function updateProject(
         ? { settings: mergeLlmSettings(input.settings ?? current?.settings, selectedModel) }
         : {}),
       preferredCli: 'moagent',
-      fallbackEnabled: false,
       selectedModel,
       updatedAt: new Date(),
     },
@@ -394,7 +397,6 @@ export async function updateProject(
   return {
     ...project,
     preferredCli: 'moagent',
-    fallbackEnabled: false,
     selectedModel,
   } as Project;
 }

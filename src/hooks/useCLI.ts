@@ -74,11 +74,6 @@ export function useCLI({ projectId }: UseCLIOptions) {
 
     const preferredCli = sanitizeActiveCli(preferredRaw, DEFAULT_ACTIVE_CLI);
 
-    const fallbackEnabled =
-      typeof data?.fallbackEnabled === 'boolean'
-        ? data.fallbackEnabled
-        : false;
-
     const rawModel =
       typeof data?.selectedModel === 'string'
         ? data.selectedModel
@@ -87,7 +82,6 @@ export function useCLI({ projectId }: UseCLIOptions) {
 
     return {
       preferredCli,
-      fallbackEnabled,
       selectedModel: normalizedModel || getDefaultModelForCli(preferredCli),
     };
   }, []);
@@ -108,7 +102,6 @@ export function useCLI({ projectId }: UseCLIOptions) {
     console.error('Failed to load CLI preference:', error);
     setPreference({
       preferredCli: DEFAULT_ACTIVE_CLI,
-      fallbackEnabled: false,
       selectedModel: getDefaultModelForCli(DEFAULT_ACTIVE_CLI),
     });
   }
@@ -176,7 +169,6 @@ export function useCLI({ projectId }: UseCLIOptions) {
 
         return {
           preferredCli: responseCli,
-          fallbackEnabled: prev?.fallbackEnabled ?? false,
           selectedModel: normalizedSelected,
         };
       });
@@ -212,9 +204,8 @@ export function useCLI({ projectId }: UseCLIOptions) {
         cliForNormalization
       );
 
-      setPreference(prev => ({
+      setPreference(() => ({
         preferredCli: cliForNormalization,
-        fallbackEnabled: prev?.fallbackEnabled ?? false,
         selectedModel: normalized,
       }));
 

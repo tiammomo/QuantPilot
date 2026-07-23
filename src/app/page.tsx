@@ -44,6 +44,7 @@ import { CreateTaskForm } from "@/components/task/CreateTaskForm";
 import type { UploadedImage } from "@/components/task/CreateTaskForm";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Project as ProjectSummary } from "@/types/project";
+import { DEFAULT_DATA_AGENT_PROFILE_ID } from "@/lib/config/data-agent";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 import {
@@ -180,7 +181,7 @@ export default function HomePage() {
         services: project.services,
         preferredCli: preferred as ProjectSummary["preferredCli"],
         selectedModel: selected,
-        fallbackEnabled: project.fallbackEnabled ?? false,
+        agentProfileId: project.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
         quantCapabilityId: getQuantCapability(project.quantCapabilityId).id,
       };
     },

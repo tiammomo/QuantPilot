@@ -5,13 +5,18 @@ import type {
   DataAgentProfile,
 } from '@/lib/data-agent';
 import {
+  DataAgentRegistry,
+  NEXT_DASHBOARD_DELIVERY_PACK,
+} from '@/lib/data-agent';
+import { DEFAULT_DATA_AGENT_PROFILE_ID } from '@/lib/config/data-agent';
+import {
   DEFAULT_QUANT_CAPABILITY_ID,
   getQuantCapability,
   QUANT_CAPABILITIES,
 } from './capabilities';
 
 export const FINANCE_DOMAIN_PACK_ID = 'finance.quant';
-export const QUANTPILOT_AGENT_PROFILE_ID = 'quantpilot.finance-research';
+export const QUANTPILOT_AGENT_PROFILE_ID = DEFAULT_DATA_AGENT_PROFILE_ID;
 
 function operationId(endpoint: string): string {
   const normalized = endpoint
@@ -98,6 +103,19 @@ export const QUANTPILOT_AGENT_PROFILE: DataAgentProfile = {
   memoryPolicyId: 'quantpilot.personalization',
   knowledgePolicyId: 'quantpilot.governed-knowledge',
 };
+
+export function createQuantPilotDataAgentRegistry(): DataAgentRegistry {
+  return new DataAgentRegistry()
+    .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
+    .registerDomainPack(FINANCE_DOMAIN_PACK)
+    .registerProfile(QUANTPILOT_AGENT_PROFILE);
+}
+
+export function resolveQuantPilotDataAgentProfile(
+  profileId = QUANTPILOT_AGENT_PROFILE_ID,
+) {
+  return createQuantPilotDataAgentRegistry().resolveProfile(profileId);
+}
 
 export function getFinanceSkillCapabilityDescriptor(
   capabilityId?: string | null,

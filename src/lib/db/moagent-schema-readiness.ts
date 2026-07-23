@@ -115,6 +115,7 @@ type ColumnDefinition = readonly [dataType: string, nullable: boolean];
 const EXPECTED_COLUMN_DEFINITIONS = {
   projects: {
     id: ['text', false],
+    agent_profile_id: ['text', false],
   },
   user_requests: {
     id: ['text', false],

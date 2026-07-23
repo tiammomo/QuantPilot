@@ -1,5 +1,6 @@
 import type {
   DataAgentCapabilityDescriptor,
+  DataAgentDeliveryPackDescriptor,
   DataAgentDomainPack,
   DataAgentProfile,
 } from './contracts';
@@ -30,6 +31,23 @@ function assertUniqueIdentifiers(values: readonly string[], label: string): Set<
   return identifiers;
 }
 
+function assertRelativeWorkspacePaths(values: readonly string[], label: string): void {
+  const paths = new Set<string>();
+  for (const value of values) {
+    const normalized = value.trim();
+    if (
+      !normalized
+      || normalized.startsWith('/')
+      || normalized.includes('\\')
+      || normalized.split('/').includes('..')
+    ) {
+      throw new Error(`${label} must contain safe workspace-relative POSIX paths.`);
+    }
+    if (paths.has(normalized)) throw new Error(`Duplicate ${label}: ${normalized}`);
+    paths.add(normalized);
+  }
+}
+
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
@@ -39,8 +57,26 @@ function deepFreeze<T>(value: T): T {
 }
 
 export class DataAgentRegistry {
+  private readonly deliveryPacks = new Map<string, DataAgentDeliveryPackDescriptor>();
   private readonly domainPacks = new Map<string, DataAgentDomainPack>();
   private readonly profiles = new Map<string, DataAgentProfile>();
+
+  registerDeliveryPack(pack: DataAgentDeliveryPackDescriptor): this {
+    const id = assertIdentifier(pack.id, 'deliveryPack.id');
+    if (this.deliveryPacks.has(id)) throw new Error(`Duplicate Data Agent delivery pack: ${id}`);
+    assertVersion(pack.version, `deliveryPack ${id} version`);
+    if (pack.supportedOutputs.length === 0) {
+      throw new Error(`Data Agent delivery pack ${id} must support at least one output kind.`);
+    }
+    if (new Set(pack.supportedOutputs).size !== pack.supportedOutputs.length) {
+      throw new Error(`Data Agent delivery pack ${id} contains duplicate output kinds.`);
+    }
+    assertRelativeWorkspacePaths(pack.workspaceDirectories, `workspace directory in ${id}`);
+    assertRelativeWorkspacePaths(pack.artifactPaths, `artifact path in ${id}`);
+    assertUniqueIdentifiers(pack.validatorIds, `validator ID in delivery pack ${id}`);
+    this.deliveryPacks.set(id, deepFreeze(structuredClone(pack)));
+    return this;
+  }
 
   registerDomainPack(pack: DataAgentDomainPack): this {
     const id = assertIdentifier(pack.id, 'domainPack.id');
@@ -130,8 +166,21 @@ export class DataAgentRegistry {
     return this;
   }
 
+  listProfiles(): readonly DataAgentProfile[] {
+    return Array.from(this.profiles.values()).sort((left, right) => (
+      left.id.localeCompare(right.id)
+    ));
+  }
+
+  listDeliveryPacks(): readonly DataAgentDeliveryPackDescriptor[] {
+    return Array.from(this.deliveryPacks.values()).sort((left, right) => (
+      left.id.localeCompare(right.id)
+    ));
+  }
+
   resolveProfile(profileId: string): {
     profile: DataAgentProfile;
+    deliveryPack: DataAgentDeliveryPackDescriptor;
     domainPacks: DataAgentDomainPack[];
     defaultCapability: DataAgentCapabilityDescriptor;
   } {
@@ -149,6 +198,20 @@ export class DataAgentRegistry {
         `Profile ${profile.id} must resolve exactly one default capability ${profile.defaultCapabilityId}.`,
       );
     }
-    return { profile, domainPacks, defaultCapability: matches[0] };
+    const deliveryPack = this.deliveryPacks.get(profile.deliveryPackId);
+    if (!deliveryPack) {
+      throw new Error(
+        `Profile ${profile.id} references missing delivery pack ${profile.deliveryPackId}.`,
+      );
+    }
+    const compatible = matches[0].supportedOutputs.some((output) => (
+      deliveryPack.supportedOutputs.includes(output)
+    ));
+    if (!compatible) {
+      throw new Error(
+        `Profile ${profile.id} delivery pack ${deliveryPack.id} cannot deliver default capability ${matches[0].id}.`,
+      );
+    }
+    return { profile, deliveryPack, domainPacks, defaultCapability: matches[0] };
   }
 }

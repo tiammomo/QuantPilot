@@ -46,7 +46,7 @@ export interface BaseProject {
   initialPrompt?: string | null;
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
-  fallbackEnabled: boolean;
+  agentProfileId: string;
 }
 
 /**
@@ -54,7 +54,6 @@ export interface BaseProject {
  */
 export interface ProjectSettings {
   preferredCli: CLIType;
-  fallbackEnabled: boolean;
   selectedModel?: string | null;
   theme?: 'light' | 'dark' | 'system';
   autoSave?: boolean;

@@ -33,9 +33,9 @@ model Project {
   templateType  String? @map("template_type") // nextjs, react, vue 等
 
   // Agent Runtime Preferences. MoAgent rebuilds bounded context from messages.
-  preferredCli    String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
-  selectedModel   String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
-  fallbackEnabled Boolean @default(false) @map("fallback_enabled")
+  preferredCli   String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
+  selectedModel  String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
+  agentProfileId String  @default("quantpilot.finance-research") @map("agent_profile_id")
 
   // Settings (JSON)
   settings String? // JSON string for additional settings
@@ -66,6 +66,7 @@ model Project {
   governedKnowledgeUses          GovernedKnowledgeUse[]
 
   @@index([ownerId])
+  @@index([agentProfileId])
   @@map("projects")
 }
 

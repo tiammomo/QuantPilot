@@ -48,7 +48,6 @@ export type CLIStatus = Record<string, CLIStatusEntry>;
 
 export interface CLIPreference {
   preferredCli: CLIType;
-  fallbackEnabled: boolean;
   selectedModel?: string;
 }
 

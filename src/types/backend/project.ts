@@ -30,7 +30,7 @@ export interface Project {
   templateType?: TemplateType;
   preferredCli?: string;
   selectedModel?: string;
-  fallbackEnabled: boolean;
+  agentProfileId: string;
   settings?: string; // JSON string
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +43,7 @@ export interface CreateProjectInput {
   initialPrompt: string;
   preferredCli?: string;
   selectedModel?: string;
+  agentProfileId?: string;
   description?: string;
   quantCapabilityId?: string;
   quantCapabilitySource?: 'manual' | 'default' | 'inferred';
