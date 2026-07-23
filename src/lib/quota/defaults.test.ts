@@ -15,6 +15,10 @@ const hardeningMigrationSql = readFileSync(path.join(
   process.cwd(),
   'prisma/migrations/20260717000100_harden_default_member_quotas/migration.sql',
 ), 'utf8');
+const structuralQuotaMigrationSql = readFileSync(path.join(
+  process.cwd(),
+  'prisma/migrations/20260723000300_worker_capacity_and_structural_quotas/migration.sql',
+), 'utf8');
 const hardeningBlock = hardeningMigrationSql.match(
   /SET\s+"enforcement" = 'hard'[\s\S]+?;/,
 )?.[0] ?? '';
@@ -48,7 +52,7 @@ function migrationQuotaRules(): Array<{
   )?.[0];
   if (!block) throw new Error('Migration quota rule seed block was not found.');
 
-  return [...block.matchAll(
+  const rules = [...block.matchAll(
     /\('[^']+', 'quota_profile_member_default', '([^']+)', (\d+), '([^']+)', '([^']+)', (NULL|\d+), (\d+),/g,
   )].map((match) => ({
     metric: match[1],
@@ -58,6 +62,19 @@ function migrationQuotaRules(): Array<{
     windowSeconds: match[5] === 'NULL' ? null : Number(match[5]),
     reservationTtlSeconds: Number(match[6]),
   }));
+  const pending = structuralQuotaMigrationSql.match(
+    /'agent\.pending',\s+(\d+),\s+'([^']+)',\s+'([^']+)',\s+(NULL|\d+),\s+(\d+)/,
+  );
+  if (!pending) throw new Error('Structural pending quota migration was not found.');
+  rules.push({
+    metric: 'agent.pending',
+    limit: BigInt(pending[1]),
+    enforcement: pending[2],
+    windowType: pending[3],
+    windowSeconds: pending[4] === 'NULL' ? null : Number(pending[4]),
+    reservationTtlSeconds: Number(pending[5]),
+  });
+  return rules;
 }
 
 describe('built-in access-control defaults', () => {
@@ -70,7 +87,7 @@ describe('built-in access-control defaults', () => {
     expect(ACCESS_CONTROL_CATALOG.profiles['readonly-default'].deny).toEqual([]);
   });
 
-  it('keeps all eight migration quota rules synchronized with the runtime catalog', () => {
+  it('keeps all migration quota rules synchronized with the runtime catalog', () => {
     const expected = DEFAULT_QUOTA_RULES.map((rule) => ({ ...rule }))
       .sort((left, right) => left.metric.localeCompare(right.metric));
     const actual = migrationQuotaRules()

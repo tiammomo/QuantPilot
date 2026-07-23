@@ -55,7 +55,7 @@ describe('MoAgent schema readiness', () => {
       issues: [],
     });
     expect(MOAGENT_SCHEMA_CONTRACT_VERSION).toBe(
-      '20260722000300_enforce_agent_run_workspace_identity'
+      '20260723000400_worker_registry_and_observability'
     );
   });
 
@@ -114,6 +114,8 @@ describe('MoAgent schema readiness', () => {
   it.each([
     'agent_generation_leases',
     'agent_generation_jobs',
+    'agent_worker_slots',
+    'agent_worker_instances',
     'agent_generation_outbox_events',
     'agent_missions',
     'agent_mission_nodes',
@@ -259,6 +261,8 @@ describe('MoAgent schema readiness', () => {
       expect(sql).toContain("'agent_evidence_receipts'");
       expect(sql).toContain("'agent_generation_leases'");
       expect(sql).toContain("'agent_generation_jobs'");
+      expect(sql).toContain("'agent_worker_slots'");
+      expect(sql).toContain("'agent_worker_instances'");
       expect(sql).toContain("'agent_generation_outbox_events'");
     }
     expect(query.mock.calls[3][0]).toContain("'agent_runs'");
@@ -270,7 +274,11 @@ describe('MoAgent schema readiness', () => {
       throw new Error('Expected readiness assertion to throw.');
     } catch (error) {
       expect(error).toBeInstanceOf(MoAgentSchemaNotReadyError);
-      expect((error as MoAgentSchemaNotReadyError).issues).toHaveLength(13);
+      expect((error as MoAgentSchemaNotReadyError).issues).toHaveLength(
+        new Set(
+          MOAGENT_SCHEMA_EXPECTATIONS.columns.map((column) => column.tableName),
+        ).size,
+      );
     }
   });
 });

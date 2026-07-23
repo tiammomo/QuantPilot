@@ -19,14 +19,22 @@ import {
   getProjectLlmConfig,
   type ProjectLlmConfig,
 } from '@/lib/config/llm';
-import type { DataAgentProfileSelection } from '@/lib/data-agent';
+import type {
+  DataAgentCompositionLock,
+  DataAgentProfileSelection,
+} from '@/lib/data-agent';
 import {
   DATA_AGENT_EVENTS_RELATIVE_PATH,
   DATA_AGENT_PLAN_RELATIVE_PATH,
   DATA_AGENT_PROFILE_RELATIVE_PATH,
   DATA_AGENT_ROOT_RELATIVE_PATH,
   DATA_AGENT_TASK_RELATIVE_PATH,
+  writeWorkspaceJsonAtomic,
 } from '@/lib/data-agent';
+import {
+  createQuantPilotDataAgentRegistry,
+  QUANTPILOT_AGENT_PROFILE_ID,
+} from '@/lib/domains/finance/agent-profile';
 import {
   FINANCE_QUERY_REWRITE_RELATIVE_PATH,
   FINANCE_RUN_PLAN_RELATIVE_PATH,
@@ -39,6 +47,7 @@ export interface QuantRunPlan {
   runId: string;
   status: RunPlanStatus;
   capabilityId: string;
+  composition: DataAgentCompositionLock;
   llm: ProjectLlmConfig;
   requestedCapabilityId?: string;
   executionCapabilityId?: string;
@@ -587,6 +596,10 @@ export async function writeInitialRunPlan(params: {
         ? 'needs_clarification'
         : 'planned',
     capabilityId: capability.id,
+    composition: createQuantPilotDataAgentRegistry().resolveCapability(
+      QUANTPILOT_AGENT_PROFILE_ID,
+      capability.id,
+    ).composition,
     llm,
     requestedCapabilityId: capability.id,
     executionCapabilityId: executionCapability.id,
@@ -657,30 +670,30 @@ export async function writeInitialRunPlan(params: {
     selectionSource,
   );
   await Promise.all([
-    fs.writeFile(
-      path.join(params.projectPath, FINANCE_RUN_PLAN_RELATIVE_PATH),
-      `${JSON.stringify(plan, null, 2)}\n`,
-      'utf8',
+    writeWorkspaceJsonAtomic(
+      params.projectPath,
+      FINANCE_RUN_PLAN_RELATIVE_PATH,
+      plan,
     ),
-    fs.writeFile(
-      path.join(params.projectPath, FINANCE_QUERY_REWRITE_RELATIVE_PATH),
-      `${JSON.stringify(queryRewrite, null, 2)}\n`,
-      'utf8',
+    writeWorkspaceJsonAtomic(
+      params.projectPath,
+      FINANCE_QUERY_REWRITE_RELATIVE_PATH,
+      queryRewrite,
     ),
-    fs.writeFile(
-      path.join(params.projectPath, DATA_AGENT_TASK_RELATIVE_PATH),
-      `${JSON.stringify(dataAgentTask, null, 2)}\n`,
-      'utf8',
+    writeWorkspaceJsonAtomic(
+      params.projectPath,
+      DATA_AGENT_TASK_RELATIVE_PATH,
+      dataAgentTask,
     ),
-    fs.writeFile(
-      path.join(params.projectPath, DATA_AGENT_PLAN_RELATIVE_PATH),
-      `${JSON.stringify(dataAgentPlan, null, 2)}\n`,
-      'utf8',
+    writeWorkspaceJsonAtomic(
+      params.projectPath,
+      DATA_AGENT_PLAN_RELATIVE_PATH,
+      dataAgentPlan,
     ),
-    fs.writeFile(
-      path.join(params.projectPath, DATA_AGENT_PROFILE_RELATIVE_PATH),
-      `${JSON.stringify(dataAgentProfile, null, 2)}\n`,
-      'utf8',
+    writeWorkspaceJsonAtomic(
+      params.projectPath,
+      DATA_AGENT_PROFILE_RELATIVE_PATH,
+      dataAgentProfile,
     ),
   ]);
 

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   getProjectById,
   ensureProjectLlmConfiguration,
+  lockProjectDataAgentComposition,
   updateProject,
   updateProjectActivity,
 } from "@/lib/services/project";
@@ -17,7 +18,6 @@ import {
 } from "@/lib/constants/models";
 import { streamManager } from "@/lib/services/stream";
 import { generateProjectId } from "@/lib/utils";
-import path from "path";
 import fs from "fs/promises";
 import { ImageAssetError } from "@/lib/server/image-assets";
 import {
@@ -51,9 +51,6 @@ import { authErrorResponse } from "@/lib/auth/http";
 import {
   consumeQuota,
   quotaErrorResponse,
-  releaseQuotaReservation,
-  renewQuotaReservation,
-  reserveQuota,
 } from "@/lib/quota";
 import { readQuantRunPlan } from "@/lib/domains/finance/workspace";
 import { createWorkspaceProgressPublisher } from "@/lib/quant/workspace-progress";
@@ -115,34 +112,8 @@ interface RouteContext {
  * Execute AI command
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
-  let concurrentQuotaReservationId: string | null = null;
-  let concurrentQuotaHeartbeat: ReturnType<typeof setInterval> | null = null;
-  let concurrentQuotaHandedOff = false;
   let claimedRequest: { projectId: string; requestId: string } | null = null;
   let acceptedMission: MoAgentMissionContext | null = null;
-  const releaseConcurrentQuota = async () => {
-    if (concurrentQuotaHeartbeat) {
-      clearInterval(concurrentQuotaHeartbeat);
-      concurrentQuotaHeartbeat = null;
-    }
-    if (!concurrentQuotaReservationId) return;
-    await releaseQuotaReservation({
-      reservationId: concurrentQuotaReservationId,
-    }).catch((error) => {
-      console.error(
-        "[Quota] Failed to release Agent concurrency reservation:",
-        error,
-      );
-    });
-  };
-  const handoffConcurrentQuota = () => {
-    if (concurrentQuotaHeartbeat) {
-      clearInterval(concurrentQuotaHeartbeat);
-      concurrentQuotaHeartbeat = null;
-    }
-    concurrentQuotaReservationId = null;
-    concurrentQuotaHandedOff = true;
-  };
   try {
     const { project_id } = await params;
     const actionContext = await requireAction({
@@ -309,71 +280,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       throw error;
     }
 
-    if (authSession) {
-      const concurrencyQuota = await reserveQuota({
-        actorUserId: authSession.user.id,
-        projectId: project_id,
-        metric: "agent.concurrent",
-        quantity: 1,
-        idempotencyKey: `agent-concurrent:${authSession.user.id}:${requestId}`,
-        reservationTtlSeconds: 3_600,
-      });
-      if (
-        !concurrencyQuota.reservation ||
-        concurrencyQuota.reservation.status !== "active" ||
-        concurrencyQuota.reservation.idempotent
-      ) {
-        await markUserRequestAsFailed(
-          project_id,
-          requestId,
-          "Agent concurrency reservation could not be acquired for this request.",
-        );
-        return NextResponse.json(
-          {
-            success: false,
-            error: "REQUEST_ACCEPTANCE_IN_PROGRESS",
-            message: "相同 requestId 正在被接收或已经结束，请读取原请求状态。",
-            requestId,
-          },
-          { status: 409 },
-        );
-      }
-      concurrentQuotaReservationId = concurrencyQuota.reservation.id;
-      const reservationLeaseMs = Math.max(
-        30_000,
-        concurrencyQuota.reservation.expiresAt.getTime() - Date.now(),
-      );
-      const heartbeatIntervalMs = Math.max(
-        1_000,
-        Math.min(5 * 60 * 1_000, Math.floor(reservationLeaseMs / 3)),
-      );
-      concurrentQuotaHeartbeat = setInterval(() => {
-        void renewQuotaReservation({
-          reservationId: concurrentQuotaReservationId!,
-          reservationTtlSeconds: 3_600,
-        }).catch((error) => {
-          console.error(
-            "[Quota] Failed to renew Agent concurrency reservation:",
-            error,
-          );
-        });
-      }, heartbeatIntervalMs);
-      if (
-        typeof concurrentQuotaHeartbeat === "object" &&
-        "unref" in concurrentQuotaHeartbeat
-      ) {
-        concurrentQuotaHeartbeat.unref();
-      }
-    }
-
     const projectRoot = resolveProjectRoot(project_id, project.repoPath);
-    const projectPath =
-      project.repoPath ||
-      path.join(
-        /*turbopackIgnore: true*/ process.cwd(),
-        "projects",
-        project_id,
-      );
+    const projectPath = projectRoot;
     const normalizedInstruction = rawInstruction.trim();
     const normalizedVisibleInstruction = (
       rawDisplayInstruction ?? rawInstruction
@@ -700,6 +608,15 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
     }
 
+    const plannedRunPlan = await readQuantRunPlan(projectPath);
+    if (!plannedRunPlan?.capabilityId) {
+      throw new Error("A planned Data Agent capability is required before dispatch.");
+    }
+    await lockProjectDataAgentComposition({
+      projectId: project_id,
+      projectPath,
+      composition: plannedRunPlan.composition,
+    });
     const executionEnvelope = createFinanceGenerationEnvelope({
       effectiveInstruction,
       userVisibleInstructionForRepair,
@@ -716,7 +633,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       governedKnowledgeTaskCategory,
       personalizationRecall: memoryRecall,
       governedKnowledgePreparation,
-      concurrencyReservationId: concurrentQuotaReservationId,
+    }, {
+      projectId: project_id,
+      requestId,
+      capabilityId: plannedRunPlan.capabilityId,
     });
 
     if (process.env.MOAGENT_DISPATCH_MODE === "worker") {
@@ -730,7 +650,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         executionEnvelope,
         maxAttempts: 3,
       });
-      handoffConcurrentQuota();
       return NextResponse.json({
         success: true,
         message: "AI execution queued",
@@ -762,7 +681,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           executionEnvelope,
         }),
     });
-    handoffConcurrentQuota();
     void queuedGeneration.completion.catch((error) => {
       console.error("[API] Queued generation task failed:", error);
     });
@@ -778,7 +696,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
   } catch (error) {
     console.error("[API] Failed to execute AI:", error);
-    if (acceptedMission && !concurrentQuotaHandedOff) {
+    if (acceptedMission) {
       await failMoAgentMission({
         missionId: acceptedMission.id,
         projectId: acceptedMission.projectId,
@@ -831,8 +749,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       },
       { status: 500 },
     );
-  } finally {
-    if (!concurrentQuotaHandedOff) await releaseConcurrentQuota();
   }
 }
 

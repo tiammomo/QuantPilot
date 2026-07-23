@@ -152,7 +152,7 @@
     {
       "id": "image-extraction",
       "name": "图片提取",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "status": "stable",
       "scope": "input",
       "boundary": "读取用户上传的图片附件清单，校验图片文件，抽取或标注持仓截图中的资产、股票、成本、盈亏、现金和仓位字段。",
@@ -166,8 +166,7 @@
         "dashboard-data.json.imageExtraction"
       ],
       "endpoints": [
-        "mcp__QuantPilotImage__quant_extract_uploaded_image",
-        "mcp__MiniMax__understand_image"
+        "quant_extract_uploaded_image"
       ],
       "validation": [
         "图片任务必须先调用 image-extraction",

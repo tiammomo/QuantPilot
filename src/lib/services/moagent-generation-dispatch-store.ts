@@ -6,6 +6,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/db/client";
+import { assertStructuralQuotaCapacity } from "@/lib/quota";
 
 const MAX_IDENTIFIER_BYTES = 256;
 const MAX_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -513,6 +514,52 @@ export async function claimMoAgentGenerationJob(input: {
         input.projectId,
         otherRunning.requestId,
       );
+    }
+    const request = await tx.userRequest.findUnique({
+      where: {
+        id_projectId: {
+          id: current.requestId,
+          projectId: current.projectId,
+        },
+      },
+      select: { actorUserId: true },
+    });
+    if (!request) {
+      throw new MoAgentGenerationDispatchError(
+        "GENERATION_DISPATCH_REQUEST_NOT_FOUND",
+        "Generation request does not exist or belongs to another project.",
+        input.projectId,
+        input.requestId,
+      );
+    }
+    if (request.actorUserId) {
+      const actors = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id"
+        FROM "auth_users"
+        WHERE "id" = ${request.actorUserId}
+        FOR UPDATE
+      `);
+      if (!actors[0]) {
+        throw new MoAgentGenerationDispatchError(
+          "GENERATION_DISPATCH_ACTOR_NOT_FOUND",
+          "Generation request actor no longer exists.",
+          input.projectId,
+          input.requestId,
+        );
+      }
+      const actorRunningJobs = await tx.agentGenerationJob.count({
+        where: {
+          id: { not: current.id },
+          status: "running",
+          request: { actorUserId: request.actorUserId },
+        },
+      });
+      await assertStructuralQuotaCapacity(tx, {
+        actorUserId: request.actorUserId,
+        metric: "agent.concurrent",
+        current: actorRunningJobs,
+        now,
+      });
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseTtlMs);
     try {
@@ -1023,13 +1070,46 @@ export async function listClaimableMoAgentGenerationJobs(
       "Claimable generation job limit must be between 1 and 200.",
     );
   }
-  return prisma.agentGenerationJob.findMany({
-    where: {
-      status: { in: ["pending", "retry_wait"] },
-      availableAt: { lte: new Date() },
-    },
-    orderBy: [{ availableAt: "asc" }, { queuedAt: "asc" }, { id: "asc" }],
-    take: limit,
+  const candidates = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    WITH ranked AS (
+      SELECT
+        "job"."id",
+        "job"."available_at",
+        "job"."queued_at",
+        ROW_NUMBER() OVER (
+          PARTITION BY COALESCE(
+            "request"."actor_user_id",
+            'workspace:' || "job"."project_id"
+          )
+          ORDER BY
+            "job"."available_at" ASC,
+            "job"."queued_at" ASC,
+            "job"."id" ASC
+        ) AS "actor_rank"
+      FROM "agent_generation_jobs" AS "job"
+      INNER JOIN "user_requests" AS "request"
+        ON "request"."id" = "job"."request_id"
+       AND "request"."project_id" = "job"."project_id"
+      WHERE "job"."status" IN ('pending', 'retry_wait')
+        AND "job"."available_at" <= clock_timestamp()
+    )
+    SELECT "id"
+    FROM ranked
+    ORDER BY
+      "actor_rank" ASC,
+      "available_at" ASC,
+      "queued_at" ASC,
+      "id" ASC
+    LIMIT ${limit}
+  `);
+  if (candidates.length === 0) return [];
+  const jobs = await prisma.agentGenerationJob.findMany({
+    where: { id: { in: candidates.map((candidate) => candidate.id) } },
+  });
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+  return candidates.flatMap((candidate) => {
+    const job = jobsById.get(candidate.id);
+    return job ? [job] : [];
   });
 }
 

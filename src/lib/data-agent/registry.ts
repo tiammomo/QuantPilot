@@ -1,7 +1,11 @@
+import { createHash } from 'node:crypto';
+
 import type {
   DataAgentCapabilityDescriptor,
+  DataAgentCompositionLock,
   DataAgentDeliveryPackDescriptor,
   DataAgentDomainPack,
+  DataAgentOutputKind,
   DataAgentProfile,
 } from './contracts';
 
@@ -213,5 +217,85 @@ export class DataAgentRegistry {
       );
     }
     return { profile, deliveryPack, domainPacks, defaultCapability: matches[0] };
+  }
+
+  resolveCapability(
+    profileId: string,
+    capabilityId?: string | null,
+    requestedOutput?: DataAgentOutputKind | null,
+  ): {
+    profile: DataAgentProfile;
+    deliveryPack: DataAgentDeliveryPackDescriptor;
+    domainPacks: DataAgentDomainPack[];
+    capability: DataAgentCapabilityDescriptor;
+    composition: DataAgentCompositionLock;
+  } {
+    const resolved = this.resolveProfile(profileId);
+    const selectedId = capabilityId?.trim() || resolved.profile.defaultCapabilityId;
+    assertIdentifier(selectedId, `capability ID in profile ${resolved.profile.id}`);
+    const matches = resolved.domainPacks
+      .flatMap((pack) => pack.capabilities)
+      .filter((capability) => capability.id === selectedId);
+    if (matches.length !== 1) {
+      throw new Error(
+        `Profile ${resolved.profile.id} must resolve exactly one capability ${selectedId}.`,
+      );
+    }
+    const capability = matches[0];
+    if (capability.status !== 'ready') {
+      throw new Error(
+        `Capability ${capability.id} is not ready for execution (status=${capability.status}).`,
+      );
+    }
+    const compatibleOutputs = capability.supportedOutputs.filter((output) => (
+      resolved.deliveryPack.supportedOutputs.includes(output)
+    ));
+    if (compatibleOutputs.length === 0) {
+      throw new Error(
+        `Delivery pack ${resolved.deliveryPack.id} cannot deliver capability ${capability.id}.`,
+      );
+    }
+    if (
+      requestedOutput
+      && (
+        !capability.supportedOutputs.includes(requestedOutput)
+        || !resolved.deliveryPack.supportedOutputs.includes(requestedOutput)
+      )
+    ) {
+      throw new Error(
+        `Output ${requestedOutput} is not supported by capability ${capability.id} and delivery pack ${resolved.deliveryPack.id}.`,
+      );
+    }
+    const unsigned = {
+      schemaVersion: 1 as const,
+      profile: {
+        id: resolved.profile.id,
+        version: resolved.profile.version,
+      },
+      domainPacks: resolved.domainPacks.map((pack) => ({
+        id: pack.id,
+        version: pack.version,
+      })),
+      deliveryPack: {
+        id: resolved.deliveryPack.id,
+        version: resolved.deliveryPack.version,
+      },
+      capability: {
+        id: capability.id,
+      },
+    };
+    const composition: DataAgentCompositionLock = deepFreeze({
+      ...unsigned,
+      sha256: `sha256:${createHash('sha256')
+        .update(JSON.stringify(unsigned), 'utf8')
+        .digest('hex')}`,
+    });
+    return {
+      profile: resolved.profile,
+      deliveryPack: resolved.deliveryPack,
+      domainPacks: resolved.domainPacks,
+      capability,
+      composition,
+    };
   }
 }

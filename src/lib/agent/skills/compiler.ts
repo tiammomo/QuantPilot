@@ -343,15 +343,6 @@ async function readSkillMarkdownFromPackage(packagePath: string, skillId: string
   }
 }
 
-function adaptSkillTextForMoAgent(value: string): string {
-  return value
-    .replaceAll('mcp__QuantPilotImage__quant_extract_uploaded_image', 'quant_extract_uploaded_image')
-    .replaceAll(
-      'mcp__MiniMax__understand_image',
-      '可选视觉识别工具（仅在 MoAgent ToolRegistry 显式注册时）',
-    );
-}
-
 function markdownSections(markdown: string): MarkdownSection[] {
   const heading = /^##\s+(.+)$/gm;
   const matches = Array.from(markdown.matchAll(heading));
@@ -429,7 +420,7 @@ async function compileCapsuleResources(params: {
   const resources: LoadedSkillResource[] = [];
   for (const resource of params.capsule.resources) {
     if (!resource.profiles.includes(params.phase)) continue;
-    const raw = adaptSkillTextForMoAgent(await readSkillResource(params.skill, resource.path));
+    const raw = await readSkillResource(params.skill, resource.path);
     const sections = markdownSections(raw);
     let candidates: MarkdownSection[] = [];
     if (resource.selector === 'template-heading') {
@@ -578,7 +569,7 @@ async function loadSkill(params: {
     return {
       registry,
       lock,
-      markdown: adaptSkillTextForMoAgent(sourceMarkdown),
+      markdown: sourceMarkdown,
       source: 'source',
       sourceDirectory,
       packagePath: packageExists ? packageCandidate : null,
@@ -599,9 +590,7 @@ async function loadSkill(params: {
   return {
     registry,
     lock,
-    markdown: adaptSkillTextForMoAgent(
-      await readSkillMarkdownFromPackage(packageCandidate, registry.id),
-    ),
+    markdown: await readSkillMarkdownFromPackage(packageCandidate, registry.id),
     source: 'package',
     sourceDirectory: null,
     packagePath: packageCandidate,
@@ -1075,7 +1064,7 @@ export async function compileMoAgentSkills(
     '以下能力已经 registry/version/SHA-256 与 runtime capsule 校验；全局安全、权限和终止规则由 Kernel 负责，Skill 只补充领域步骤。',
     ...loaded.map((skill) => {
       const capsule = capsuleRegistry.skills[skill.registry.id];
-      return `- ${skill.registry.id}@${skill.registry.version} priority=${capsule.priority}: ${adaptSkillTextForMoAgent(skill.registry.boundary)}`;
+      return `- ${skill.registry.id}@${skill.registry.version} priority=${capsule.priority}: ${skill.registry.boundary}`;
     }),
   ].join('\n');
 

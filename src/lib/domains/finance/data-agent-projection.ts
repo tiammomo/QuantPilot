@@ -4,7 +4,10 @@ import type {
   DataAgentTask,
 } from '@/lib/data-agent';
 import { DATA_AGENT_TASK_RELATIVE_PATH } from '@/lib/data-agent';
-import { QUANTPILOT_AGENT_PROFILE } from './agent-profile';
+import {
+  createQuantPilotDataAgentRegistry,
+  QUANTPILOT_AGENT_PROFILE,
+} from './agent-profile';
 import { FINANCE_RUN_PLAN_RELATIVE_PATH } from './workspace-artifacts';
 import type { QuantQueryRewriteResult } from './query-rewrite';
 import type { QuantRunPlan } from './workspace';
@@ -56,6 +59,10 @@ export function projectFinanceRewriteToDataAgentTask(
 }
 
 export function projectFinancePlanToDataAgentPlan(plan: QuantRunPlan): DataAgentExecutionPlan {
+  const composition = createQuantPilotDataAgentRegistry().resolveCapability(
+    QUANTPILOT_AGENT_PROFILE.id,
+    plan.requestedCapabilityId ?? plan.capabilityId,
+  ).composition;
   return {
     schemaVersion: 1,
     runId: plan.runId,
@@ -65,10 +72,11 @@ export function projectFinancePlanToDataAgentPlan(plan: QuantRunPlan): DataAgent
         ? 'refused'
         : 'needs_clarification',
     profile: {
-      id: QUANTPILOT_AGENT_PROFILE.id,
-      version: QUANTPILOT_AGENT_PROFILE.version,
-      domainPackIds: [...QUANTPILOT_AGENT_PROFILE.domainPackIds],
-      deliveryPackId: QUANTPILOT_AGENT_PROFILE.deliveryPackId,
+      id: composition.profile.id,
+      version: composition.profile.version,
+      domainPacks: composition.domainPacks,
+      deliveryPack: composition.deliveryPack,
+      compositionSha256: composition.sha256,
     },
     capabilityId: plan.requestedCapabilityId ?? plan.capabilityId,
     taskArtifact: DATA_AGENT_TASK_RELATIVE_PATH,
@@ -86,10 +94,15 @@ export function projectFinanceProfileSelection(
   updatedAt: string,
   selectionSource: DataAgentProfileSelection['selectionSource'] = 'inferred',
 ): DataAgentProfileSelection {
+  const composition = createQuantPilotDataAgentRegistry().resolveCapability(
+    QUANTPILOT_AGENT_PROFILE.id,
+    capabilityId,
+  ).composition;
   return {
     schemaVersion: 1,
     profile: { ...QUANTPILOT_AGENT_PROFILE },
     selectedCapabilityId: capabilityId,
+    composition,
     selectionSource,
     updatedAt,
   };

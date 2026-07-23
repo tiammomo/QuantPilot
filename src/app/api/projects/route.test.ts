@@ -22,9 +22,6 @@ vi.mock('@/lib/serializers/project', () => ({
   serializeProject: (project: unknown) => project,
   serializeProjects: (projects: unknown) => projects,
 }));
-vi.mock('@/lib/domains/finance/capabilities', () => ({
-  getQuantCapability: () => ({ id: 'stock-research' }),
-}));
 vi.mock('@/lib/auth/audit', () => ({
   writeAuthAuditEvent: mocks.writeAuthAuditEvent,
 }));
@@ -113,6 +110,24 @@ describe('POST /api/projects quota orchestration', () => {
       expect.objectContaining({
         project_id: 'project-local',
         selectedModel: 'local_qwen:qwen3.5-9b-q5km',
+      }),
+      { ownerId: 'member-1' },
+    );
+  });
+
+  it('passes the generic Profile capability selection to the application catalog', async () => {
+    const response = await POST(request('project-capability', {
+      capabilityId: 'operations.overview',
+      capabilitySelectionSource: 'manual',
+      agentProfileId: 'operations.studio',
+    }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilityId: 'operations.overview',
+        capabilitySelectionSource: 'manual',
+        agentProfileId: 'operations.studio',
       }),
       { ownerId: 'member-1' },
     );

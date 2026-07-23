@@ -19,28 +19,16 @@ const MAX_JSON_POINTERS = 16;
 const MAX_TEXT_ANCHORS = 16;
 const MAX_TOTAL_TEXT_MATCHES = 32;
 const MAX_PROJECTION_OMISSIONS = 16;
-const PREFERRED_JSON_OBJECT_KEYS = [
-  'symbol',
+const GENERIC_PREFERRED_JSON_OBJECT_KEYS = [
+  'id',
   'name',
-  'price',
-  'close',
-  'latest_close',
-  'change_percent',
-  'periodReturn',
-  'return20d',
-  'maxDrawdown',
-  'volatility20d',
-  'date',
-  'report_date',
-  'latest_report_date',
-  'title',
   'summary',
-  'primary_view',
-  'risk_disclaimer',
   'status',
-  'method',
   'rows',
-  'data_quality',
+  'data',
+  'quality',
+  'createdAt',
+  'updatedAt',
 ] as const;
 
 type JsonPrimitive = string | number | boolean | null;
@@ -51,6 +39,8 @@ interface StructuredReadRuntime {
   timeoutMs: number;
   maxOutputChars: number;
   maxFileBytes: number;
+  jsonArtifacts: MoAgentJsonArtifactConfiguration;
+  preferredObjectKeys: readonly string[];
 }
 
 interface WorkspaceTextFile {
@@ -61,21 +51,45 @@ interface WorkspaceTextFile {
   pathCorrection?: JsonPathCorrection;
 }
 
-const JSON_ARTIFACT_PATHS = {
-  final_dashboard: 'data_file/final/dashboard-data.json',
+const GENERIC_JSON_ARTIFACT_PATHS = {
+  final_result: 'data_file/final/result.json',
   sources_evidence: 'evidence/sources.json',
   data_quality_evidence: 'evidence/data_quality.json',
-  query_rewrite: '.data-agent/finance-query-rewrite.json',
-  run_plan: '.data-agent/finance-run-plan.json',
+  task: '.data-agent/task.json',
+  plan: '.data-agent/plan.json',
   validation_report: '.data-agent/validation.json',
 } as const;
 
-type JsonArtifactId = keyof typeof JSON_ARTIFACT_PATHS;
+type JsonArtifactId = string;
+
+export interface MoAgentJsonArtifactAlias {
+  artifactId: string;
+  requestedIdentity?: string;
+}
+
+export interface MoAgentJsonArtifactIdentityResult {
+  matches: boolean;
+  availableIdentities: string[];
+}
+
+export interface MoAgentJsonArtifactConfiguration {
+  paths: Readonly<Record<string, string>>;
+  preferredObjectKeys?: readonly string[];
+  resolveAlias?: (requestedPath: string) => MoAgentJsonArtifactAlias | null;
+  validateAliasIdentity?: (
+    root: unknown,
+    requestedIdentity: string,
+  ) => MoAgentJsonArtifactIdentityResult;
+  toolDescription?: string;
+  artifactDescription?: string;
+  pathDescription?: string;
+  pointersDescription?: string;
+}
 
 interface JsonPathCorrection {
   requestedPath: string;
   resolvedPath: string;
-  reason: 'artifact_handle' | 'recognized_dashboard_alias';
+  reason: 'artifact_handle' | 'recognized_artifact_alias';
 }
 
 interface JsonArtifactReference {
@@ -83,35 +97,24 @@ interface JsonArtifactReference {
   path: string;
   requestedPath: string;
   pathCorrection?: JsonPathCorrection;
-  requestedSymbol?: string;
+  requestedIdentity?: string;
 }
 
-function normalizedWorkspaceReference(value: string): string {
-  return value.trim().replace(/^\/+/, '').replace(/^\.\//, '');
-}
-
-function dashboardAliasSymbol(value: string): string | undefined {
-  return normalizedWorkspaceReference(value)
-    .match(/^public\/data\/(\d{6})(?:\.(?:sh|sz))?\.json$/i)?.[1];
-}
-
-function isRecognizedDashboardAlias(value: string): boolean {
-  const normalized = normalizedWorkspaceReference(value);
-  return /^(?:public\/data\/(?:dashboard(?:-data)?|\d{6}(?:\.(?:sh|sz))?)|data\/dashboard(?:-data)?)\.json$/i
-    .test(normalized);
-}
-
-function parseJsonArtifactReference(record: Record<string, unknown>): JsonArtifactReference {
+function parseJsonArtifactReference(
+  record: Record<string, unknown>,
+  configuration: MoAgentJsonArtifactConfiguration,
+): JsonArtifactReference {
+  const artifactPaths = configuration.paths;
   const rawArtifact = record.artifact;
   let artifact: JsonArtifactId | undefined;
   if (rawArtifact !== undefined) {
     if (
       typeof rawArtifact !== 'string' ||
-      !Object.hasOwn(JSON_ARTIFACT_PATHS, rawArtifact)
+      !Object.hasOwn(artifactPaths, rawArtifact)
     ) {
       throw new MoAgentToolError(
         'INVALID_TOOL_INPUT',
-        `artifact must be one of: ${Object.keys(JSON_ARTIFACT_PATHS).join(', ')}.`,
+        `artifact must be one of: ${Object.keys(artifactPaths).join(', ')}.`,
       );
     }
     artifact = rawArtifact as JsonArtifactId;
@@ -121,7 +124,7 @@ function parseJsonArtifactReference(record: Record<string, unknown>): JsonArtifa
     ? undefined
     : requiredString(record, 'path', { maxLength: 1_024 });
   if (artifact) {
-    const resolvedPath = JSON_ARTIFACT_PATHS[artifact];
+    const resolvedPath = artifactPaths[artifact];
     return {
       artifact,
       path: resolvedPath,
@@ -139,16 +142,23 @@ function parseJsonArtifactReference(record: Record<string, unknown>): JsonArtifa
       'query_json requires either an authoritative artifact handle or a workspace-relative path.',
     );
   }
-  if (isRecognizedDashboardAlias(explicitPath)) {
-    const resolvedPath = JSON_ARTIFACT_PATHS.final_dashboard;
+  const alias = configuration.resolveAlias?.(explicitPath);
+  if (alias) {
+    const resolvedPath = artifactPaths[alias.artifactId];
+    if (!resolvedPath) {
+      throw new MoAgentToolError(
+        'INVALID_TOOL_CONFIGURATION',
+        `Artifact alias resolved an unregistered artifact: ${alias.artifactId}.`,
+      );
+    }
     return {
       path: resolvedPath,
       requestedPath: explicitPath,
-      requestedSymbol: dashboardAliasSymbol(explicitPath),
+      requestedIdentity: alias.requestedIdentity,
       pathCorrection: {
         requestedPath: explicitPath,
         resolvedPath,
-        reason: 'recognized_dashboard_alias',
+        reason: 'recognized_artifact_alias',
       },
     };
   }
@@ -158,10 +168,18 @@ function parseJsonArtifactReference(record: Record<string, unknown>): JsonArtifa
 export interface MoAgentStructuredReadOptions extends Pick<
   MoAgentFileToolOptions,
   'workspaceRoot' | 'timeoutMs' | 'maxOutputChars' | 'maxFileBytes'
-> {}
+> {
+  jsonArtifacts?: MoAgentJsonArtifactConfiguration;
+}
 
 function createRuntime(options: MoAgentStructuredReadOptions): StructuredReadRuntime {
   let policyPromise: Promise<MoAgentWorkspacePolicy> | undefined;
+  const jsonArtifacts: MoAgentJsonArtifactConfiguration = options.jsonArtifacts ?? {
+    paths: GENERIC_JSON_ARTIFACT_PATHS,
+  };
+  if (Object.keys(jsonArtifacts.paths).length === 0) {
+    throw new Error('Structured JSON readers require at least one artifact handle.');
+  }
   return {
     policy: () => policyPromise ??= MoAgentWorkspacePolicy.create({
       workspaceRoot: options.workspaceRoot,
@@ -169,6 +187,9 @@ function createRuntime(options: MoAgentStructuredReadOptions): StructuredReadRun
     timeoutMs: options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
     maxOutputChars: options.maxOutputChars ?? DEFAULT_TOOL_OUTPUT_CHARS,
     maxFileBytes: options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
+    jsonArtifacts,
+    preferredObjectKeys: jsonArtifacts.preferredObjectKeys ??
+      GENERIC_PREFERRED_JSON_OBJECT_KEYS,
   };
 }
 
@@ -279,7 +300,7 @@ interface QueryJsonInput {
   path: string;
   requestedPath: string;
   pathCorrection?: JsonPathCorrection;
-  requestedSymbol?: string;
+  requestedIdentity?: string;
   pointers: string[];
   maxArrayItems: number;
   maxStringChars: number;
@@ -287,9 +308,12 @@ interface QueryJsonInput {
   maxDepth: number;
 }
 
-function parseQueryJsonInput(value: unknown): QueryJsonInput {
+function parseQueryJsonInput(
+  value: unknown,
+  configuration: MoAgentJsonArtifactConfiguration,
+): QueryJsonInput {
   const record = inputRecord(value);
-  const reference = parseJsonArtifactReference(record);
+  const reference = parseJsonArtifactReference(record, configuration);
   const pointers = parseStringList(firstDefined(record, ['pointers', 'pointer']) ?? [''], 'pointers', {
     maxItems: 64,
     maxChars: 512,
@@ -316,7 +340,7 @@ async function existingAuthoritativeJsonArtifacts(
   runtime: StructuredReadRuntime,
 ): Promise<string[]> {
   const policy = await runtime.policy();
-  const candidates = Array.from(new Set(Object.values(JSON_ARTIFACT_PATHS)));
+  const candidates = Array.from(new Set(Object.values(runtime.jsonArtifacts.paths)));
   const existing = await Promise.all(candidates.map(async (candidate) => {
     try {
       await policy.resolveReadPath(candidate);
@@ -355,41 +379,6 @@ async function readJsonQueryFile(
       },
     );
   }
-}
-
-function normalizedSymbol(value: unknown): string | null {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
-  return String(value).match(/\d{6}/)?.[0] ?? null;
-}
-
-function finalDataSymbols(value: unknown): Set<string> {
-  const symbols = new Set<string>();
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return symbols;
-  const root = value as Record<string, unknown>;
-  const add = (candidate: unknown) => {
-    const symbol = normalizedSymbol(candidate);
-    if (symbol) symbols.add(symbol);
-  };
-  add(root.symbol);
-  add(root.code);
-  if (root.quote && typeof root.quote === 'object' && !Array.isArray(root.quote)) {
-    const quote = root.quote as Record<string, unknown>;
-    add(quote.symbol);
-    add(quote.code);
-  }
-  if (Array.isArray(root.assets)) {
-    for (const asset of root.assets) {
-      if (asset && typeof asset === 'object' && !Array.isArray(asset)) {
-        const assetRecord = asset as Record<string, unknown>;
-        add(assetRecord.symbol);
-        add(assetRecord.code);
-        if (assetRecord.quote && typeof assetRecord.quote === 'object' && !Array.isArray(assetRecord.quote)) {
-          add((assetRecord.quote as Record<string, unknown>).symbol);
-        }
-      }
-    }
-  }
-  return symbols;
 }
 
 function decodeJsonPointer(pointer: string): string[] {
@@ -506,10 +495,11 @@ function selectedIndexes(length: number, limit: number): number[] {
 function selectedObjectEntries(
   entries: Array<[string, JsonValue]>,
   limit: number,
+  preferredObjectKeys: readonly string[],
 ): Array<[string, JsonValue]> {
   if (entries.length <= limit) return entries;
   const selected = new Set<number>();
-  for (const preferredKey of PREFERRED_JSON_OBJECT_KEYS) {
+  for (const preferredKey of preferredObjectKeys) {
     const index = entries.findIndex(([key]) => key === preferredKey);
     if (index >= 0) selected.add(index);
     if (selected.size >= limit) break;
@@ -540,6 +530,7 @@ function projectJson(
   pointer: string,
   depth: number,
   state: ProjectionState,
+  preferredObjectKeys: readonly string[],
 ): JsonValue {
   if (typeof value === 'string') {
     if (value.length <= settings.maxStringChars) return value;
@@ -579,12 +570,23 @@ function projectJson(
       });
     }
     return indexes.map((index) =>
-      projectJson(value[index], settings, childPointer(pointer, index), depth + 1, state)
+      projectJson(
+        value[index],
+        settings,
+        childPointer(pointer, index),
+        depth + 1,
+        state,
+        preferredObjectKeys,
+      )
     );
   }
 
   const entries = Object.entries(value);
-  const retained = selectedObjectEntries(entries, settings.maxObjectKeys);
+  const retained = selectedObjectEntries(
+    entries,
+    settings.maxObjectKeys,
+    preferredObjectKeys,
+  );
   if (retained.length < entries.length) {
     recordOmission(state, {
       pointer,
@@ -595,7 +597,14 @@ function projectJson(
   }
   return Object.fromEntries(retained.map(([key, child]) => [
     key,
-    projectJson(child, settings, childPointer(pointer, key), depth + 1, state),
+    projectJson(
+      child,
+      settings,
+      childPointer(pointer, key),
+      depth + 1,
+      state,
+      preferredObjectKeys,
+    ),
   ]));
 }
 
@@ -622,6 +631,7 @@ function buildJsonQueryReport(
   settings: ProjectionSettings,
   maxOmissionDetails: number,
   compactShape: boolean,
+  preferredObjectKeys: readonly string[],
 ): JsonQueryReport {
   const state: ProjectionState = {
     omissionCount: 0,
@@ -638,7 +648,14 @@ function buildJsonQueryReport(
       found: true,
       valueType: jsonType(resolved.value),
       ...(compactShape ? compactJsonShape(resolved.value) : jsonShape(resolved.value)),
-      value: projectJson(resolved.value, settings, pointer, 0, state),
+      value: projectJson(
+        resolved.value,
+        settings,
+        pointer,
+        0,
+        state,
+        preferredObjectKeys,
+      ),
     };
   });
   return {
@@ -663,6 +680,7 @@ function boundedJsonQueryReport(
   root: JsonValue,
   input: QueryJsonInput,
   maxOutputChars: number,
+  preferredObjectKeys: readonly string[],
 ): { content: string; truncated: boolean } {
   const settings: ProjectionSettings[] = [];
   let current = {
@@ -697,6 +715,7 @@ function boundedJsonQueryReport(
         candidateSettings,
         projection.omissionLimit,
         projection.compactShape,
+        preferredObjectKeys,
       );
       const content = JSON.stringify(report, null, 2);
       if (content.length <= maxOutputChars) {
@@ -747,9 +766,11 @@ export function createQueryJsonTool(
   options: MoAgentStructuredReadOptions,
 ): MoAgentTool<QueryJsonInput> {
   const runtime = createRuntime(options);
+  const artifactIds = Object.keys(runtime.jsonArtifacts.paths);
   return {
     name: 'query_json',
-    description: 'Batch-query all required RFC 6901 JSON Pointers from one workspace JSON artifact in a single call (maximum 16); do not call once per pointer. Prefer artifact="final_dashboard" for platform-prepared dashboard data and never invent public/data paths. For a dashboard, request quote, kline/technical summaries, financials, events, metrics, and conclusion together. Output is automatically bounded.',
+    description: runtime.jsonArtifacts.toolDescription ??
+      'Batch-query all required RFC 6901 JSON Pointers from one authoritative workspace JSON artifact in a single call (maximum 16). Output is automatically bounded.',
     effect: 'read',
     idempotency: 'intrinsic',
     observationCache: 'workspace_generation',
@@ -758,25 +779,28 @@ export function createQueryJsonTool(
       properties: {
         artifact: {
           type: 'string',
-          enum: Object.keys(JSON_ARTIFACT_PATHS),
-          description: 'Authoritative artifact handle. Prefer final_dashboard instead of guessing a file path.',
+          enum: artifactIds,
+          description: runtime.jsonArtifacts.artifactDescription ??
+            'Authoritative artifact handle. Prefer a registered handle instead of guessing a path.',
         },
         path: {
           type: 'string',
-          description: 'Workspace-relative JSON file. Omit when artifact is supplied. Dashboard data is data_file/final/dashboard-data.json, never public/data/*.json.',
+          description: runtime.jsonArtifacts.pathDescription ??
+            'Workspace-relative JSON file. Omit when artifact is supplied.',
         },
         pointers: {
           type: 'array',
           minItems: 1,
           maxItems: MAX_JSON_POINTERS,
           items: { type: 'string' },
-          description: 'All needed paths in one array, for example ["/quote","/kline/bars","/technicalIndicators/summary","/financials/reports","/announcements/announcements","/computedMetrics","/conclusion"]. Use an empty string only to discover root keys.',
+          description: runtime.jsonArtifacts.pointersDescription ??
+            'All required RFC 6901 paths in one array. Use an empty string only to discover root keys.',
         },
       },
       required: ['pointers'],
       additionalProperties: false,
     },
-    parseInput: parseQueryJsonInput,
+    parseInput: (value) => parseQueryJsonInput(value, runtime.jsonArtifacts),
     execute: (input, context) => executeMoAgentTool(
       context.signal,
       runtime.timeoutMs,
@@ -794,17 +818,23 @@ export function createQueryJsonTool(
         if (parsed === undefined) {
           throw new MoAgentToolError('INVALID_JSON_FILE', `JSON has no root value: ${file.path}.`);
         }
-        if (input.requestedSymbol) {
-          const availableSymbols = finalDataSymbols(parsed);
-          if (!availableSymbols.has(input.requestedSymbol)) {
+        if (
+          input.requestedIdentity
+          && runtime.jsonArtifacts.validateAliasIdentity
+        ) {
+          const identity = runtime.jsonArtifacts.validateAliasIdentity(
+            parsed,
+            input.requestedIdentity,
+          );
+          if (!identity.matches) {
             throw new MoAgentToolError(
-              'ARTIFACT_SYMBOL_MISMATCH',
-              `The requested alias names symbol ${input.requestedSymbol}, but the authoritative final dashboard covers: ${Array.from(availableSymbols).join(', ') || 'no explicit symbols'}.`,
+              'ARTIFACT_IDENTITY_MISMATCH',
+              `The requested alias identity ${input.requestedIdentity} does not match the authoritative artifact.`,
               {
                 requestedPath: input.requestedPath,
                 resolvedPath: file.path,
-                requestedSymbol: input.requestedSymbol,
-                availableSymbols: Array.from(availableSymbols),
+                requestedIdentity: input.requestedIdentity,
+                availableIdentities: identity.availableIdentities,
               },
             );
           }
@@ -814,6 +844,7 @@ export function createQueryJsonTool(
           parsed as JsonValue,
           input,
           runtime.maxOutputChars,
+          runtime.preferredObjectKeys,
         );
         return {
           ok: true,
@@ -823,7 +854,7 @@ export function createQueryJsonTool(
               requestedPath: file.pathCorrection.requestedPath,
               resolvedPath: file.pathCorrection.resolvedPath,
               pathResolved: true,
-              pathCorrected: file.pathCorrection.reason === 'recognized_dashboard_alias',
+              pathCorrected: file.pathCorrection.reason === 'recognized_artifact_alias',
               correctionReason: file.pathCorrection.reason,
             } : {}),
             bytes: file.bytes,

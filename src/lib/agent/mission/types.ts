@@ -99,8 +99,10 @@ export interface MoAgentMissionDefinition {
 export interface MoAgentMissionCompositionRef {
   profileId: string;
   profileVersion: string;
-  domainPackIds: string[];
+  domainPacks: Array<{ id: string; version: string }>;
   deliveryPackId: string;
+  deliveryPackVersion: string;
+  compositionSha256: string;
 }
 
 export interface MoAgentExpectedEntityRef {

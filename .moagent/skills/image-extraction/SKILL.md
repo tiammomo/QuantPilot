@@ -5,7 +5,7 @@ description: Use this skill whenever a QuantPilot task includes uploaded images 
 
 # QuantPilot 图片提取能力
 
-本 skill 用于承接用户上传的图片附件，尤其是券商持仓、账户、成交或自选股截图。它负责把图片输入转换为可追溯的结构化证据，再交给行情、指标、数据质量和可视化能力继续处理。
+本 skill 用于承接用户上传的图片附件，尤其是券商持仓、账户、成交或自选股截图。当前确定性工具负责核验图片文件、格式、尺寸和哈希，并生成待确认字段合同；它不伪装成 OCR 或视觉模型。只有上游已经提供可验证识别结果时，才允许归一化业务字段。
 
 ## 资源与确定性归一化
 
@@ -30,11 +30,11 @@ python .moagent/skills/image-extraction/scripts/normalize_extraction.py --input 
 ## 标准流程
 
 1. 读取 `.data-agent/attachments.json`，确认附件路径、文件名、公开 URL 和提取契约。
-2. 调用 `mcp__QuantPilotImage__quant_extract_uploaded_image`：
+2. 调用当前 Finance Domain Pack 注册的 `quant_extract_uploaded_image`：
    - 默认参数：`{"attachmentContextPath": ".data-agent/attachments.json", "prompt": "<用户问题>"}`
    - 该工具会校验图片文件是否存在，并返回格式、尺寸、哈希、字段契约和缺失字段。
-3. 如果 `mcp__MiniMax__understand_image` 可用，再调用它识别图片视觉内容。
-4. 用 `normalize_extraction.py` 标准化识别字段，由平台将结果写入：
+3. 工具返回 `manual_confirmation_required` 时，不得自行填写截图字段；把字段保留为 `null` 并明确需要人工确认。
+4. 只有可信上游已提供真实识别字段时，才用 `normalize_extraction.py` 标准化，并由平台将结果写入：
 
 ```text
 evidence/image_extraction.json
@@ -75,3 +75,4 @@ data_file/final/dashboard-data.json -> imageExtraction
 - 不要只说“我看不到图片”就停止。
 - 不要把截图中没有出现的信息当作用户提供事实。
 - 不要把视觉识别失败伪装成成功。
+- 不要调用未在当前 ToolRegistry 注册的旧 MCP 或外部视觉工具别名。

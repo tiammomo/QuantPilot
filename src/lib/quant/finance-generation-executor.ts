@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type {
   DataAgentGenerationEnvelope,
   DataAgentGenerationHandler,
@@ -7,14 +5,25 @@ import type {
   ProcessedDataAgentImageAttachment,
 } from "@/lib/data-agent";
 import {
+  assertManagedWorkspaceExists,
+  resolveManagedWorkspacePath,
+} from "@/lib/data-agent";
+import {
   capturePlatformMissionCandidate,
   loadMoAgentMissionContext,
 } from "@/lib/services/moagent-mission-control";
-import { failMoAgentMission } from "@/lib/services/moagent-mission-store";
+import {
+  failMoAgentMission,
+  readMoAgentMissionSpec,
+} from "@/lib/services/moagent-mission-store";
 import { getProjectById, updateProjectActivity } from "@/lib/services/project";
 import { createWorkspaceProgressPublisher } from "@/lib/quant/workspace-progress";
 import { updateQuantGenerationStep } from "@/lib/quant/generation-state";
-import { readQuantRunPlan } from "@/lib/domains/finance/workspace";
+import {
+  readQuantRunPlan,
+  type QuantRunPlan,
+} from "@/lib/domains/finance/workspace";
+import type { MoAgentMissionSpec } from "@/lib/agent/mission";
 import {
   exposePersonalization,
   type PersonalizationRecallResult,
@@ -22,14 +31,13 @@ import {
 import { type GovernedKnowledgePreparation } from "@/lib/platform/knowledge";
 import { getProjectIntegrationScope } from "@/lib/platform/context/integration-scope";
 import { recordContextExposure } from "@/lib/platform/context/use-manifest";
-import { renewQuotaReservation, releaseQuotaReservation } from "@/lib/quota";
 import { streamManager } from "@/lib/services/stream";
 import { markUserRequestAsFailed } from "@/lib/services/user-requests";
 import { runValidationAfterExecution } from "@/lib/quant/generation-validation";
 import {
-  FINANCE_DOMAIN_PACK_ID,
-  QUANTPILOT_AGENT_PROFILE,
+  QUANTPILOT_AGENT_PROFILE_ID,
 } from "@/lib/domains/finance/agent-profile";
+import { getApplicationDataAgentCatalog } from "@/lib/quant/data-agent-application";
 
 export interface FinanceGenerationPayload {
   effectiveInstruction: string;
@@ -47,7 +55,6 @@ export interface FinanceGenerationPayload {
   governedKnowledgeTaskCategory: string;
   personalizationRecall: PersonalizationRecallResult;
   governedKnowledgePreparation: GovernedKnowledgePreparation;
-  concurrencyReservationId: string | null;
 }
 
 type CliRuntime = typeof import("@/lib/services/cli/moagent");
@@ -180,13 +187,32 @@ function governedKnowledgePreparation(
 
 export function createFinanceGenerationEnvelope(
   payload: FinanceGenerationPayload,
+  input: {
+    projectId: string;
+    requestId: string;
+    capabilityId: string;
+  },
 ): DataAgentGenerationEnvelope<FinanceGenerationPayload> {
+  const application = getApplicationDataAgentCatalog().resolve(
+    QUANTPILOT_AGENT_PROFILE_ID,
+    input.capabilityId,
+  );
+  const integrationScope = getProjectIntegrationScope(input.projectId);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "data-agent.generation",
-    profileId: QUANTPILOT_AGENT_PROFILE.id,
-    domainPackId: FINANCE_DOMAIN_PACK_ID,
-    deliveryPackId: QUANTPILOT_AGENT_PROFILE.deliveryPackId,
+    composition: application.composition,
+    scope: {
+      schemaVersion: 1,
+      consumerId: integrationScope.consumerId,
+      tenantId: integrationScope.memory.tenantId,
+      projectId: input.projectId,
+      workspaceId: input.projectId,
+      requestId: input.requestId,
+      agentProfileId: application.profile.id,
+      domainPackIds: application.domainPacks.map((pack) => pack.id),
+      integrationScopeSha256: integrationScope.scopeSha256,
+    },
     payload,
   };
 }
@@ -194,10 +220,21 @@ export function createFinanceGenerationEnvelope(
 export function parseFinanceGenerationEnvelope(
   envelope: DataAgentGenerationEnvelope,
 ): FinanceGenerationPayload {
+  const application = getApplicationDataAgentCatalog().resolve(
+    envelope.composition.profile.id,
+    envelope.composition.capability.id,
+  );
   if (
-    envelope.profileId !== QUANTPILOT_AGENT_PROFILE.id ||
-    envelope.domainPackId !== FINANCE_DOMAIN_PACK_ID ||
-    envelope.deliveryPackId !== QUANTPILOT_AGENT_PROFILE.deliveryPackId
+    application.profile.id !== QUANTPILOT_AGENT_PROFILE_ID ||
+    application.composition.sha256 !== envelope.composition.sha256 ||
+    application.composition.profile.version !== envelope.composition.profile.version ||
+    application.composition.deliveryPack.id !== envelope.composition.deliveryPack.id ||
+    application.composition.deliveryPack.version !== envelope.composition.deliveryPack.version ||
+    JSON.stringify(application.composition.domainPacks) !==
+      JSON.stringify(envelope.composition.domainPacks) ||
+    envelope.scope.agentProfileId !== application.profile.id ||
+    JSON.stringify(envelope.scope.domainPackIds) !==
+      JSON.stringify(application.domainPacks.map((pack) => pack.id))
   ) {
     throw new Error(
       "Finance generation composition does not match the registered profile.",
@@ -245,20 +282,54 @@ export function parseFinanceGenerationEnvelope(
     governedKnowledgePreparation: governedKnowledgePreparation(
       payload.governedKnowledgePreparation,
     ),
-    concurrencyReservationId: nullableString(
-      payload.concurrencyReservationId,
-      "concurrencyReservationId",
-    ),
   };
 }
 
-function projectPath(projectId: string, repoPath?: string | null): string {
-  if (repoPath)
-    return path.isAbsolute(repoPath)
-      ? repoPath
-      : path.resolve(process.cwd(), repoPath);
-  const root = process.env.PROJECTS_DIR || "./data/projects";
-  return path.resolve(process.cwd(), root, projectId);
+function sameVersionedRefs(
+  left: Array<{ id: string; version: string }>,
+  right: Array<{ id: string; version: string }>,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export function assertFinanceGenerationComposition(input: {
+  envelope: DataAgentGenerationEnvelope;
+  runPlan: QuantRunPlan;
+  missionSpec: MoAgentMissionSpec;
+}): void {
+  const { envelope, runPlan, missionSpec } = input;
+  const composition = envelope.composition;
+  const selectedCapabilityId =
+    runPlan.requestedCapabilityId ?? runPlan.capabilityId;
+
+  if (
+    runPlan.composition.sha256 !== composition.sha256 ||
+    selectedCapabilityId !== composition.capability.id
+  ) {
+    throw new Error(
+      "Finance run plan composition does not match the dispatch envelope.",
+    );
+  }
+  if (
+    missionSpec.projectId !== envelope.scope.projectId ||
+    missionSpec.requestId !== envelope.scope.requestId ||
+    missionSpec.runPlanId !== runPlan.runId ||
+    missionSpec.capabilityId !== composition.capability.id ||
+    missionSpec.composition.profileId !== composition.profile.id ||
+    missionSpec.composition.profileVersion !== composition.profile.version ||
+    missionSpec.composition.deliveryPackId !== composition.deliveryPack.id ||
+    missionSpec.composition.deliveryPackVersion !==
+      composition.deliveryPack.version ||
+    missionSpec.composition.compositionSha256 !== composition.sha256 ||
+    !sameVersionedRefs(
+      missionSpec.composition.domainPacks,
+      composition.domainPacks,
+    )
+  ) {
+    throw new Error(
+      "MoAgent Mission composition does not match the dispatch envelope.",
+    );
+  }
 }
 
 async function executeFinanceGeneration(
@@ -266,6 +337,13 @@ async function executeFinanceGeneration(
 ): Promise<void> {
   const envelope = job.executionEnvelope as DataAgentGenerationEnvelope;
   const payload = parseFinanceGenerationEnvelope(envelope);
+  if (
+    envelope.scope.projectId !== job.projectId ||
+    envelope.scope.workspaceId !== job.projectId ||
+    envelope.scope.requestId !== job.requestId
+  ) {
+    throw new Error("Generation job identity does not match the durable Data Agent scope.");
+  }
   if (job.selectedModel && job.selectedModel !== payload.selectedModel) {
     throw new Error(
       "Selected model does not match the durable finance payload.",
@@ -273,7 +351,25 @@ async function executeFinanceGeneration(
   }
   const project = await getProjectById(job.projectId);
   if (!project) throw new Error("Generation project does not exist.");
-  const workspace = projectPath(job.projectId, project.repoPath);
+  if (
+    project.agentProfileId !== envelope.composition.profile.id ||
+    project.agentProfileVersion !== envelope.composition.profile.version ||
+    project.dataAgentCompositionSha256 !== envelope.composition.sha256
+  ) {
+    throw new Error("Generation project composition does not match the dispatch envelope.");
+  }
+  const integrationScope = getProjectIntegrationScope(job.projectId);
+  if (
+    integrationScope.scopeSha256 !== envelope.scope.integrationScopeSha256 ||
+    integrationScope.consumerId !== envelope.scope.consumerId ||
+    integrationScope.memory.tenantId !== envelope.scope.tenantId
+  ) {
+    throw new Error("Generation integration scope changed after dispatch.");
+  }
+  const workspace = await assertManagedWorkspaceExists(
+    job.projectId,
+    project.repoPath,
+  );
   const mission = await loadMoAgentMissionContext({
     projectId: job.projectId,
     projectPath: workspace,
@@ -287,6 +383,16 @@ async function executeFinanceGeneration(
       "A planned Finance run plan is required before worker execution.",
     );
   }
+  const missionSpec = await readMoAgentMissionSpec({
+    missionId: mission.id,
+    projectId: job.projectId,
+    requestId: job.requestId,
+  });
+  assertFinanceGenerationComposition({
+    envelope,
+    runPlan,
+    missionSpec,
+  });
   const relatedAgentRequestIds = new Set<string>([job.requestId]);
   const publishWorkspaceProgress = createWorkspaceProgressPublisher({
     projectId: job.projectId,
@@ -295,7 +401,6 @@ async function executeFinanceGeneration(
     cliSource: payload.cliPreference,
     relatedAgentRequestIds,
   });
-  const integrationScope = getProjectIntegrationScope(job.projectId);
   const personalization = await exposePersonalization({
     projectId: job.projectId,
     actorUserId: payload.memorySubjectId,
@@ -390,56 +495,20 @@ async function executeFinanceGeneration(
   });
 }
 
-async function withConcurrencyReservation(
-  reservationId: string | null,
-  task: () => Promise<void>,
-): Promise<void> {
-  if (!reservationId) return task();
-  const timer = setInterval(
-    () => {
-      void renewQuotaReservation({
-        reservationId,
-        reservationTtlSeconds: 3_600,
-      }).catch((error) => {
-        console.error(
-          "[GenerationWorker] Failed to renew concurrency reservation:",
-          error,
-        );
-      });
-    },
-    5 * 60 * 1_000,
-  );
-  timer.unref?.();
-  try {
-    await renewQuotaReservation({
-      reservationId,
-      reservationTtlSeconds: 3_600,
-    });
-    await task();
-  } finally {
-    clearInterval(timer);
-    await releaseQuotaReservation({ reservationId }).catch((error) => {
-      console.error(
-        "[GenerationWorker] Failed to release concurrency reservation:",
-        error,
-      );
-    });
-  }
-}
-
 export const FINANCE_GENERATION_HANDLER: DataAgentGenerationHandler = {
-  domainPackId: FINANCE_DOMAIN_PACK_ID,
+  profileId: QUANTPILOT_AGENT_PROFILE_ID,
   async execute(job) {
     const envelope = job.executionEnvelope as DataAgentGenerationEnvelope;
     const payload = parseFinanceGenerationEnvelope(envelope);
     try {
-      await withConcurrencyReservation(payload.concurrencyReservationId, () =>
-        executeFinanceGeneration(job),
-      );
+      await executeFinanceGeneration(job);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const project = await getProjectById(job.projectId).catch(() => null);
-      const workspace = projectPath(job.projectId, project?.repoPath);
+      const workspace = resolveManagedWorkspacePath(
+        job.projectId,
+        project?.repoPath,
+      );
       await Promise.allSettled([
         failMoAgentMission({
           missionId: payload.missionId,

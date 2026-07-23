@@ -10,31 +10,20 @@ import {
   MOAGENT_DEFAULT_MODEL,
   normalizeMoAgentModelId,
 } from '@/lib/constants/models';
-import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
-import { buildQuantProjectSettings, getQuantCapability } from '@/lib/domains/finance/capabilities';
-import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
 import {
-  getFinanceSkillCapabilityDescriptor,
-  resolveQuantPilotDataAgentProfile,
-} from '@/lib/domains/finance';
-import type {
-  DataAgentProfileSelection,
-  DataAgentWorkspaceDescriptor,
-} from '@/lib/data-agent';
-import {
-  DATA_AGENT_EVENTS_RELATIVE_PATH,
-  DATA_AGENT_PROFILE_RELATIVE_PATH,
   DATA_AGENT_ROOT_RELATIVE_PATH,
   DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+  assertManagedWorkspaceAvailable,
+  assertManagedWorkspaceExists,
+  managedProjectsRoot,
+  resolveManagedWorkspacePath,
+  writeWorkspaceFileAtomic,
 } from '@/lib/data-agent';
-import { FINANCE_RUN_PLAN_RELATIVE_PATH } from '@/lib/domains/finance/workspace-artifacts';
+import type { DataAgentCompositionLock } from '@/lib/data-agent';
 import { getProjectLlmConfig } from '@/lib/config/llm';
+import { DEFAULT_DATA_AGENT_PROFILE_ID } from '@/lib/config/data-agent';
 import { deleteProjectWithOwnedQuota } from '@/lib/quota/allocation-reconciliation';
-
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(/*turbopackIgnore: true*/ process.cwd(), PROJECTS_DIR);
+import { getApplicationDataAgentCatalog } from '@/lib/quant/data-agent-application';
 
 function parseProjectSettings(existing: string | null | undefined): Record<string, unknown> {
   let parsed: Record<string, unknown> = {};
@@ -63,131 +52,8 @@ function mergeLlmSettings(
   });
 }
 
-function mergeProjectSettings(
-  existing: string | null | undefined,
-  quantCapabilityId?: string | null,
-  selectedModel?: string | null,
-): string {
-  return JSON.stringify({
-    ...parseProjectSettings(existing),
-    llm: getProjectLlmConfig(selectedModel),
-    quant: buildQuantProjectSettings(quantCapabilityId),
-  });
-}
-
 function normalizeCapabilitySource(value?: string | null): 'manual' | 'default' | 'inferred' {
   return value === 'manual' || value === 'default' || value === 'inferred' ? value : 'default';
-}
-
-async function writeDataAgentWorkspace(params: {
-  projectPath: string;
-  projectId: string;
-  projectName: string;
-  preferredCli: string;
-  selectedModel: string;
-  agentProfileId: string;
-  quantCapabilityId?: string | null;
-  quantCapabilitySource?: string | null;
-}) {
-  const resolvedProfile = resolveQuantPilotDataAgentProfile(params.agentProfileId);
-  const capability = getQuantCapability(params.quantCapabilityId);
-  if (!resolvedProfile.domainPacks.some((pack) => (
-    pack.capabilities.some((candidate) => candidate.id === capability.id)
-  ))) {
-    throw new Error(
-      `Capability ${capability.id} is not registered for Data Agent profile ${resolvedProfile.profile.id}.`,
-    );
-  }
-  const capabilitySource = normalizeCapabilitySource(params.quantCapabilitySource);
-  const visualizationTemplate = serializeQuantVisualizationTemplate(capability.id);
-  const selectedModel = normalizeMoAgentModelId(params.selectedModel);
-  const llm = getProjectLlmConfig(selectedModel);
-  const now = new Date().toISOString();
-  await Promise.all(resolvedProfile.deliveryPack.workspaceDirectories.map((directory) => (
-    fs.mkdir(path.join(params.projectPath, directory), { recursive: true })
-  )));
-
-  const workspace: DataAgentWorkspaceDescriptor = {
-    schemaVersion: 1,
-    workspaceId: params.projectId,
-    projectId: params.projectId,
-    projectName: params.projectName,
-    platform: 'QuantPilot',
-    createdAt: now,
-    updatedAt: now,
-    runtime: {
-      framework: 'MoAgent',
-      executorId: params.preferredCli,
-      modelId: selectedModel,
-      modelProfileId: llm.profileId,
-    },
-  };
-  const profileSelection: DataAgentProfileSelection = {
-    schemaVersion: 1,
-    profile: resolvedProfile.profile,
-    selectedCapabilityId: capability.id,
-    selectionSource: capabilitySource,
-    updatedAt: now,
-  };
-
-  await fs.writeFile(
-    path.join(params.projectPath, DATA_AGENT_WORKSPACE_RELATIVE_PATH),
-    `${JSON.stringify(workspace, null, 2)}\n`,
-    'utf8'
-  );
-  await fs.writeFile(
-    path.join(params.projectPath, FINANCE_RUN_PLAN_RELATIVE_PATH),
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        runId: null,
-        status: 'pending',
-        capabilityId: capability.id,
-        llm,
-        question: '',
-        symbols: [],
-        timeRange: null,
-        dataRequirements: capability.dataEndpoints,
-        analysisSteps: [],
-        visualization: {
-          required: false,
-          templateId: visualizationTemplate.templateId,
-          name: visualizationTemplate.name,
-          scenario: visualizationTemplate.scenario,
-          variantId: visualizationTemplate.variantId,
-          variantName: visualizationTemplate.variantName,
-          variantScenario: visualizationTemplate.variantScenario,
-          layout: visualizationTemplate.layout,
-          density: visualizationTemplate.density,
-          firstViewport: visualizationTemplate.firstViewport,
-          variantGuidance: visualizationTemplate.variantGuidance,
-          matchReasons: visualizationTemplate.matchReasons,
-          panels: visualizationTemplate.requiredComponents,
-          painPoints: visualizationTemplate.painPoints,
-          optionalPanels: visualizationTemplate.optionalComponents,
-          dataSignals: visualizationTemplate.dataSignals,
-          finalDataContract: visualizationTemplate.finalDataContract,
-        },
-        expectedArtifacts: capability.expectedArtifacts,
-        validationRules: capability.validationRules,
-        createdAt: now,
-        updatedAt: now,
-      },
-      null,
-      2
-    )}\n`,
-    'utf8'
-  );
-  await fs.writeFile(
-    path.join(params.projectPath, DATA_AGENT_EVENTS_RELATIVE_PATH),
-    '',
-    { encoding: 'utf8', flag: 'a' }
-  );
-  await fs.writeFile(
-    path.join(params.projectPath, DATA_AGENT_PROFILE_RELATIVE_PATH),
-    `${JSON.stringify(profileSelection, null, 2)}\n`,
-    'utf8',
-  );
 }
 
 export async function ensureProjectLlmConfiguration(params: {
@@ -199,11 +65,34 @@ export async function ensureProjectLlmConfiguration(params: {
   settings?: string | null;
   agentProfileId?: string | null;
 }): Promise<void> {
-  resolveQuantPilotDataAgentProfile(params.agentProfileId ?? undefined);
+  const settings = parseProjectSettings(params.settings);
+  const dataAgentSettings = settings.dataAgent &&
+    typeof settings.dataAgent === 'object' &&
+    !Array.isArray(settings.dataAgent)
+    ? settings.dataAgent as Record<string, unknown>
+    : {};
+  const quantSettings = settings.quant &&
+    typeof settings.quant === 'object' &&
+    !Array.isArray(settings.quant)
+    ? settings.quant as Record<string, unknown>
+    : {};
+  const capabilityId = typeof dataAgentSettings.capabilityId === 'string'
+    ? dataAgentSettings.capabilityId
+    : typeof quantSettings.capabilityId === 'string'
+      ? quantSettings.capabilityId
+      : undefined;
+  const application = getApplicationDataAgentCatalog().resolve(
+    params.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
+    capabilityId,
+  );
   const selectedModel = normalizeMoAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
-  const dataAgentDir = path.join(params.projectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
-  const workspacePath = path.join(params.projectPath, DATA_AGENT_WORKSPACE_RELATIVE_PATH);
+  const managedProjectPath = await assertManagedWorkspaceExists(
+    params.projectId,
+    params.projectPath,
+  );
+  const dataAgentDir = path.join(managedProjectPath, DATA_AGENT_ROOT_RELATIVE_PATH);
+  const workspacePath = path.join(managedProjectPath, DATA_AGENT_WORKSPACE_RELATIVE_PATH);
   await fs.mkdir(dataAgentDir, { recursive: true });
   const existingWorkspace = await fs.readFile(workspacePath, 'utf8')
     .then((content) => {
@@ -220,12 +109,13 @@ export async function ensureProjectLlmConfiguration(params: {
     : {};
   const now = new Date().toISOString();
   const nextWorkspace = {
+    ...existingWorkspace,
     schemaVersion: 1,
     workspaceId: params.projectId,
     projectId: params.projectId,
     projectName: params.projectName,
     platform: 'QuantPilot',
-    ...existingWorkspace,
+    composition: application.composition,
     runtime: {
       ...existingRuntime,
       framework: 'MoAgent',
@@ -241,16 +131,107 @@ export async function ensureProjectLlmConfiguration(params: {
   const nextWorkspaceContent = `${JSON.stringify(nextWorkspace, null, 2)}\n`;
   const currentWorkspaceContent = await fs.readFile(workspacePath, 'utf8').catch(() => null);
   if (currentWorkspaceContent !== nextWorkspaceContent) {
-    await fs.writeFile(workspacePath, nextWorkspaceContent, 'utf8');
+    await writeWorkspaceFileAtomic(
+      managedProjectPath,
+      DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+      nextWorkspaceContent,
+    );
   }
 
-  const nextSettings = mergeLlmSettings(params.settings, selectedModel);
+  const nextSettings = JSON.stringify({
+    ...settings,
+    llm,
+    dataAgent: {
+      ...dataAgentSettings,
+      profileId: application.profile.id,
+      profileVersion: application.profile.version,
+      capabilityId: application.capability.id,
+      compositionSha256: application.composition.sha256,
+    },
+  });
   if (nextSettings !== (params.settings ?? '')) {
     await prisma.project.update({
       where: { id: params.projectId },
-      data: { settings: nextSettings },
+      data: {
+        settings: nextSettings,
+        agentProfileId: application.profile.id,
+        agentProfileVersion: application.profile.version,
+        dataAgentCompositionSha256: application.composition.sha256,
+      },
     });
   }
+}
+
+export async function lockProjectDataAgentComposition(params: {
+  projectId: string;
+  projectPath: string;
+  composition: DataAgentCompositionLock;
+}): Promise<void> {
+  const application = getApplicationDataAgentCatalog().resolve(
+    params.composition.profile.id,
+    params.composition.capability.id,
+  );
+  if (application.composition.sha256 !== params.composition.sha256) {
+    throw new Error('Data Agent composition lock does not match the application catalog.');
+  }
+  const current = await prisma.project.findUnique({
+    where: { id: params.projectId },
+    select: { settings: true },
+  });
+  if (!current) throw new Error('Project does not exist while locking Data Agent composition.');
+  const managedProjectPath = await assertManagedWorkspaceExists(
+    params.projectId,
+    params.projectPath,
+  );
+  const workspacePath = path.join(
+    managedProjectPath,
+    DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+  );
+  const parsedWorkspace: unknown = JSON.parse(
+    await fs.readFile(workspacePath, 'utf8'),
+  );
+  if (
+    !parsedWorkspace ||
+    typeof parsedWorkspace !== 'object' ||
+    Array.isArray(parsedWorkspace)
+  ) {
+    throw new Error('Data Agent workspace descriptor must be a JSON object.');
+  }
+  const existingWorkspace = parsedWorkspace as Record<string, unknown>;
+  await writeWorkspaceFileAtomic(
+    managedProjectPath,
+    DATA_AGENT_WORKSPACE_RELATIVE_PATH,
+    `${JSON.stringify({
+      ...existingWorkspace,
+      composition: application.composition,
+      updatedAt: new Date().toISOString(),
+    }, null, 2)}\n`,
+  );
+
+  const settings = parseProjectSettings(current.settings);
+  const currentDataAgent = settings.dataAgent &&
+    typeof settings.dataAgent === 'object' &&
+    !Array.isArray(settings.dataAgent)
+    ? settings.dataAgent as Record<string, unknown>
+    : {};
+  await prisma.project.update({
+    where: { id: params.projectId },
+    data: {
+      agentProfileId: application.profile.id,
+      agentProfileVersion: application.profile.version,
+      dataAgentCompositionSha256: application.composition.sha256,
+      settings: JSON.stringify({
+        ...settings,
+        dataAgent: {
+          ...currentDataAgent,
+          profileId: application.profile.id,
+          profileVersion: application.profile.version,
+          capabilityId: application.capability.id,
+          compositionSha256: application.composition.sha256,
+        },
+      }),
+    },
+  });
 }
 
 /**
@@ -304,31 +285,14 @@ export async function createProject(
   input: CreateProjectInput,
   access?: { ownerId: string },
 ): Promise<Project> {
-  const resolvedProfile = resolveQuantPilotDataAgentProfile(input.agentProfileId);
-  // Create project directory
-  const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
-  await fs.mkdir(projectPath, { recursive: true });
+  const application = getApplicationDataAgentCatalog().resolve(
+    input.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
+    input.capabilityId,
+  );
+  const projectPath = await assertManagedWorkspaceAvailable(input.project_id);
   const preferredCli = 'moagent';
   const selectedModel = normalizeMoAgentModelId(input.selectedModel);
-  const quantCapability = getQuantCapability(input.quantCapabilityId);
-  await writeDataAgentWorkspace({
-    projectPath,
-    projectId: input.project_id,
-    projectName: input.name,
-    preferredCli,
-    selectedModel,
-    agentProfileId: resolvedProfile.profile.id,
-    quantCapabilityId: quantCapability.id,
-    quantCapabilitySource: input.quantCapabilitySource,
-  });
-  await installMoAgentSkillsForWorkspace(projectPath, {
-    capabilityId: quantCapability.id,
-    capability: getFinanceSkillCapabilityDescriptor(quantCapability.id),
-    additionalSkillIds: ['platform-ui-product-design'],
-  });
-
-  // Create project in database
-  const project = await prisma.project.create({
+  let project = await prisma.project.create({
     data: {
       id: input.project_id,
       ownerId: access?.ownerId,
@@ -338,9 +302,19 @@ export async function createProject(
       repoPath: projectPath,
       preferredCli,
       selectedModel,
-      agentProfileId: resolvedProfile.profile.id,
-      settings: mergeProjectSettings(undefined, quantCapability.id, selectedModel),
-      status: 'idle',
+      agentProfileId: application.profile.id,
+      agentProfileVersion: application.profile.version,
+      dataAgentCompositionSha256: application.composition.sha256,
+      settings: JSON.stringify({
+        llm: getProjectLlmConfig(selectedModel),
+        dataAgent: {
+          profileId: application.profile.id,
+          profileVersion: application.profile.version,
+          capabilityId: application.capability.id,
+          compositionSha256: application.composition.sha256,
+        },
+      }),
+      status: 'initializing',
       templateType: 'nextjs',
       lastActiveAt: new Date(),
       previewUrl: null,
@@ -357,6 +331,53 @@ export async function createProject(
         : {}),
     },
   });
+  const projectsRoot = managedProjectsRoot();
+  let stagedPath: string | null = null;
+  let committedWorkspace = false;
+  try {
+    stagedPath = await fs.mkdtemp(path.join(
+      projectsRoot,
+      `.${input.project_id}.provision-`,
+    ));
+    const provisioned = await application.adapter.provisionProject({
+      projectPath: stagedPath,
+      projectId: input.project_id,
+      projectName: input.name,
+      preferredCli,
+      selectedModel,
+      capabilitySelectionSource: normalizeCapabilitySource(input.capabilitySelectionSource),
+    }, application);
+    const targetExists = await fs.lstat(projectPath).then(() => true).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      },
+    );
+    if (targetExists) {
+      throw new Error(`Managed workspace already exists for project ${input.project_id}.`);
+    }
+    await fs.rename(stagedPath, projectPath);
+    stagedPath = null;
+    committedWorkspace = true;
+    project = await prisma.project.update({
+      where: { id: input.project_id },
+      data: {
+        status: 'idle',
+        settings: JSON.stringify(provisioned.settings),
+      },
+    });
+  } catch (error) {
+    if (stagedPath) {
+      await fs.rm(stagedPath, { recursive: true, force: true }).catch(() => undefined);
+    }
+    if (committedWorkspace) {
+      await fs.rm(projectPath, { recursive: true, force: true }).catch(() => undefined);
+    }
+    await prisma.project.delete({ where: { id: input.project_id } }).catch((cleanupError) => {
+      console.error('[ProjectService] Failed to roll back project provisioning:', cleanupError);
+    });
+    throw error;
+  }
 
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
@@ -408,6 +429,21 @@ export async function deleteProject(
   id: string,
   options: { deletedByUserId?: string | null } = {},
 ): Promise<boolean> {
+  const existing = await prisma.project.findUnique({
+    where: { id },
+    select: { repoPath: true },
+  });
+  if (!existing) return false;
+  const managedPath = resolveManagedWorkspacePath(id, existing.repoPath);
+  const workspaceExists = await fs.lstat(managedPath).then(() => true).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    },
+  );
+  if (workspaceExists) {
+    await assertManagedWorkspaceExists(id, existing.repoPath);
+  }
   // Commit the authoritative database deletion first. If filesystem cleanup
   // fails, it leaves a removable orphan instead of a live project whose files
   // were irreversibly removed before the database operation could commit. The
@@ -415,9 +451,9 @@ export async function deleteProject(
   const project = await deleteProjectWithOwnedQuota(prisma, id, options);
   if (!project) return false;
 
-  if (project.repoPath) {
+  if (workspaceExists) {
     try {
-      await fs.rm(project.repoPath, { recursive: true, force: true });
+      await fs.rm(managedPath, { recursive: true, force: true });
     } catch (error) {
       console.warn(`[ProjectService] Failed to delete project directory:`, error);
     }

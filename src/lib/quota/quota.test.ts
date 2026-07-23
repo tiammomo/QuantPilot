@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assertStructuralQuotaCapacity,
   calculateQuotaWindow,
   cleanupExpiredQuotaReservations,
   createQuotaService,
@@ -117,6 +118,71 @@ function quotaClient(tx: ReturnType<typeof transactionClient>) {
 }
 
 describe("quota policy and reservation service", () => {
+  it("blocks structural running capacity from database state without a reservation", async () => {
+    const tx = transactionClient();
+    tx.authUser.findUnique.mockResolvedValue({
+      id: "member-1",
+      role: "member",
+      quotaOverrides: [],
+      quotaProfile: {
+        rules: [{
+          limit: 2n,
+          enforcement: "hard",
+          windowType: "lifetime",
+          windowSeconds: null,
+          reservationTtlSeconds: 3_600,
+        }],
+      },
+    });
+
+    await expect(assertStructuralQuotaCapacity(tx as never, {
+      actorUserId: "member-1",
+      metric: "agent.concurrent",
+      current: 2,
+      now: new Date("2026-07-23T00:00:00.000Z"),
+    })).rejects.toMatchObject({
+      code: "QUOTA_EXCEEDED",
+      status: 429,
+      decision: {
+        counter: {
+          used: 0n,
+          reserved: 2n,
+          requested: 1n,
+          limit: 2n,
+        },
+      },
+    });
+    expect(tx.quotaReservation.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a structural slot below the configured limit", async () => {
+    const tx = transactionClient();
+    tx.authUser.findUnique.mockResolvedValue({
+      id: "member-1",
+      role: "member",
+      quotaOverrides: [],
+      quotaProfile: {
+        rules: [{
+          limit: 4n,
+          enforcement: "hard",
+          windowType: "lifetime",
+          windowSeconds: null,
+          reservationTtlSeconds: 3_600,
+        }],
+      },
+    });
+
+    await expect(assertStructuralQuotaCapacity(tx as never, {
+      actorUserId: "member-1",
+      metric: "agent.pending",
+      current: 3,
+    })).resolves.toMatchObject({
+      metric: "agent.pending",
+      limit: 4n,
+      enforcement: "hard",
+    });
+  });
+
   it("makes platform administrators unlimited while retaining the metric window", async () => {
     const tx = transactionClient();
     tx.authUser.findUnique.mockResolvedValue({

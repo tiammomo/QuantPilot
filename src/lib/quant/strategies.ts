@@ -647,7 +647,9 @@ function toWorkspaceRef(project: Project): StrategyWorkspaceRef {
     status: project.status ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt ?? null,
-    capabilityId: project.quantCapabilityId ?? null,
+    capabilityId: isStrategyCapability(project.capabilityId)
+      ? project.capabilityId
+      : null,
     initialPrompt: project.initialPrompt ?? null,
   };
 }
@@ -668,7 +670,7 @@ export async function getStrategyDashboardData(): Promise<StrategyDashboardData>
     getStrategyFoundationState(),
   ]);
   const strategyWorkspaces = projects
-    .filter(project => isStrategyCapability(project.quantCapabilityId))
+    .filter(project => isStrategyCapability(project.capabilityId))
     .map(toWorkspaceRef);
 
   const templates = listCatalogTemplates().map((template): StrategyCatalogItem => ({

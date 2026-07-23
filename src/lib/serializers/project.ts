@@ -1,12 +1,15 @@
 import type { Project as ProjectEntity } from '@/types/backend';
 import type { Project } from '@/types';
-import { getQuantCapability } from '@/lib/domains/finance/capabilities';
 
-function readQuantCapabilityId(settings?: string | null) {
+function readDataAgentCapabilityId(settings?: string | null) {
   if (!settings) return null;
   try {
-    const parsed = JSON.parse(settings) as { quant?: { capabilityId?: string } };
-    return getQuantCapability(parsed.quant?.capabilityId).id;
+    const parsed = JSON.parse(settings) as {
+      dataAgent?: { capabilityId?: string };
+    };
+    return typeof parsed.dataAgent?.capabilityId === 'string'
+      ? parsed.dataAgent.capabilityId
+      : null;
   } catch {
     return null;
   }
@@ -27,7 +30,9 @@ export function serializeProject(project: ProjectEntity): Project {
     preferredCli: (project.preferredCli ?? null) as Project['preferredCli'],
     selectedModel: project.selectedModel ?? null,
     agentProfileId: project.agentProfileId,
-    quantCapabilityId: readQuantCapabilityId(project.settings),
+    agentProfileVersion: project.agentProfileVersion,
+    dataAgentCompositionSha256: project.dataAgentCompositionSha256,
+    capabilityId: readDataAgentCapabilityId(project.settings),
   };
 }
 

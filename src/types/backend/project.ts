@@ -31,6 +31,8 @@ export interface Project {
   preferredCli?: string;
   selectedModel?: string;
   agentProfileId: string;
+  agentProfileVersion: string;
+  dataAgentCompositionSha256: string;
   settings?: string; // JSON string
   createdAt: Date;
   updatedAt: Date;
@@ -45,8 +47,8 @@ export interface CreateProjectInput {
   selectedModel?: string;
   agentProfileId?: string;
   description?: string;
-  quantCapabilityId?: string;
-  quantCapabilitySource?: 'manual' | 'default' | 'inferred';
+  capabilityId?: string;
+  capabilitySelectionSource?: 'manual' | 'default' | 'inferred';
 }
 
 export interface UpdateProjectInput {

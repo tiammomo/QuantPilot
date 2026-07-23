@@ -62,6 +62,48 @@ describe('DataAgentRegistry', () => {
     expect(registry.listDeliveryPacks().map((item) => item.id)).toEqual([
       'workspace.next-dashboard',
     ]);
+    const selection = registry.resolveCapability(profile.id, 'sales.overview', 'dashboard');
+    expect(selection.capability.id).toBe('sales.overview');
+    expect(selection.composition.profile).toEqual({ id: 'sales.studio', version: '1.0.0' });
+    expect(selection.composition.sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it('rejects unknown, non-ready, and output-incompatible selected capabilities', () => {
+    const registry = new DataAgentRegistry()
+      .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
+      .registerDomainPack(pack)
+      .registerProfile(profile);
+    expect(() => registry.resolveCapability(profile.id, 'sales.missing'))
+      .toThrow('exactly one capability sales.missing');
+    expect(() => registry.resolveCapability(profile.id, 'sales.overview', 'dataset'))
+      .toThrow('Output dataset is not supported');
+
+    const plannedPack = {
+      ...pack,
+      id: 'sales.planned',
+      connectors: pack.connectors.map((connector) => ({
+        ...connector,
+        domain: 'sales.planned',
+      })),
+      capabilities: pack.capabilities.map((capability) => ({
+        ...capability,
+        id: 'sales.future',
+        status: 'planned' as const,
+        domainPackId: 'sales.planned',
+      })),
+    };
+    const plannedProfile = {
+      ...profile,
+      id: 'sales.future-studio',
+      domainPackIds: ['sales.planned'],
+      defaultCapabilityId: 'sales.future',
+    };
+    expect(() => new DataAgentRegistry()
+      .registerDeliveryPack(NEXT_DASHBOARD_DELIVERY_PACK)
+      .registerDomainPack(plannedPack)
+      .registerProfile(plannedProfile)
+      .resolveCapability(plannedProfile.id))
+      .toThrow('is not ready for execution');
   });
 
   it('fails closed for missing packs and duplicate registrations', () => {

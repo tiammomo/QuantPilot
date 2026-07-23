@@ -3,6 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
+import {
+  createQuantPilotDataAgentRegistry,
+  QUANTPILOT_AGENT_PROFILE_ID,
+} from '@/lib/domains/finance';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildFundamentalMetricComparison,
@@ -82,6 +86,10 @@ describe('quant data-prefetch symbol candidates', () => {
       runId: 'conversational-symbol-prefetch',
       status: 'planned',
       capabilityId: 'stock_diagnosis',
+      composition: createQuantPilotDataAgentRegistry().resolveCapability(
+        QUANTPILOT_AGENT_PROFILE_ID,
+        'stock_diagnosis',
+      ).composition,
       llm: getProjectLlmConfig(),
       requestedCapabilityId: 'stock_diagnosis',
       executionCapabilityId: 'stock_diagnosis',

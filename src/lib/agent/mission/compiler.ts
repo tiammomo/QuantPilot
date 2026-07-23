@@ -22,6 +22,14 @@ function boundedIdentifier(value: string, label: string, max = 256): string {
   return normalized;
 }
 
+function boundedSha256(value: string, label: string): string {
+  const normalized = value.trim();
+  if (!/^sha256:[a-f0-9]{64}$/u.test(normalized)) {
+    throw new Error(`${label} must be a SHA-256 identity.`);
+  }
+  return normalized;
+}
+
 function safeArtifactPattern(value: string): string {
   const normalized = value.trim().replace(/\\/g, '/').replace(/^\.\//, '');
   if (
@@ -148,9 +156,25 @@ export function compileMoAgentMissionSpec(input: {
     composition: {
       profileId: boundedIdentifier(input.composition.profileId, 'profileId'),
       profileVersion: boundedIdentifier(input.composition.profileVersion, 'profileVersion', 64),
-      domainPackIds: Array.from(new Set(input.composition.domainPackIds.map((id) =>
-        boundedIdentifier(id, 'domainPackId')))).sort(),
+      domainPacks: Array.from(
+        new Map(input.composition.domainPacks.map((pack) => {
+          const id = boundedIdentifier(pack.id, 'domainPackId');
+          return [id, {
+            id,
+            version: boundedIdentifier(pack.version, 'domainPackVersion', 64),
+          }] as const;
+        })).values(),
+      ).sort((left, right) => left.id.localeCompare(right.id)),
       deliveryPackId: boundedIdentifier(input.composition.deliveryPackId, 'deliveryPackId'),
+      deliveryPackVersion: boundedIdentifier(
+        input.composition.deliveryPackVersion,
+        'deliveryPackVersion',
+        64,
+      ),
+      compositionSha256: boundedSha256(
+        input.composition.compositionSha256,
+        'compositionSha256',
+      ),
     },
     capabilityId: boundedIdentifier(input.capabilityId, 'capabilityId'),
     runPlanId: boundedIdentifier(input.runPlanId, 'runPlanId'),

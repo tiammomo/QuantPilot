@@ -29,6 +29,13 @@ function shouldRunMarketApi() {
   );
 }
 
+function shouldRunGenerationWorker() {
+  return (
+    process.env.MOAGENT_DISPATCH_MODE?.trim().toLowerCase() === 'worker' &&
+    envFlag('QUANTPILOT_DEV_MANAGE_GENERATION_WORKER', true)
+  );
+}
+
 function marketApiUrl() {
   return (
     process.env.QUANTPILOT_MARKET_API_URL ||
@@ -133,15 +140,41 @@ async function startMarketApiIfNeeded() {
   throw new Error(`market-data did not become healthy within 20 seconds: ${url}/health`);
 }
 
+function startGenerationWorkerIfNeeded() {
+  if (!shouldRunGenerationWorker()) {
+    console.log('↪️  Generation dispatch uses inline mode or an externally managed Worker.');
+    return { child: null, managed: false };
+  }
+  console.log('🚀 Starting durable Data Agent generation Worker');
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', 'scripts/workers/generation-worker.ts'],
+    {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: false,
+      detached: !isWindows,
+      env: process.env,
+    }
+  );
+  child.once('error', (error) => {
+    console.error(`❌ Failed to start generation Worker: ${error.message}`);
+  });
+  return { child, managed: true };
+}
+
 async function main() {
   const { preferredPort, passthrough } = parseCliArgs(process.argv.slice(2));
   const market = await startMarketApiIfNeeded();
   let web;
+  let worker = { child: null, managed: false };
 
   try {
     web = await startWebDevServer({ preferredPort, passthrough, stdio: 'inherit' });
+    worker = startGenerationWorkerIfNeeded();
   } catch (error) {
     if (market.managed) stopChild(market.child);
+    if (worker.managed) stopChild(worker.child);
     throw error;
   }
 
@@ -151,6 +184,7 @@ async function main() {
     shuttingDown = true;
     stopChild(web.child);
     if (market.managed) stopChild(market.child);
+    if (worker.managed) stopChild(worker.child);
     setTimeout(() => process.exit(exitCode), 250).unref();
   };
 
@@ -164,6 +198,14 @@ async function main() {
     market.child.on('exit', (code) => {
       if (!shuttingDown) {
         console.error(`❌ market-data exited unexpectedly (code ${code ?? 'unknown'})`);
+        shutdown(typeof code === 'number' && code !== 0 ? code : 1);
+      }
+    });
+  }
+  if (worker.managed) {
+    worker.child.on('exit', (code) => {
+      if (!shuttingDown) {
+        console.error(`❌ generation Worker exited unexpectedly (code ${code ?? 'unknown'})`);
         shutdown(typeof code === 'number' && code !== 0 ? code : 1);
       }
     });
@@ -183,5 +225,7 @@ module.exports = {
   marketApiUrl,
   probeHealth,
   shouldRunMarketApi,
+  shouldRunGenerationWorker,
+  startGenerationWorkerIfNeeded,
   startMarketApiIfNeeded,
 };

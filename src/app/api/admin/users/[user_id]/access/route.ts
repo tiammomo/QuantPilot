@@ -179,7 +179,11 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         );
       }
       if (
-        (override.metric === 'projects.owned' || override.metric === 'agent.concurrent') &&
+        (
+          override.metric === 'projects.owned' ||
+          override.metric === 'agent.pending' ||
+          override.metric === 'agent.concurrent'
+        ) &&
         override.enforcement !== 'hard'
       ) {
         throw new ApiError(

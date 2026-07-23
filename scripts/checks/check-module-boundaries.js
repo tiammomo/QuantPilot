@@ -96,6 +96,48 @@ function resolveImportPath(sourceFile, specifier) {
   return null;
 }
 
+function resolveImportFile(sourceFile, specifier, sourceFileSet) {
+  const unresolved = resolveImportPath(sourceFile, specifier);
+  if (!unresolved) return null;
+  const candidates = [
+    unresolved,
+    `${unresolved}.ts`,
+    `${unresolved}.tsx`,
+    `${unresolved}.js`,
+    `${unresolved}.jsx`,
+    `${unresolved}/index.ts`,
+    `${unresolved}/index.tsx`,
+    `${unresolved}/index.js`,
+  ];
+  return candidates.find((candidate) => sourceFileSet.has(candidate)) ?? null;
+}
+
+function ownershipSpecificity(pattern) {
+  return pattern.replace(/\*/g, '').length;
+}
+
+function owningModule(file, modules) {
+  const matches = modules.flatMap((boundaryModule) =>
+    boundaryModule.paths
+      .filter((pattern) => matchesGlob(file, pattern))
+      .map((pattern) => ({ boundaryModule, pattern }))
+  );
+  if (!matches.length) return null;
+  matches.sort((left, right) =>
+    ownershipSpecificity(right.pattern) - ownershipSpecificity(left.pattern)
+  );
+  if (
+    matches.length > 1 &&
+    ownershipSpecificity(matches[0].pattern) === ownershipSpecificity(matches[1].pattern) &&
+    matches[0].boundaryModule.id !== matches[1].boundaryModule.id
+  ) {
+    fail(
+      `${file} has ambiguous module ownership: ${matches[0].boundaryModule.id}, ${matches[1].boundaryModule.id}`
+    );
+  }
+  return matches[0].boundaryModule;
+}
+
 function importedSpecifiers(source) {
   const specifiers = new Set();
   const staticImportPattern =
@@ -146,6 +188,28 @@ function validateConfig(config) {
       warn(`${boundaryModule.id} path patterns do not point at an existing root yet`);
     }
   }
+  const byId = new Map(config.modules.map((boundaryModule) => [
+    boundaryModule.id,
+    boundaryModule,
+  ]));
+  const visiting = new Set();
+  const visited = new Set();
+  function visit(moduleId, chain) {
+    if (visiting.has(moduleId)) {
+      const cycleStart = chain.indexOf(moduleId);
+      fail(`module dependency cycle: ${[...chain.slice(cycleStart), moduleId].join(' -> ')}`);
+      return;
+    }
+    if (visited.has(moduleId)) return;
+    visiting.add(moduleId);
+    const boundaryModule = byId.get(moduleId);
+    for (const dependency of boundaryModule?.dependsOn ?? []) {
+      visit(dependency, [...chain, moduleId]);
+    }
+    visiting.delete(moduleId);
+    visited.add(moduleId);
+  }
+  for (const moduleId of byId.keys()) visit(moduleId, []);
 }
 
 function validateForbiddenImports(config) {
@@ -161,6 +225,26 @@ function validateForbiddenImports(config) {
         if (matchesGlob(file, rule.from) && matchesGlob(target, rule.to)) {
           fail(`${file} imports ${specifier}; ${rule.reason}`);
         }
+      }
+    }
+  }
+}
+
+function validateDeclaredDependencies(config) {
+  const sourceFiles = walkFiles('src', ['.ts', '.tsx', '.js', '.jsx']);
+  const sourceFileSet = new Set(sourceFiles);
+  for (const file of sourceFiles) {
+    const sourceOwner = owningModule(file, config.modules);
+    if (!sourceOwner) continue;
+    for (const specifier of importedSpecifiers(read(file))) {
+      const targetFile = resolveImportFile(file, specifier, sourceFileSet);
+      if (!targetFile) continue;
+      const targetOwner = owningModule(targetFile, config.modules);
+      if (!targetOwner || targetOwner.id === sourceOwner.id) continue;
+      if (!sourceOwner.dependsOn.includes(targetOwner.id)) {
+        fail(
+          `${file} (${sourceOwner.id}) imports ${specifier} (${targetOwner.id}) without declaring dependsOn`
+        );
       }
     }
   }
@@ -232,6 +316,7 @@ function validateDocs(config) {
 const config = readJson(CONFIG_PATH);
 validateConfig(config);
 validateForbiddenImports(config);
+validateDeclaredDependencies(config);
 validateRemovedPaths(config);
 validateForbiddenContent(config);
 validateLargeFiles(config);

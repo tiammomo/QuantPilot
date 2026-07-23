@@ -351,7 +351,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
       const cr = await fetch(`${API_BASE}/api/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, name, initialPrompt: prompt, quantCapabilityId: capabilityId }),
+        body: JSON.stringify({ projectId, name, initialPrompt: prompt, capabilityId }),
       });
       const cp = await cr.json();
       if (!cr.ok || !cp.success) throw new Error(cp.error ?? "创建策略工作空间失败");

@@ -57,6 +57,26 @@ type ContractDefinition = {
 const optionalString = z.string().nullable().optional();
 const nonEmptyString = z.string().trim().min(1);
 const statusString = z.string().trim().min(1);
+const sha256Identity = z.string().regex(/^sha256:[a-f0-9]{64}$/u);
+const compositionLockSchema = z.object({
+  schemaVersion: z.literal(1),
+  profile: z.object({
+    id: nonEmptyString,
+    version: nonEmptyString,
+  }),
+  domainPacks: z.array(z.object({
+    id: nonEmptyString,
+    version: nonEmptyString,
+  })).min(1),
+  deliveryPack: z.object({
+    id: nonEmptyString,
+    version: nonEmptyString,
+  }),
+  capability: z.object({
+    id: nonEmptyString,
+  }),
+  sha256: sha256Identity,
+});
 const optionalTimeRange = z.union([
   z.string(),
   z.object({
@@ -74,6 +94,7 @@ const workspaceSchema = z.object({
   projectId: nonEmptyString,
   projectName: nonEmptyString,
   platform: nonEmptyString,
+  composition: compositionLockSchema,
   runtime: z.object({
     framework: z.literal('MoAgent'),
     executorId: nonEmptyString,
@@ -94,6 +115,7 @@ const profileSchema = z.object({
     deliveryPackId: nonEmptyString,
   }).passthrough(),
   selectedCapabilityId: nonEmptyString,
+  composition: compositionLockSchema,
   selectionSource: z.enum(['manual', 'default', 'inferred']),
   updatedAt: nonEmptyString,
 }).passthrough();
@@ -120,8 +142,15 @@ const dataAgentPlanSchema = z.object({
   profile: z.object({
     id: nonEmptyString,
     version: nonEmptyString,
-    domainPackIds: z.array(nonEmptyString).min(1),
-    deliveryPackId: nonEmptyString,
+    domainPacks: z.array(z.object({
+      id: nonEmptyString,
+      version: nonEmptyString,
+    })).min(1),
+    deliveryPack: z.object({
+      id: nonEmptyString,
+      version: nonEmptyString,
+    }),
+    compositionSha256: sha256Identity,
   }),
   capabilityId: nonEmptyString,
   taskArtifact: z.literal(DATA_AGENT_TASK_RELATIVE_PATH),
@@ -154,6 +183,7 @@ const runPlanSchema = z.object({
   runId: nonEmptyString,
   status: z.enum(['pending', 'planned', 'needs_clarification', 'refused']),
   capabilityId: nonEmptyString,
+  composition: compositionLockSchema,
   question: nonEmptyString,
   symbols: z.array(z.string()),
   timeRange: optionalTimeRange,

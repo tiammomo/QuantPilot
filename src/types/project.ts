@@ -1,5 +1,4 @@
 import type { CLIType } from './cli';
-import type { QuantCapabilityId } from '@/lib/domains/finance/capabilities';
 
 export type ProjectStatus =
   | 'idle'
@@ -39,11 +38,13 @@ export interface Project {
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
   agentProfileId: string;
-  quantCapabilityId?: QuantCapabilityId | null;
+  agentProfileVersion: string;
+  dataAgentCompositionSha256: string;
+  capabilityId?: string | null;
 }
 
 export interface ProjectSettings {
   preferredCli: CLIType;
   selectedModel?: string | null;
-  quantCapabilityId?: QuantCapabilityId | null;
+  capabilityId?: string | null;
 }

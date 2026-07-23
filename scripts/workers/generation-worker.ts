@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import './worker-environment';
+
 import { createApplicationGenerationRuntime } from '../../src/lib/quant/generation-runtime';
 import { prisma } from '../../src/lib/db/client';
 import { MoAgentGenerationDispatchSession } from '../../src/lib/services/moagent-generation-dispatch-session';
@@ -10,6 +12,9 @@ import {
   MoAgentGenerationDispatchError,
   reconcileExpiredMoAgentGenerationJobs,
 } from '../../src/lib/services/moagent-generation-dispatch-store';
+import { MoAgentWorkerCapacitySession } from '../../src/lib/services/moagent-worker-capacity';
+import { MoAgentWorkerRegistrySession } from '../../src/lib/services/moagent-worker-registry';
+import { QuotaExceededError } from '../../src/lib/quota';
 
 function positiveInteger(name: string, fallback: number, max: number): number {
   const value = Number.parseInt(process.env[name] ?? '', 10) || fallback;
@@ -21,17 +26,54 @@ function positiveInteger(name: string, fallback: number, max: number): number {
 
 const pollIntervalMs = positiveInteger('MOAGENT_WORKER_POLL_INTERVAL_MS', 1_000, 60_000);
 const concurrency = positiveInteger('MOAGENT_WORKER_CONCURRENCY', 1, 16);
+const globalConcurrency = positiveInteger(
+  'MOAGENT_WORKER_GLOBAL_CONCURRENCY',
+  concurrency,
+  256,
+);
+const slotLeaseTtlMs = positiveInteger(
+  'MOAGENT_WORKER_SLOT_LEASE_TTL_MS',
+  120_000,
+  24 * 60 * 60 * 1_000,
+);
+const slotHeartbeatIntervalMs = positiveInteger(
+  'MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS',
+  30_000,
+  24 * 60 * 60 * 1_000,
+);
 const claimBatchSize = positiveInteger('MOAGENT_WORKER_CLAIM_BATCH_SIZE', 20, 200);
 const once = process.argv.includes('--once');
 const runtime = createApplicationGenerationRuntime();
 let stopping = false;
 
+if (concurrency > globalConcurrency) {
+  throw new Error(
+    'MOAGENT_WORKER_CONCURRENCY cannot exceed MOAGENT_WORKER_GLOBAL_CONCURRENCY.',
+  );
+}
+if (slotHeartbeatIntervalMs >= slotLeaseTtlMs) {
+  throw new Error(
+    'MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS must be smaller than its lease TTL.',
+  );
+}
+
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function executeJob(job: Awaited<ReturnType<typeof listClaimableMoAgentGenerationJobs>>[number]) {
+async function executeJob(
+  job: Awaited<ReturnType<typeof listClaimableMoAgentGenerationJobs>>[number],
+  workerLeaseOwner: string,
+): Promise<boolean> {
   let session: MoAgentGenerationDispatchSession | null = null;
+  const capacity = await MoAgentWorkerCapacitySession.tryClaim({
+    capacity: globalConcurrency,
+    activeJobId: job.id,
+    leaseOwner: workerLeaseOwner,
+    leaseTtlMs: slotLeaseTtlMs,
+    heartbeatIntervalMs: slotHeartbeatIntervalMs,
+  });
+  if (!capacity) return false;
   try {
     session = await MoAgentGenerationDispatchSession.claimExisting({
       projectId: job.projectId,
@@ -63,7 +105,12 @@ async function executeJob(job: Awaited<ReturnType<typeof listClaimableMoAgentGen
       requestId: job.requestId,
       status: current?.status ?? 'missing',
     }));
+    capacity.assertHealthy();
+    return true;
   } catch (error) {
+    if (error instanceof QuotaExceededError) {
+      return false;
+    }
     if (
       error instanceof MoAgentGenerationDispatchError
       && [
@@ -77,7 +124,7 @@ async function executeJob(job: Awaited<ReturnType<typeof listClaimableMoAgentGen
       ]
         .includes(error.code)
     ) {
-      return;
+      return false;
     }
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({
@@ -100,19 +147,27 @@ async function executeJob(job: Awaited<ReturnType<typeof listClaimableMoAgentGen
       });
       session.markTerminal();
     }
+    return Boolean(session);
   } finally {
     session?.dispose();
+    await capacity.release().catch((error) => {
+      console.error(
+        `[GenerationWorker] Failed to release global Worker slot: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 }
 
-async function tick(): Promise<number> {
+async function tick(workerLeaseOwner: string): Promise<number> {
   await reconcileExpiredMoAgentGenerationJobs({ limit: claimBatchSize });
   const jobs = await listClaimableMoAgentGenerationJobs(claimBatchSize);
   let completed = 0;
   for (let index = 0; index < jobs.length && !stopping; index += concurrency) {
     const batch = jobs.slice(index, index + concurrency);
-    await Promise.all(batch.map(executeJob));
-    completed += batch.length;
+    const results = await Promise.all(
+      batch.map((job) => executeJob(job, workerLeaseOwner)),
+    );
+    completed += results.filter(Boolean).length;
   }
   return completed;
 }
@@ -121,21 +176,39 @@ async function main() {
   if (process.env.MOAGENT_DISPATCH_MODE !== 'worker') {
     throw new Error('Generation worker requires MOAGENT_DISPATCH_MODE=worker.');
   }
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      stopping = true;
+  const registration = await MoAgentWorkerRegistrySession.start({
+    processConcurrency: concurrency,
+    globalConcurrency,
+    leaseTtlMs: slotLeaseTtlMs,
+    heartbeatIntervalMs: slotHeartbeatIntervalMs,
+  });
+  try {
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.on(signal, () => {
+        stopping = true;
+      });
+    }
+    console.log(JSON.stringify({
+      event: 'generation_worker_ready',
+      workerId: registration.claim.id,
+      concurrency,
+      globalConcurrency,
+      pollIntervalMs,
+    }));
+    do {
+      registration.assertHealthy();
+      const processed = await tick(registration.leaseOwner);
+      registration.assertHealthy();
+      if (once || stopping) break;
+      if (processed === 0) await delay(pollIntervalMs);
+    } while (!stopping);
+  } finally {
+    await registration.stop().catch((error) => {
+      console.error(
+        `[GenerationWorker] Failed to stop Worker registration: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   }
-  console.log(JSON.stringify({
-    event: 'generation_worker_ready',
-    concurrency,
-    pollIntervalMs,
-  }));
-  do {
-    const processed = await tick();
-    if (once || stopping) break;
-    if (processed === 0) await delay(pollIntervalMs);
-  } while (!stopping);
 }
 
 main()

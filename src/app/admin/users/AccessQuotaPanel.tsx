@@ -161,6 +161,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const METRIC_LABELS: Record<string, string> = {
   'projects.owned': '拥有项目数',
+  'agent.pending': '智能体排队数',
   'agent.concurrent': '智能体并发数',
   'agent.requests.daily': '智能体每日请求',
   'llm.total_tokens.monthly': 'LLM 每月 Token',
@@ -672,7 +673,11 @@ export default function AccessQuotaPanel({
                 const quota = effectiveQuotaByMetric.get(metric);
                 const override = quotaOverrides[metric];
                 const percent = quota ? quotaPercent(quota) : 0;
-                const structuralMetric = metric === 'projects.owned' || metric === 'agent.concurrent';
+                const structuralMetric = [
+                  'projects.owned',
+                  'agent.pending',
+                  'agent.concurrent',
+                ].includes(metric);
                 const postpaidMetric = [
                   'llm.total_tokens.monthly',
                   'quant.data_units.daily',

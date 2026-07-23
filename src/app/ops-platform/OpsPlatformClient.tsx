@@ -53,6 +53,7 @@ import {
 import { OpsWorkspacesView } from "./OpsWorkspacesView";
 import { OpsTraceView } from "./OpsTraceView";
 import { OpsLogsView } from "./OpsLogsView";
+import { OpsWorkerRuntime } from "./OpsWorkerRuntime";
 
 export type OpsView = "overview" | "services" | "workspaces" | "trace" | "logs";
 
@@ -204,6 +205,8 @@ function OverviewView({
         <OpsMetricCard icon={<GitBranch className="h-4 w-4" />} label="链路阻断" value={trace.summary.failed} helper={`${trace.summary.running} 个运行中 · 24h ${trace.summary.eventsLast24h} 个事件`} tone={trace.summary.failed ? "red" : "blue"} />
         <OpsMetricCard icon={<ScrollText className="h-4 w-4" />} label="可读日志源" value={`${readableLogs}/${ops.logSources.length}`} helper="Loki 不可用时自动使用本地文件" tone={readableLogs ? "emerald" : "red"} />
       </section>
+
+      <OpsWorkerRuntime data={ops.agentWorkers} />
 
       <section className="space-y-4">
         <OpsSectionHeader eyebrow="HEALTH MODEL" title="三层健康模型" description="项目交付、运行底座和策略研究分别计分，避免某一层的历史问题把整个系统误判为不可用。" />

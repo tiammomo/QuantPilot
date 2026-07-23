@@ -2,7 +2,11 @@ import type { MoAgentTool } from '@/lib/agent/types';
 import { firstPartyContextReceiptProjector } from './context-receipts';
 import { createMoAgentFileTools, type MoAgentFileToolOptions } from './filesystem';
 import { createSemanticEditTool } from './semantic-edit';
-import { createQueryJsonTool, createQueryTextFileTool } from './structured-read';
+import {
+  createQueryJsonTool,
+  createQueryTextFileTool,
+  type MoAgentJsonArtifactConfiguration,
+} from './structured-read';
 import { createSubmitResultTool } from './submit-result';
 import { composeMoAgentToolset } from './toolset';
 
@@ -13,6 +17,8 @@ export interface CreateMoAgentToolsOptions extends MoAgentFileToolOptions {
   profile?: MoAgentToolProfile;
   profileAllowedWriteGlobs?: readonly string[];
   targetedReadsOnly?: boolean;
+  /** Domain/delivery-owned authoritative JSON handles and optional aliases. */
+  jsonArtifacts?: MoAgentJsonArtifactConfiguration;
   preparedSurface?: MoAgentPreparedToolSurface;
   /** Domain/delivery-owned compiler used by a deterministic standard lane. */
   preparedCompilerTool?: MoAgentTool | null;

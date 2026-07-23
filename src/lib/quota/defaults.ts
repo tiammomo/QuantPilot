@@ -30,6 +30,14 @@ export const DEFAULT_QUOTA_RULES = Object.freeze([
     reservationTtlSeconds: 3_600,
   },
   {
+    metric: 'agent.pending',
+    limit: 4n,
+    enforcement: 'hard',
+    windowType: 'lifetime',
+    windowSeconds: null,
+    reservationTtlSeconds: 3_600,
+  },
+  {
     metric: 'agent.concurrent',
     limit: 2n,
     enforcement: 'hard',

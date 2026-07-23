@@ -162,8 +162,31 @@ export async function loadUserAccessDetails(userId: string) {
       },
       select: { used: true, reserved: true },
     });
-    const used = bucket?.used ?? 0n;
-    const reserved = bucket?.reserved ?? 0n;
+    const structuralReserved = metric === 'agent.pending'
+      ? BigInt(await prisma.userRequest.count({
+          where: {
+            actorUserId: user.id,
+            status: { in: ['pending', 'processing', 'active', 'running'] },
+            OR: [
+              { generationJob: null },
+              {
+                generationJob: {
+                  is: { status: { in: ['pending', 'retry_wait'] } },
+                },
+              },
+            ],
+          },
+        }))
+      : metric === 'agent.concurrent'
+        ? BigInt(await prisma.agentGenerationJob.count({
+            where: {
+              status: 'running',
+              request: { actorUserId: user.id },
+            },
+          }))
+        : null;
+    const used = structuralReserved === null ? bucket?.used ?? 0n : 0n;
+    const reserved = structuralReserved ?? bucket?.reserved ?? 0n;
     const remaining = policy.limit === null
       ? null
       : policy.limit > used + reserved

@@ -4,3 +4,6 @@ export * from './workspace-layout';
 export * from './image-attachments';
 export * from './generation-runtime';
 export * from './delivery-packs';
+export * from './workspace-path';
+export * from './workspace-files';
+export * from './application-catalog';

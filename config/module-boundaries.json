@@ -39,6 +39,25 @@
       ]
     },
     {
+      "id": "platform-navigation-ui",
+      "name": "平台导航 UI",
+      "summary": "跨业务页面复用的页头、平台切换、子导航与路由加载状态。",
+      "owner": "frontend-platform",
+      "paths": [
+        "src/components/layout/**"
+      ],
+      "dependsOn": [
+        "shared-kernel",
+        "ui-kit"
+      ],
+      "publicSurface": [
+        "@/components/layout/PageHeader",
+        "@/components/layout/PlatformSwitcher",
+        "@/components/layout/SubNav",
+        "@/components/layout/PlatformRouteLoading"
+      ]
+    },
+    {
       "id": "product-shell",
       "name": "产品壳层",
       "summary": "首页、导航、布局、主题和平台入口编排。",
@@ -50,14 +69,15 @@
         "src/app/error.tsx",
         "src/app/global-error.tsx",
         "src/app/not-found.tsx",
-        "src/components/layout/**",
         "src/components/theme/**"
       ],
       "dependsOn": [
         "shared-kernel",
         "ui-kit",
+        "platform-navigation-ui",
         "platform-core",
-        "quant-core"
+        "quant-core",
+        "finance-domain"
       ],
       "publicSurface": [
         "@/components/layout/PageHeader",
@@ -74,14 +94,8 @@
         "src/lib/services/project-services.ts",
         "src/lib/services/settings.ts",
         "src/lib/services/tokens.ts",
-        "src/lib/services/env.ts",
         "src/lib/services/git.ts",
-        "src/lib/services/github.ts",
-        "src/lib/services/vercel.ts",
-        "src/lib/services/service-integration.ts",
         "src/lib/services/supabase.ts",
-        "src/lib/services/file-browser.ts",
-        "src/app/api/projects/**",
         "src/app/api/settings/**",
         "src/app/api/tokens/**",
         "src/app/api/infrastructure/**"
@@ -107,13 +121,13 @@
         "src/lib/services/agent-runtime.ts",
         "src/lib/services/message.ts",
         "src/lib/services/stream.ts",
-        "src/lib/services/preview.ts",
         "src/lib/services/user-requests.ts",
         "src/lib/agent/**",
         "src/lib/services/moagent-candidate.ts",
         "src/lib/services/moagent-checkpoint*.ts",
         "src/lib/services/moagent-execution-error*.ts",
         "src/lib/services/moagent-generation-*.ts",
+        "src/lib/services/moagent-worker-*.ts",
         "src/lib/services/moagent-mission-store*.ts",
         "src/lib/services/moagent-mission-verification-session*.ts",
         "src/lib/services/moagent-provenance*.ts",
@@ -161,7 +175,8 @@
       "dependsOn": [
         "shared-kernel",
         "agent-runtime",
-        "data-agent-core"
+        "data-agent-core",
+        "platform-core"
       ],
       "publicSurface": [
         "@/lib/domains/finance"
@@ -175,11 +190,18 @@
       "paths": [
         "src/lib/quant/**",
         "src/lib/services/project.ts",
+        "src/lib/services/env.ts",
+        "src/lib/services/file-browser.ts",
+        "src/lib/services/github.ts",
+        "src/lib/services/preview.ts",
+        "src/lib/services/service-integration.ts",
+        "src/lib/services/vercel.ts",
         "src/lib/services/moagent-mission-control.ts",
         "src/lib/services/moagent-prompts*.ts",
         "src/lib/services/cli/**",
         "src/app/api/quant/**",
         "src/app/api/chat/**",
+        "src/app/api/projects/**",
         "src/app/[project_id]/**",
         "src/app/api/research/**",
         "src/app/strategy-platform/**",
@@ -196,7 +218,8 @@
         "agent-runtime",
         "data-agent-core",
         "finance-domain",
-        "ui-kit"
+        "ui-kit",
+        "platform-navigation-ui"
       ],
       "publicSurface": [
         "@/lib/domains/finance",
@@ -230,6 +253,8 @@
         "shared-kernel",
         "platform-core",
         "quant-core",
+        "agent-runtime",
+        "platform-navigation-ui",
         "ui-kit"
       ],
       "publicSurface": [
@@ -249,6 +274,7 @@
         "src/lib/ops/**",
         "src/app/ops-platform/**",
         "src/app/api/ops/**",
+        "src/app/api/infrastructure/health/**",
         "src/app/api/observability/**",
         "src/components/quant/ops-*.tsx",
         "deploy/observability/**"
@@ -257,6 +283,7 @@
         "shared-kernel",
         "platform-core",
         "quant-core",
+        "platform-navigation-ui",
         "ui-kit"
       ],
       "publicSurface": [
@@ -381,8 +408,8 @@
       },
       {
         "path": "src/app/api/projects/route.ts",
-        "pattern": "body\\.(project_id|initial_prompt|selected_model|quant_capability_id|quant_capability_source|capabilityId|capability_source)",
-        "reason": "项目创建只接受单一 camelCase 当前合同。"
+        "pattern": "body\\.(project_id|initial_prompt|selected_model|quantCapabilityId|quantCapabilitySource|quant_capability_id|quant_capability_source|capability_source)",
+        "reason": "项目创建只接受通用 capabilityId/capabilitySelectionSource 当前合同。"
       },
       {
         "path": "src/lib/server/image-assets.ts",
@@ -393,6 +420,16 @@
         "path": "src/lib/services/env.ts",
         "pattern": "value_preview|has_value|var_type|is_secret",
         "reason": "Secret API 和服务投影只维护单一 camelCase 当前合同。"
+      },
+      {
+        "path": "src/lib/agent/tools/structured-read.ts",
+        "pattern": "finance-query|finance-run|dashboard-data|final_dashboard|requestedSymbol|ARTIFACT_SYMBOL",
+        "reason": "MoAgent 结构化读取内核必须由 Domain Pack 注入业务 artifact、alias 与 identity 规则。"
+      },
+      {
+        "path": "src/lib/agent/skills/compiler.ts",
+        "pattern": "QuantPilotImage|mcp__MiniMax__understand_image",
+        "reason": "MoAgent Skill 编译器不保留具体产品或 Provider 的旧工具别名兼容。"
       }
     ],
     "largeFileBudgets": [

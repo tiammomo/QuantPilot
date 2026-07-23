@@ -364,8 +364,8 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         description: prompt,
         initialPrompt: prompt,
         selectedModel: finalModel,
-        quantCapabilityId: selectedCapability,
-        quantCapabilitySource: 'manual' as const,
+        capabilityId: selectedCapability,
+        capabilitySelectionSource: 'manual' as const,
       };
 
       console.log('Sending project data:', JSON.stringify(projectData, null, 2));

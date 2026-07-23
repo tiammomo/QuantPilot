@@ -17,6 +17,7 @@ import {
   type MoAgentQuantApiToolOptions,
 } from './quant-api';
 import { financeContextReceiptProjector } from './context-receipts';
+import { FINANCE_JSON_ARTIFACT_CONFIGURATION } from './structured-read';
 
 export const FINANCE_PREPARED_SOURCE_WRITE_GLOBS = [
   'app/page.tsx',
@@ -91,6 +92,7 @@ export function createFinanceMoAgentTools(
   ];
   return createMoAgentTools({
     ...options,
+    jsonArtifacts: FINANCE_JSON_ARTIFACT_CONFIGURATION,
     preparedCompilerTool,
     inspectionTools: options.preparedSurface ? [] : inspectionTools,
     trustedAdditionalTools: options.preparedSurface ? [] : trustedAdditionalTools,

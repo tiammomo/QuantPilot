@@ -10,6 +10,43 @@ import { createReadFileRangeTool, createReadFileTool } from './filesystem';
 import { createMoAgentTools } from './index';
 import { createQueryJsonTool, createQueryTextFileTool } from './structured-read';
 
+const TEST_JSON_ARTIFACTS = {
+  paths: {
+    final_dashboard: 'data_file/final/dashboard-data.json',
+    sources_evidence: 'evidence/sources.json',
+    data_quality_evidence: 'evidence/data_quality.json',
+  },
+  resolveAlias(requestedPath: string) {
+    const normalized = requestedPath.replace(/^\/+/u, '');
+    const symbol = normalized.match(/^public\/data\/(\d{6})\.json$/u)?.[1];
+    return /^(?:public\/data\/(?:dashboard|\d{6})|data\/dashboard)\.json$/u.test(normalized)
+      ? {
+          artifactId: 'final_dashboard',
+          ...(symbol ? { requestedIdentity: symbol } : {}),
+        }
+      : null;
+  },
+  validateAliasIdentity(root: unknown, requestedIdentity: string) {
+    const record = root && typeof root === 'object' && !Array.isArray(root)
+      ? root as Record<string, unknown>
+      : {};
+    const values = [
+      record.symbol,
+      record.quote && typeof record.quote === 'object'
+        ? (record.quote as Record<string, unknown>).symbol
+        : null,
+    ].flatMap((value) => {
+      const match = String(value ?? '').match(/\d{6}/u);
+      return match ? [match[0]] : [];
+    });
+    const availableIdentities = [...new Set(values)];
+    return {
+      matches: availableIdentities.includes(requestedIdentity),
+      availableIdentities,
+    };
+  },
+} as const;
+
 const context: MoAgentToolContext = {
   runId: 'run-structured-read',
   turn: 1,
@@ -106,7 +143,10 @@ describe('MoAgent structured read tools', () => {
       JSON.stringify(dashboard),
       'utf8',
     );
-    const tool = createQueryJsonTool({ workspaceRoot: workspace });
+    const tool = createQueryJsonTool({
+      workspaceRoot: workspace,
+      jsonArtifacts: TEST_JSON_ARTIFACTS,
+    });
 
     const artifactResult = await invoke(tool, {
       artifact: 'final_dashboard',
@@ -133,14 +173,14 @@ describe('MoAgent structured read tools', () => {
           resolvedPath: 'data_file/final/dashboard-data.json',
           pathResolved: true,
           pathCorrected: true,
-          correctionReason: 'recognized_dashboard_alias',
+          correctionReason: 'recognized_artifact_alias',
         },
       });
       if (!corrected.ok || !corrected.content) throw new Error('Expected corrected query');
       expect(JSON.parse(corrected.content).$moagent.pathCorrection).toEqual({
         requestedPath: alias,
         resolvedPath: 'data_file/final/dashboard-data.json',
-        reason: 'recognized_dashboard_alias',
+        reason: 'recognized_artifact_alias',
       });
     }
   });
@@ -151,7 +191,10 @@ describe('MoAgent structured read tools', () => {
       JSON.stringify({ symbol: '600589', quote: { symbol: '600589.SH' } }),
       'utf8',
     );
-    const result = await invoke(createQueryJsonTool({ workspaceRoot: workspace }), {
+    const result = await invoke(createQueryJsonTool({
+      workspaceRoot: workspace,
+      jsonArtifacts: TEST_JSON_ARTIFACTS,
+    }), {
       path: '/public/data/000001.json',
       pointers: ['/quote'],
     });
@@ -159,10 +202,10 @@ describe('MoAgent structured read tools', () => {
     expect(result).toMatchObject({
       ok: false,
       error: {
-        code: 'ARTIFACT_SYMBOL_MISMATCH',
+        code: 'ARTIFACT_IDENTITY_MISMATCH',
         details: {
-          requestedSymbol: '000001',
-          availableSymbols: ['600589'],
+          requestedIdentity: '000001',
+          availableIdentities: ['600589'],
         },
       },
     });
@@ -174,7 +217,10 @@ describe('MoAgent structured read tools', () => {
       JSON.stringify({ symbol: '600589' }),
       'utf8',
     );
-    const result = await invoke(createQueryJsonTool({ workspaceRoot: workspace }), {
+    const result = await invoke(createQueryJsonTool({
+      workspaceRoot: workspace,
+      jsonArtifacts: TEST_JSON_ARTIFACTS,
+    }), {
       path: 'public/data/not-real.json',
       pointers: [''],
     });

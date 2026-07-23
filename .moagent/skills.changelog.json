@@ -270,6 +270,16 @@
     "image-extraction": {
       "releases": [
         {
+          "version": "0.4.0",
+          "date": "2026-07-23",
+          "summary": "移除旧 MCP/外部视觉别名，按当前 Finance ToolRegistry 失败关闭。",
+          "changes": [
+            "图片元数据与哈希只通过 quant_extract_uploaded_image 获取。",
+            "工具要求人工确认时保持业务字段为 null，不把元数据检查伪装成 OCR。",
+            "Skill 编译器不再负责改写产品或 Provider 的旧工具名称。"
+          ]
+        },
+        {
           "version": "0.3.0",
           "date": "2026-07-22",
           "summary": "图片提取只消费 .data-agent 附件合同。",

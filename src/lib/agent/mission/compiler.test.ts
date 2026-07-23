@@ -29,8 +29,10 @@ function compile(overrides: CompileOverrides = {}) {
     composition: {
       profileId: 'test.data-agent',
       profileVersion: '1.0.0',
-      domainPackIds: ['test.data'],
+      domainPacks: [{ id: 'test.data', version: '1.0.0' }],
       deliveryPackId: 'workspace.next-dashboard',
+      deliveryPackVersion: '1.0.0',
+      compositionSha256: `sha256:${'a'.repeat(64)}`,
     },
     entities: [
       { entityType: 'test.entity', canonicalId: '600519' },

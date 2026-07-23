@@ -8,7 +8,7 @@
  */
 
 export const MOAGENT_SCHEMA_CONTRACT_VERSION =
-  '20260722000300_enforce_agent_run_workspace_identity' as const;
+  '20260723000400_worker_registry_and_observability' as const;
 
 export interface MoAgentSchemaQueryClient {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): PromiseLike<T>;
@@ -120,6 +120,7 @@ const EXPECTED_COLUMN_DEFINITIONS = {
   user_requests: {
     id: ['text', false],
     project_id: ['text', false],
+    actor_user_id: ['text', true],
   },
   agent_runs: {
     id: ['text', false],
@@ -215,6 +216,36 @@ const EXPECTED_COLUMN_DEFINITIONS = {
     queued_at: ['timestamp without time zone', false],
     started_at: ['timestamp without time zone', true],
     completed_at: ['timestamp without time zone', true],
+    created_at: ['timestamp without time zone', false],
+    updated_at: ['timestamp without time zone', false],
+  },
+  agent_worker_slots: {
+    pool_key: ['text', false],
+    slot_number: ['integer', false],
+    status: ['text', false],
+    active_job_id: ['uuid', true],
+    lease_owner: ['text', true],
+    lease_expires_at: ['timestamp without time zone', true],
+    last_heartbeat_at: ['timestamp without time zone', true],
+    fencing_token: ['integer', false],
+    version: ['integer', false],
+    acquired_at: ['timestamp without time zone', true],
+    released_at: ['timestamp without time zone', true],
+    created_at: ['timestamp without time zone', false],
+    updated_at: ['timestamp without time zone', false],
+  },
+  agent_worker_instances: {
+    id: ['uuid', false],
+    pool_key: ['text', false],
+    hostname: ['text', false],
+    process_id: ['integer', false],
+    process_concurrency: ['integer', false],
+    global_concurrency: ['integer', false],
+    status: ['text', false],
+    lease_expires_at: ['timestamp without time zone', true],
+    last_heartbeat_at: ['timestamp without time zone', false],
+    started_at: ['timestamp without time zone', false],
+    stopped_at: ['timestamp without time zone', true],
     created_at: ['timestamp without time zone', false],
     updated_at: ['timestamp without time zone', false],
   },
@@ -373,6 +404,33 @@ const EXPECTED_INDEXES: readonly ExpectedIndex[] = [
   { tableName: 'agent_generation_jobs', columns: ['status', 'available_at'] },
   { tableName: 'agent_generation_jobs', columns: ['status', 'lease_expires_at'] },
   { tableName: 'agent_generation_jobs', columns: ['project_id'], unique: true },
+  {
+    tableName: 'agent_worker_slots',
+    columns: ['pool_key', 'slot_number'],
+    unique: true,
+  },
+  {
+    tableName: 'agent_worker_slots',
+    columns: ['active_job_id'],
+    unique: true,
+  },
+  {
+    tableName: 'agent_worker_slots',
+    columns: ['pool_key', 'status', 'lease_expires_at'],
+  },
+  {
+    tableName: 'agent_worker_instances',
+    columns: ['id'],
+    unique: true,
+  },
+  {
+    tableName: 'agent_worker_instances',
+    columns: ['pool_key', 'status', 'lease_expires_at'],
+  },
+  {
+    tableName: 'agent_worker_instances',
+    columns: ['status', 'lease_expires_at'],
+  },
   {
     tableName: 'agent_generation_outbox_events',
     columns: ['id'],
@@ -607,6 +665,8 @@ WHERE table_schema = 'public'
     'agent_workspace_leases',
     'agent_generation_leases',
     'agent_generation_jobs',
+    'agent_worker_slots',
+    'agent_worker_instances',
     'agent_generation_outbox_events',
     'agent_events',
     'agent_checkpoints',
@@ -645,6 +705,8 @@ WHERE table_namespace.nspname = 'public'
     'agent_workspace_leases',
     'agent_generation_leases',
     'agent_generation_jobs',
+    'agent_worker_slots',
+    'agent_worker_instances',
     'agent_generation_outbox_events',
     'agent_events',
     'agent_checkpoints',
@@ -708,6 +770,8 @@ WHERE constraint_info.contype = 'f'
     'agent_workspace_leases',
     'agent_generation_leases',
     'agent_generation_jobs',
+    'agent_worker_slots',
+    'agent_worker_instances',
     'agent_generation_outbox_events',
     'agent_events',
     'agent_checkpoints',

@@ -85,6 +85,41 @@ if (value('QUANTPILOT_AUTH_MODE') !== 'local') {
 if (value('MOAGENT_DISPATCH_MODE') !== 'worker') {
   errors.push('MOAGENT_DISPATCH_MODE 必须设置为 worker，并部署独立 generation worker。');
 }
+const workerConcurrency = Number(value('MOAGENT_WORKER_CONCURRENCY'));
+const globalWorkerConcurrency = Number(value('MOAGENT_WORKER_GLOBAL_CONCURRENCY'));
+const workerSlotTtlMs = Number(value('MOAGENT_WORKER_SLOT_LEASE_TTL_MS'));
+const workerSlotHeartbeatMs = Number(value('MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS'));
+if (!Number.isSafeInteger(workerConcurrency) || workerConcurrency < 1 || workerConcurrency > 16) {
+  errors.push('MOAGENT_WORKER_CONCURRENCY 必须是 1..16 的整数。');
+}
+if (
+  !Number.isSafeInteger(globalWorkerConcurrency) ||
+  globalWorkerConcurrency < 1 ||
+  globalWorkerConcurrency > 256
+) {
+  errors.push('MOAGENT_WORKER_GLOBAL_CONCURRENCY 必须是 1..256 的整数。');
+}
+if (
+  Number.isSafeInteger(workerConcurrency) &&
+  Number.isSafeInteger(globalWorkerConcurrency) &&
+  workerConcurrency > globalWorkerConcurrency
+) {
+  errors.push('单进程 Worker 并发不能超过数据库全局 Worker 并发。');
+}
+if (
+  !Number.isSafeInteger(workerSlotTtlMs) ||
+  workerSlotTtlMs < 1000 ||
+  workerSlotTtlMs > 86_400_000
+) {
+  errors.push('MOAGENT_WORKER_SLOT_LEASE_TTL_MS 必须是 1000..86400000 的整数。');
+}
+if (
+  !Number.isSafeInteger(workerSlotHeartbeatMs) ||
+  workerSlotHeartbeatMs < 1 ||
+  workerSlotHeartbeatMs >= workerSlotTtlMs
+) {
+  errors.push('Worker slot heartbeat 必须是正整数并严格小于 slot lease TTL。');
+}
 
 const appUrl = httpsUrl('NEXT_PUBLIC_APP_URL');
 const authUrl = httpsUrl('BETTER_AUTH_URL');

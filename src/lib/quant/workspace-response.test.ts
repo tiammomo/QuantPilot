@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
+  createQuantPilotDataAgentRegistry,
+  QUANTPILOT_AGENT_PROFILE_ID,
+} from '@/lib/domains/finance';
+import {
   buildWorkspaceProgressMessage,
   WORKSPACE_PROGRESS_STAGE_LABELS,
 } from './workspace-response';
@@ -14,6 +18,10 @@ function plan(overrides: Partial<QuantRunPlan> = {}): QuantRunPlan {
     runId: 'run-workspace-response',
     status: 'planned',
     capabilityId: 'stock_diagnosis',
+    composition: createQuantPilotDataAgentRegistry().resolveCapability(
+      QUANTPILOT_AGENT_PROFILE_ID,
+      'stock_diagnosis',
+    ).composition,
     llm: getProjectLlmConfig(),
     question: '八亿时投这个股票最近怎么样',
     symbols: ['600589'],

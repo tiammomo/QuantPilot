@@ -13,7 +13,6 @@ import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
 import { normalizeMoAgentModelId } from '@/lib/constants/models';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
-import { getQuantCapability } from '@/lib/domains/finance/capabilities';
 import { DEFAULT_DATA_AGENT_PROFILE_ID } from '@/lib/config/data-agent';
 import { getProjectAuthConfig } from '@/lib/config/auth';
 import {
@@ -43,8 +42,8 @@ const createProjectRequestSchema = z.object({
   initialPrompt: z.string().trim().max(200_000).optional(),
   selectedModel: z.string().trim().min(1).max(256).optional(),
   description: z.string().trim().max(20_000).nullable().optional(),
-  quantCapabilityId: z.string().trim().min(1).max(128).optional(),
-  quantCapabilitySource: z.enum(['manual', 'default', 'inferred']).optional(),
+  capabilityId: z.string().trim().min(1).max(128).optional(),
+  capabilitySelectionSource: z.enum(['manual', 'default', 'inferred']).optional(),
   agentProfileId: z.string().trim().regex(/^[a-z][a-z0-9._-]{1,127}$/).optional(),
 }).strict();
 
@@ -114,8 +113,6 @@ export async function POST(request: NextRequest) {
       );
     }
     const body = parsed.data;
-    const quantCapability = getQuantCapability(body.quantCapabilityId);
-
     const input: CreateProjectInput = {
       project_id: body.projectId,
       name: body.name,
@@ -123,8 +120,8 @@ export async function POST(request: NextRequest) {
       preferredCli: 'moagent',
       selectedModel: normalizeMoAgentModelId(body.selectedModel),
       description: body.description ?? undefined,
-      quantCapabilityId: quantCapability.id,
-      quantCapabilitySource: body.quantCapabilitySource,
+      capabilityId: body.capabilityId,
+      capabilitySelectionSource: body.capabilitySelectionSource,
       agentProfileId: body.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
     };
 

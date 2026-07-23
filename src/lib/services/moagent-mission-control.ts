@@ -13,10 +13,7 @@ import {
 } from '@/lib/agent/mission';
 import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
-import {
-  createFinanceMissionDefinition,
-  QUANTPILOT_AGENT_PROFILE,
-} from '@/lib/domains/finance';
+import { createFinanceMissionDefinition } from '@/lib/domains/finance';
 import { captureMoAgentCandidate } from '@/lib/services/moagent-candidate';
 import { MoAgentMissionVerificationSession } from '@/lib/services/moagent-mission-verification-session';
 import {
@@ -57,10 +54,12 @@ export async function createQuantMoAgentMission(input: {
       input.runPlan.requestedCapabilityId ?? input.runPlan.capabilityId,
     runPlanId: input.runPlan.runId,
     composition: {
-      profileId: QUANTPILOT_AGENT_PROFILE.id,
-      profileVersion: QUANTPILOT_AGENT_PROFILE.version,
-      domainPackIds: [...QUANTPILOT_AGENT_PROFILE.domainPackIds],
-      deliveryPackId: QUANTPILOT_AGENT_PROFILE.deliveryPackId,
+      profileId: input.runPlan.composition.profile.id,
+      profileVersion: input.runPlan.composition.profile.version,
+      domainPacks: input.runPlan.composition.domainPacks,
+      deliveryPackId: input.runPlan.composition.deliveryPack.id,
+      deliveryPackVersion: input.runPlan.composition.deliveryPack.version,
+      compositionSha256: input.runPlan.composition.sha256,
     },
     entities: input.runPlan.symbols.map((symbol) => ({
       entityType: 'finance.security',

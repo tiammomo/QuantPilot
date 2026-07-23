@@ -6,6 +6,7 @@ import { createMessage } from "@/lib/services/message";
 import { streamManager } from "@/lib/services/stream";
 import { serializeMessage } from "@/lib/serializers/chat";
 import type { writeInitialRunPlan } from "@/lib/domains/finance/workspace";
+import { resolveManagedWorkspacePath } from "@/lib/data-agent";
 
 export class QuantPreparationError extends Error {
   constructor(
@@ -53,30 +54,11 @@ export async function missingAgentInputArtifacts(
   return checks.flatMap((value) => (value === null ? [] : [value]));
 }
 
-const PROJECTS_DIR = process.env.PROJECTS_DIR || "./data/projects";
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(
-      /* turbopackIgnore: true */ process.cwd(),
-      /* turbopackIgnore: true */ PROJECTS_DIR,
-    );
-
 export function resolveProjectRoot(
   projectId: string,
   repoPath?: string | null,
 ): string {
-  if (repoPath) {
-    return path.isAbsolute(repoPath)
-      ? repoPath
-      : path.resolve(
-          /* turbopackIgnore: true */ process.cwd(),
-          /* turbopackIgnore: true */ repoPath,
-        );
-  }
-  return path.join(
-    /* turbopackIgnore: true */ PROJECTS_DIR_ABSOLUTE,
-    projectId,
-  );
+  return resolveManagedWorkspacePath(projectId, repoPath);
 }
 
 export function canUsePrefetchedSelectionDashboard(params: {

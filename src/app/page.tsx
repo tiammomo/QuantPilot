@@ -182,7 +182,9 @@ export default function HomePage() {
         preferredCli: preferred as ProjectSummary["preferredCli"],
         selectedModel: selected,
         agentProfileId: project.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
-        quantCapabilityId: getQuantCapability(project.quantCapabilityId).id,
+        agentProfileVersion: project.agentProfileVersion,
+        dataAgentCompositionSha256: project.dataAgentCompositionSha256,
+        capabilityId: getQuantCapability(project.capabilityId).id,
       };
     },
     [sanitizeAssistant, normalizeModelForAssistant]
@@ -487,8 +489,8 @@ export default function HomePage() {
             name: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
             initialPrompt: prompt.trim(),
             selectedModel,
-            quantCapabilityId: selectedCapability,
-            quantCapabilitySource: "manual",
+            capabilityId: selectedCapability,
+            capabilitySelectionSource: "manual",
           }),
         });
         const payload = await r.json().catch(() => null);
@@ -545,8 +547,8 @@ export default function HomePage() {
           images: imageData,
           isInitialPrompt: true,
           selectedModel,
-          quantCapabilityId: selectedCapability,
-          quantCapabilitySource: "manual",
+          capabilityId: selectedCapability,
+          capabilitySelectionSource: "manual",
         }),
       });
       const actPayload = await actResponse.json().catch(() => null);
@@ -663,7 +665,7 @@ export default function HomePage() {
           <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{title}</h3>
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
         </div>
-        <span className="hidden text-[11px] font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.quantCapabilityId)}</span>
+        <span className="hidden text-[11px] font-semibold text-muted-foreground md:block">{getCapabilityShortName(project.capabilityId)}</span>
         <span className={cn(
           "inline-flex items-center justify-end gap-1 whitespace-nowrap text-[10px] font-semibold md:justify-start md:text-[11px]",
           status.tone === "amber" && "text-amber-700 dark:text-amber-400",

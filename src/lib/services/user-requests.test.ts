@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   const transactionClient = {
+    $queryRaw: vi.fn(),
     userRequest: {
       findUnique: vi.fn(),
       update: vi.fn(),
       create: vi.fn(),
+      count: vi.fn(),
     },
   };
   const userRequest = {
@@ -20,6 +22,7 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback: (tx: typeof transactionClient) => unknown) =>
       callback(transactionClient)
     ),
+    assertStructuralQuotaCapacity: vi.fn(),
   };
 });
 
@@ -28,6 +31,10 @@ vi.mock('@/lib/db/client', () => ({
     $transaction: mocks.transaction,
     userRequest: mocks.userRequest,
   },
+}));
+
+vi.mock('@/lib/quota', () => ({
+  assertStructuralQuotaCapacity: mocks.assertStructuralQuotaCapacity,
 }));
 
 import {
@@ -44,6 +51,8 @@ import {
 describe('upsertUserRequest project scope', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.transactionClient.$queryRaw.mockResolvedValue([{ id: 'user-a' }]);
+    mocks.transactionClient.userRequest.count.mockResolvedValue(0);
   });
 
   it('rejects a client request ID already owned by another project before mutation', async () => {
@@ -100,7 +109,7 @@ describe('upsertUserRequest project scope', () => {
   });
 
   it('claims a new ingress request with one create-only write', async () => {
-    mocks.userRequest.create.mockResolvedValue({ id: 'request-new' });
+    mocks.transactionClient.userRequest.create.mockResolvedValue({ id: 'request-new' });
 
     await claimUserRequest({
       id: 'request-new',
@@ -110,7 +119,7 @@ describe('upsertUserRequest project scope', () => {
       cliPreference: 'moagent',
     });
 
-    expect(mocks.userRequest.create).toHaveBeenCalledWith({
+    expect(mocks.transactionClient.userRequest.create).toHaveBeenCalledWith({
       data: {
         id: 'request-new',
         projectId: 'project-a',
@@ -120,6 +129,14 @@ describe('upsertUserRequest project scope', () => {
         cliPreference: 'moagent',
       },
     });
+    expect(mocks.assertStructuralQuotaCapacity).toHaveBeenCalledWith(
+      mocks.transactionClient,
+      {
+        actorUserId: 'user-a',
+        metric: 'agent.pending',
+        current: 0,
+      },
+    );
   });
 
   it('rejects an existing cross-project binding at the read-only ingress guard', async () => {

@@ -11,6 +11,7 @@ export type DataAgentOutputKind =
   | 'dataset';
 
 export interface DataAgentScopeEnvelope {
+  schemaVersion: 1;
   consumerId: string;
   tenantId: string;
   projectId: string;
@@ -18,6 +19,7 @@ export interface DataAgentScopeEnvelope {
   requestId: string;
   agentProfileId: string;
   domainPackIds: string[];
+  integrationScopeSha256: string;
 }
 
 export interface DataAgentEntityMention {
@@ -122,8 +124,9 @@ export interface DataAgentExecutionPlan {
   profile: {
     id: string;
     version: string;
-    domainPackIds: string[];
-    deliveryPackId: string;
+    domainPacks: Array<{ id: string; version: string }>;
+    deliveryPack: { id: string; version: string };
+    compositionSha256: string;
   };
   capabilityId: string;
   taskArtifact: string;
@@ -188,6 +191,31 @@ export interface DataAgentProfile {
 }
 
 /**
+ * Immutable identity of the exact application composition selected for a run.
+ * The digest is persisted with projects and dispatch envelopes so a worker
+ * never silently executes a newer Profile, Domain Pack or Delivery Pack.
+ */
+export interface DataAgentCompositionLock {
+  schemaVersion: 1;
+  profile: {
+    id: string;
+    version: string;
+  };
+  domainPacks: Array<{
+    id: string;
+    version: string;
+  }>;
+  deliveryPack: {
+    id: string;
+    version: string;
+  };
+  capability: {
+    id: string;
+  };
+  sha256: string;
+}
+
+/**
  * Product-neutral delivery contract. Domain packs decide what the analysis
  * means; delivery packs decide how validated artifacts are laid out and served.
  */
@@ -206,6 +234,7 @@ export interface DataAgentProfileSelection {
   schemaVersion: 1;
   profile: DataAgentProfile;
   selectedCapabilityId: string;
+  composition: DataAgentCompositionLock;
   selectionSource: 'manual' | 'default' | 'inferred';
   updatedAt: string;
   extensions?: Record<string, unknown>;
@@ -217,6 +246,7 @@ export interface DataAgentWorkspaceDescriptor {
   projectId: string;
   projectName: string;
   platform: string;
+  composition: DataAgentCompositionLock;
   runtime: {
     framework: 'MoAgent';
     executorId: string;

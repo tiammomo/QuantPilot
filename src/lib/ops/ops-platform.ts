@@ -21,6 +21,10 @@ import {
   type ServiceCatalogValidation,
   type ServiceDependencyEdge,
 } from '@/lib/platform/service-catalog';
+import {
+  getAgentWorkerRuntimeDashboard,
+  type AgentWorkerRuntimeDashboard,
+} from '@/lib/ops/agent-worker-observability';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,6 +102,7 @@ export interface OpsPlatformDashboard {
   serviceCatalog: ResolvedServiceCatalogEntry[];
   serviceDependencyEdges: ServiceDependencyEdge[];
   serviceCatalogValidation: ServiceCatalogValidation;
+  agentWorkers: AgentWorkerRuntimeDashboard;
   logSources: OpsLogSource[];
 }
 
@@ -772,6 +777,7 @@ export async function getOpsPlatformDashboard(params: {
     agentRuntimeInstalled,
     marketHealth,
     marketRegistry,
+    agentWorkers,
     logSources,
   ] = await Promise.all([
     getInfrastructureHealth(),
@@ -782,6 +788,7 @@ export async function getOpsPlatformDashboard(params: {
     hasMoAgentRuntime(),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
+    getAgentWorkerRuntimeDashboard(),
     collectLogSources(params.includeLogEntries === true),
   ]);
 
@@ -842,6 +849,34 @@ export async function getOpsPlatformDashboard(params: {
         process.env.MODELPORT_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim()
           ? null
           : '在 .env.local 中配置 MODELPORT_API_KEY。',
+      ].filter((item): item is string => Boolean(item)),
+    },
+    {
+      id: 'generation-worker',
+      label: 'Data Agent Worker',
+      status: agentWorkers.dispatchMode !== 'worker'
+        ? 'unknown'
+        : agentWorkers.status === 'unavailable'
+          ? componentUnavailableStatus(database)
+          : agentWorkers.status,
+      summary: agentWorkers.dispatchMode !== 'worker'
+        ? 'inline 调度模式'
+        : `${agentWorkers.summary.activeWorkers} 个存活进程 · ${agentWorkers.summary.heldSlots}/${agentWorkers.summary.globalCapacity} 个全局槽位占用 · ${agentWorkers.summary.pendingJobs + agentWorkers.summary.retryWaitJobs} 个排队任务`,
+      detail: agentWorkers.error
+        ?? (
+          agentWorkers.alerts.map((alert) => alert.summary).join('；')
+          || `进程容量 ${agentWorkers.summary.processCapacity}，运行中 ${agentWorkers.summary.runningJobs}，排队用户 ${agentWorkers.summary.queuedActors}。`
+        ),
+      actions: [
+        agentWorkers.dispatchMode === 'worker' && agentWorkers.summary.activeWorkers === 0
+          ? '启动 npm run worker:generation，或使用 npm run dev 自动托管本地 Worker。'
+          : null,
+        agentWorkers.summary.configurationConsistent
+          ? null
+          : '统一所有 Worker 的 MOAGENT_WORKER_GLOBAL_CONCURRENCY 后重启。',
+        agentWorkers.summary.expiredSlots > 0
+          ? '检查 Worker 心跳、generation job dispatch lease 与数据库时钟。'
+          : null,
       ].filter((item): item is string => Boolean(item)),
     },
     {
@@ -984,6 +1019,7 @@ export async function getOpsPlatformDashboard(params: {
     serviceCatalog,
     serviceDependencyEdges,
     serviceCatalogValidation,
+    agentWorkers,
     logSources,
   };
 }

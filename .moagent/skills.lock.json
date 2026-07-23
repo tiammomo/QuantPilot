@@ -52,10 +52,10 @@
       "fileCount": 4
     },
     "image-extraction": {
-      "version": "0.3.0",
+      "version": "0.4.0",
       "packagePath": ".moagent/skill-packages/image-extraction.tgz",
-      "sourceSha256": "de93e973c2829d5d78f5b9c51b6b15945341bc6b4ed020095cc6b7496b3158bb",
-      "packageSha256": "be118e7b8363b78e3e136cbfc5e6232e24b515391e979e40f88318998d487788",
+      "sourceSha256": "9fc5ff1d6ba933b3feee5f53af27bf201b645ed9a44d56233225b3b85824519d",
+      "packageSha256": "fb41d45e1ec1723686e3bc7016c42576acb63ce95ba10837ec473c04ed5820e0",
       "fileCount": 4
     },
     "data-quality": {

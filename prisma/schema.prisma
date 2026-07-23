@@ -35,7 +35,9 @@ model Project {
   // Agent Runtime Preferences. MoAgent rebuilds bounded context from messages.
   preferredCli   String? @map("preferred_cli") // 内部运行时标识，固定为 moagent
   selectedModel  String? @map("selected_model") // 默认 local_qwen:qwen3.5-9b-q5km，可显式选择受控模型
-  agentProfileId String  @default("quantpilot.finance-research") @map("agent_profile_id")
+  agentProfileId              String @default("quantpilot.finance-research") @map("agent_profile_id")
+  agentProfileVersion         String @default("1.0.0") @map("agent_profile_version")
+  dataAgentCompositionSha256  String @default("sha256:89436aed794ee3f03ae211a3d07ea6bc0c7fd94cd46663dba9f31917fcb8d575") @map("data_agent_composition_sha256")
 
   // Settings (JSON)
   settings String? // JSON string for additional settings
@@ -67,6 +69,7 @@ model Project {
 
   @@index([ownerId])
   @@index([agentProfileId])
+  @@index([dataAgentCompositionSha256])
   @@map("projects")
 }
 
@@ -542,6 +545,52 @@ model AgentGenerationOutboxEvent {
   @@index([projectId, createdAt])
   @@index([publishedAt, createdAt])
   @@map("agent_generation_outbox_events")
+}
+
+/// Database-backed capacity semaphore shared by every generation Worker
+/// process. A slot is execution capacity, not a Workspace lock: Workers still
+/// acquire the Project/Workspace fences before touching project state.
+model AgentWorkerSlot {
+  poolKey         String    @map("pool_key")
+  slotNumber      Int       @map("slot_number")
+  status          String    @default("free")
+  activeJobId     String?   @unique @map("active_job_id") @db.Uuid
+  leaseOwner      String?   @map("lease_owner")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+  fencingToken    Int       @default(0) @map("fencing_token")
+  version         Int       @default(0)
+  acquiredAt      DateTime? @map("acquired_at")
+  releasedAt      DateTime? @map("released_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@id([poolKey, slotNumber])
+  @@index([poolKey, status, leaseExpiresAt])
+  @@map("agent_worker_slots")
+}
+
+/// Durable process registry for generation Workers. The registry is separate
+/// from execution slots: one Worker process may own several slots, while its
+/// own heartbeat proves that queued work still has a live consumer.
+model AgentWorkerInstance {
+  id                 String    @id @default(uuid()) @db.Uuid
+  poolKey            String    @map("pool_key")
+  hostname           String
+  processId          Int       @map("process_id")
+  processConcurrency Int       @map("process_concurrency")
+  globalConcurrency  Int       @map("global_concurrency")
+  status             String    @default("running")
+  leaseExpiresAt     DateTime? @map("lease_expires_at")
+  lastHeartbeatAt    DateTime  @map("last_heartbeat_at")
+  startedAt          DateTime  @map("started_at")
+  stoppedAt          DateTime? @map("stopped_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([poolKey, status, leaseExpiresAt])
+  @@index([status, leaseExpiresAt])
+  @@map("agent_worker_instances")
 }
 
 /// Append-only public lifecycle events. Application code must pass payloads

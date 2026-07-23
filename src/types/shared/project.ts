@@ -47,6 +47,8 @@ export interface BaseProject {
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
   agentProfileId: string;
+  agentProfileVersion: string;
+  dataAgentCompositionSha256: string;
 }
 
 /**

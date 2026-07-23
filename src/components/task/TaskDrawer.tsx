@@ -88,7 +88,7 @@ function TaskDrawer({
             filtered.map((project) => {
               const isEditing = editingProject?.id === project.id;
               const title = project.name || project.initialPrompt || "未命名任务";
-              const capabilityName = getCapabilityShortName(project.quantCapabilityId);
+              const capabilityName = getCapabilityShortName(project.capabilityId);
 
               return (
                 <div

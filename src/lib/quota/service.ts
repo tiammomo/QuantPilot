@@ -152,7 +152,7 @@ async function lockReservation(
   return tx.quotaReservation.findUnique({ where: { id: preview.id } });
 }
 
-async function resolvePolicy(
+export async function resolveQuotaPolicyInTransaction(
   tx: QuotaTransaction,
   actorUserId: string,
   metric: string,
@@ -285,6 +285,49 @@ async function resolvePolicy(
     reservationTtlSeconds,
     enforcementExempt: true,
   };
+}
+
+export async function assertStructuralQuotaCapacity(
+  tx: QuotaTransaction,
+  input: {
+    actorUserId: string;
+    metric: string;
+    current: bigint | number;
+    requested?: bigint | number;
+    now?: Date;
+  },
+): Promise<ResolvedQuotaPolicy> {
+  const now = input.now ?? new Date();
+  const current = typeof input.current === 'bigint'
+    ? input.current
+    : BigInt(input.current);
+  const requested = input.requested === undefined
+    ? 1n
+    : typeof input.requested === 'bigint'
+      ? input.requested
+      : BigInt(input.requested);
+  const policy = await resolveQuotaPolicyInTransaction(
+    tx,
+    input.actorUserId,
+    input.metric,
+    now,
+  );
+  const decision = evaluateQuotaAttempt(policy, 0n, current, requested);
+  if (!decision.allowed) {
+    throw new QuotaExceededError({
+      allowed: false,
+      mode: 'metered',
+      policy,
+      counter: decision.counter,
+      window: calculateQuotaWindow(
+        policy.windowType,
+        now,
+        policy.windowSeconds,
+      ),
+      reservation: null,
+    });
+  }
+  return policy;
 }
 
 async function getOrCreateBucket(
@@ -487,7 +530,7 @@ async function tryReserveWithClient(
           };
         }
 
-        const policy = await resolvePolicy(
+        const policy = await resolveQuotaPolicyInTransaction(
           tx,
           input.actorUserId,
           input.metric,
@@ -893,7 +936,7 @@ async function renewWithClient(
             409,
           );
         }
-        const policy = await resolvePolicy(
+        const policy = await resolveQuotaPolicyInTransaction(
           tx,
           reservation.actorUserId,
           reservation.metric,
@@ -960,7 +1003,7 @@ async function recordWithClient(
               windowEnd: { gt: existing.occurredAt },
             },
           });
-      const policy = await resolvePolicy(
+      const policy = await resolveQuotaPolicyInTransaction(
         tx,
         input.actorUserId,
         input.metric,
@@ -969,7 +1012,7 @@ async function recordWithClient(
       return usageResult(existing, bucket, policy.limit, true);
     }
 
-    const policy = await resolvePolicy(
+    const policy = await resolveQuotaPolicyInTransaction(
       tx,
       input.actorUserId,
       input.metric,
@@ -1031,7 +1074,8 @@ async function recordWithClient(
 export function createQuotaService(client: QuotaClient = prisma) {
   return {
     resolvePolicy: (actorUserId: string, metric: string, now = new Date()) =>
-      client.$transaction((tx) => resolvePolicy(tx, actorUserId, metric, now)),
+      client.$transaction((tx) =>
+        resolveQuotaPolicyInTransaction(tx, actorUserId, metric, now)),
     tryReserve: (input: ReserveQuotaInput) =>
       tryReserveWithClient(client, input),
     reserve: async (input: ReserveQuotaInput) => {
