@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 用户、权限、项目和任务 | PostgreSQL `public` | 保留；只通过应用 API 删除真实项目 |
 | 行情、证券、财务和时序数据 | PostgreSQL `quant` / TimescaleDB | 保留；按数据源补数/修复，不作为测试垃圾清理 |
-| 生成 Workspace | `data/projects/<Project.id>` | 与 Project 同生命周期；数据库删除成功后再清文件 |
+| 生成 Workspace | `data/projects/<Project.id>` | 与 Project 同生命周期；创建先写 initializing 行并从隔离 staging 原子发布，删除前验证 canonical path，数据库删除成功后再清文件 |
 | 配额与用量账本 | PostgreSQL quota/usage 表 | 保留审计；项目删除后允许引用被置空，不能伪造回收额度 |
 | Memory/AKEP 使用回执 | PostgreSQL integration ledger | 按真实消费者审计保留；测试 Scope 随测试批次清理 |
 | 构建缓存和临时报告 | `.next`、`tmp`、coverage 等 | 可重建；使用 `npm run clean:local` |

@@ -27,14 +27,14 @@ MoAgent 是 QuantPilot 自研的 Agent 框架。当前框架身份为 `moagent:1
 | Progress Oracle | `src/lib/agent/core/progress-oracle.ts` | 可序列化的确定性进展判定器；已接入 Run Engine，只把新增可信只读事实、产物内容前进或已提供的失败项减少视为进展；custom/repair 在一轮无净进展后即触发 `progress_stalled` 收敛提示，不代替 terminal/验收合同 |
 | Context Manager | `src/lib/agent/context/` | 输入预算、工具簇原子性、每工具专用可信 receipt projector、写后 read receipt 失效、优先级淘汰与非致命压缩降级 |
 | Durable Runtime | `src/lib/agent/runtime/` | WorkspaceLease/Run/Event/Checkpoint/ToolExecution 契约、安全投影、双重 lease/fencing 与 Prisma repository |
-| Generation Orchestration | `src/lib/quant/generation-queue.ts`、`src/lib/services/moagent-generation-lease-*.ts` | 跨进程串行化 planning/data-prefetch、Agent execution 与 manual validation；数据库时钟、heartbeat、过期接管和 fencing |
+| Generation Orchestration | `src/lib/quant/generation-queue.ts`、`src/lib/services/moagent-generation-lease-*.ts`、`src/lib/services/moagent-worker-capacity.ts`、`src/lib/services/moagent-worker-registry.ts` | 用户排队/运行结构配额、按 actor 公平 claim、数据库全局 Worker 槽位、进程注册/心跳/集群配置一致性，以及跨进程串行化 planning/data-prefetch、Agent execution 与 manual validation |
 | Mission Graph | `src/lib/agent/mission/`、`src/lib/services/moagent-mission-*.ts` | 编译受信 MissionSpec、物化阶段节点、冻结 candidate version、验证证据并通过 CAS 事务提交产品完成态 |
-| Tools | `src/lib/agent/tools/` | DashboardSpec 编译、版本化语义编辑、文件批量提交、量化 API、图片元数据和提交工具及安全策略 |
+| Tools | `src/lib/agent/tools/` | 通用文件/结构化读取、版本化语义编辑、文件批量提交、结果提交和安全策略；业务 artifact handle、alias、字段优先级由 Domain Pack 注入 |
 | Skills | `src/lib/agent/skills/`、`config/moagent-skill-capsules.json` | registry/version/SHA-256 完整性校验；按 phase、附件、标的解析、模板和当前 typed tools 投影原子 runtime capsule，并精确注入所需 reference 片段；项目初始化只配置 workspace 参考镜像 |
 | 产品接入 | `src/lib/services/cli/moagent.ts` | 历史上下文、消息持久化、实时事件、用户取消和执行阶段终态 |
 | HTTP 接入 | `src/app/api/chat/[project_id]/act/route.ts` | 请求合同、权限、幂等、附件、配额接纳和调度响应；不承载金融规划或 Agent 执行实现 |
-| 金融准备 | `src/lib/quant/finance-act-preparation.ts`、`src/lib/quant/chat-act-support.ts` | Query Rewrite、run plan、真实数据预取、受治理知识准备、Mission 创建和 typed tool 投影 |
-| 领域执行 | `src/lib/data-agent/generation-runtime.ts`、`src/lib/quant/finance-generation-executor.ts` | 校验版本化信封，按 Domain Pack 分派 handler；inline 与独立 Worker 共用同一执行实现 |
+| 金融准备 | `src/lib/quant/finance-act-preparation.ts`、`src/lib/quant/chat-act-support.ts`、`src/lib/domains/finance/agent-tools/` | Query Rewrite、run plan、真实数据预取、受治理知识准备、Mission 创建，以及金融行情/看板/图片/JSON artifact typed tool 投影 |
+| 领域执行 | `src/lib/data-agent/generation-runtime.ts`、`src/lib/quant/finance-generation-executor.ts` | 校验 schema v3 组合与 scope 信封，按 Profile ID 分派 handler；inline 与独立 Worker 共用同一执行实现 |
 
 ## 一次运行
 

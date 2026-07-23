@@ -60,7 +60,7 @@ flowchart LR
 5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据；Memory Recall 与 Knowledge Preparation 随 generation envelope 固化，执行时不重复检索。
 6. 平台根据 run plan 调用 `8000` 后端获取真实数据。
 7. 数据、来源和质量报告写入工作空间。
-8. Web 在返回排队成功前持久化 Data Agent generation envelope 与 job/outbox；生产环境由独立 Worker claim、续租，本地 inline 也经过同一个 registry，并按 `domainPackId` 分派领域 handler。
+8. Web 在返回排队成功前持久化 schema v3 Data Agent generation envelope 与 job/outbox；独立 Worker 先取得数据库全局容量槽，再按 actor 公平顺序 claim Job。普通成员最多保留 4 个待执行请求、同时运行 2 个 Job；同一 Project 始终单写。inline 模式仍经过同一 registry，并按 Profile ID 分派 handler，同时核对组合哈希与 Consumer/Tenant/Project/Workspace/Request scope。
 9. Agent 通过 ModelPort 使用默认 Qwen，并结合 Skills、真实数据和有界知识 capsule 生成 Next.js 候选看板，以 `candidate_complete` 结束本次物理执行。
 10. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
 11. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
@@ -85,6 +85,30 @@ MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent S
 完整设计、事件与工具边界见 [MoAgent 架构](moagent.md)。
 
 通用 Task/Profile/Domain Pack 合同、金融解耦边界和新业务接入步骤见 [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md)。
+
+## Worker、Workspace 与并发边界
+
+这三个概念分别属于执行、产物隔离和产品交付，不互相替代：
+
+| 概念 | 生命周期与职责 | 持久化身份 |
+| --- | --- | --- |
+| Worker | 无状态执行进程，从共享队列领取 generation job；进程可以随时扩缩、重启或替换 | `agent_worker_instances.id` 是进程租约身份，槽位的 `lease_owner` 只指向当前持有者 |
+| Job | 一次可重试、可租约接管的后台执行单元，负责把已固化 envelope 交给对应 Profile handler | `moagent_generation_jobs.id` |
+| Workspace | 一个 Project 的持久文件与预览边界，保存任务合同、证据、数据、源码和验证产物 | `Project.id` 及其安全解析后的 workspace 路径 |
+| Mission | 一次用户请求的交付状态机，跨越一个或多个物理 AgentRun，并以 accepted evidence receipt 完成 | `agent_missions.id` |
+
+并发由三层独立约束共同决定：
+
+| 层级 | 默认约束 | 超额行为 |
+| --- | --- | --- |
+| 用户排队 | 普通成员最多 4 个 `pending/retry_wait` generation job | 创建请求时返回结构化配额错误，不生成悬空请求 |
+| 用户运行 | 普通成员最多 2 个 `running` generation job | Worker 暂不 claim，该 job 保持可重试的排队状态 |
+| 平台执行 | 所有 Worker 共享数据库槽位池；每进程并发不得超过全局容量 | 没有槽位时 Worker 不 claim job，不靠单进程内存估算集群容量 |
+| Workspace 写入 | 同一 Project 同时只允许一个 active Mission / running generation | 当前采用快速失败并返回 `409`，避免两个任务覆盖同一套源码和证据 |
+
+用户配额直接根据数据库中的 Job/UserRequest 状态计算，不创建会因 TTL 提前失效的“并发预留”。Worker 启动后先写 `agent_worker_instances` 注册租约；同一池中已有存活进程时，新进程的全局容量配置必须一致，否则失败关闭。槽位使用独立 lease、heartbeat 和 fencing；只有槽位租约与 generation job dispatch lease 均失效后才能安全接管。待执行 Job 先按 actor 内排序，再按 actor 的队列轮次公平领取，避免一个用户的大批任务长期占住共享 Worker。运行治理中心从 registry、slot 和 queue 三组数据库事实判断是否存在“有任务但无消费者”、心跳过期、容量漂移或 Job/slot 不一致。
+
+Workspace 当前是“可持续演进的项目工作区”，不是每个 Job 的临时目录，也不是 Worker 的私有目录。因此同一 Workspace 不做隐式并行或静默串行排队；调用方必须等当前 Mission 完成、失败或取消后再提交下一次写入。未来如需同项目并行研究，应新增 branch/snapshot workspace 身份并在验证后显式合并，而不是放宽现有单写约束。
 
 ## Agent 与 Mission 完成边界
 
@@ -119,8 +143,8 @@ QuantPilot 当前采用 Python/Node 长期主线，不引入 Dubbo3 作为配置
 
 QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续保持 `Next.js + Python market-data`，代码侧按模块治理：
 
-- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、product-shell、platform-core、agent-runtime、data-agent-core、finance-domain、quant-core、eval-core、ops-core 和 market-data-backend。
-- `npm run check:module-boundaries` 检查反向依赖、通用 UI 污染和大文件预算。
+- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、platform-navigation-ui、product-shell、platform-core、agent-runtime、data-agent-core、finance-domain、quant-core、eval-core、ops-core 和 market-data-backend。
+- `npm run check:module-boundaries` 检查反向依赖、未声明跨模块依赖、依赖环、通用 UI 污染和大文件预算。
 - 领域模块不能反向依赖 `src/app/**` 页面层。
 - `ui-kit` 只能承载无领域知识组件，不直接依赖量化、运维或运行时服务。
 - Python 后端只通过 HTTP/API 契约和 Node 侧协作，不依赖 Next.js 源码。

@@ -44,10 +44,10 @@ evidence/data_quality.json
 
 | 文件 | 作用 |
 | --- | --- |
-| `.data-agent/workspace.json` | 项目/工作空间身份以及当前 MoAgent executor、模型和模型 Profile |
-| `.data-agent/profile.json` | 当前 Agent Profile、Domain Pack、Delivery Pack 和 capability 选择 |
+| `.data-agent/workspace.json` | 项目/工作空间身份、当前 MoAgent executor/模型，以及 Profile/Domain/Delivery/capability 版本组合锁和 SHA-256 |
+| `.data-agent/profile.json` | 当前 Agent Profile、Domain Pack、Delivery Pack、capability 选择和同一组合锁 |
 | `.data-agent/task.json` | 跨业务通用的目标、实体、指标、维度、筛选、时间范围和输出合同 |
-| `.data-agent/plan.json` | 跨业务通用的执行计划、领域计划引用、预期产物和验证规则 |
+| `.data-agent/plan.json` | 跨业务通用的执行计划、带版本的 Profile/Domain/Delivery 引用、组合 SHA-256、领域计划引用、预期产物和验证规则 |
 | `.data-agent/finance-query-rewrite.json` | schema v4 LLM 语义、Resolver 标的、安全决策与失败关闭状态 |
 | `.data-agent/finance-run-plan.json` | 消费 Query Rewrite 后形成的任务规划、标准代码、能力域、预期数据和可视化模板 |
 | `.data-agent/attachments.json` | 当前请求的附件清单；`attachments[].path` 必须是严格 `assets/<filename>` 工作空间相对路径，不接受绝对路径、内联 base64 或多层子路径 |
@@ -78,6 +78,8 @@ evidence/data_quality.json
 排障时不要只盯 `app/page.tsx`。页面只是最后一层表现；如果规划、数据或质量层已经坏了，单独改页面很容易变成临时补丁。
 
 `.data-agent/**` 是唯一的跨业务控制目录；通用合同和 Finance Domain Pack 扩展都在其中按稳定文件名区分。Agent 工具只读，平台编排器负责写入。完整设计见 [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md)。
+
+平台写控制 JSON 时使用同目录临时文件和原子 rename，并拒绝通过 nested symlink 写出 workspace。项目目录只允许是 `PROJECTS_DIR/<projectId>`；已有目标不会被初始化流程覆盖。
 
 ## 页面生成规则
 

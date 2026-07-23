@@ -2,18 +2,27 @@
 
 The migration history starts with the application schema at Git revision
 `c641c00`, followed by additive MoAgent runtime/evidence migrations, user and
-project authentication, capability authorization, and idempotent usage quota
-metering. None of these migrations contains a destructive reset:
+project authentication, capability authorization, idempotent usage quota
+metering, governed Memory/Knowledge usage, durable generation dispatch, Data
+Agent composition locking, global Worker capacity and Worker process registry.
+None of these migrations contains a destructive reset.
 
-- `20260715000100_baseline_pre_moagent`
-- `20260715000200_add_moagent_runtime`
-- `20260715000300_add_moagent_mission_graph`
-- `20260715000400_add_moagent_generation_epoch_slot`
-- `20260715000500_add_moagent_build_revision`
-- `20260716000100_add_eval_queue_repeat`
-- `20260716000200_add_project_authentication`
-- `20260716000300_add_user_management_authorization`
-- `20260716000400_add_permissions_and_usage_quotas`
+The directory contains 28 ordered migrations at this revision. The filesystem
+is the authoritative list; do not copy a shortened list into deployment
+automation:
+
+```bash
+find prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+```
+
+The latest orchestration migrations are:
+
+- `20260719000600_add_generation_dispatch_outbox`
+- `20260722000300_enforce_agent_run_workspace_identity`
+- `20260723000100_persist_data_agent_profile`
+- `20260723000200_lock_data_agent_composition`
+- `20260723000300_worker_capacity_and_structural_quotas`
+- `20260723000400_worker_registry_and_observability`
 
 Do not use `prisma migrate reset`, `prisma db push --force-reset`, or execute the
 baseline SQL manually against a database that already contains QuantPilot data.
@@ -62,12 +71,13 @@ The default quota rules seeded for members are:
 | Metric | Limit | Enforcement / window | Reservation TTL |
 | --- | ---: | --- | ---: |
 | `projects.owned` | 10 | `hard` / `lifetime` | 3,600 s |
-| `agent.concurrent` | 2 | `hard` / `lifetime` | 3,600 s（运行中每 5 分钟内续租） |
-| `agent.requests.daily` | 100 | `observe` / `day` | 900 s |
-| `llm.total_tokens.monthly` | 2,000,000 | `observe` / `month` | 3,600 s |
-| `query_rewrite.llm.daily` | 200 | `observe` / `day` | 900 s |
-| `quant.data_units.daily` | 2,000 | `observe` / `day` | 900 s |
-| `research.report_runs.daily` | 20 | `observe` / `day` | 3,600 s |
+| `agent.pending` | 4 | `hard` / `lifetime` | 结构计数，不使用 TTL reservation |
+| `agent.concurrent` | 2 | `hard` / `lifetime` | 结构计数，不使用 TTL reservation |
+| `agent.requests.daily` | 100 | `hard` / `day` | 900 s |
+| `llm.total_tokens.monthly` | 2,000,000 | `warn` / `month` | 3,600 s |
+| `query_rewrite.llm.daily` | 200 | `hard` / `day` | 900 s |
+| `quant.data_units.daily` | 2,000 | `warn` / `day` | 900 s |
+| `research.report_runs.daily` | 20 | `hard` / `day` | 3,600 s |
 | `research.report_sends.daily` | 10 | `hard` / `day` | 3,600 s |
 
 After deploy, regenerate the Prisma client for the same application revision

@@ -5,7 +5,7 @@
 ## 当前部署边界
 
 - Web、market-data、PostgreSQL/TimescaleDB、Redis 和 Loki 必须在受控内网通信；只由 HTTPS 反向代理公开 Web。
-- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `MOAGENT_DISPATCH_MODE=worker` 时，独立 generation worker 负责 claim、heartbeat、执行、验证和终态提交。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从原始请求、当前工作空间和 run plan 重新规划，不恢复 Provider 私有 session。目标共享卷仍需完成多主机断电验收。
+- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `MOAGENT_DISPATCH_MODE=worker` 时，独立 generation worker 先注册 `agent_worker_instances` 进程租约并取得 `agent_worker_slots` 全局容量，再按 actor 公平 claim、heartbeat、执行、验证和提交终态。所有实例必须配置相同 `MOAGENT_WORKER_GLOBAL_CONCURRENCY`，且单进程并发不能超过它；存活实例配置不一致时，新 Worker 会失败关闭。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从当前持久化状态重新规划。
 - `PROJECTS_DIR` 必须是持久化、可读写的文件系统，且与数据库备份保持同一恢复点。
 - 生产密钥由 secret manager 或 root-only `EnvironmentFile` 注入，不写入镜像、standalone 目录、日志或 Git。
 
@@ -64,7 +64,7 @@
    `manifest.json` 包含数据库、workspace、uploads 的 SHA-256 和 `ENCRYPTION_KEY` 指纹。备份目录自身必须由基础设施做加密、不可变保留和异地复制。
 4. 执行 `npm run prisma:deploy`。禁止用 `prisma db push` 代替迁移。
 5. 以新版本启动摘流实例，检查 `/api/ready`，再切流量。
-6. 观察 15 分钟：登录失败率、API 5xx、Agent 失败/修复率、数据库连接、Redis、market-data 和 Loki。
+6. 观察 15 分钟：运行治理中心 Worker registry/槽位/队列、登录失败率、API 5xx、Agent 失败/修复率、数据库连接、Redis、market-data 和 Loki。必须至少看到一个存活 generation Worker；排队任务存在但存活 Worker 为零属于发布阻断。
 
 ## 回滚
 

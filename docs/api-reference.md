@@ -69,7 +69,7 @@
     }
   ],
   "isInitialPrompt": false,
-  "quantCapabilityId": "single-stock-diagnosis",
+  "quantCapabilityId": "stock_diagnosis",
   "quantCapabilitySource": "manual"
 }
 ```
@@ -78,7 +78,7 @@
 
 `POST /api/chat/[project_id]/messages` 同样只接受 `content`、`role`、`messageType`、`conversationId`、`cliSource`；`DELETE` 只接受 `conversationId` 查询参数。消息、SSE 和 WebSocket 输出均使用 camelCase。客户端如果仍发送 `request_id`、`selected_model`、`base64_data`、`public_url` 或 `conversation_id`，应修复调用方，而不是给服务端增加兼容分支。
 
-`POST /api/projects` 只接受 `projectId`、`name`、`initialPrompt`、`selectedModel`、`description`、`quantCapabilityId`、`quantCapabilitySource`。项目模型偏好通过 `PUT /api/projects/[project_id]` 的 `selectedModel` 更新；旧 `/api/chat/[project_id]/cli-preference` 平行入口已删除。
+`POST /api/projects` 只接受 `projectId`、`name`、`initialPrompt`、`selectedModel`、`description`、`agentProfileId`、通用 `capabilityId` 和 `capabilitySelectionSource`。Profile Catalog 负责解析 capability 并调用对应 workspace adapter，项目 API 不直接读取金融能力目录。项目模型偏好通过 `PUT /api/projects/[project_id]` 的 `selectedModel` 更新；旧 `/api/chat/[project_id]/cli-preference` 平行入口已删除。
 
 ### 量化控制台
 
@@ -91,7 +91,7 @@
 | `/api/research/reports` | `GET/POST` | 投研情报中心 | 观察池、证据型日报、主题洞察、运行历史和推送记录；`POST` 支持 `run-daily-report` 和 `send-latest-report` |
 | `/api/evals` | `GET/POST` | 评测平台 | 用例、评测集、运行队列、模拟链路和定时任务 |
 | `/api/evals/runs/[runId]` | `GET` | 评测平台 | 单次评测报告详情 |
-| `/api/ops/platform` | `GET` | 运行治理中心 | 基础环境、日志、健康和降级状态 |
+| `/api/ops/platform` | `GET` | 运行治理中心 | Worker registry/槽位/队列、基础环境、日志、健康和降级状态 |
 | `/api/infrastructure/health` | `GET` | 设置/运维 | PostgreSQL、market-data、Redis、Loki 等组件健康 |
 | `/api/infrastructure/service-catalog` | `GET` | 设置/运维 | 服务目录、Python/Node runtime、endpoint、依赖边和配置校验结果 |
 
@@ -149,9 +149,9 @@ LLM 通过 Tool Schema 解析标的原文、时间范围、分析重点和输出
 
 默认权限模板为 `member-default`，只读模板为 `readonly-default`。普通用户会合并有效用户覆盖与分配模板（未分配时使用默认模板）：任何有效 `deny` 优先，无 `deny` 时至少一个 `allow` 才会放行；项目 capability 还要与项目角色取交集。完整 capability 目录、模板边界和 scope 见[用户、权限与会话管理](authentication.md#capability-与项目角色)。
 
-配额支持 `observe/warn/hard`：前两者允许执行并保留是否超额的计量状态，`hard` 在资源预留阶段检查 `used + reserved + requested`。硬配额不足时接口返回 `429 QUOTA_EXCEEDED`，响应包含 `metric`、`enforcement`、`used`、`reserved`、`requested`、`limit`、`remaining`、`resetAt`，并设置 `Retry-After`。可能产生成本或占用并发的入口使用“reservation -> settlement/release”协议；预留和用量事件都使用唯一幂等键，重复相同操作不会二次扣量，复用键提交不同 actor、metric、项目或数量返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。
+配额支持 `observe/warn/hard`：前两者允许执行并保留是否超额的状态，`hard` 会在请求接纳或 Worker claim 前原子检查。计量型资源使用 `used + reserved + requested`；`agent.pending` 和 `agent.concurrent` 在锁住 actor 后分别统计待执行 UserRequest/Job 与 running Job。硬配额不足时接口返回 `429 QUOTA_EXCEEDED`，响应包含 metric 和剩余额度。计量型 reservation 与用量事件都使用唯一幂等键，重复相同操作不会二次扣量。
 
-默认成员配额共 8 项：`projects.owned=10 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 hard/day`、`llm.total_tokens.monthly=2000000 warn/month`、`query_rewrite.llm.daily=200 hard/day`、`quant.data_units.daily=2000 warn/day`、`research.report_runs.daily=20 hard/day`、`research.report_sends.daily=10 hard/day`。Token 与数据单元只能在结果产生后结算，因此超额时告警而不丢弃已完成结果；请求前可判断的次数执行硬限制。管理员的限额和 `remaining` 为 `null`（表示无限），但 `used/reserved` 仍按真实 actor 记账；个人用量页读取 `/api/account/usage`，管理员查看指定用户则读取 `/api/admin/users/[user_id]/access`。报告生成任务计入 `research.report_runs.daily`；只有非 dry-run 的真实推送才计入 `research.report_sends.daily`。
+默认成员配额共 9 项：`projects.owned=10 hard/lifetime`、`agent.pending=4 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 hard/day`、`llm.total_tokens.monthly=2000000 warn/month`、`query_rewrite.llm.daily=200 hard/day`、`quant.data_units.daily=2000 warn/day`、`research.report_runs.daily=20 hard/day`、`research.report_sends.daily=10 hard/day`。Token 与数据单元只能在结果产生后结算，因此超额时告警而不丢弃已完成结果；请求前可判断的次数执行硬限制。管理员的限额和 `remaining` 为 `null`（表示无限），但结构状态和实际用量仍按 actor 展示。
 
 启用认证时，聊天入口把当前用户写入 `user_requests.actor_user_id`，物理 Agent run 继承为 `agent_runs.actor_user_id`，后续用量事件关联 actor、project 和 source。相同 request ID 不能跨用户或跨项目复用。LLM 问题改写的确定性 `preview` 不消费 `query_rewrite.llm.daily`；只有 execution 实际进入模型链路时才计该指标和模型 Token。
 

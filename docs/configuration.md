@@ -328,6 +328,8 @@ MoAgent 的 Token、轮次、工具调用和 lease 默认值已经按完整 work
 
 generation dispatch 的关键配置是 `MOAGENT_DISPATCH_LEASE_TTL_MS=120000`、`MOAGENT_DISPATCH_HEARTBEAT_INTERVAL_MS=30000`、`MOAGENT_DISPATCH_PENDING_ORPHAN_GRACE_MS=120000` 和 `MOAGENT_DISPATCH_ENVELOPE_MAX_BYTES=262144`。heartbeat 必须严格小于 TTL；pending 宽限期用于封存“已入库但尚未 claim 就崩溃”的窄窗口；信封上限只约束 provider-neutral replan 输入，不能用来放宽 Secret 边界，credential-shaped 字段无论大小都会拒绝写库。`.data-agent/generation-queue.json` 可删除并由 PostgreSQL job/outbox 重建，不能通过修改该文件取消、重试或完成任务。
 
+独立 Worker 使用 `MOAGENT_WORKER_CONCURRENCY` 控制单进程并发，用 `MOAGENT_WORKER_GLOBAL_CONCURRENCY` 控制共享同一 PostgreSQL 的集群总并发；前者不得大于后者。全局容量由 `agent_worker_slots` 的 lease/fencing 实现，相关心跳为 `MOAGENT_WORKER_SLOT_LEASE_TTL_MS` 与 `MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS`。同一组 TTL/heartbeat 也保护 `agent_worker_instances` 进程注册：Worker 启动时在数据库 advisory lock 下清理过期注册，并核对所有存活进程的 global concurrency；配置不一致会直接退出，避免同一个槽位池被不同容量解释。多个 Worker 会按 actor 分轮选择 Job，但同一 Project 仍由 Mission、generation lease 和 workspace lease 强制单写。本地设置 `MOAGENT_DISPATCH_MODE=worker` 后，`npm run dev` 默认同时托管一个 Worker；外部已经启动 Worker 时设置 `QUANTPILOT_DEV_MANAGE_GENERATION_WORKER=0`。`/ops-platform` 的“Data Agent 执行池”直接显示存活进程、进程容量、全局槽位、排队用户、最久等待和 24 小时完成/失败量。
+
 ## Secret 边界
 
 必须保持以下归属：

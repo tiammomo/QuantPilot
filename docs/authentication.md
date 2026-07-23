@@ -112,14 +112,15 @@ npm run auth:bootstrap
 | --- | --- | --- |
 | `observe` | 允许请求并持续计量，供建立真实分布基线 | 新 metric 或成本指标初期 |
 | `warn` | 允许请求，响应/管理视图可显示 `exceeded`，由运营侧提示或告警 | 已有阈值但暂不阻断 |
-| `hard` | 预留阶段原子检查 `used + reserved + requested`，超额返回 `429 QUOTA_EXCEEDED` 和 `Retry-After` | 项目数、并发数和请求前可判断的次数 |
+| `hard` | reservation 指标原子检查 `used + reserved + requested`；结构指标在锁住 actor 后检查数据库真实状态，超额都返回 `429 QUOTA_EXCEEDED` | 项目数、排队数、并发数和请求前可判断的次数 |
 
 默认 `member-default` 配额如下。日/月窗口按 UTC 边界计算，`lifetime` 使用固定全生命周期窗口：
 
 | metric | 默认上限 | enforcement / 窗口 | 口径 |
 | --- | ---: | --- | --- |
 | `projects.owned` | 10 | `hard` / `lifetime` | 用户创建并结算的自有项目 |
-| `agent.concurrent` | 2 | `hard` / `lifetime` | 活跃 Agent 执行预留；结束或失败后释放 |
+| `agent.pending` | 4 | `hard` / `lifetime` | 尚在规划或等待 Worker 的请求；由非终态 UserRequest/Job 实时计算 |
+| `agent.concurrent` | 2 | `hard` / `lifetime` | 已被 Worker claim 的 running Job；由数据库状态实时计算 |
 | `agent.requests.daily` | 100 | `hard` / `day` | 每日 Agent 请求数 |
 | `llm.total_tokens.monthly` | 2,000,000 | `warn` / `month` | Agent 与其他已接入模型链路的实际总 Token；结果结算后提示超额 |
 | `query_rewrite.llm.daily` | 200 | `hard` / `day` | 每日进入 LLM 问题改写的次数；纯确定性 preview 不计此项 |
@@ -127,7 +128,7 @@ npm run auth:bootstrap
 | `research.report_runs.daily` | 20 | `hard` / `day` | 每日研究报告生成任务数 |
 | `research.report_sends.daily` | 10 | `hard` / `day` | 每日真实研究报告推送数；dry-run 不计此项 |
 
-可能产生资源消耗的操作先创建带 TTL 的 reservation，成功后按实际数量 settlement，将 `reserved` 转入 `used` 并写入 `usage_events`；失败或取消则 release。预留、结算和直接记账都要求唯一幂等键，同一键重复相同请求只返回原结果，用不同 actor、metric、项目或数量复用则返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。这避免客户端重试和 worker 重放造成重复扣量，并用数据库事务、advisory lock 与条件更新防止并发超卖。
+次数、Token、数据单元等计量指标使用带 TTL 的 reservation，成功后 settlement，失败或取消则 release。`agent.pending` 和 `agent.concurrent` 不使用会过期的 reservation：入口在锁住 `auth_users` actor 行后统计待执行请求，Worker claim 在同一 actor 锁下统计 running Job；任务状态本身就是配额事实源，因此长时间排队和 Worker 崩溃不会留下假并发。预留、结算和直接记账仍要求唯一幂等键，用不同 actor、metric、项目或数量复用同一键返回 `409 QUOTA_IDEMPOTENCY_CONFLICT`。
 
 `npm run prisma:deploy`、Web 启动和 `db:init` 都先执行版本化 migration，再幂等补齐内置策略，并在接收流量前用 `projects.owner_id` 校准 `projects.owned` 全生命周期 bucket。校准与正常配额变更使用同一 actor/metric/window advisory lock；如果项目创建仍持有有效 reservation，该 actor 会被跳过，待下次启动重试，避免把“项目已插入但 reservation 尚未结算”的中间态重复计量。该精确校准只用于启动/管理员 bootstrap，不属于周期 cleanup；周期任务只回收过期 reservation。
 

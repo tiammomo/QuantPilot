@@ -14,7 +14,7 @@ http://localhost:3000/ops-platform
 
 | 视图 | 主要问题 |
 | --- | --- |
-| 运行总览 | 系统能否运行、当前有几个阻断、应该先处理什么 |
+| 运行总览 | 系统能否运行、Worker 是否消费队列、当前有几个阻断、应该先处理什么 |
 | 服务治理 | 服务目录、依赖级别、端点、命令、基础环境与平台能力是否可用 |
 | 工作空间 | 生成项目是否缺产物、验证是否通过、是否应进入修复或归档 |
 | 生成链路 | 当前请求走到哪一步、最后失败在哪个阶段、修复是否触发 |
@@ -23,6 +23,18 @@ http://localhost:3000/ops-platform
 运行总览还会并列展示项目健康、运行健康与策略健康三层画像。这样历史工作空间失败、可选日志组件降级和策略数据过期不会被混成一个笼统的“平台不可用”。
 
 如果你只想知道“页面为什么打不开”，先看基础环境。如果你想知道“某个生成工作空间为什么不可用”，先看工作空间健康。如果你想知道“为什么策略平台结果不可信”，先看策略健康和数据覆盖。
+
+### Data Agent 执行池
+
+运行总览的执行池不是读取某一个进程的内存计数，而是聚合三类数据库事实：
+
+| 事实 | 数据表 | 回答的问题 |
+| --- | --- | --- |
+| Worker registry | `agent_worker_instances` | 有几个进程存活、运行在哪个主机/PID、单进程和全局容量是否一致 |
+| 全局槽位 | `agent_worker_slots` | 当前到底占用了多少集群执行容量、哪个 Job/Worker 持有槽位、租约是否过期 |
+| Generation queue | `agent_generation_jobs`、`user_requests` | pending/retry/running 数量、排队用户数、最久等待和 24 小时完成/失败量 |
+
+`MOAGENT_DISPATCH_MODE=worker` 时，“有排队任务但没有存活 Worker”是 failed；没有任务但 Worker 不在线是 warning。存活 Worker 的 global concurrency 不一致会阻止新实例加入，运维页仍会把历史漂移显示为 failed。运行中 Job 没有对应有效槽位、槽位心跳过期也会进入 attention queue。
 
 ## 评分不是玄学
 
@@ -130,6 +142,7 @@ QUANTPILOT_REDIS_REQUIRED=0
 | 首页打不开 | 基础环境、Next dev 日志 | `lsof -i :3000`、`npm run dev` 输出 |
 | 生成项目预览打不开 | 工作空间健康、预览端口 | 项目 `npm run build` 和预览进程 |
 | 聊天页报 Agent 错误 | 生成链路观测、日志搜索 requestId | CLI 配置、模型返回、最大轮数 |
+| 任务一直停在生成看板 | Data Agent 执行池的 Worker、队列和最久等待 | Worker 日志、dispatch lease、用户运行配额 |
 | 策略平台加载慢 | 策略健康、market-data 日志 | 股票池分页、Redis、SQL 查询 |
 | 补数任务不知道是否在跑 | 策略健康、补数 job 心跳 | `quant.market_data_ingestion_jobs` |
 | Loki 没日志 | 可观测性检查、Alloy 状态 | 本地日志兜底是否可读 |
@@ -160,7 +173,7 @@ QUANTPILOT_DEGRADATION_MODE=offline npm run doctor
 
 短期最有价值的是：
 
-- 把补数、评测和生成队列的进度统一成可暂停、可恢复、可追踪的 job 模型。
+- 把补数和评测队列继续收敛到与 generation 一致的可暂停、可恢复、可追踪 job 模型。
 - 为关键 API 增加耗时和错误率指标，让 Grafana 不只看日志。
 - 把工作空间健康快照写入 PostgreSQL，支持趋势对比。
 - 将大日志、截图和长报告接对象存储，数据库只保存索引。

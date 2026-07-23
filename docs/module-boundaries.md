@@ -10,7 +10,8 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | --- | --- | --- |
 | `shared-kernel` | 稳定类型、配置和无业务状态工具 | `src/types/**`、`src/lib/config/**`、`src/lib/utils.ts` |
 | `ui-kit` | 无领域知识的基础 UI | `src/components/ui/**` |
-| `product-shell` | 首页、导航、布局、主题和平台入口 | `src/app/page.tsx`、`src/components/layout/**` |
+| `platform-navigation-ui` | 跨业务复用的页头、平台切换、子导航和路由加载状态 | `src/components/layout/**` |
+| `product-shell` | 首页、根布局、主题和平台入口编排 | `src/app/page.tsx`、根布局和主题 |
 | `platform-core` | 项目、设置、Token、服务目录和外部集成 | `src/lib/platform/**`、核心 `src/lib/services/**` |
 | `agent-runtime` | MoAgent Provider、执行循环、上下文、类型化工具、Skills 编译和通用 Mission 机制 | `src/lib/agent/**`、通用运行服务 |
 | `data-agent-core` | 通用数据任务、实体、指标、Connector、Domain Pack、Agent Profile 与执行计划合同 | `src/lib/data-agent/**` |
@@ -29,6 +30,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 5. 跨模块调用优先走 public surface，避免深层私有文件互相引用。
 6. `agent-runtime` 不认识任何业务 Domain；`data-agent-core` 只认识注册合同；业务能力由 `finance-domain` 等 Domain Pack 向上注入。
 7. LLM 负责 Query Rewrite 的语义理解，领域 Resolver 只核验实体身份，不能退化为关键词路由。
+8. 每个可解析的跨模块 import 都必须出现在源模块的 `dependsOn` 中，依赖图不得成环；检查脚本不是只校验配置格式。
 
 ## 当前迁移债务
 
@@ -50,16 +52,16 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 ## 后续拆分顺序
 
 1. 继续拆 Chat Page Controller：Act route 已降为 HTTP 接纳与 dispatch，ChatLog 已拆为状态控制器、协议运行时和纯视图；页面级 generation controller、preview reconciliation 与布局仍是聊天主链最大热点。
-2. 再拆验证与取数：把通用 Data Agent 执行合同和 Finance Adapter 从 `quant` 产品编排中进一步显式化。
+2. 再拆验证与取数：项目 provision 已由 `DataAgentApplicationCatalog` 和 Finance Adapter 驱动，下一步把通用数据执行器从金融 endpoint/证据落盘中抽离。
 3. 拆市场数据 contracts 与 app factory，保证每个 router/service/repository 域可以独立测试。
 4. 随后拆策略平台与 `eval-core`，并把 dashboard Delivery Pack 提取为独立注册能力。
-5. 最后收紧 `platform-core` 与 `quant-core` 的依赖，把项目默认金融配置改成显式 product adapter。
+5. 最后把第二个真实非金融 Profile/Connector/handler 接入 Catalog，用跨领域评测证明通用边界，而不是增加示例空壳。
 
 Data Agent 的完整分层、工作空间合同和新 Domain Pack 开发流程见 [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md)。
 
 ## 发布标准
 
-- `npm run check:module-boundaries` 必须通过。
+- `npm run check:module-boundaries` 必须通过；未声明跨模块 import 和依赖环都属于发布阻断。
 - 门禁同时拒绝恢复已删除的 runtime/session 路径、Act 旧字段兼容和 `legacy:unknown` workspace 身份默认值。
 - 新增模块必须更新 `config/module-boundaries.json` 和本文档。
 - 新增大文件超过目标线时，必须写明拆分计划。
