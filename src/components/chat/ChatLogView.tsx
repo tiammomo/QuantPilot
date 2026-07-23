@@ -17,6 +17,7 @@ import { renderLightMarkdown } from "./LightMarkdown";
 import PersonalMemoryCandidateCard from "./PersonalMemoryCandidateCard";
 import PersonalMemoryFeedback from "./PersonalMemoryFeedback";
 import { ToolMessage } from "./ToolMessage";
+import ToolApprovalPanel from "./ToolApprovalPanel";
 import TurnMetricsFooter from "./TurnMetricsFooter";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
@@ -54,6 +55,7 @@ export interface ChatLogViewProps {
   failedImageUrls: Set<string>;
   setFailedImageUrls: Dispatch<SetStateAction<Set<string>>>;
   isWaitingForResponse: boolean;
+  approvalRefreshVersion: number;
   logsEndRef: RefObject<HTMLDivElement | null>;
   selectedLog: LogEntry | null;
   setSelectedLog: Dispatch<SetStateAction<LogEntry | null>>;
@@ -192,6 +194,7 @@ export default function ChatLogView({
   failedImageUrls,
   setFailedImageUrls,
   isWaitingForResponse,
+  approvalRefreshVersion,
   logsEndRef,
   selectedLog,
   setSelectedLog,
@@ -308,6 +311,11 @@ export default function ChatLogView({
           </div>
         </div>
       )}
+
+      <ToolApprovalPanel
+        projectId={projectId}
+        refreshVersion={approvalRefreshVersion}
+      />
 
       {/* Display messages and logs together */}
       <div className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar ">

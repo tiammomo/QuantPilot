@@ -114,6 +114,7 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | --- | --- | --- |
 | Worker 化 | 长任务不应长期依赖 Next.js 请求生命周期；该项已从 P2 提前 | 生成、评测、策略扫描、补数任务可由独立 worker 执行 |
 | MoAgent 收敛 checkpoint | ProgressOracle 不能只存在于请求进程内 | 已完成 `progress_evaluated`、canonical-hash checkpoint v2、恢复前完整性校验和停滞状态投影；后续由 worker dispatcher 消费 replan 信号，而不是恢复旧 Provider session |
+| Mutating tool 人工决策 | 外部发布、删除、通知等副作用不能只靠提示词约束 | 已完成 application-owned approval policy、公开输入投影、`waiting_for_external_input` checkpoint、approve/edit/reject/expire、项目授权 API 和崩溃后强制 replan；后续业务 Connector 按风险显式接入 |
 | Mission 与外层编排接管 | 进程退出不能让任务永久占用，旧 worker 也不能晚到覆盖 | 已完成 Mission verification lease/fencing、项目级 generation lease，以及过期 dispatch 在细粒度 lease 全部失活后原子关闭 UserRequest/Mission 的 replan reconciliation |
 | Durable dispatcher / outbox | `.data-agent/generation-queue.json` 只能做工作区投影，不能承担可靠派发 | 已完成 PostgreSQL job、claim/attempt/fencing、受限 execution envelope、事务 outbox、独立 polling worker、指数退避 replan、取消与崩溃封存；后续如引入 Redis，只把它用于可丢失唤醒 |
 | 暂停、恢复、停止语义统一 | 当前不同任务类型语义容易不一致 | 所有长任务都明确 checkpoint、resume offset、stop grace 和失败重试 |

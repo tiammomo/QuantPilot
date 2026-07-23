@@ -43,12 +43,16 @@
 | `/api/chat/[project_id]/stream` | `GET` | 项目聊天页 | SSE 消息流 |
 | `/api/chat/[project_id]/act` | `POST` | 项目聊天页 | 启动 Agent 执行、量化预取数、验证和修复链路 |
 | `/api/chat/[project_id]/pause` | `POST` | 项目聊天页 | 暂停当前执行 |
+| `/api/projects/[project_id]/agent/approvals` | `GET` | 项目聊天页、运行治理中心 | 按项目、run 和状态列出 bounded public tool approvals |
+| `/api/projects/[project_id]/agent/approvals/[approval_id]` | `POST` | 项目聊天页、运行治理中心 | 对 pending mutating tool 提交 `approve`、`edit` 或 `reject`；决策人只来自认证会话 |
+| `/api/projects/[project_id]/agent/runs/[run_id]` | `GET` | 运行治理中心 | 分页读取 AgentRun 公共事件、最新 replan checkpoint 和审批时间线 |
 
 核心约束：
 
 - `act` 入口要把用户问题转换为 run plan、数据预取、生成、验证和修复事件。
 - `act` 请求是严格 camelCase 合同；未知字段直接返回 `400 INVALID_ACT_REQUEST`，不再接受 snake_case、`cliPreference`、内联 base64 或宿主绝对路径。
 - 运行状态只来自 `UserRequest / AgentRun / Mission / GenerationJob`；不再提供旧 CLI Session API 或平行状态表。
+- 工具审批仅适用于受信应用显式标记的 mutating tool；原始参数不进入 API。`edit` 请求体为 `{ "decision": "edit", "editedInput": { ... } }`，批准/拒绝只传 `{ "decision": "approve|reject" }`。决策要求 `project.update`，列表与时间线要求 `project.read`。
 - 投资建议类问题必须保持研究/辅助决策口径，不输出确定性买卖承诺。
 - 如果是宽域选股问题，不应因为缺少明确标的而反复澄清，应走本地股票池筛选。
 

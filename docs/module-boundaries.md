@@ -31,6 +31,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 6. `agent-runtime` 不认识任何业务 Domain；`data-agent-core` 只认识注册合同；业务能力由 `finance-domain` 等 Domain Pack 向上注入。
 7. LLM 负责 Query Rewrite 的语义理解，领域 Resolver 只核验实体身份，不能退化为关键词路由。
 8. 每个可解析的跨模块 import 都必须出现在源模块的 `dependsOn` 中，依赖图不得成环；检查脚本不是只校验配置格式。
+9. `agent-runtime` 只定义通用 HITL 决策合同和安全持久化；哪些业务动作需要批准、公开哪些参数，由受信 Domain/Application composition 注入，插件不能自带持久化 projector。
 
 ## 当前迁移债务
 
@@ -38,7 +39,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | --- | --- | --- |
 | `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 685 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
 | `src/app/[project_id]/chat/page.tsx` | 页面仍同时管理消息、生成、预览恢复与大部分布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
-| `src/lib/agent/core/run-engine.ts` | Agent 状态机仍直接承接上下文、工具循环、验证与封存细节 | 按 planning、tool loop、checkpoint、verification、terminalization 拆分 |
+| `src/lib/agent/core/run-engine.ts` | HITL 策略/校验已拆到 `core/tool-approval.ts`，但主状态机仍直接承接上下文、工具循环、验证与封存细节 | 继续按 planning、tool loop、checkpoint、verification、terminalization 拆分 |
 | `src/lib/quant/validation.ts` | artifact/data/visual/repair/acceptance 多条验证管线集中 | 拆成独立 validator，保留单一 facade |
 | `src/lib/quant/data-prefetch.ts` | 通用取数计划与金融 endpoint、证据落盘交织 | 抽离通用执行器与 Finance Data Adapter |
 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | 已拆出 helpers、金融知识、股票池、K 线详情、板块资金、因子目录和基础组件视图；主 client 仍承载弹窗和部分扫描编排 | 继续拆成 dialogs、hooks、tables |

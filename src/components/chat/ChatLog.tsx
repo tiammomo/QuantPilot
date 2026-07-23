@@ -76,6 +76,7 @@ export default function ChatLog({
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
+  const [approvalRefreshVersion, setApprovalRefreshVersion] = useState(0);
   const [needsHistoryRefresh, setNeedsHistoryRefresh] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const historyPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -467,6 +468,14 @@ export default function ChatLog({
         resolvedStatus,
         statusData?.metadata,
       );
+      if (
+        resolvedStatus === "tool_approval_required" ||
+        resolvedStatus === "tool_approval_resolved"
+      ) {
+        setApprovalRefreshVersion((version) => version + 1);
+        setIsWaitingForResponse(true);
+        onSessionStatusChange?.(true);
+      }
       const isWorkspaceLifecycleStatus =
         lifecycle.workspaceLifecycle &&
         (resolvedStatus !== "validation_passed" || hasReadyPreview);
@@ -1350,6 +1359,7 @@ export default function ChatLog({
       failedImageUrls={failedImageUrls}
       setFailedImageUrls={setFailedImageUrls}
       isWaitingForResponse={isWaitingForResponse}
+      approvalRefreshVersion={approvalRefreshVersion}
       logsEndRef={logsEndRef}
       selectedLog={selectedLog}
       setSelectedLog={setSelectedLog}
