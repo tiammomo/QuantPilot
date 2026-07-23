@@ -64,4 +64,22 @@ describe('market data freshness check', () => {
       barLagSessions: 0,
     });
   });
+
+  it('fails when the latest session has too few symbols', () => {
+    const result = evaluateFreshness(
+      {
+        calendarThrough: '2026-07-20',
+        latestOpenDate: '2026-07-20',
+        latestBarDate: '2026-07-20',
+        symbolsAtLatest: 12,
+      },
+      { estimatedDate: '2026-07-20', minSymbols: 250 }
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      symbolCoverageMet: false,
+      minSymbols: 250,
+    });
+  });
 });

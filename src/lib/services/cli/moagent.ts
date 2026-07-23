@@ -1008,10 +1008,7 @@ async function executeMoAgentPhase(
       : resolvedModel;
     const configuredMaxTurnOutputTokens = phaseGraph.providerMode === 'deterministic'
       ? 1
-      : positiveIntegerEnv(
-          'MOAGENT_MAX_TURN_OUTPUT_TOKENS',
-          positiveIntegerEnv('MOAGENT_MAX_OUTPUT_TOKENS', 12_000),
-        );
+      : positiveIntegerEnv('MOAGENT_MAX_TURN_OUTPUT_TOKENS', 12_000);
     const maxRunOutputTokens = Math.min(
       optionalPositiveIntegerEnv('MOAGENT_MAX_RUN_OUTPUT_TOKENS') ??
         phaseGraph.budgets.maxOutputTokens,

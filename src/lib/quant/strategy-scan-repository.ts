@@ -214,18 +214,10 @@ async function writeScanJobToDatabase(job: StrategyScanJob) {
 export async function listScanRuns(): Promise<StrategyScanRun[]> {
   const dbRuns = await listScanRunsFromDatabase().catch(() => []);
   try {
-    const [runEntries, legacyEntries] = await Promise.all([
-      fs.readdir(RUNS_DIR, { withFileTypes: true }).catch(() => []),
-      fs.readdir(DATA_DIR, { withFileTypes: true }).catch(() => []),
-    ]);
-    const runFiles = [
-      ...runEntries
-        .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
-        .map(entry => path.join(RUNS_DIR, entry.name)),
-      ...legacyEntries
-        .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
-        .map(entry => path.join(DATA_DIR, entry.name)),
-    ];
+    const runEntries = await fs.readdir(RUNS_DIR, { withFileTypes: true }).catch(() => []);
+    const runFiles = runEntries
+      .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
+      .map(entry => path.join(RUNS_DIR, entry.name));
     const runs = await Promise.all(runFiles.map(filePath => readJsonFile<StrategyScanRun>(filePath)));
     const byId = new Map<string, StrategyScanRun>();
     for (const run of runs.filter((run): run is StrategyScanRun => Boolean(run?.id && run?.templateId && run?.scanId))) {

@@ -16,6 +16,7 @@ import {
 } from "@/lib/services/moagent-generation-dispatch-session";
 import {
   cancelMoAgentGenerationJob,
+  enqueueMoAgentGenerationJob,
   finishMoAgentGenerationJob,
   listMoAgentGenerationJobs,
   listPendingMoAgentGenerationOutboxEvents,
@@ -205,6 +206,7 @@ interface QuantGenerationQueuedParams<T> {
   cliPreference?: string | null;
   selectedModel?: string | null;
   executionEnvelope?: unknown;
+  maxAttempts?: number;
   completeOnTaskSuccess?: boolean;
   completeOnTaskFailure?: boolean;
   task: QueueTask<T>;
@@ -222,6 +224,7 @@ async function prepareQuantGenerationDispatch<T>(
       cliPreference: params.cliPreference,
       selectedModel: params.selectedModel,
       executionEnvelope: params.executionEnvelope,
+      maxAttempts: params.maxAttempts,
     });
   } catch (error) {
     if (
@@ -266,6 +269,31 @@ async function prepareQuantGenerationDispatch<T>(
     dispatch.dispose();
     throw error;
   }
+}
+
+export async function enqueueQuantGeneration(params: Omit<
+  QuantGenerationQueuedParams<never>,
+  "task" | "completeOnTaskSuccess" | "completeOnTaskFailure"
+>): Promise<void> {
+  await enqueueMoAgentGenerationJob({
+    projectId: params.projectId,
+    requestId: params.requestId,
+    instruction: params.instruction,
+    cliPreference: params.cliPreference,
+    selectedModel: params.selectedModel,
+    executionEnvelope: params.executionEnvelope,
+    maxAttempts: params.maxAttempts,
+  });
+  await projectDurableQueue(params.projectPath, params.projectId, {
+    reconcileExpired: false,
+  });
+  await appendLifecycleEvent({
+    projectPath: params.projectPath,
+    requestId: params.requestId,
+    eventType: "generation_queued",
+    status: "pending",
+    summary: "生成任务已进入 PostgreSQL durable dispatch，等待独立 Worker。",
+  });
 }
 
 async function executeQuantGenerationDispatch<T>(
@@ -412,17 +440,4 @@ export async function readQuantGenerationQueue(
   projectId: string,
 ) {
   return projectDurableQueue(projectPath, projectId);
-}
-
-export async function updateQuantGenerationQueueItem(params: {
-  projectPath: string;
-  projectId: string;
-  requestId: string;
-  patch: Partial<QuantGenerationQueueItem>;
-}) {
-  // Compatibility surface: business state is no longer mutable through the
-  // workspace projection. Re-materialize the authoritative database state.
-  void params.requestId;
-  void params.patch;
-  return projectDurableQueue(params.projectPath, params.projectId);
 }

@@ -57,6 +57,10 @@ export function buildGeneratedProjectEnv(
     'NEXT_PUBLIC_APP_URL',
     'NODE_ENV',
     'NEXT_PRIVATE_BUILD_WORKER',
+    'QUANTPILOT_SANDBOX_PREVIEW_SOCKET',
+    'QUANTPILOT_SANDBOX_PREVIEW_PORT',
+    'QUANTPILOT_SANDBOX_MARKET_SOCKET',
+    'QUANTPILOT_SANDBOX_MARKET_PORT',
   ] as const) {
     const value = overrides[key];
     if (value) env[key] = value;
@@ -124,6 +128,7 @@ export async function wrapGeneratedProjectCommand(
       '--user',
       '--map-root-user',
       '--mount',
+      '--net',
       '--pid',
       '--fork',
       '/bin/bash',

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from quantpilot_market_data.models import IngestionPreflightCoverage
-from quantpilot_market_data.repositories.foundation import _coverage_missing_fields
+from datetime import date
+
+from quantpilot_market_data.models import ClickHouseHealthResponse, IngestionPreflightCoverage
+from quantpilot_market_data.repositories.foundation import (
+    _clickhouse_foundation_projection,
+    _coverage_missing_fields,
+)
 from quantpilot_market_data.services.ingestion_support import missing_preflight_fields
 
 
@@ -91,3 +96,34 @@ def test_ingestion_preflight_uses_observed_rows_for_field_completeness() -> None
     )
 
     assert missing == ["kline"]
+
+
+def test_clickhouse_foundation_is_partial_when_trade_date_is_stale() -> None:
+    status, rows, detail = _clickhouse_foundation_projection(
+        ClickHouseHealthResponse(
+            enabled=True,
+            status="ok",
+            tables={"quant_bars_daily": 123_456},
+            table_latest_trade_dates={"quant_bars_daily": date(2026, 7, 17)},
+        ),
+        date(2026, 7, 22),
+    )
+
+    assert status == "partial"
+    assert rows == 123_456
+    assert "落后当前应有交易日 2026-07-22" in detail
+
+
+def test_clickhouse_foundation_is_ready_at_expected_trade_date() -> None:
+    status, _, detail = _clickhouse_foundation_projection(
+        ClickHouseHealthResponse(
+            enabled=True,
+            status="ok",
+            tables={"quant_bars_daily": 123_456},
+            table_latest_trade_dates={"quant_bars_daily": date(2026, 7, 22)},
+        ),
+        date(2026, 7, 22),
+    )
+
+    assert status == "ready"
+    assert "最新交易日 2026-07-22" in detail

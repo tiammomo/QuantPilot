@@ -34,8 +34,8 @@ const {
   readQuantValidationReport,
   validateQuantProject,
 } = jiti('../../src/lib/quant/validation.ts');
-const { buildQuantProjectSettings } = jiti('../../src/lib/domains/finance/capabilities.ts');
 const { previewManager } = jiti('../../src/lib/services/preview.ts');
+const { createProject } = jiti('../../src/lib/services/project.ts');
 const {
   getDefaultModelForCli,
   getModelDefinitionsForCli,
@@ -590,29 +590,19 @@ function buildCoverageSummary(cases, results) {
 
 async function ensureBenchmarkProject({ projectId, projectPath, testCase, selectedModel = DEFAULT_MODEL }) {
   await fs.rm(projectPath, { recursive: true, force: true });
-  await fs.mkdir(projectPath, { recursive: true });
   await prisma.project.deleteMany({ where: { id: projectId } });
 
-  await scaffoldBasicNextApp(projectPath, projectId);
-  await prisma.project.create({
-    data: {
-      id: projectId,
-      name: `Benchmark ${testCase.name}`,
-      description: testCase.question,
-      initialPrompt: testCase.question,
-      repoPath: projectPath,
-      preferredCli: 'moagent',
-      selectedModel,
-      settings: JSON.stringify({
-        quant: buildQuantProjectSettings(testCase.capabilityId),
-      }),
-      status: 'idle',
-      templateType: 'nextjs',
-      lastActiveAt: new Date(),
-      previewUrl: null,
-      previewPort: null,
-    },
+  await createProject({
+    project_id: projectId,
+    name: `Benchmark ${testCase.name}`,
+    description: testCase.question,
+    initialPrompt: testCase.question,
+    preferredCli: 'moagent',
+    selectedModel,
+    quantCapabilityId: testCase.capabilityId,
+    quantCapabilitySource: 'manual',
   });
+  await scaffoldBasicNextApp(projectPath, projectId);
 }
 
 async function writeBenchmarkImageAttachment({ projectPath, requestId, imageAttachment }) {

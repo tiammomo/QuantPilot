@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh QuantPilot market facts after each trading day
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 18:35:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=10m
+Unit=quantpilot-market-maintenance.service
+
+[Install]
+WantedBy=timers.target

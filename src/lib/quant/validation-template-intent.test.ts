@@ -11,6 +11,14 @@ describe('validation template intent', () => {
     })).toBe('strategy-research');
   });
 
+  it('maps stock diagnosis through the capability contract', () => {
+    expect(inferExpectedTemplateFromTask({
+      capabilityId: 'stock_diagnosis',
+      question: '分析贵州茅台。',
+      symbols: ['600519'],
+    })).toBe('single-stock-diagnosis');
+  });
+
   it('keeps a multi-symbol portfolio on holding analysis', () => {
     expect(inferExpectedTemplateFromTask({
       capabilityId: 'portfolio_risk',
@@ -27,10 +35,10 @@ describe('validation template intent', () => {
     })).toBe('stock-selection');
   });
 
-  it('uses keyword inference only for a legacy plan without a capability', () => {
+  it('fails closed instead of inferring a template from keywords', () => {
     expect(inferExpectedTemplateFromTask({
       question: '比较贵州茅台和五粮液。',
       symbols: ['600519', '000858'],
-    })).toBe('stock-selection');
+    })).toBeNull();
   });
 });

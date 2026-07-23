@@ -4,6 +4,17 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { execFile } from 'child_process';
+import { createHash } from 'node:crypto';
+import {
+  createServer as createHttpServer,
+  request as createHttpRequest,
+} from 'node:http';
+import {
+  createConnection,
+  createServer as createNetServer,
+  type Server,
+  type Socket,
+} from 'node:net';
 import path from 'path';
 import fs from 'fs/promises';
 import { promisify } from 'util';
@@ -28,10 +39,10 @@ const PACKAGE_MANAGER_COMMANDS: Record<
   PackageManagerId,
   { command: string; installArgs: string[] }
 > = {
-  npm: { command: npmCommand, installArgs: ['install'] },
-  pnpm: { command: pnpmCommand, installArgs: ['install'] },
-  yarn: { command: yarnCommand, installArgs: ['install'] },
-  bun: { command: bunCommand, installArgs: ['install'] },
+  npm: { command: npmCommand, installArgs: ['install', '--ignore-scripts', '--no-audit', '--no-fund'] },
+  pnpm: { command: pnpmCommand, installArgs: ['install', '--ignore-scripts'] },
+  yarn: { command: yarnCommand, installArgs: ['install', '--ignore-scripts'] },
+  bun: { command: bunCommand, installArgs: ['install', '--ignore-scripts'] },
 };
 
 const LOG_LIMIT = PREVIEW_CONFIG.LOG_LIMIT;
@@ -109,6 +120,9 @@ type PreviewStatus = 'starting' | 'running' | 'stopped' | 'error';
 
 interface PreviewProcess {
   process: ChildProcess | null;
+  networkProxy: PreviewNetworkProxy | null;
+  marketProxy: PreviewNetworkProxy | null;
+  runtimeDirectory: string | null;
   port: number;
   url: string;
   status: PreviewStatus;
@@ -118,9 +132,15 @@ interface PreviewProcess {
   startOperationId?: symbol;
 }
 
+interface PreviewNetworkProxy {
+  server: Server;
+  socketPath: string;
+  sockets: Set<Socket>;
+  closePromise?: Promise<void>;
+}
+
 interface EnvOverrides {
   port?: number;
-  url?: string;
 }
 
 function stripQuotes(value: string): string {
@@ -156,8 +176,6 @@ async function collectEnvOverrides(projectPath: string): Promise<EnvOverrides> {
     try {
       const contents = await fs.readFile(filePath, 'utf8');
       const lines = contents.split(/\r?\n/);
-      let candidateUrl: string | null = null;
-
       for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line || line.startsWith('#') || !line.includes('=')) {
@@ -175,31 +193,9 @@ async function collectEnvOverrides(projectPath: string): Promise<EnvOverrides> {
             overrides.port = parsed;
           }
         }
-
-        if (!overrides.url && key === 'NEXT_PUBLIC_APP_URL' && value) {
-          candidateUrl = value;
-        }
       }
 
-      if (!overrides.url && candidateUrl) {
-        overrides.url = candidateUrl;
-      }
-
-      if (!overrides.port && overrides.url) {
-        try {
-          const parsedUrl = new URL(overrides.url);
-          if (parsedUrl.port) {
-            const parsedPort = parsePort(parsedUrl.port);
-            if (parsedPort) {
-              overrides.port = parsedPort;
-            }
-          }
-        } catch {
-          // Ignore invalid URL formats
-        }
-      }
-
-      if (overrides.port && overrides.url) {
+      if (overrides.port) {
         break;
       }
     } catch {
@@ -303,6 +299,187 @@ function terminateProcessTree(child: ChildProcess | null): void {
     } catch {
       // Already exited.
     }
+  }
+}
+
+async function startPreviewNetworkProxy(
+  port: number,
+  socketPath: string,
+): Promise<PreviewNetworkProxy> {
+  await fs.mkdir(path.dirname(socketPath), { recursive: true });
+  await fs.rm(socketPath, { force: true });
+
+  const sockets = new Set<Socket>();
+  const server = createNetServer((client) => {
+    const upstream = createConnection({ path: socketPath });
+    sockets.add(client);
+    sockets.add(upstream);
+
+    const closePair = () => {
+      client.destroy();
+      upstream.destroy();
+      sockets.delete(client);
+      sockets.delete(upstream);
+    };
+    client.on('error', closePair);
+    upstream.on('error', closePair);
+    client.on('close', () => sockets.delete(client));
+    upstream.on('close', () => sockets.delete(upstream));
+    client.pipe(upstream);
+    upstream.pipe(client);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: Error) => reject(error);
+    server.once('error', fail);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', fail);
+      resolve();
+    });
+  });
+  server.on('error', (error) => {
+    console.error('[PreviewManager] Preview network proxy failed:', error);
+  });
+
+  return { server, socketPath, sockets };
+}
+
+function resolvePreviewRuntimeDirectory(projectPath: string, port: number): string {
+  const runtimeId = createHash('sha256')
+    .update(`${path.resolve(projectPath)}\0${port}\0${process.pid}`)
+    .digest('hex')
+    .slice(0, 20);
+  return path.join('/tmp', 'qp-preview', runtimeId);
+}
+
+function resolveMarketDataTcpTarget(): { host: string; port: number } {
+  const configured = process.env.QUANTPILOT_MARKET_API_URL?.trim()
+    || 'http://127.0.0.1:8000';
+  const parsed = new URL(configured);
+  if (
+    parsed.protocol !== 'http:'
+    || parsed.username
+    || parsed.password
+    || (parsed.pathname !== '/' && parsed.pathname !== '')
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new Error(
+      'Generated preview market bridge requires a credential-free internal http:// host:port base URL.',
+    );
+  }
+  return {
+    host: parsed.hostname,
+    port: Number.parseInt(parsed.port || '80', 10),
+  };
+}
+
+async function startMarketNetworkProxy(socketPath: string): Promise<PreviewNetworkProxy> {
+  const target = resolveMarketDataTcpTarget();
+  await fs.mkdir(path.dirname(socketPath), { recursive: true });
+  await fs.rm(socketPath, { force: true });
+
+  const sockets = new Set<Socket>();
+  const server = createHttpServer((request, response) => {
+    const method = request.method?.toUpperCase() ?? '';
+    let incomingUrl: URL;
+    try {
+      incomingUrl = new URL(request.url ?? '/', 'http://market-bridge.local');
+    } catch {
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end('{"error":"invalid market bridge URL"}');
+      return;
+    }
+    if (
+      !['GET', 'HEAD'].includes(method)
+      || !incomingUrl.pathname.startsWith('/api/v1/')
+    ) {
+      response.writeHead(403, { 'Content-Type': 'application/json' });
+      response.end('{"error":"market bridge permits only GET/HEAD /api/v1/**"}');
+      return;
+    }
+
+    const upstream = createHttpRequest({
+      host: target.host,
+      port: target.port,
+      method,
+      path: `${incomingUrl.pathname}${incomingUrl.search}`,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'QuantPilot-Generated-Preview-Market-Bridge/1',
+      },
+    }, (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode ?? 502, {
+        'Content-Type': upstreamResponse.headers['content-type'] ?? 'application/json',
+        ...(upstreamResponse.headers['cache-control']
+          ? { 'Cache-Control': upstreamResponse.headers['cache-control'] }
+          : {}),
+      });
+      upstreamResponse.pipe(response);
+    });
+    upstream.setTimeout(10_000, () => upstream.destroy(new Error('market bridge timeout')));
+    upstream.on('error', () => {
+      if (!response.headersSent) {
+        response.writeHead(502, { 'Content-Type': 'application/json' });
+      }
+      response.end('{"error":"market data service unavailable"}');
+    });
+    request.on('aborted', () => upstream.destroy());
+    upstream.end();
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolve, reject) => {
+    const fail = (error: Error) => reject(error);
+    server.once('error', fail);
+    server.listen(socketPath, () => {
+      server.off('error', fail);
+      resolve();
+    });
+  });
+  await fs.chmod(socketPath, 0o600);
+  server.on('error', (error) => {
+    console.error('[PreviewManager] Market network proxy failed:', error);
+  });
+  return { server, socketPath, sockets };
+}
+
+async function closePreviewNetworkProxy(
+  proxy: PreviewNetworkProxy | null,
+): Promise<void> {
+  if (!proxy) return;
+  if (proxy.closePromise) return proxy.closePromise;
+
+  proxy.closePromise = (async () => {
+    for (const socket of proxy.sockets) socket.destroy();
+    proxy.sockets.clear();
+    await new Promise<void>((resolve) => {
+      if (!proxy.server.listening) {
+        resolve();
+        return;
+      }
+      proxy.server.close(() => resolve());
+      const fallback = setTimeout(resolve, 1_000);
+      fallback.unref?.();
+    });
+    await fs.rm(proxy.socketPath, { force: true });
+  })();
+  return proxy.closePromise;
+}
+
+async function terminatePreviewProcess(processInfo: PreviewProcess): Promise<void> {
+  terminateProcessTree(processInfo.process);
+  await Promise.all([
+    closePreviewNetworkProxy(processInfo.networkProxy),
+    closePreviewNetworkProxy(processInfo.marketProxy),
+  ]);
+  if (processInfo.runtimeDirectory) {
+    await fs.rm(processInfo.runtimeDirectory, { recursive: true, force: true });
+  }
+  if (!processInfo.networkProxy) {
+    await terminatePortListeners(processInfo.port, processInfo.projectPath);
   }
 }
 
@@ -980,8 +1157,7 @@ export class PreviewManager {
       return;
     }
 
-    terminateProcessTree(processInfo.process);
-    await terminatePortListeners(processInfo.port, processInfo.projectPath);
+    await terminatePreviewProcess(processInfo);
     if (this.processes.get(projectId) === processInfo) {
       this.processes.delete(projectId);
     }
@@ -1045,8 +1221,7 @@ export class PreviewManager {
     }
 
     if (processInfo?.startOperationId === operation.id) {
-      terminateProcessTree(processInfo.process);
-      await terminatePortListeners(processInfo.port, processInfo.projectPath);
+      await terminatePreviewProcess(processInfo);
       if (this.processes.get(projectId) === processInfo) {
         this.processes.delete(projectId);
       }
@@ -1155,8 +1330,7 @@ export class PreviewManager {
 
     const processInfo = this.processes.get(projectId);
     if (processInfo) {
-      terminateProcessTree(processInfo.process);
-      await terminatePortListeners(processInfo.port, processInfo.projectPath);
+      await terminatePreviewProcess(processInfo);
       this.processes.delete(projectId);
     } else if (project.previewPort) {
       await terminatePortListeners(project.previewPort, projectPath);
@@ -1251,7 +1425,10 @@ export class PreviewManager {
       const expectedPath = path.resolve(projectPath);
       const isSameProject =
         existingPath === expectedPath || existingPath.startsWith(`${expectedPath}${path.sep}`);
-      const ownsPort = isSameProject && (await isPortOwnedByProject(existing.port, projectPath));
+      const ownsPort = isSameProject && (
+        existing.networkProxy?.server.listening === true ||
+        (await isPortOwnedByProject(existing.port, projectPath))
+      );
       this.assertStartActive(projectId, operation);
 
       const isHttpReady =
@@ -1276,8 +1453,7 @@ export class PreviewManager {
       }
 
       if (ownsPort) {
-        terminateProcessTree(existing.process);
-        await terminatePortListeners(existing.port, existing.projectPath);
+        await terminatePreviewProcess(existing);
       }
       this.processes.delete(projectId);
       await updateProject(projectId, {
@@ -1339,6 +1515,9 @@ export class PreviewManager {
       } else {
         const adoptedPreview: PreviewProcess = {
           process: null,
+          networkProxy: null,
+          marketProxy: null,
+          runtimeDirectory: null,
           port: adoptedPort,
           url: adoptedUrl,
           status: 'running',
@@ -1379,6 +1558,9 @@ export class PreviewManager {
 
     const previewProcess: PreviewProcess = {
       process: null,
+      networkProxy: null,
+      marketProxy: null,
+      runtimeDirectory: null,
       port: preferredPort,
       url: initialUrl,
       status: 'starting',
@@ -1427,15 +1609,6 @@ export class PreviewManager {
     await ensureWithLock();
     this.assertStartActive(projectId, operation);
 
-    const packageJson = await readPackageJson(projectPath);
-    this.assertStartActive(projectId, operation);
-    const hasPredev = Boolean(packageJson?.scripts?.predev);
-
-    if (hasPredev) {
-      await appendCommandLogs(npmCommand, ['run', 'predev'], projectPath, env, log);
-      this.assertStartActive(projectId, operation);
-    }
-
     const overrides = await collectEnvOverrides(projectPath);
     this.assertStartActive(projectId, operation);
 
@@ -1448,30 +1621,6 @@ export class PreviewManager {
           `Ignoring project-specified port ${overrides.port} because it falls outside the allowed preview range ${previewBounds.start}-${previewBounds.end}.`
         );
         delete overrides.port;
-      }
-    }
-
-    if (overrides.url) {
-      try {
-        const parsed = new URL(overrides.url);
-        if (parsed.port) {
-          const parsedPort = parsePort(parsed.port);
-          if (
-            parsedPort &&
-            (parsedPort < previewBounds.start ||
-              parsedPort > previewBounds.end)
-          ) {
-            queueLog(
-              `Ignoring project-specified NEXT_PUBLIC_APP_URL (${overrides.url}) because port ${parsed.port} is outside the allowed preview range ${previewBounds.start}-${previewBounds.end}.`
-            );
-            delete overrides.url;
-          }
-        }
-      } catch {
-        queueLog(
-          `Ignoring project-specified NEXT_PUBLIC_APP_URL (${overrides.url}) because it could not be parsed as a valid URL.`
-        );
-        delete overrides.url;
       }
     }
 
@@ -1489,13 +1638,29 @@ export class PreviewManager {
     }
 
     const effectivePort = previewProcess.port;
-    let resolvedUrl: string = `http://localhost:${effectivePort}`;
-    if (typeof overrides.url === 'string' && overrides.url.trim().length > 0) {
-      resolvedUrl = overrides.url.trim();
-    }
+    const resolvedUrl = `http://localhost:${effectivePort}`;
 
     env.NEXT_PUBLIC_APP_URL = resolvedUrl;
+    const runtimeDirectory = resolvePreviewRuntimeDirectory(projectPath, effectivePort);
+    await fs.rm(runtimeDirectory, { recursive: true, force: true });
+    await fs.mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
+    previewProcess.runtimeDirectory = runtimeDirectory;
+    const previewSocketPath = path.join(runtimeDirectory, 'p.sock');
+    const marketSocketPath = path.join(runtimeDirectory, 'm.sock');
+    env.QUANTPILOT_SANDBOX_PREVIEW_SOCKET = previewSocketPath;
+    env.QUANTPILOT_SANDBOX_PREVIEW_PORT = String(effectivePort);
+    env.QUANTPILOT_SANDBOX_MARKET_SOCKET = marketSocketPath;
+    env.QUANTPILOT_SANDBOX_MARKET_PORT = '8000';
     previewProcess.url = resolvedUrl;
+    this.assertStartActive(projectId, operation);
+
+    previewProcess.networkProxy = await startPreviewNetworkProxy(
+      effectivePort,
+      previewSocketPath,
+    );
+    this.processes.set(projectId, previewProcess);
+    this.assertStartActive(projectId, operation);
+    previewProcess.marketProxy = await startMarketNetworkProxy(marketSocketPath);
     this.assertStartActive(projectId, operation);
 
     const sandboxed = await wrapGeneratedProjectCommand(
@@ -1516,7 +1681,6 @@ export class PreviewManager {
     );
 
     previewProcess.process = child;
-    this.processes.set(projectId, previewProcess);
 
     child.stdout?.on('data', (chunk) => {
       log(chunk);
@@ -1528,6 +1692,10 @@ export class PreviewManager {
 
     child.on('exit', (code, signal) => {
       previewProcess.status = code === 0 ? 'stopped' : 'error';
+      void Promise.all([
+        closePreviewNetworkProxy(previewProcess.networkProxy),
+        closePreviewNetworkProxy(previewProcess.marketProxy),
+      ]);
       if (this.processes.get(projectId) === previewProcess) {
         this.processes.delete(projectId);
         updateProject(projectId, {
@@ -1551,6 +1719,10 @@ export class PreviewManager {
 
     child.on('error', (error) => {
       previewProcess.status = 'error';
+      void Promise.all([
+        closePreviewNetworkProxy(previewProcess.networkProxy),
+        closePreviewNetworkProxy(previewProcess.marketProxy),
+      ]);
       log(Buffer.from(`Preview process failed: ${error.message}`));
     });
 
@@ -1587,8 +1759,7 @@ export class PreviewManager {
       this.assertStartActive(projectId, operation);
     } else {
       previewProcess.status = 'error';
-      terminateProcessTree(previewProcess.process);
-      await terminatePortListeners(previewProcess.port, previewProcess.projectPath);
+      await terminatePreviewProcess(previewProcess);
       this.processes.delete(projectId);
       await updateProject(projectId, {
         previewUrl: null,
@@ -1630,11 +1801,10 @@ export class PreviewManager {
     }
 
     try {
-      terminateProcessTree(processInfo.process);
+      await terminatePreviewProcess(processInfo);
     } catch (error) {
       console.error('[PreviewManager] Failed to stop preview process:', error);
     }
-    await terminatePortListeners(processInfo.port, processInfo.projectPath);
 
     this.processes.delete(projectId);
     await updateProject(projectId, {

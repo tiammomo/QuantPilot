@@ -232,7 +232,7 @@ function buildDatasets(data: JsonRecord, runPlan: JsonRecord | null): DatasetEvi
   const symbol = pickString(data.symbol, asRecord(data.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';
   const rootSource = pickString(data.source, asRecord(data.quote)?.source, 'unknown') ?? 'unknown';
   const assetType = pickString(data.asset_type, asRecord(data.quote)?.asset_type, 'stock') ?? 'stock';
-  const capabilityId = pickString(runPlan?.capabilityId, runPlan?.capability_id);
+  const capabilityId = pickString(runPlan?.capabilityId);
   const critical = new Set<string>(['quote']);
 
   if (capabilityId === 'technical_analysis') {

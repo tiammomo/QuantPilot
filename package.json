@@ -54,6 +54,10 @@
     "db:migrate-platform-state": "node scripts/db/migrate-platform-state-to-postgres.js",
     "db:backup:release": "node scripts/db/release-backup.js",
     "db:restore:release": "node scripts/db/release-restore.js",
+    "market:maintain": "node scripts/ops/refresh-market-data.js",
+    "market:maintain:dry-run": "node scripts/ops/refresh-market-data.js --dry-run",
+    "worker:generation": "node --import tsx scripts/workers/generation-worker.ts",
+    "worker:generation:once": "node --import tsx scripts/workers/generation-worker.ts --once",
     "setup": "npm install && prisma generate && npm run db:init",
     "check:models": "node scripts/checks/check-deepseek-runtime.js",
     "check:ai-provider-boundary": "node scripts/checks/check-ai-provider-boundary.js",
@@ -135,6 +139,7 @@
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
     "tar": "^7.5.20",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
@@ -154,12 +159,14 @@
     "prettier": "^3.8.3",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.19",
-    "tsx": "^4.23.1",
     "vitest": "^4.1.10"
   },
   "overrides": {
+    "brace-expansion@2.0.0 - 2.1.1": "2.1.2",
+    "brace-expansion@3.0.0 - 5.0.6": "5.0.7",
     "hono": "^4.12.30",
-    "postcss": "$postcss"
+    "postcss": "$postcss",
+    "sharp": "0.35.3"
   },
   "engines": {
     "node": ">=20.19.0",

@@ -1,0 +1,20 @@
+[Unit]
+Description=Refresh QuantPilot trading calendar and daily market data
+After=network-online.target quantpilot-market-data.service
+Wants=network-online.target
+Requires=quantpilot-market-data.service
+
+[Service]
+Type=oneshot
+User=quantpilot
+Group=quantpilot
+WorkingDirectory=/opt/quantpilot/current
+EnvironmentFile=/etc/quantpilot/quantpilot.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env npm run market:maintain
+TimeoutStartSec=2h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/quantpilot /opt/quantpilot/current/tmp

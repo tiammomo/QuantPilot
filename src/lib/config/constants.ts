@@ -9,7 +9,10 @@ export const PREVIEW_CONFIG = {
   FALLBACK_PORT_START: 4_100,
   FALLBACK_PORT_END: 4_999,
   DEFAULT_PORT: 3000,
-  STARTUP_TIMEOUT: 60000, // 60 seconds
+  // A cold generated workspace may need more than one minute to compile its
+  // first route on modest local hardware. Keep readiness strict, but avoid
+  // classifying a healthy cold start as a failed preview.
+  STARTUP_TIMEOUT: 90000,
   HEALTH_CHECK_INTERVAL: 1000, // 1 second
 } as const;
 

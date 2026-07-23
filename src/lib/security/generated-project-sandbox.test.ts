@@ -12,12 +12,20 @@ describe('generated project sandbox', () => {
     const env = buildGeneratedProjectEnv('/tmp/project', {
       PATH: '/usr/bin',
       PORT: '4100',
+      QUANTPILOT_SANDBOX_PREVIEW_SOCKET: '/tmp/project/.next/preview.sock',
+      QUANTPILOT_SANDBOX_PREVIEW_PORT: '4100',
+      QUANTPILOT_SANDBOX_MARKET_SOCKET: '/tmp/project/.next/market.sock',
+      QUANTPILOT_SANDBOX_MARKET_PORT: '8000',
       DEEPSEEK_API_KEY: 'must-not-leak',
       DATABASE_URL: 'must-not-leak',
     });
     expect(env).toMatchObject({
       PATH: '/usr/bin',
       PORT: '4100',
+      QUANTPILOT_SANDBOX_PREVIEW_SOCKET: '/tmp/project/.next/preview.sock',
+      QUANTPILOT_SANDBOX_PREVIEW_PORT: '4100',
+      QUANTPILOT_SANDBOX_MARKET_SOCKET: '/tmp/project/.next/market.sock',
+      QUANTPILOT_SANDBOX_MARKET_PORT: '8000',
       NEXT_TELEMETRY_DISABLED: '1',
       QUANTPILOT_WORKSPACE_ROOT: '/tmp/project',
     });
@@ -25,7 +33,7 @@ describe('generated project sandbox', () => {
     expect(env).not.toHaveProperty('DATABASE_URL');
   });
 
-  it.runIf(process.platform === 'linux')('wraps commands in user, mount, and PID namespaces', async () => {
+  it.runIf(process.platform === 'linux')('wraps commands in user, mount, network, and PID namespaces', async () => {
     const projectPath = path.resolve('data/projects');
     const wrapped = await wrapGeneratedProjectCommand(projectPath, 'npm', ['run', 'build']);
     expect(wrapped.command).toBe('unshare');
@@ -33,6 +41,7 @@ describe('generated project sandbox', () => {
       '--user',
       '--map-root-user',
       '--mount',
+      '--net',
       '--pid',
       '--fork',
       'npm',

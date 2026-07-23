@@ -1357,26 +1357,9 @@ function normalizeTextForIntent(value: unknown): string {
   return '';
 }
 
-function hasHoldingAnalysisIntent(taskText: string): boolean {
-  return /持仓|仓位|调仓|盈亏|成本价|持仓成本|买入成本|成本线|成本偏离|账户|证券账户|总资产|可用资金|可用现金|浮动盈亏|持仓截图|截图持仓|账户截图|交易截图|组合持仓|我的组合|账户组合|持仓组合|交割单/.test(
-    taskText
-  );
-}
-
 function hasExplicitTradingPlanIntent(taskText: string): boolean {
   return /交易计划|买入区间|买点|卖点|入场|出场|止损|止盈|目标价|仓位|建仓|加仓|减仓|卖出|买入|(?:要|想|准备)买|推荐.*(?:买|交易)|怎么操作|如何操作|操作建议|短线.*(?:买|卖|交易|计划)|(?:1|3|5|一|三|五)个交易日.*(?:计划|操作)|持仓.*(?:调仓|减仓|加仓)/.test(
     taskText
-  );
-}
-
-function hasComparisonAnalysisIntent(taskText: string, plannedSymbols: string[]): boolean {
-  return (
-    plannedSymbols.length >= 2 ||
-    /对比|比较|多只|多支|多股票|多标的|横向|矩阵|排名|排序|推荐顺序|观察池|哪(?:个|些|几只)|谁更|更强|更稳健|候选|选股|资产池|股票池|累计收益|收益曲线|相关性|分散|流动性|成交额/.test(taskText) ||
-    (
-      /(?:股票|个股|a股|全a|股票池)/i.test(taskText) &&
-      /全a|a股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/i.test(taskText)
-    )
   );
 }
 
@@ -1385,22 +1368,11 @@ export function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> |
     return null;
   }
 
-  const capabilityId = pickString(runPlan.capabilityId ?? runPlan.capability_id);
-  const taskText = normalizeTextForIntent([
-    runPlan.question,
-    runPlan.task,
-    runPlan.instruction,
-    runPlan.clarification,
-  ]);
-  const plannedSymbols = extractPlannedSymbols(runPlan);
-  const holdingIntent = hasHoldingAnalysisIntent(taskText);
-  const comparisonIntent = hasComparisonAnalysisIntent(taskText, plannedSymbols);
-
-  // The selected capability is the authoritative task contract. Keywords and
-  // symbol counts are only a fallback for legacy plans that predate capability
-  // routing. In particular, strategy research naturally mentions candidates,
-  // while portfolio risk naturally contains multiple symbols; neither should
-  // be silently rewritten to the stock-selection template.
+  const capabilityId = pickString(runPlan.capabilityId);
+  if (!capabilityId) return null;
+  if (capabilityId === 'stock_diagnosis') {
+    return 'single-stock-diagnosis';
+  }
   if (capabilityId === 'strategy_research') {
     return 'strategy-research';
   }
@@ -1422,13 +1394,6 @@ export function inferExpectedTemplateFromTask(runPlan: Record<string, unknown> |
   if (capabilityId === 'fundamental_analysis') {
     return 'fundamental-research';
   }
-  if (holdingIntent) {
-    return 'holding-analysis';
-  }
-  if (comparisonIntent) {
-    return 'stock-selection';
-  }
-
   return null;
 }
 

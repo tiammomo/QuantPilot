@@ -178,12 +178,21 @@ if (!runtime.includes('process.env[llmConfig.credentialEnv]')) {
 }
 
 const route = read('src/app/api/chat/[project_id]/act/route.ts');
-if (!route.includes('import("@/lib/services/cli/moagent")')) {
+const generationRuntime = read('src/lib/quant/generation-runtime.ts');
+const financeGenerationExecutor = read('src/lib/quant/finance-generation-executor.ts');
+if (
+  !route.includes('createApplicationGenerationRuntime().execute') ||
+  !generationRuntime.includes('FINANCE_GENERATION_HANDLER') ||
+  !financeGenerationExecutor.includes('import("@/lib/services/cli/moagent")')
+) {
   fail('聊天执行链路尚未切换至 MoAgent');
-} else if (route.includes('activeClaudeSessionId')) {
+} else if (
+  route.includes('activeClaudeSessionId') ||
+  financeGenerationExecutor.includes('activeClaudeSessionId')
+) {
   fail('聊天执行链路仍依赖供应商 session id');
 } else {
-  pass('QuantPilot 主执行链路已切换至 MoAgent');
+  pass('QuantPilot inline 与 Worker 主执行链路均通过 Domain handler 使用 MoAgent');
 }
 
 const queryRewriteRoute = read('src/app/api/quant/query/rewrite/route.ts');

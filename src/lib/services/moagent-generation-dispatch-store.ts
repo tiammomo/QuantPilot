@@ -11,6 +11,7 @@ const MAX_IDENTIFIER_BYTES = 256;
 const MAX_LEASE_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_ENVELOPE_MAX_BYTES = 256 * 1_024;
 const DEFAULT_PENDING_ORPHAN_GRACE_MS = 120_000;
+const DEFAULT_RETRY_BASE_DELAY_MS = 5_000;
 const TERMINAL_STATUSES = new Set<MoAgentGenerationDispatchStatus>([
   "completed",
   "failed",
@@ -180,6 +181,21 @@ function configuredPendingOrphanGraceMs(): number {
     );
   }
   return configured;
+}
+
+function retryDelayMs(attemptCount: number): number {
+  const configured = Number.parseInt(
+    process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS ?? "",
+    10,
+  );
+  const base = configured || DEFAULT_RETRY_BASE_DELAY_MS;
+  if (!Number.isSafeInteger(base) || base < 100 || base > 60 * 60 * 1_000) {
+    throw new MoAgentGenerationDispatchError(
+      "GENERATION_DISPATCH_INVALID",
+      "MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS must be between 100 and 3600000.",
+    );
+  }
+  return Math.min(60 * 60 * 1_000, base * (2 ** Math.max(0, attemptCount - 1)));
 }
 
 async function databaseNow(tx: DispatchTransaction): Promise<Date> {
@@ -839,6 +855,46 @@ export async function reconcileExpiredMoAgentGenerationJobs(
         // grained authoritative lease still proves live ownership.
         return null;
       }
+      if (
+        process.env.MOAGENT_DISPATCH_MODE === "worker" &&
+        current.attemptCount < current.maxAttempts
+      ) {
+        const availableAt = new Date(now.getTime() + retryDelayMs(current.attemptCount));
+        await tx.agentGenerationJob.update({
+          where: { id: current.id },
+          data: {
+            status: "retry_wait",
+            availableAt,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            lastHeartbeatAt: null,
+            fencingToken: { increment: 1 },
+            version: { increment: 1 },
+            eventSequence: { increment: 1 },
+            errorCode: expiredRunning
+              ? "DISPATCH_LEASE_EXPIRED_RETRY_SCHEDULED"
+              : "DISPATCH_PENDING_ORPHAN_RETRY_SCHEDULED",
+            errorMessage: "Generation attempt lost its worker; a new attempt has been scheduled.",
+            completedAt: null,
+          },
+        });
+        await appendOutboxEvent(
+          tx,
+          current,
+          "generation_retry_scheduled",
+          {
+            status: "retry_wait",
+            attemptCount: current.attemptCount,
+            maxAttempts: current.maxAttempts,
+            availableAt: availableAt.toISOString(),
+            recoveryMode: "replan_required",
+          },
+          now,
+        );
+        return tx.agentGenerationJob.findUniqueOrThrow({
+          where: { id: current.id },
+        });
+      }
       const errorCode = expiredRunning
         ? "DISPATCH_LEASE_EXPIRED_REPLAN_REQUIRED"
         : "DISPATCH_PENDING_ORPHAN_REPLAN_REQUIRED";
@@ -944,6 +1000,36 @@ export async function listMoAgentGenerationJobs(
     where: { projectId },
     orderBy: [{ queuedAt: "desc" }, { id: "desc" }],
     take: Math.max(1, Math.min(limit, 200)),
+  });
+}
+
+export async function getMoAgentGenerationJob(
+  projectId: string,
+  requestId: string,
+): Promise<AgentGenerationJob | null> {
+  assertIdentifier(projectId, "projectId");
+  assertIdentifier(requestId, "requestId");
+  return prisma.agentGenerationJob.findUnique({
+    where: { requestId_projectId: { requestId, projectId } },
+  });
+}
+
+export async function listClaimableMoAgentGenerationJobs(
+  limit = 20,
+): Promise<AgentGenerationJob[]> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+    throw new MoAgentGenerationDispatchError(
+      "GENERATION_DISPATCH_INVALID",
+      "Claimable generation job limit must be between 1 and 200.",
+    );
+  }
+  return prisma.agentGenerationJob.findMany({
+    where: {
+      status: { in: ["pending", "retry_wait"] },
+      availableAt: { lte: new Date() },
+    },
+    orderBy: [{ availableAt: "asc" }, { queuedAt: "asc" }, { id: "asc" }],
+    take: limit,
   });
 }
 

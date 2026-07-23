@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { mkdirSync, rmSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 const fsMocks = vi.hoisted(() => ({
   access: vi.fn(),
+  chmod: vi.fn(),
   mkdir: vi.fn(),
   readFile: vi.fn(),
   readdir: vi.fn(),
@@ -101,6 +103,7 @@ function missingFile(): NodeJS.ErrnoException {
 
 describe('PreviewManager start concurrency', () => {
   beforeEach(() => {
+    mkdirSync('/tmp/quantpilot-preview-test/.next', { recursive: true });
     process.env.PREVIEW_PORT_START = '4100';
     process.env.PREVIEW_PORT_END = '4100';
 
@@ -126,7 +129,12 @@ describe('PreviewManager start concurrency', () => {
     mocks.spawn.mockImplementation(() => createFakeChild());
 
     fsMocks.access.mockResolvedValue(undefined);
-    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.chmod.mockResolvedValue(undefined);
+    fsMocks.mkdir.mockImplementation(async (targetPath: unknown, options?: unknown) => {
+      if (String(targetPath).startsWith('/tmp/qp-preview/')) {
+        mkdirSync(String(targetPath), options as Parameters<typeof mkdirSync>[1]);
+      }
+    });
     fsMocks.readdir.mockResolvedValue([]);
     fsMocks.readFile.mockImplementation(async (filePath: unknown) => {
       if (String(filePath).endsWith('package.json')) {
@@ -136,7 +144,11 @@ describe('PreviewManager start concurrency', () => {
     });
     fsMocks.readlink.mockRejectedValue(missingFile());
     fsMocks.rename.mockResolvedValue(undefined);
-    fsMocks.rm.mockResolvedValue(undefined);
+    fsMocks.rm.mockImplementation(async (targetPath: unknown, options?: unknown) => {
+      if (String(targetPath).startsWith('/tmp/qp-preview/')) {
+        rmSync(String(targetPath), options as Parameters<typeof rmSync>[1]);
+      }
+    });
     fsMocks.stat.mockImplementation(async (filePath: unknown) => {
       if (String(filePath).endsWith('node_modules')) {
         return {
@@ -171,9 +183,35 @@ describe('PreviewManager start concurrency', () => {
       status: 'running',
       url: 'http://localhost:4100',
     });
+    const previewEnv = mocks.spawn.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
+    expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toMatch(
+      /^\/tmp\/qp-preview\/[a-f0-9]{20}\/p\.sock$/,
+    );
+    expect(previewEnv.QUANTPILOT_SANDBOX_MARKET_SOCKET).toMatch(
+      /^\/tmp\/qp-preview\/[a-f0-9]{20}\/m\.sock$/,
+    );
     expect(mocks.getProjectById).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    await manager.stop('project-preview');
+  });
+
+  it('installs generated dependencies without host lifecycle scripts', async () => {
+    fsMocks.stat.mockRejectedValue(missingFile());
+    mocks.spawn.mockImplementation(() => {
+      const child = createFakeChild();
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    });
+    const manager = new PreviewManager();
+
+    await expect(manager.installDependencies('project-preview')).resolves.toBeDefined();
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      'npm',
+      ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
+      expect.objectContaining({ cwd: '/tmp/quantpilot-preview-test' }),
+    );
   });
 
   it('clears a failed start so a later call can retry cleanly', async () => {
@@ -199,6 +237,7 @@ describe('PreviewManager start concurrency', () => {
     });
 
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    await manager.stop('project-preview');
   });
 
   it('does not erase an already running preview when a later start check fails', async () => {
@@ -221,6 +260,7 @@ describe('PreviewManager start concurrency', () => {
     expect(mocks.updateProject).not.toHaveBeenCalled();
     expect(mocks.updateProjectStatus).not.toHaveBeenCalled();
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    await manager.stop('project-preview');
   });
 
   it('discovers an existing project preview with one listener-table snapshot', async () => {
@@ -355,6 +395,7 @@ describe('PreviewManager start concurrency', () => {
       expect(mocks.updateProject).toHaveBeenCalledTimes(projectUpdateCount);
       expect(mocks.updateProjectStatus).toHaveBeenCalledTimes(statusUpdateCount);
       expect(manager.getStatus('project-preview').status).toBe('running');
+      await manager.stop('project-preview');
     }
   );
 });

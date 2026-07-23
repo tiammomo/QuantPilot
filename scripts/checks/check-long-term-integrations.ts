@@ -328,7 +328,16 @@ async function checkMemoryReadOnly() {
   );
   assert(compatibilityIssues.length === 0, `Memory compatibility failed: ${compatibilityIssues.join(', ')}`);
   await adapter.checkReady('triad-readiness');
-  return { config, info };
+  const localDurabilityBlockers = info.productionBlockers.filter((blocker) => (
+    blocker === 'authority.durable-storage'
+    || blocker === 'configuration.durable-audit'
+    || blocker === 'audit.durable-sink'
+  ));
+  assert(
+    localDurabilityBlockers.length === 0,
+    `Memory local durability baseline failed: ${localDurabilityBlockers.join(', ')}`,
+  );
+  return { config, info, localDurabilityBlockers };
 }
 
 async function checkMemoryClosedLoop(params: {
@@ -456,6 +465,7 @@ async function main() {
     memory: {
       contract: memory.info.apiContract,
       readiness: 'ready',
+      localDurabilityBaseline: memory.localDurabilityBlockers.length === 0 ? 'passed' : 'failed',
       productionReady: memory.info.productionReady,
       productionBlockers: memory.info.productionBlockers,
       closedLoop,

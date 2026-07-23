@@ -387,6 +387,56 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       });
   });
 
+  it('schedules an expired worker attempt for fenced exponential-backoff retry', async () => {
+    const projectId = await createProject('generation-dispatch-worker-retry');
+    const requestId = uniqueId('request:dispatch-worker-retry');
+    await clientA.userRequest.create({
+      data: {
+        id: requestId,
+        projectId,
+        instruction: 'Retry this expired worker attempt.',
+        status: 'processing',
+      },
+    });
+    await enqueueMoAgentGenerationJob({
+      projectId,
+      requestId,
+      instruction: 'Retry this expired worker attempt.',
+      maxAttempts: 3,
+    });
+    const claim = await claimMoAgentGenerationJob({
+      projectId,
+      requestId,
+      leaseOwner: uniqueId('dispatch-worker:retry'),
+      leaseTtlMs: 120_000,
+    });
+    await clientA.agentGenerationJob.update({
+      where: { requestId_projectId: { requestId, projectId } },
+      data: { leaseExpiresAt: new Date(0) },
+    });
+    const previousMode = process.env.MOAGENT_DISPATCH_MODE;
+    const previousDelay = process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS;
+    process.env.MOAGENT_DISPATCH_MODE = 'worker';
+    process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS = '100';
+    try {
+      await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+        expect.objectContaining({
+          requestId,
+          status: 'retry_wait',
+          attemptCount: claim.attemptCount,
+          errorCode: 'DISPATCH_LEASE_EXPIRED_RETRY_SCHEDULED',
+        }),
+      ]);
+      await expect(clientA.userRequest.findUnique({ where: { id: requestId } }))
+        .resolves.toMatchObject({ status: 'processing' });
+    } finally {
+      if (previousMode === undefined) delete process.env.MOAGENT_DISPATCH_MODE;
+      else process.env.MOAGENT_DISPATCH_MODE = previousMode;
+      if (previousDelay === undefined) delete process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS;
+      else process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS = previousDelay;
+    }
+  });
+
   it('closes a persisted-but-unclaimed orphan after the database-clock grace window', async () => {
     const projectId = await createProject('generation-dispatch-pending-orphan');
     const requestId = uniqueId('request:dispatch-pending-orphan');

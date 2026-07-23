@@ -87,6 +87,24 @@ export async function refreshMoAgentMissionContext(
   return { ...current, projectPath: mission.projectPath };
 }
 
+export async function loadMoAgentMissionContext(input: {
+  projectId: string;
+  projectPath: string;
+  requestId: string;
+  missionId?: string | null;
+  generationId?: string | null;
+}): Promise<MoAgentMissionContext> {
+  const mission = await readMoAgentMission(input.projectId, input.requestId);
+  if (!mission) throw new Error('The durable Mission does not exist.');
+  if (input.missionId && mission.id !== input.missionId) {
+    throw new Error('The durable Mission ID does not match the dispatch envelope.');
+  }
+  if (input.generationId && mission.generationId !== input.generationId) {
+    throw new Error('The durable generation ID does not match the dispatch envelope.');
+  }
+  return { ...mission, projectPath: input.projectPath };
+}
+
 export async function markQuantMoAgentMissionNode(input: {
   mission: MoAgentMissionContext;
   nodeKey: MoAgentMissionNodeKey;

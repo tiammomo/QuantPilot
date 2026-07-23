@@ -123,6 +123,41 @@ export class MoAgentGenerationDispatchSession {
     });
   }
 
+  static async claimExisting(
+    input: { projectId: string; requestId: string },
+    options: MoAgentGenerationDispatchSessionOptions = {},
+  ): Promise<MoAgentGenerationDispatchSession> {
+    const leaseTtlMs = configuredPositiveInteger(
+      "MOAGENT_DISPATCH_LEASE_TTL_MS",
+      options.leaseTtlMs,
+      DEFAULT_LEASE_TTL_MS,
+    );
+    const heartbeatIntervalMs = configuredPositiveInteger(
+      "MOAGENT_DISPATCH_HEARTBEAT_INTERVAL_MS",
+      options.heartbeatIntervalMs,
+      DEFAULT_HEARTBEAT_INTERVAL_MS,
+    );
+    const heartbeatEnabled = options.heartbeatEnabled !== false;
+    if (heartbeatEnabled && heartbeatIntervalMs >= leaseTtlMs) {
+      throw new Error(
+        "MOAGENT_DISPATCH_HEARTBEAT_INTERVAL_MS must be smaller than the lease TTL.",
+      );
+    }
+    const claim = await claimMoAgentGenerationJob({
+      projectId: input.projectId,
+      requestId: input.requestId,
+      leaseOwner:
+        options.leaseOwner ??
+        `generation-worker:${process.pid}:${randomUUID()}`,
+      leaseTtlMs,
+    });
+    return new MoAgentGenerationDispatchSession(claim, {
+      leaseTtlMs,
+      heartbeatIntervalMs,
+      heartbeatEnabled,
+    });
+  }
+
   get fence(): MoAgentGenerationDispatchFence {
     return {
       jobId: this.claim.jobId,

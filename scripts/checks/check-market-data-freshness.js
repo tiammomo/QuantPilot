@@ -68,6 +68,7 @@ function countWeekdaySessions(fromExclusive, toInclusive) {
 
 function evaluateFreshness(snapshot, options = {}) {
   const maxLagSessions = Math.max(0, Number(options.maxLagSessions ?? 0));
+  const minSymbols = Math.max(0, Number(options.minSymbols ?? 1));
   const estimatedDate = options.estimatedDate ?? estimateLatestCompletedTradeDate(options.now);
   const calendarThrough = snapshot.calendarThrough ?? null;
   const latestOpenDate = snapshot.latestOpenDate ?? null;
@@ -87,7 +88,8 @@ function evaluateFreshness(snapshot, options = {}) {
     latestBarDate &&
       latestBarDate >= expectedBarDate
   );
-  const ok = calendarCovered && (barCovered || barLagSessions <= maxLagSessions);
+  const symbolCoverageMet = Number(snapshot.symbolsAtLatest ?? 0) >= minSymbols;
+  const ok = calendarCovered && (barCovered || barLagSessions <= maxLagSessions) && symbolCoverageMet;
 
   return {
     ok,
@@ -98,12 +100,18 @@ function evaluateFreshness(snapshot, options = {}) {
     barCovered,
     barLagSessions,
     maxLagSessions,
+    minSymbols,
+    symbolCoverageMet,
     ...snapshot,
   };
 }
 
 function parseArgs(argv) {
-  const result = { json: false, maxLagSessions: 0 };
+  const result = {
+    json: false,
+    maxLagSessions: 0,
+    minSymbols: Number(process.env.QUANTPILOT_MARKET_FRESHNESS_MIN_SYMBOLS ?? 1),
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--json') {
@@ -117,10 +125,22 @@ function parseArgs(argv) {
     }
     if (arg.startsWith('--max-lag-sessions=')) {
       result.maxLagSessions = Number(arg.split('=', 2)[1]);
+      continue;
+    }
+    if (arg === '--min-symbols') {
+      result.minSymbols = Number(argv[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--min-symbols=')) {
+      result.minSymbols = Number(arg.split('=', 2)[1]);
     }
   }
   if (!Number.isInteger(result.maxLagSessions) || result.maxLagSessions < 0) {
     throw new Error('--max-lag-sessions 必须是非负整数。');
+  }
+  if (!Number.isInteger(result.minSymbols) || result.minSymbols < 1) {
+    throw new Error('--min-symbols 必须是正整数。');
   }
   return result;
 }
@@ -179,12 +199,12 @@ function printResult(result, json) {
   const lag = Number.isFinite(result.barLagSessions) ? result.barLagSessions : 'unknown';
   if (result.ok) {
     console.log(
-      `[market-freshness] ok: expected=${result.expectedBarDate}, bars=${result.latestBarDate}, symbols=${result.symbolsAtLatest}, lag=${lag}`
+      `[market-freshness] ok: expected=${result.expectedBarDate}, bars=${result.latestBarDate}, symbols=${result.symbolsAtLatest}/${result.minSymbols}, lag=${lag}`
     );
     return;
   }
   console.error(
-    `[market-freshness] stale: expected=${result.expectedBarDate}, bars=${result.latestBarDate ?? '-'}, lag=${lag}, symbols=${result.symbolsAtLatest}`
+    `[market-freshness] stale: expected=${result.expectedBarDate}, bars=${result.latestBarDate ?? '-'}, lag=${lag}, symbols=${result.symbolsAtLatest}/${result.minSymbols}`
   );
   if (!result.calendarCovered) {
     console.error(
@@ -194,6 +214,9 @@ function printResult(result, json) {
   } else {
     console.error('通过策略平台补数任务同步 daily/qfq 日线。');
   }
+  if (!result.symbolCoverageMet) {
+    console.error(`最新交易日标的覆盖不足：要求至少 ${result.minSymbols}，实际 ${result.symbolsAtLatest}。`);
+  }
 }
 
 async function main() {
@@ -202,7 +225,10 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     const snapshot = await readFreshnessSnapshot(prisma);
-    const result = evaluateFreshness(snapshot, { maxLagSessions: args.maxLagSessions });
+    const result = evaluateFreshness(snapshot, {
+      maxLagSessions: args.maxLagSessions,
+      minSymbols: args.minSymbols,
+    });
     printResult(result, args.json);
     if (!result.ok) process.exitCode = 1;
   } finally {

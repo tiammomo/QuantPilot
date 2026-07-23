@@ -18,6 +18,7 @@ from quantpilot_market_data.database_core import (
     normalize_fetch_symbol,
 )
 from quantpilot_market_data.models import (
+    ClickHouseHealthResponse,
     DataQualityIssue,
     DataQualityScanRequest,
     DataQualityScanResponse,
@@ -26,6 +27,7 @@ from quantpilot_market_data.models import (
     IngestionPreflightCoverage,
     TradingCalendarDay,
 )
+from quantpilot_market_data.repositories.bars import get_expected_latest_trade_date
 from quantpilot_market_data.repositories.ingestion import get_history_ingestion_preflight
 
 __all__ = [
@@ -76,6 +78,46 @@ def _coverage_missing_fields(
             missing.append(key)
     missing = list(dict.fromkeys(missing))
     return not missing, missing
+
+
+def _clickhouse_foundation_projection(
+    health: ClickHouseHealthResponse,
+    expected_latest_trade_date: date | None,
+) -> tuple[Literal["ready", "partial", "missing"], int, str]:
+    rows = int(health.tables.get("quant_bars_daily") or 0)
+    latest = health.table_latest_trade_dates.get("quant_bars_daily")
+    if not health.enabled:
+        return (
+            "missing",
+            rows,
+            "ClickHouse 未启用，当前分析查询直接使用 TimescaleDB。",
+        )
+    if health.status != "ok":
+        return (
+            "partial",
+            rows,
+            health.error or "ClickHouse 已配置但健康检查失败。",
+        )
+    if rows <= 0 or latest is None:
+        return (
+            "partial",
+            rows,
+            "ClickHouse 已连接，但尚未形成带交易日水位的分析日线。",
+        )
+    if expected_latest_trade_date is not None and latest < expected_latest_trade_date:
+        return (
+            "partial",
+            rows,
+            (
+                f"分析日线 {rows} 行，最新交易日 {latest.isoformat()}，"
+                f"落后当前应有交易日 {expected_latest_trade_date.isoformat()}。"
+            ),
+        )
+    return (
+        "ready",
+        rows,
+        f"分析日线 {rows} 行，最新交易日 {latest.isoformat()}。",
+    )
 
 
 async def list_foundation_components() -> list[FoundationComponentStatus]:
@@ -144,21 +186,13 @@ async def list_foundation_components() -> list[FoundationComponentStatus]:
     factor_value_count = int(row.get("factor_value_count") or 0)
     ingestion_job_count = int(row.get("ingestion_job_count") or 0)
     clickhouse_health = await get_clickhouse_health()
-    clickhouse_rows = int(clickhouse_health.tables.get("quant_bars_daily") or 0)
-    clickhouse_latest = clickhouse_health.table_latest_trade_dates.get("quant_bars_daily")
-    clickhouse_status: Literal["ready", "partial", "missing"] = "missing"
-    if clickhouse_health.status == "ok" and clickhouse_rows > 0:
-        clickhouse_status = "ready"
-    elif clickhouse_health.enabled:
-        clickhouse_status = "partial"
-    if clickhouse_latest:
-        clickhouse_detail = (
-            f"分析日线 {clickhouse_rows} 行，最新交易日 {clickhouse_latest.isoformat()}。"
-        )
-    elif clickhouse_health.enabled:
-        clickhouse_detail = clickhouse_health.error or "ClickHouse 已配置但尚未同步分析日线。"
-    else:
-        clickhouse_detail = "ClickHouse 未启用，当前分析查询直接使用 TimescaleDB。"
+    expected_latest_trade_date = None
+    if clickhouse_health.enabled:
+        expected_latest_trade_date, _ = await get_expected_latest_trade_date()
+    clickhouse_status, clickhouse_rows, clickhouse_detail = _clickhouse_foundation_projection(
+        clickhouse_health,
+        expected_latest_trade_date,
+    )
 
     return [
         FoundationComponentStatus(

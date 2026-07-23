@@ -162,7 +162,6 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
     };
   }, []);
 
-  // Placeholder functions for WebSocket events (maintaining existing interface)
   const createRequest = useCallback((
     requestId: string,
     messageId: string,
@@ -199,10 +198,5 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
     createRequest,
     startRequest,
     completeRequest,
-    // Legacy interface compatibility
-    requests: [],
-    activeRequests: [],
-    getRequest: () => undefined,
-    clearCompletedRequests: () => {}
   };
 }

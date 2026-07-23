@@ -94,4 +94,28 @@ describe("MoAgent generation dispatch session", () => {
     expect(() => session.assertHealthy()).toThrow("dispatch lease lost");
     session.dispose();
   });
+
+  it("claims a previously persisted job without enqueueing it again", async () => {
+    const session = await MoAgentGenerationDispatchSession.claimExisting(
+      {
+        projectId: claim.projectId,
+        requestId: claim.requestId,
+      },
+      {
+        leaseOwner: "generation-worker:test",
+        leaseTtlMs: 120_000,
+        heartbeatIntervalMs: 30_000,
+        heartbeatEnabled: false,
+      },
+    );
+
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledWith({
+      projectId: claim.projectId,
+      requestId: claim.requestId,
+      leaseOwner: "generation-worker:test",
+      leaseTtlMs: 120_000,
+    });
+    session.dispose();
+  });
 });
