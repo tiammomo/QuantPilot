@@ -4,6 +4,7 @@ const DEFINITELY_PRE_EXECUTION_FAILURE_CODES = new Set([
   'UNKNOWN_TOOL',
   'INVALID_TOOL_ARGUMENTS',
   'INVALID_TOOL_INPUT',
+  'TOOL_APPROVAL_REJECTED',
   // Workspace policy, input size, and exact-match checks happen before the
   // durable commit authorization and before the atomic target rename.
   'ABSOLUTE_PATH_DENIED',

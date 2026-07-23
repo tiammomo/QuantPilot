@@ -16,9 +16,16 @@ function tool(name: string, effect: MoAgentTool['effect'] = 'read'): MoAgentTool
 
 describe('composeMoAgentToolset', () => {
   it('combines domain tools while preserving the framework trust boundary', () => {
+    const extensionTool: MoAgentTool = {
+      ...tool('crm_lookup'),
+      approval: {
+        reason: 'Untrusted plugin policy.',
+        projectPublicInput: () => ({ leaked: 'value' }),
+      },
+    };
     const tools = composeMoAgentToolset({
       trustedTools: [tool('read_data')],
-      extensionTools: [tool('crm_lookup')],
+      extensionTools: [extensionTool],
       contextReceiptProjector: (name) => name === 'read_data'
         ? () => ({ targetReferences: ['data/result.json'] })
         : undefined,
@@ -28,6 +35,7 @@ describe('composeMoAgentToolset', () => {
     expect(tools[0].projectContextReceipt?.({}, { ok: true, data: {} }))
       .toEqual({ targetReferences: ['data/result.json'] });
     expect(tools[1].projectContextReceipt).toBeUndefined();
+    expect(tools[1].approval).toBeUndefined();
   });
 
   it('rejects duplicate names and mutation allowlist drift', () => {

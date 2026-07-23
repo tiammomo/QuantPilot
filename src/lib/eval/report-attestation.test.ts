@@ -16,7 +16,7 @@ const options: EvalReportAttestationOptions = {
   expectedDataSnapshots: [],
   expectedDatasetVisibility: 'public',
   expectedResultQuestions: {},
-  frameworkVersion: 'moagent:1.12.0',
+  frameworkVersion: 'moagent:1.13.0',
   buildRevision: 'build-current',
   gitRevision: GIT,
   qualityThresholds: {
@@ -42,7 +42,7 @@ function baseReport(mode: 'contract' | 'e2e') {
         cli: 'moagent',
         provider: mode === 'e2e' ? 'openai' : null,
         model: mode === 'e2e' ? 'local_qwen:qwen3.5-9b-q5km' : null,
-        frameworkVersion: 'moagent:1.12.0',
+        frameworkVersion: 'moagent:1.13.0',
         buildRevision: 'build-current',
         agentExecuted: false,
         executedCaseCount: 0,
@@ -68,7 +68,7 @@ function baseReport(mode: 'contract' | 'e2e') {
       },
       provenance: {
         gitRevision: GIT,
-        frameworkVersion: 'moagent:1.12.0',
+        frameworkVersion: 'moagent:1.13.0',
         buildRevision: 'build-current',
         casesSha256: 'cases-hash',
         promptsSha256: 'prompts-hash',
@@ -187,7 +187,7 @@ function execution(id: string) {
         status: 'candidate_complete',
         provider: 'openai',
         model: 'local_qwen:qwen3.5-9b-q5km',
-        frameworkVersion: 'moagent:1.12.0',
+        frameworkVersion: 'moagent:1.13.0',
         buildRevision: 'build-current',
         startedAt: '2026-07-15T00:00:00.000Z',
         completedAt: '2026-07-15T00:01:00.000Z',
@@ -206,7 +206,7 @@ function execution(id: string) {
       acceptedSourceRunId: runId,
       acceptedSourceRequestId: requestId,
       acceptedCandidateSource: 'moagent_submit_result',
-      frameworkVersion: 'moagent:1.12.0',
+      frameworkVersion: 'moagent:1.13.0',
       buildRevision: 'build-current',
       gitRevision: GIT,
       startedAt: '2026-07-15T00:00:00.000Z',
@@ -354,7 +354,7 @@ describe('eval report attestation', () => {
   });
 
   it.each([
-    'unversioned:moagent:1.12.0',
+    'unversioned:moagent:1.13.0',
     `${'a'.repeat(40)}-dirty.unavailable`,
   ])('rejects E2E evidence from a non-attestable build revision: %s', (buildRevision) => {
     const report = baseReport('e2e');

@@ -18,6 +18,7 @@ import type {
   MoAgentRunStatus,
   MoAgentTokenUsage,
   MoAgentTool,
+  MoAgentToolApprovalHandler,
   MoAgentToolCall,
   MoAgentToolContextReceipt,
   MoAgentToolEffect,
@@ -25,7 +26,6 @@ import type {
   MoAgentToolResult,
 } from '../types';
 import {
-  collectTrustedContextTargetReferences,
   MoAgentContextCapsuleError,
   MoAgentContextError,
   TRUSTED_CONTEXT_CAPSULE_PREFIX,
@@ -34,8 +34,14 @@ import {
   type MoAgentContextManager,
 } from '../context';
 import { createMoAgentOperationId } from './operation-id';
+import { executeMoAgentTool, type MoAgentToolExecution } from './tool-executor';
 import { parseMoAgentToolArguments } from './tool-arguments';
 import { mutationOutcomeRequiresReconciliation } from './tool-outcome';
+import {
+  assertMoAgentToolApprovalPolicy,
+  MoAgentToolApprovalError,
+  resolveMoAgentToolApproval,
+} from './tool-approval';
 import { createProgressOracleState, ProgressOracle } from './progress-oracle';
 
 const DEFAULT_MAX_TURNS = 48;
@@ -157,6 +163,11 @@ export interface MoAgentRunEngineOptions {
     Partial<Pick<MoAgentContextManager, 'createCapsuleSession'>>;
   /** Defaults to true when at least one registered tool is terminal. */
   requireTerminalTool?: boolean;
+  /**
+   * Application-owned resolver for tools with an explicit approval policy.
+   * The handler runs only after the approval-requested event has been consumed.
+   */
+  toolApprovalHandler?: MoAgentToolApprovalHandler;
   idFactory?: () => string;
   now?: () => number;
 }
@@ -180,14 +191,6 @@ interface RunAbortState {
   signal: AbortSignal;
   didTimeout(): boolean;
   cleanup(): void;
-}
-
-interface ToolExecution {
-  result: MoAgentToolResult;
-  terminal: boolean;
-  durationMs: number;
-  targetReferences: string[];
-  contextReceipt?: MoAgentToolContextReceipt;
 }
 
 interface ToolExecutionPolicy {
@@ -493,7 +496,7 @@ function observationResultIsVisible(
   }
 }
 
-function reusedReadObservation(record: ReadObservationRecord): ToolExecution {
+function reusedReadObservation(record: ReadObservationRecord): MoAgentToolExecution {
   return {
     result: {
       ok: true,
@@ -1070,16 +1073,6 @@ function toolFailure(code: string, message: string, details?: unknown): MoAgentT
   };
 }
 
-function isToolResult(value: unknown): value is MoAgentToolResult {
-  if (!isRecord(value) || typeof value.ok !== 'boolean') {
-    return false;
-  }
-  if (value.ok) {
-    return Object.prototype.hasOwnProperty.call(value, 'data');
-  }
-  return isRecord(value.error) && typeof value.error.code === 'string' && typeof value.error.message === 'string';
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -1179,38 +1172,6 @@ function toolExecutionPolicy(tool: MoAgentTool | undefined): ToolExecutionPolicy
   return { effect, idempotency };
 }
 
-function projectToolContextReceipt(
-  tool: MoAgentTool,
-  input: unknown,
-  result: MoAgentToolResult,
-): MoAgentToolContextReceipt | undefined {
-  if (!tool.projectContextReceipt) return undefined;
-  try {
-    const projected = tool.projectContextReceipt(input, result);
-    if (!projected) return undefined;
-    const targetReferences = collectTrustedContextTargetReferences({
-      paths: projected.targetReferences,
-    });
-    const artifactSha256 = typeof projected.artifactSha256 === 'string' &&
-      /^[a-f0-9]{64}$/.test(projected.artifactSha256)
-      ? projected.artifactSha256
-      : undefined;
-    const bytes = typeof projected.bytes === 'number' &&
-      Number.isSafeInteger(projected.bytes) && projected.bytes >= 0
-      ? projected.bytes
-      : undefined;
-    return {
-      targetReferences,
-      ...(artifactSha256 ? { artifactSha256 } : {}),
-      ...(bytes === undefined ? {} : { bytes }),
-    };
-  } catch {
-    // Receipt projection is a compression optimisation, never part of the
-    // tool correctness path. Preserve the original tool exchange on failure.
-    return undefined;
-  }
-}
-
 function canonicalCapsuleResult(
   result: MoAgentToolResult,
   receipt: MoAgentToolContextReceipt,
@@ -1285,6 +1246,7 @@ export class MoAgentRunEngine {
   private readonly contextManager?: Pick<MoAgentContextManager, 'prepare'> &
     Partial<Pick<MoAgentContextManager, 'createCapsuleSession'>>;
   private readonly requireTerminalTool: boolean;
+  private readonly toolApprovalHandler?: MoAgentToolApprovalHandler;
   private readonly idFactory: () => string;
   private readonly now: () => number;
 
@@ -1303,6 +1265,7 @@ export class MoAgentRunEngine {
       if (toolsByName.has(tool.name)) {
         throw new Error(`Duplicate MoAgent tool name: ${tool.name}`);
       }
+      assertMoAgentToolApprovalPolicy(tool, toolExecutionPolicy(tool).effect);
       toolsByName.set(tool.name, tool);
     }
     this.toolsByName = toolsByName;
@@ -1386,6 +1349,15 @@ export class MoAgentRunEngine {
     this.contextManager = options.contextManager;
     this.requireTerminalTool =
       options.requireTerminalTool ?? this.tools.some((tool) => tool.terminal === true);
+    this.toolApprovalHandler = options.toolApprovalHandler;
+    if (
+      this.tools.some((tool) => tool.approval !== undefined) &&
+      !this.toolApprovalHandler
+    ) {
+      throw new Error(
+        'MoAgent tools with approval policies require toolApprovalHandler.',
+      );
+    }
     if (this.requireTerminalTool && !this.tools.some((tool) => tool.terminal === true)) {
       throw new Error('MoAgent requires a terminal tool, but none is registered.');
     }
@@ -2268,8 +2240,22 @@ export class MoAgentRunEngine {
           let reusedReadObservationsThisTurn = 0;
           const trustedFactFingerprintsThisTurn: string[] = [];
           const toolObservationFingerprintsThisTurn: string[] = [];
-          for (const toolCall of toolCalls) {
+          for (const proposedToolCall of toolCalls) {
             throwIfAborted(abortState.signal);
+            const tool = this.toolsByName.get(proposedToolCall.name);
+            const initialExecutionPolicy = toolExecutionPolicy(tool);
+            const approval = resolveMoAgentToolApproval({
+              runId, turn, toolCall: proposedToolCall, tool,
+              effect: initialExecutionPolicy.effect,
+              idempotency: initialExecutionPolicy.idempotency,
+              handler: this.toolApprovalHandler!, signal: abortState.signal, now: this.now,
+            });
+            let step = await approval.next();
+            while (!step.done) {
+              yield event(step.value);
+              step = await approval.next();
+            }
+            const { toolCall, rejected: approvalRejected } = step.value;
             const operationId = createMoAgentOperationId(runId, turn, toolCall);
             const executionPolicy = toolExecutionPolicy(this.toolsByName.get(toolCall.name));
             const observationFingerprint = readObservationFingerprint(
@@ -2283,13 +2269,15 @@ export class MoAgentRunEngine {
               observationResultIsVisible(messages, priorObservation)
                 ? priorObservation
                 : undefined;
-            yield event({
-              type: 'tool_started',
-              turn,
-              toolCall: { ...toolCall },
-              operationId,
-              ...executionPolicy,
-            });
+            if (!approvalRejected) {
+              yield event({
+                type: 'tool_started',
+                turn,
+                toolCall: { ...toolCall },
+                operationId,
+                ...executionPolicy,
+              });
+            }
             const terminalBlockedByWorkspaceWriteGuard =
               this.requireWorkspaceWriteBeforeTerminal &&
               successfulWorkspaceWrites === 0 &&
@@ -2303,8 +2291,18 @@ export class MoAgentRunEngine {
             if (blockedByWorkspaceWriteGuard) {
               workspaceWriteGuardTriggeredThisTurn = true;
             }
-            const execution: ToolExecution =
-              blockedByWorkspaceWriteGuard
+            const execution: MoAgentToolExecution =
+              approvalRejected
+                ? {
+                    result: toolFailure(
+                      'TOOL_APPROVAL_REJECTED',
+                      `Execution of tool "${toolCall.name}" was rejected before the side effect started.`,
+                    ),
+                    terminal: false,
+                    durationMs: 0,
+                    targetReferences: [],
+                  }
+                : blockedByWorkspaceWriteGuard
                 ? {
                     result: toolFailure(
                       'WORKSPACE_WRITE_REQUIRED',
@@ -2326,14 +2324,16 @@ export class MoAgentRunEngine {
                   }
                 : reusableObservation
                 ? reusedReadObservation(reusableObservation)
-                : await this.executeTool(
+                : await executeMoAgentTool({
+                    tool: this.toolsByName.get(toolCall.name),
                     toolCall,
                     turn,
                     runId,
                     operationId,
-                    abortState.signal,
-                    request.commitWorkspaceMutation
-                  );
+                    signal: abortState.signal,
+                    now: this.now,
+                    commitWorkspaceMutation: request.commitWorkspaceMutation,
+                  });
             const serializedToolResult = serializeToolResult(execution.result);
             const resultSha256 = createHash('sha256')
               .update(serializedToolResult, 'utf8')
@@ -2447,15 +2447,17 @@ export class MoAgentRunEngine {
                 );
               }
             } else {
-              yield event({
-                type: 'tool_failed',
-                turn,
-                toolCall: { ...toolCall },
-                operationId,
-                ...executionPolicy,
-                result: execution.result,
-                durationMs: execution.durationMs,
-              });
+              if (!approvalRejected) {
+                yield event({
+                  type: 'tool_failed',
+                  turn,
+                  toolCall: { ...toolCall },
+                  operationId,
+                  ...executionPolicy,
+                  result: execution.result,
+                  durationMs: execution.durationMs,
+                });
+              }
               // Do not let the model retry or issue another mutation after an
               // outcome that may already have crossed a side-effect boundary.
               // Cancellation/timeout keeps its more specific terminal status.
@@ -2630,6 +2632,11 @@ export class MoAgentRunEngine {
           result('failed', runError(error.code, error.message, error))
         );
       }
+      if (error instanceof MoAgentToolApprovalError) {
+        return yield* finish(
+          result('failed', runError(error.code, error.message, error))
+        );
+      }
       return yield* finish(
         result('failed', runError('RUN_FAILED', errorMessage(error), error))
       );
@@ -2638,139 +2645,4 @@ export class MoAgentRunEngine {
     }
   }
 
-  private async executeTool(
-    toolCall: MoAgentToolCall,
-    turn: number,
-    runId: string,
-    operationId: string,
-    signal: AbortSignal,
-    commitWorkspaceMutation: MoAgentRunRequest['commitWorkspaceMutation']
-  ): Promise<ToolExecution> {
-    const startedAt = this.now();
-    const tool = this.toolsByName.get(toolCall.name);
-    if (!tool) {
-      return {
-        result: toolFailure(
-          'UNKNOWN_TOOL',
-          `The tool "${toolCall.name || '(empty name)'}" is not registered.`
-        ),
-        terminal: false,
-        durationMs: this.now() - startedAt,
-        targetReferences: [],
-      };
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = parseMoAgentToolArguments(toolCall.arguments).value;
-    } catch (error) {
-      return {
-        result: toolFailure(
-          'INVALID_TOOL_ARGUMENTS',
-          'Tool arguments must be valid JSON.',
-          { parseError: errorMessage(error) }
-        ),
-        terminal: false,
-        durationMs: this.now() - startedAt,
-        targetReferences: [],
-      };
-    }
-
-    if (!isRecord(parsed)) {
-      return {
-        result: toolFailure(
-          'INVALID_TOOL_ARGUMENTS',
-          'Tool arguments must be a JSON object.'
-        ),
-        terminal: false,
-        durationMs: this.now() - startedAt,
-        targetReferences: [],
-      };
-    }
-
-    let input: unknown = parsed;
-    if (tool.parseInput) {
-      try {
-        input = tool.parseInput(parsed);
-      } catch (error) {
-        return {
-          result: toolFailure('INVALID_TOOL_INPUT', errorMessage(error)),
-          terminal: false,
-          durationMs: this.now() - startedAt,
-          targetReferences: [],
-        };
-      }
-    }
-    try {
-      // A cancellation may arrive while the durable tool_started event is being
-      // committed. Do not invoke the tool after that point, but still return a
-      // terminal tool event so the prepared ledger can be reconciled.
-      if (signal.aborted) {
-        return {
-          result: toolFailure(
-            'TOOL_EXECUTION_ABORTED',
-            'Tool execution was aborted before its outcome could be confirmed.'
-          ),
-          terminal: false,
-          durationMs: this.now() - startedAt,
-          targetReferences: [],
-        };
-      }
-      const candidate = await raceWithSignal(
-        Promise.resolve(
-          tool.execute(input, {
-            runId,
-            turn,
-            toolCallId: toolCall.id,
-            operationId,
-            signal,
-            ...(commitWorkspaceMutation
-              ? {
-                  commitWorkspaceMutation: <T>(commit: () => Promise<T>) =>
-                    commitWorkspaceMutation(operationId, commit),
-                }
-              : {}),
-          })
-        ),
-        signal
-      );
-      if (!isToolResult(candidate)) {
-        return {
-          result: toolFailure(
-            'INVALID_TOOL_RESULT',
-            `Tool "${tool.name}" returned an invalid result envelope.`
-          ),
-          terminal: false,
-          durationMs: this.now() - startedAt,
-          targetReferences: [],
-        };
-      }
-      const contextReceipt = projectToolContextReceipt(tool, input, candidate);
-      return {
-        result: candidate,
-        terminal: candidate.ok && tool.terminal === true,
-        durationMs: this.now() - startedAt,
-        targetReferences: contextReceipt ? [...contextReceipt.targetReferences] : [],
-        ...(contextReceipt ? { contextReceipt } : {}),
-      };
-    } catch (error) {
-      if (signal.aborted) {
-        return {
-          result: toolFailure(
-            'TOOL_EXECUTION_ABORTED',
-            'Tool execution was aborted before its outcome could be confirmed.'
-          ),
-          terminal: false,
-          durationMs: this.now() - startedAt,
-          targetReferences: [],
-        };
-      }
-      return {
-        result: toolFailure('TOOL_EXECUTION_FAILED', errorMessage(error)),
-        terminal: false,
-        durationMs: this.now() - startedAt,
-        targetReferences: [],
-      };
-    }
-  }
 }

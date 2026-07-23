@@ -168,6 +168,58 @@ export type MoAgentToolIdempotency =
  */
 export type MoAgentObservationCachePolicy = 'workspace_generation';
 
+export const MOAGENT_TOOL_APPROVAL_DECISIONS = [
+  'approve',
+  'edit',
+  'reject',
+] as const;
+
+export type MoAgentToolApprovalDecision =
+  (typeof MOAGENT_TOOL_APPROVAL_DECISIONS)[number];
+
+/**
+ * Explicit, application-owned human-approval policy for a mutating tool.
+ *
+ * `projectPublicInput` is a security boundary: it must return only bounded,
+ * non-secret JSON suitable for durable events and an approval UI. Extension
+ * tools cannot provide this projector through createMoAgentTools.
+ */
+export interface MoAgentToolApprovalPolicy<TInput = unknown> {
+  reason: string;
+  allowedDecisions?: readonly MoAgentToolApprovalDecision[];
+  timeoutMs?: number;
+  projectPublicInput(input: TInput): { [key: string]: JsonValue };
+}
+
+export interface MoAgentToolApprovalRequest {
+  approvalId: string;
+  runId: string;
+  turn: number;
+  toolCallId: string;
+  toolName: string;
+  effect: Extract<MoAgentToolEffect, 'workspace_write' | 'external_write'>;
+  idempotency: MoAgentToolIdempotency;
+  inputSha256: string;
+  publicInput: { [key: string]: JsonValue };
+  reason: string;
+  allowedDecisions: readonly MoAgentToolApprovalDecision[];
+  requestedAt: number;
+  expiresAt: number;
+}
+
+export interface MoAgentToolApprovalResolution {
+  decision: MoAgentToolApprovalDecision;
+  /** Required only for `edit`; it is revalidated by the original tool parser. */
+  editedInput?: { [key: string]: JsonValue };
+  /** Public, bounded actor identifier or the framework value `expired`. */
+  resolvedBy?: string;
+}
+
+export type MoAgentToolApprovalHandler = (
+  request: MoAgentToolApprovalRequest,
+  context: { signal: AbortSignal }
+) => Awaitable<MoAgentToolApprovalResolution>;
+
 export interface MoAgentToolFailure {
   code: string;
   message: string;
@@ -211,6 +263,11 @@ export interface MoAgentTool<TInput = unknown, TOutput = unknown> {
   idempotency?: MoAgentToolIdempotency;
   /** Optional deterministic same-run read de-duplication policy. */
   observationCache?: MoAgentObservationCachePolicy;
+  /**
+   * Optional HITL gate for this mutating tool. The engine rejects approval
+   * policies on pure/read tools and requires an approval handler at startup.
+   */
+  approval?: MoAgentToolApprovalPolicy<TInput>;
   /**
    * Framework-owned, per-tool projector for bounded context receipts.
    * Additional tools have this capability stripped by createMoAgentTools.
@@ -462,6 +519,21 @@ export type MoAgentEvent =
       type: 'progress_evaluated';
       progressOracle: MoAgentProgressOracleEventState;
       decision: MoAgentProgressOracleEventDecision;
+    })
+  | (MoAgentTurnEventBase & {
+      type: 'tool_approval_requested';
+      request: MoAgentToolApprovalRequest;
+    })
+  | (MoAgentTurnEventBase & {
+      type: 'tool_approval_resolved';
+      approvalId: string;
+      toolCallId: string;
+      toolName: string;
+      decision: MoAgentToolApprovalDecision;
+      inputSha256: string;
+      /** Hash after an approved edit; never the edited payload itself. */
+      effectiveInputSha256: string;
+      resolvedBy?: string;
     })
   | (MoAgentTurnEventBase & {
       type: 'tool_started';

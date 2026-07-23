@@ -3360,4 +3360,236 @@ describe('MoAgentRunEngine', () => {
     expect(result.status).toBe('completed');
     expect(diagnostics).toHaveBeenCalled();
   });
+
+  it('waits for approval before starting a mutating tool', async () => {
+    const execute = vi.fn(async (input: unknown) => ({
+      ok: true as const,
+      data: input,
+    }));
+    const provider = new ScriptedProvider([
+      toolTurn({
+        name: 'send_notification',
+        arguments: ['{"recipient":"research-team","message":"ready"}'],
+      }),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const approvalHandler = vi.fn(async () => ({
+      decision: 'approve' as const,
+      resolvedBy: 'user-reviewer',
+    }));
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [
+        {
+          name: 'send_notification',
+          description: 'Send an external notification',
+          inputSchema: { type: 'object' },
+          effect: 'external_write',
+          idempotency: 'operation_key',
+          approval: {
+            reason: 'This sends a message outside the workspace.',
+            projectPublicInput: (input) => input as Record<string, string>,
+          },
+          execute,
+        },
+        terminalTool(),
+      ],
+      toolApprovalHandler: approvalHandler,
+      idFactory: () => 'run-tool-approval',
+    });
+    const events: MoAgentEvent[] = [];
+
+    const result = await engine.run({ messages: initialMessages }, (event) => {
+      events.push(event);
+    });
+
+    expect(result.status).toBe('completed');
+    expect(approvalHandler).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith(
+      { recipient: 'research-team', message: 'ready' },
+      expect.objectContaining({ runId: 'run-tool-approval' }),
+    );
+    const eventTypes = events.map((event) => event.type);
+    expect(eventTypes.indexOf('tool_approval_requested')).toBeLessThan(
+      eventTypes.indexOf('tool_approval_resolved'),
+    );
+    expect(eventTypes.indexOf('tool_approval_resolved')).toBeLessThan(
+      eventTypes.indexOf('tool_started'),
+    );
+    expect(events.find((event) => event.type === 'tool_approval_requested'))
+      .toMatchObject({
+        request: {
+          toolName: 'send_notification',
+          effect: 'external_write',
+          allowedDecisions: ['approve', 'reject'],
+          publicInput: {
+            recipient: 'research-team',
+            message: 'ready',
+          },
+        },
+      });
+  });
+
+  it('revalidates an approved edit before executing the effective input', async () => {
+    const execute = vi.fn(async (input: unknown) => ({
+      ok: true as const,
+      data: input,
+    }));
+    const provider = new ScriptedProvider([
+      toolTurn({
+        name: 'publish_report',
+        arguments: ['{"channel":"draft","title":"Initial"}'],
+      }),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [
+        {
+          name: 'publish_report',
+          description: 'Publish a report',
+          inputSchema: { type: 'object' },
+          effect: 'external_write',
+          approval: {
+            reason: 'Publishing is externally visible.',
+            allowedDecisions: ['approve', 'edit', 'reject'],
+            projectPublicInput: (input) => input as Record<string, string>,
+          },
+          parseInput(value) {
+            const input = value as { channel?: unknown; title?: unknown };
+            if (
+              typeof input.channel !== 'string' ||
+              typeof input.title !== 'string'
+            ) {
+              throw new Error('channel and title are required');
+            }
+            return { channel: input.channel, title: input.title };
+          },
+          execute,
+        },
+        terminalTool(),
+      ],
+      toolApprovalHandler: async () => ({
+        decision: 'edit',
+        resolvedBy: 'editor-1',
+        editedInput: { channel: 'approved', title: 'Reviewed' },
+      }),
+    });
+    const events: MoAgentEvent[] = [];
+
+    const result = await engine.run({ messages: initialMessages }, (event) => {
+      events.push(event);
+    });
+
+    expect(result.status).toBe('completed');
+    expect(execute).toHaveBeenCalledWith(
+      { channel: 'approved', title: 'Reviewed' },
+      expect.any(Object),
+    );
+    expect(events.find((event) => event.type === 'tool_approval_resolved'))
+      .toMatchObject({
+        decision: 'edit',
+        resolvedBy: 'editor-1',
+      });
+    const started = events.find((event) => event.type === 'tool_started');
+    expect(started?.type === 'tool_started'
+      ? JSON.parse(started.toolCall.arguments)
+      : null
+    ).toEqual({ channel: 'approved', title: 'Reviewed' });
+  });
+
+  it('records a rejection as a definite pre-execution failure', async () => {
+    const execute = vi.fn(async () => ({ ok: true as const, data: {} }));
+    const provider = new ScriptedProvider([
+      toolTurn({ name: 'delete_remote_record', arguments: ['{"recordId":"r-1"}'] }),
+      toolTurn({ name: 'submit_result', arguments: ['{}'] }),
+    ]);
+    const engine = new MoAgentRunEngine({
+      provider,
+      model: 'test-model',
+      tools: [
+        {
+          name: 'delete_remote_record',
+          description: 'Delete a remote record',
+          inputSchema: { type: 'object' },
+          effect: 'external_write',
+          approval: {
+            reason: 'Remote deletion is irreversible.',
+            projectPublicInput: (input) => input as Record<string, string>,
+          },
+          execute,
+        },
+        terminalTool(),
+      ],
+      toolApprovalHandler: async () => ({
+        decision: 'reject',
+        resolvedBy: 'reviewer-2',
+      }),
+    });
+    const events: MoAgentEvent[] = [];
+
+    const result = await engine.run({ messages: initialMessages }, (event) => {
+      events.push(event);
+    });
+
+    expect(result.status).toBe('completed');
+    expect(execute).not.toHaveBeenCalled();
+    expect(events).not.toContainEqual(expect.objectContaining({
+      type: 'tool_started',
+      toolCall: expect.objectContaining({ name: 'delete_remote_record' }),
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      type: 'tool_failed',
+      toolCall: expect.objectContaining({ name: 'delete_remote_record' }),
+    }));
+    const rejectedToolMessage = provider.requests[1].messages.find(
+      (message) => message.role === 'tool' && message.name === 'delete_remote_record',
+    );
+    expect(rejectedToolMessage?.role === 'tool'
+      ? JSON.parse(rejectedToolMessage.content)
+      : null
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'TOOL_APPROVAL_REJECTED' },
+    });
+  });
+
+  it('rejects approval policies without a handler and unsafe public projections', async () => {
+    const tool: MoAgentTool = {
+      name: 'external_write',
+      description: 'External write',
+      inputSchema: { type: 'object' },
+      effect: 'external_write',
+      approval: {
+        reason: 'External side effect.',
+        projectPublicInput: (input) => input as Record<string, string>,
+      },
+      execute: vi.fn(async () => ({ ok: true as const, data: {} })),
+    };
+    expect(() => new MoAgentRunEngine({
+      provider: new ScriptedProvider([]),
+      model: 'test-model',
+      tools: [tool],
+      requireTerminalTool: false,
+    })).toThrow('toolApprovalHandler');
+
+    const execute = vi.fn(async () => ({ ok: true as const, data: {} }));
+    const engine = new MoAgentRunEngine({
+      provider: new ScriptedProvider([
+        toolTurn({ name: 'external_write', arguments: ['{"apiKey":"must-not-persist"}'] }),
+      ]),
+      model: 'test-model',
+      tools: [{ ...tool, execute }],
+      requireTerminalTool: false,
+      toolApprovalHandler: async () => ({ decision: 'approve' }),
+    });
+    const result = await engine.run({ messages: initialMessages });
+    expect(result).toMatchObject({
+      status: 'failed',
+      error: { code: 'INVALID_TOOL_APPROVAL_INPUT' },
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

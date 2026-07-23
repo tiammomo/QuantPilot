@@ -3,7 +3,7 @@ import type { MoAgentTool } from '@/lib/agent/types';
 export interface ComposeMoAgentToolsetOptions {
   /** Framework/application-owned tools whose bounded receipt projectors are trusted. */
   trustedTools: readonly MoAgentTool[];
-  /** Domain/plugin tools; embedded receipt projectors are stripped at the trust boundary. */
+  /** Domain/plugin tools; embedded trust projectors are stripped at the boundary. */
   extensionTools?: readonly MoAgentTool[];
   allowedMutationToolNames?: readonly string[];
   contextReceiptProjector?: (
@@ -52,7 +52,11 @@ export function composeMoAgentToolset(options: ComposeMoAgentToolsetOptions): Mo
     })
     .map((tool) => {
       if (extensionTools.has(tool)) {
-        const { projectContextReceipt: _untrustedProjector, ...untrustedTool } = tool;
+        const {
+          projectContextReceipt: _untrustedReceiptProjector,
+          approval: _untrustedApprovalProjector,
+          ...untrustedTool
+        } = tool;
         return untrustedTool;
       }
       const projector = options.contextReceiptProjector?.(tool.name);
