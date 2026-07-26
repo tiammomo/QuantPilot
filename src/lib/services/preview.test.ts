@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -87,6 +88,24 @@ type FakeChild = EventEmitter & {
 };
 
 let nextPid = 900_000;
+let previewTestPort = 0;
+
+async function availableLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    server.close();
+    throw new Error('Failed to allocate a preview test port.');
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  return address.port;
+}
 
 function createFakeChild(): FakeChild {
   const child = new EventEmitter() as FakeChild;
@@ -102,10 +121,11 @@ function missingFile(): NodeJS.ErrnoException {
 }
 
 describe('PreviewManager start concurrency', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    previewTestPort = await availableLoopbackPort();
     mkdirSync('/tmp/quantpilot-preview-test/.next', { recursive: true });
-    process.env.PREVIEW_PORT_START = '4100';
-    process.env.PREVIEW_PORT_END = '4100';
+    process.env.PREVIEW_PORT_START = String(previewTestPort);
+    process.env.PREVIEW_PORT_END = String(previewTestPort);
 
     mocks.getProjectById.mockResolvedValue({
       id: 'project-preview',
@@ -119,7 +139,7 @@ describe('PreviewManager start concurrency', () => {
     });
     mocks.updateProject.mockResolvedValue(undefined);
     mocks.updateProjectStatus.mockResolvedValue(undefined);
-    mocks.findAvailablePort.mockResolvedValue(4_100);
+    mocks.findAvailablePort.mockResolvedValue(previewTestPort);
     mocks.scaffoldBasicNextApp.mockResolvedValue(undefined);
     mocks.ensureQuantDashboardTemplate.mockResolvedValue(undefined);
     mocks.execFile.mockImplementation((...args: unknown[]) => {
@@ -179,9 +199,9 @@ describe('PreviewManager start concurrency', () => {
 
     expect(firstInfo).toBe(secondInfo);
     expect(firstInfo).toMatchObject({
-      port: 4_100,
+      port: previewTestPort,
       status: 'running',
-      url: 'http://localhost:4100',
+      url: `http://localhost:${previewTestPort}`,
     });
     const previewEnv = mocks.spawn.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
     expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toMatch(
@@ -233,11 +253,87 @@ describe('PreviewManager start concurrency', () => {
     ready = true;
     await expect(manager.start('project-preview')).resolves.toMatchObject({
       status: 'running',
-      url: 'http://localhost:4100',
+      url: `http://localhost:${previewTestPort}`,
     });
 
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
     await manager.stop('project-preview');
+  });
+
+  it('reconciles a healthy Worker-owned persisted preview', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new PreviewManager();
+
+    await expect(
+      manager.getReconciledStatus(
+        'project-preview',
+        `http://localhost:${previewTestPort}`,
+        previewTestPort,
+      ),
+    ).resolves.toMatchObject({
+      port: previewTestPort,
+      status: 'running',
+      url: `http://localhost:${previewTestPort}`,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:${previewTestPort}`,
+      expect.objectContaining({
+        method: 'HEAD',
+        redirect: 'manual',
+      }),
+    );
+  });
+
+  it('never probes an untrusted persisted preview address', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new PreviewManager();
+
+    await expect(
+      manager.getReconciledStatus(
+        'project-preview',
+        `http://example.com:${previewTestPort}`,
+        previewTestPort,
+      ),
+    ).resolves.toMatchObject({
+      port: null,
+      status: 'stopped',
+      url: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reclaims a locally owned preview after its project is deleted elsewhere', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const manager = new PreviewManager();
+    await manager.start('project-preview');
+    mocks.getProjectById.mockResolvedValueOnce(null);
+
+    await expect(manager.cleanupDeletedProjects()).resolves.toEqual([
+      'project-preview',
+    ]);
+    expect(manager.getStatus('project-preview')).toMatchObject({
+      port: null,
+      status: 'stopped',
+      url: null,
+    });
+  });
+
+  it('releases all locally owned previews without requiring project rows', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const manager = new PreviewManager();
+    await manager.start('project-preview');
+    mocks.getProjectById.mockResolvedValue(null);
+
+    await expect(manager.cleanupAll()).resolves.toEqual(['project-preview']);
+    expect(manager.getStatus('project-preview').status).toBe('stopped');
   });
 
   it('does not erase an already running preview when a later start check fails', async () => {
@@ -264,6 +360,7 @@ describe('PreviewManager start concurrency', () => {
   });
 
   it('discovers an existing project preview with one listener-table snapshot', async () => {
+    process.env.PREVIEW_PORT_START = '4100';
     process.env.PREVIEW_PORT_END = '4199';
     vi.stubGlobal(
       'fetch',
@@ -308,6 +405,7 @@ describe('PreviewManager start concurrency', () => {
   });
 
   it('adopts a project listener whose cwd is inside the generated chroot', async () => {
+    process.env.PREVIEW_PORT_START = '4100';
     process.env.PREVIEW_PORT_END = '4199';
     vi.stubGlobal(
       'fetch',
@@ -380,7 +478,7 @@ describe('PreviewManager start concurrency', () => {
       await shutdown;
       await expect(nextStart).resolves.toMatchObject({
         status: 'running',
-        url: 'http://localhost:4100',
+        url: `http://localhost:${previewTestPort}`,
       });
 
       expect(mocks.spawn).toHaveBeenCalledTimes(2);

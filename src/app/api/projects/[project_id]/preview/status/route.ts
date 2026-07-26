@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
+import { getProjectById } from '@/lib/services/project';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -23,8 +24,19 @@ export async function GET(
       action: 'project.read',
       projectId: project_id,
     });
+    const project = await getProjectById(project_id);
+    if (!project) {
+      return NextResponse.json(
+        { success: false, error: 'Project not found' },
+        { status: 404 },
+      );
+    }
     const { previewManager } = await import('@/lib/services/preview');
-    const preview = previewManager.getStatus(project_id);
+    const preview = await previewManager.getReconciledStatus(
+      project_id,
+      project.previewUrl,
+      project.previewPort,
+    );
 
     return NextResponse.json({
       success: true,

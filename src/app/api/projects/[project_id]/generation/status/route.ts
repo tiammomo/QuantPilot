@@ -45,7 +45,11 @@ export async function GET(_request: Request, { params }: RouteContext) {
       readQuantGenerationState(projectPath),
       readQuantValidationReport(projectPath),
     ]);
-    const preview = previewManager.getStatus(project_id);
+    const preview = await previewManager.getReconciledStatus(
+      project_id,
+      project.previewUrl,
+      project.previewPort,
+    );
     const acceptedMission =
       generation?.requestId && requiresMoAgentMissionAcceptance(generation)
         ? await readMoAgentAcceptedMissionSnapshot(

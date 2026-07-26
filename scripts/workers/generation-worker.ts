@@ -14,6 +14,7 @@ import {
 } from '../../src/lib/services/moagent-generation-dispatch-store';
 import { MoAgentWorkerCapacitySession } from '../../src/lib/services/moagent-worker-capacity';
 import { MoAgentWorkerRegistrySession } from '../../src/lib/services/moagent-worker-registry';
+import { previewManager } from '../../src/lib/services/preview';
 import { QuotaExceededError } from '../../src/lib/quota';
 
 function positiveInteger(name: string, fallback: number, max: number): number {
@@ -42,9 +43,15 @@ const slotHeartbeatIntervalMs = positiveInteger(
   24 * 60 * 60 * 1_000,
 );
 const claimBatchSize = positiveInteger('MOAGENT_WORKER_CLAIM_BATCH_SIZE', 20, 200);
+const previewReconcileIntervalMs = positiveInteger(
+  'MOAGENT_WORKER_PREVIEW_RECONCILE_INTERVAL_MS',
+  5_000,
+  60 * 60 * 1_000,
+);
 const once = process.argv.includes('--once');
 const runtime = createApplicationGenerationRuntime();
 let stopping = false;
+let nextPreviewReconcileAt = 0;
 
 if (concurrency > globalConcurrency) {
   throw new Error(
@@ -159,6 +166,17 @@ async function executeJob(
 }
 
 async function tick(workerLeaseOwner: string): Promise<number> {
+  const now = Date.now();
+  if (now >= nextPreviewReconcileAt) {
+    nextPreviewReconcileAt = now + previewReconcileIntervalMs;
+    const cleaned = await previewManager.cleanupDeletedProjects();
+    if (cleaned.length > 0) {
+      console.log(JSON.stringify({
+        event: 'generation_worker_preview_reconciled',
+        projectIds: cleaned,
+      }));
+    }
+  }
   await reconcileExpiredMoAgentGenerationJobs({ limit: claimBatchSize });
   const jobs = await listClaimableMoAgentGenerationJobs(claimBatchSize);
   let completed = 0;
@@ -194,6 +212,7 @@ async function main() {
       concurrency,
       globalConcurrency,
       pollIntervalMs,
+      previewReconcileIntervalMs,
     }));
     do {
       registration.assertHealthy();
@@ -203,6 +222,13 @@ async function main() {
       if (processed === 0) await delay(pollIntervalMs);
     } while (!stopping);
   } finally {
+    const cleaned = await previewManager.cleanupAll();
+    if (cleaned.length > 0) {
+      console.log(JSON.stringify({
+        event: 'generation_worker_previews_stopped',
+        projectIds: cleaned,
+      }));
+    }
     await registration.stop().catch((error) => {
       console.error(
         `[GenerationWorker] Failed to stop Worker registration: ${error instanceof Error ? error.message : String(error)}`,

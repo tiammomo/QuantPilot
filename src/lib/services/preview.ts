@@ -1046,6 +1046,69 @@ async function waitForPreviewReady(
   return false;
 }
 
+function persistedPreviewTarget(
+  persistedUrl: string | null | undefined,
+  persistedPort: number | null | undefined,
+): { port: number; url: string } | null {
+  if (!persistedUrl || !persistedPort) return null;
+  const bounds = resolvePreviewBounds();
+  if (
+    !Number.isSafeInteger(persistedPort) ||
+    persistedPort < bounds.start ||
+    persistedPort > bounds.end
+  ) {
+    return null;
+  }
+  try {
+    const parsed = new URL(persistedUrl);
+    const port = Number.parseInt(parsed.port, 10);
+    if (
+      parsed.protocol !== 'http:' ||
+      !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.pathname !== '' && parsed.pathname !== '/') ||
+      parsed.search ||
+      parsed.hash ||
+      port !== persistedPort
+    ) {
+      return null;
+    }
+    return {
+      port,
+      url: `http://localhost:${port}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function probePersistedPreview(url: string): Promise<boolean> {
+  const request = async (method: 'HEAD' | 'GET') => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1_500);
+    try {
+      return await fetch(url, {
+        method,
+        redirect: 'manual',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  try {
+    const head = await request('HEAD');
+    if (head.ok) return true;
+    if (head.status === 405 || head.status === 501) {
+      return (await request('GET')).ok;
+    }
+  } catch {
+    // A missing/stopped Worker-owned listener is a normal negative probe.
+  }
+  return false;
+}
+
 function buildPreviewCommandEnv(
   projectPath: string,
   env: NodeJS.ProcessEnv,
@@ -1318,6 +1381,56 @@ export class PreviewManager {
 
   public cleanup(projectId: string): Promise<void> {
     return this.queueShutdown(projectId, () => this.cleanupInternal(projectId));
+  }
+
+  /**
+   * Reclaim previews owned by this process after their durable project record
+   * has been deleted by another process (normally the Web application).
+   */
+  public async cleanupDeletedProjects(): Promise<string[]> {
+    const cleaned: string[] = [];
+    for (const projectId of Array.from(this.processes.keys())) {
+      try {
+        const project = await getProjectById(projectId);
+        if (project) continue;
+        await this.queueShutdown(projectId, () =>
+          this.terminateTrackedProcess(projectId),
+        );
+        cleaned.push(projectId);
+      } catch (error) {
+        console.error(
+          `[PreviewManager] Failed to reconcile deleted project ${projectId}:`,
+          error,
+        );
+      }
+    }
+    return cleaned;
+  }
+
+  /**
+   * Stop every preview owned by this process. This is intentionally independent
+   * of project rows so Worker shutdown still releases TCP proxies and child
+   * process groups after a project was deleted elsewhere.
+   */
+  public async cleanupAll(): Promise<string[]> {
+    const projectIds = Array.from(
+      new Set([...this.processes.keys(), ...this.startOperations.keys()]),
+    );
+    const cleaned: string[] = [];
+    for (const projectId of projectIds) {
+      try {
+        await this.queueShutdown(projectId, () =>
+          this.terminateTrackedProcess(projectId),
+        );
+        cleaned.push(projectId);
+      } catch (error) {
+        console.error(
+          `[PreviewManager] Failed to clean up preview ${projectId}:`,
+          error,
+        );
+      }
+    }
+    return cleaned;
   }
 
   private async cleanupInternal(projectId: string): Promise<void> {
@@ -1834,6 +1947,35 @@ export class PreviewManager {
     return this.toInfo(processInfo);
   }
 
+  /**
+   * Reconcile process-local ownership with the durable preview address.
+   *
+   * In worker dispatch mode the generated process and TCP proxy live in the
+   * Generation Worker, while status APIs run in the Web process. The Web
+   * process must not mistake its empty in-memory map for a stopped preview.
+   * Only an exact loopback URL inside the configured preview range is probed.
+   */
+  public async getReconciledStatus(
+    projectId: string,
+    persistedUrl: string | null | undefined,
+    persistedPort: number | null | undefined,
+  ): Promise<PreviewInfo> {
+    const local = this.getStatus(projectId);
+    if (local.status === 'running' || local.status === 'starting') {
+      return local;
+    }
+    const target = persistedPreviewTarget(persistedUrl, persistedPort);
+    if (!target || !(await probePersistedPreview(target.url))) {
+      return local;
+    }
+    return {
+      port: target.port,
+      url: target.url,
+      status: 'running',
+      logs: local.logs,
+    };
+  }
+
   public getLogs(projectId: string): string[] {
     const processInfo = this.processes.get(projectId);
     return processInfo ? [...processInfo.logs] : [];
@@ -1853,6 +1995,20 @@ export class PreviewManager {
 const globalPreviewManager = globalThis as unknown as {
   __claudable_preview_manager__?: PreviewManager;
 };
+
+// Next.js development HMR preserves the global singleton while replacing this
+// module's class definition. Refresh its prototype so newly added coordination
+// methods become available without discarding tracked preview processes.
+if (
+  globalPreviewManager.__claudable_preview_manager__ &&
+  Object.getPrototypeOf(globalPreviewManager.__claudable_preview_manager__) !==
+    PreviewManager.prototype
+) {
+  Object.setPrototypeOf(
+    globalPreviewManager.__claudable_preview_manager__,
+    PreviewManager.prototype,
+  );
+}
 
 export const previewManager: PreviewManager =
   globalPreviewManager.__claudable_preview_manager__ ??
