@@ -85,7 +85,7 @@ node .agents/skills/quantpilot-production-release/scripts/check-target.mjs
    QUANTPILOT_BACKUP_ROOT=/var/backups/quantpilot npm run db:backup:release
    ```
 
-   `manifest.json` 包含数据库、workspace、uploads 的 SHA-256 和 `ENCRYPTION_KEY` 指纹。备份目录自身必须由基础设施做加密、不可变保留和异地复制。
+   `manifest.json` 包含数据库、workspace、uploads 的 SHA-256 和 `ENCRYPTION_KEY` 指纹。备份目录自身必须由基础设施做加密、不可变保留和异地复制；备份只用于恢复，不得反向覆盖本次功能发布的生产数据。
 4. 只有分类结果为 `schema_migration` 时才执行 `npm run prisma:deploy`。禁止用 `prisma db push` 代替迁移。
 5. 以新版本启动摘流实例，检查 `/api/ready`，再切流量。
 6. 观察 15 分钟：运行治理中心 Worker registry/槽位/队列、登录失败率、API 5xx、Agent 失败/修复率、数据库连接、Redis、market-data 和 Loki。必须至少看到一个存活 generation Worker；排队任务存在但存活 Worker 为零属于发布阻断。

@@ -56,7 +56,7 @@ validator before using it:
 ```bash
 node .agents/skills/quantpilot-production-release/scripts/self-test.mjs
 uv run --with pyyaml -- python \
-  /home/tiammomo/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+  "${CODEX_HOME:?}/skills/.system/skill-creator/scripts/quick_validate.py" \
   .agents/skills/quantpilot-production-release
 ```
 
