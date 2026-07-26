@@ -52,17 +52,41 @@
 
 发布前记录版本、操作者、变更窗口、回滚版本和数据库迁移影响。然后按以下顺序执行：
 
+日常发布默认是“功能代码 + 既有生产数据”模式，不同步开发机或构建机的全量数据：
+
+- 代码、静态资源、模板和版本化 Skills 随不可变发布产物交付。
+- 数据库结构只通过 `prisma migrate deploy` 增量升级；禁止用本地数据库覆盖生产库。
+- 权限、配额模板和目录等少量治理数据，只运行经过审查的幂等 bootstrap/seed，并记录新增、更新和跳过数量。
+- `data/projects`、上传文件、行情/财务数据、Memory/AKEP 记录、审计与评测轨迹保持在生产持久卷和服务中，不随代码包同步。
+- 业务数据修复或补数必须单独给出精确作用域、dry-run 数量、幂等策略、备份与回滚；灾难恢复才允许执行全量 restore。
+
+仓库级运维 Skill 位于 `.agents/skills/quantpilot-production-release`。发布前以当前线上 commit 为基线运行其中的分类脚本；它只生成计划，不修改数据：
+
+```bash
+node .agents/skills/quantpilot-production-release/scripts/classify-release.mjs \
+  --base-ref <deployed-commit> --head-ref HEAD
+```
+
+生产目标不写死在 Skill 或仓库中，由运维环境提供
+`QUANTPILOT_RELEASE_HOST`、`QUANTPILOT_PUBLIC_URL`，并按需覆盖发布根目录、生产环境文件与备份根目录。连接生产前先运行：
+
+```bash
+node .agents/skills/quantpilot-production-release/scripts/check-target.mjs
+```
+
+目标缺失时允许完成本地质量门和 Git 推送，但不得将推送描述为已经上线。
+
 1. 确认 CI 的 frontend、backend、authenticated lifecycle 和 contract evaluation 全部通过。
 2. 生成当前提交的评测证据；涉及 Agent 行为的版本还必须执行 live E2E evidence gate。
    本地命令默认使用日常 Qwen/ModelPort；GitHub Hosted runner 无法访问本机 ModelPort，因此 workflow 显式设置 `QUANTPILOT_RELEASE_EVIDENCE_MODEL=deepseek-v4-flash` 并注入官方直连 Key。无论选择哪条路，benchmark 与独立 gate 都从同一显式模型参数读取，禁止“凭据与报告模型错配”。
-3. 创建并异地复制发布前备份：
+3. `feature_only` 发布只校验最近一次定时备份可恢复、未超过 6 小时且已异地复制，不因纯代码变更重复复制全量业务数据。`schema_migration` 或获批的有界数据操作必须创建并异地复制发布前备份：
 
    ```bash
    QUANTPILOT_BACKUP_ROOT=/var/backups/quantpilot npm run db:backup:release
    ```
 
    `manifest.json` 包含数据库、workspace、uploads 的 SHA-256 和 `ENCRYPTION_KEY` 指纹。备份目录自身必须由基础设施做加密、不可变保留和异地复制。
-4. 执行 `npm run prisma:deploy`。禁止用 `prisma db push` 代替迁移。
+4. 只有分类结果为 `schema_migration` 时才执行 `npm run prisma:deploy`。禁止用 `prisma db push` 代替迁移。
 5. 以新版本启动摘流实例，检查 `/api/ready`，再切流量。
 6. 观察 15 分钟：运行治理中心 Worker registry/槽位/队列、登录失败率、API 5xx、Agent 失败/修复率、数据库连接、Redis、market-data 和 Loki。必须至少看到一个存活 generation Worker；排队任务存在但存活 Worker 为零属于发布阻断。
 

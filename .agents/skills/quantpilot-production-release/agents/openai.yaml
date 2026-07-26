@@ -1,0 +1,4 @@
+interface:
+  display_name: "QuantPilot Production Release"
+  short_description: "Safely release QuantPilot without routine full data sync"
+  default_prompt: "Use $quantpilot-production-release to plan and execute a safe feature-focused production release."
