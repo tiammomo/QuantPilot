@@ -25,7 +25,7 @@ vi.mock('@/lib/services/moagent-mission-store', () => ({
 }));
 
 vi.mock('@/lib/services/preview', () => ({
-  previewManager: { getStatus: mocks.getPreviewStatus },
+  previewManager: { getReconciledStatus: mocks.getPreviewStatus },
 }));
 
 import { GET } from './route';
@@ -90,10 +90,11 @@ describe('generation status acceptance gate', () => {
       id: 'project-1',
       repoPath: '/tmp/project-1',
       previewUrl: 'http://localhost:4100',
+      previewPort: 4100,
     });
     mocks.readGeneration.mockResolvedValue(generation());
     mocks.readValidation.mockResolvedValue(passedValidation);
-    mocks.getPreviewStatus.mockReturnValue({
+    mocks.getPreviewStatus.mockResolvedValue({
       status: 'running',
       url: 'http://localhost:4100',
       port: 4100,
@@ -111,6 +112,11 @@ describe('generation status acceptance gate', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mocks.getPreviewStatus).toHaveBeenCalledWith(
+      'project-1',
+      'http://localhost:4100',
+      4100,
+    );
     expect(mocks.readAcceptedMission).toHaveBeenCalledWith(
       'project-1',
       'request-1',
