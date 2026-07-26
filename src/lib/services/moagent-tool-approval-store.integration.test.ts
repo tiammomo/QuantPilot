@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -25,6 +25,12 @@ describe.skipIf(!TEST_DATABASE_URL)(
       return `${TEST_SCOPE}:${label}:${sequence}`;
     }
 
+    function workspaceKey(label: string): string {
+      return `sha256:${createHash("sha256")
+        .update(`${TEST_SCOPE}:${label}`)
+        .digest("hex")}`;
+    }
+
     async function createWaitingRun(label: string) {
       const projectId = uniqueId(`project:${label}`);
       const runId = uniqueId(`run:${label}`);
@@ -36,7 +42,7 @@ describe.skipIf(!TEST_DATABASE_URL)(
         data: {
           id: runId,
           projectId,
-          workspaceKey: `sha256:${TEST_SCOPE}:${label}`,
+          workspaceKey: workspaceKey(label),
           status: "waiting",
           provider: "openai",
           model: "integration-test",

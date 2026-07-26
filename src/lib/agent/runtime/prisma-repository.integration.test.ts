@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,7 +51,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
   }
 
   function workspaceKey(label: string): string {
-    return `sha256:${TEST_SCOPE}:${label}`;
+    return `sha256:${createHash('sha256')
+      .update(`${TEST_SCOPE}:${label}`)
+      .digest('hex')}`;
   }
 
   function runInput(
