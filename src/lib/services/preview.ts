@@ -49,6 +49,14 @@ const LOG_LIMIT = PREVIEW_CONFIG.LOG_LIMIT;
 const PREVIEW_FALLBACK_PORT_START = PREVIEW_CONFIG.FALLBACK_PORT_START;
 const PREVIEW_FALLBACK_PORT_END = PREVIEW_CONFIG.FALLBACK_PORT_END;
 const PREVIEW_MAX_PORT = 65_535;
+
+function usesGeneratedProjectNetworkNamespace(): boolean {
+  return (
+    process.platform === 'linux' &&
+    process.env.QUANTPILOT_GENERATED_SANDBOX !== '0'
+  );
+}
+
 function resolvePreviewProjectPath(projectId: string, repoPath?: string | null): string {
   if (repoPath) {
     return path.isAbsolute(repoPath)
@@ -1754,26 +1762,27 @@ export class PreviewManager {
     const resolvedUrl = `http://localhost:${effectivePort}`;
 
     env.NEXT_PUBLIC_APP_URL = resolvedUrl;
-    const runtimeDirectory = resolvePreviewRuntimeDirectory(projectPath, effectivePort);
-    await fs.rm(runtimeDirectory, { recursive: true, force: true });
-    await fs.mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
-    previewProcess.runtimeDirectory = runtimeDirectory;
-    const previewSocketPath = path.join(runtimeDirectory, 'p.sock');
-    const marketSocketPath = path.join(runtimeDirectory, 'm.sock');
-    env.QUANTPILOT_SANDBOX_PREVIEW_SOCKET = previewSocketPath;
-    env.QUANTPILOT_SANDBOX_PREVIEW_PORT = String(effectivePort);
-    env.QUANTPILOT_SANDBOX_MARKET_SOCKET = marketSocketPath;
-    env.QUANTPILOT_SANDBOX_MARKET_PORT = '8000';
     previewProcess.url = resolvedUrl;
     this.assertStartActive(projectId, operation);
 
-    previewProcess.networkProxy = await startPreviewNetworkProxy(
-      effectivePort,
-      previewSocketPath,
-    );
+    if (usesGeneratedProjectNetworkNamespace()) {
+      const runtimeDirectory = resolvePreviewRuntimeDirectory(projectPath, effectivePort);
+      await fs.rm(runtimeDirectory, { recursive: true, force: true });
+      await fs.mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
+      previewProcess.runtimeDirectory = runtimeDirectory;
+      const previewSocketPath = path.join(runtimeDirectory, 'p.sock');
+      const marketSocketPath = path.join(runtimeDirectory, 'm.sock');
+      env.QUANTPILOT_SANDBOX_PREVIEW_SOCKET = previewSocketPath;
+      env.QUANTPILOT_SANDBOX_PREVIEW_PORT = String(effectivePort);
+      env.QUANTPILOT_SANDBOX_MARKET_SOCKET = marketSocketPath;
+      env.QUANTPILOT_SANDBOX_MARKET_PORT = '8000';
+      previewProcess.networkProxy = await startPreviewNetworkProxy(
+        effectivePort,
+        previewSocketPath,
+      );
+      previewProcess.marketProxy = await startMarketNetworkProxy(marketSocketPath);
+    }
     this.processes.set(projectId, previewProcess);
-    this.assertStartActive(projectId, operation);
-    previewProcess.marketProxy = await startMarketNetworkProxy(marketSocketPath);
     this.assertStartActive(projectId, operation);
 
     const sandboxed = await wrapGeneratedProjectCommand(

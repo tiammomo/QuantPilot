@@ -184,6 +184,8 @@ describe('PreviewManager start concurrency', () => {
     vi.unstubAllGlobals();
     delete process.env.PREVIEW_PORT_START;
     delete process.env.PREVIEW_PORT_END;
+    delete process.env.QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE;
+    delete process.env.QUANTPILOT_GENERATED_SANDBOX;
   });
 
   it('coalesces concurrent starts into one process and one ready result', async () => {
@@ -213,6 +215,36 @@ describe('PreviewManager start concurrency', () => {
     expect(mocks.getProjectById).toHaveBeenCalledTimes(1);
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    await manager.stop('project-preview');
+  });
+
+  it('lets a trusted unsandboxed preview bind the selected TCP port directly', async () => {
+    process.env.QUANTPILOT_GENERATED_SANDBOX = '0';
+    process.env.QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE = '1';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    const manager = new PreviewManager();
+
+    await expect(manager.start('project-preview')).resolves.toMatchObject({
+      port: previewTestPort,
+      status: 'running',
+      url: `http://localhost:${previewTestPort}`,
+    });
+
+    const previewEnv = mocks.spawn.mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
+    expect(previewEnv.QUANTPILOT_SANDBOX_PREVIEW_SOCKET).toBeUndefined();
+    expect(previewEnv.QUANTPILOT_SANDBOX_MARKET_SOCKET).toBeUndefined();
+
+    const directListener = createServer();
+    await new Promise<void>((resolve, reject) => {
+      directListener.once('error', reject);
+      directListener.listen(previewTestPort, '127.0.0.1', resolve);
+    });
+    await new Promise<void>((resolve, reject) => {
+      directListener.close((error) => (error ? reject(error) : resolve()));
+    });
     await manager.stop('project-preview');
   });
 
