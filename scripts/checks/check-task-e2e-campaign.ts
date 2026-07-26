@@ -324,11 +324,11 @@ async function createOrResumeCase(input: {
         name: taskTitle(campaign, item),
         initialPrompt: item.question,
         selectedModel: item.model,
-        quantCapabilityId: item.capabilityId,
+        capabilityId: item.capabilityId,
         // Every dataset row is an explicit capability selection. Mark it as
         // manual so LLM query rewrite may refine the task but cannot silently
         // replace the user's selected product capability.
-        quantCapabilitySource: 'manual',
+        capabilitySelectionSource: 'manual',
       },
     });
     assert(createdProject.status === 201,
@@ -359,8 +359,8 @@ async function createOrResumeCase(input: {
         images: [],
         isInitialPrompt: snapshot.status === 'idle',
         selectedModel: item.model,
-        quantCapabilityId: item.capabilityId,
-        quantCapabilitySource: 'manual',
+        capabilityId: item.capabilityId,
+        capabilitySelectionSource: 'manual',
       },
     });
     const acceptedBody = record(accepted.body);

@@ -64,8 +64,8 @@ export interface FinanceActPreparationInput {
   cliPreference: string;
   selectedModel: string;
   conversationId: string | null;
-  quantCapabilityId?: string | null;
-  quantCapabilitySource?: string | null;
+  capabilityId?: string | null;
+  capabilitySelectionSource?: string | null;
   processedImageCount: number;
   previousRunPlan: QuantRunPlan | null;
   quotaActorUserId: string | null;
@@ -96,8 +96,8 @@ export async function prepareFinanceActGeneration(
     cliPreference,
     selectedModel,
     conversationId,
-    quantCapabilityId,
-    quantCapabilitySource,
+    capabilityId,
+    capabilitySelectionSource,
     processedImageCount,
     previousRunPlan,
     quotaActorUserId,
@@ -173,7 +173,7 @@ export async function prepareFinanceActGeneration(
           summary: "正在把用户问题整理为可执行的标的、周期和分析合同。",
           input: {
             question: planningInstruction,
-            requestedCapabilityId: quantCapabilityId,
+            requestedCapabilityId: capabilityId,
           },
         });
         runPlannerToolCallId = await publishQuantPipelineToolStart({
@@ -186,7 +186,7 @@ export async function prepareFinanceActGeneration(
           summary: "正在核对分析对象、时间范围、数据需求和验收规则。",
           input: {
             question: planningInstruction,
-            requestedCapabilityId: quantCapabilityId,
+            requestedCapabilityId: capabilityId,
           },
         });
         if (quotaActorUserId) {
@@ -205,8 +205,8 @@ export async function prepareFinanceActGeneration(
           projectPath,
           instruction: planningInstruction,
           requestId,
-          capabilityId: quantCapabilityId,
-          capabilitySource: quantCapabilitySource,
+          capabilityId,
+          capabilitySource: capabilitySelectionSource,
           hasImageAttachments: processedImageCount > 0,
           previousPlan: previousRunPlan,
           llmModel: selectedModel,

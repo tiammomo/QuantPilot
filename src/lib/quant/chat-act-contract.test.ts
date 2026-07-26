@@ -15,10 +15,12 @@ describe('chat act request contract', () => {
       selectedModel: 'local_qwen:qwen3.5-9b-q5km',
       images: [{ name: 'holding.png', path: 'assets/holding.png', mimeType: 'image/png' }],
       isInitialPrompt: true,
-      quantCapabilityId: 'single-stock-diagnosis',
-      quantCapabilitySource: 'manual',
+      capabilityId: 'single-stock-diagnosis',
+      capabilitySelectionSource: 'manual',
     })).toMatchObject({
       requestId: 'request-1',
+      capabilityId: 'single-stock-diagnosis',
+      capabilitySelectionSource: 'manual',
       images: [{ path: 'assets/holding.png' }],
       isInitialPrompt: true,
     });
@@ -34,6 +36,8 @@ describe('chat act request contract', () => {
     { instruction: 'x', request_id: 'old' },
     { instruction: 'x', selected_model: 'old' },
     { instruction: 'x', cliPreference: 'moagent' },
+    { instruction: 'x', quantCapabilityId: 'old' },
+    { instruction: 'x', quantCapabilitySource: 'manual' },
     { instruction: 'x', images: [{ path: '/tmp/portfolio.png' }] },
     { instruction: 'x', images: [{ path: 'assets/../portfolio.png' }] },
     { instruction: 'x', images: [{ path: 'assets/portfolio.png', base64_data: 'abc' }] },

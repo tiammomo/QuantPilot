@@ -599,8 +599,8 @@ async function ensureBenchmarkProject({ projectId, projectPath, testCase, select
     initialPrompt: testCase.question,
     preferredCli: 'moagent',
     selectedModel,
-    quantCapabilityId: testCase.capabilityId,
-    quantCapabilitySource: 'manual',
+    capabilityId: testCase.capabilityId,
+    capabilitySelectionSource: 'manual',
   });
   await scaffoldBasicNextApp(projectPath, projectId);
 }
@@ -2057,8 +2057,8 @@ async function runLiveProductE2eCase(testCase, options) {
         displayInstruction: testCase.question,
         requestId,
         selectedModel: options.model,
-        quantCapabilityId: testCase.capabilityId,
-        quantCapabilitySource: 'manual',
+        capabilityId: testCase.capabilityId,
+        capabilitySelectionSource: 'manual',
         isInitialPrompt: true,
       }),
     },

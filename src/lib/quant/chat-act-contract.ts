@@ -26,8 +26,8 @@ export const chatActRequestSchema = z.object({
   selectedModel: boundedOptionalText(256),
   images: z.array(chatActImageAttachmentSchema).max(MAX_CHAT_ACT_IMAGE_ATTACHMENTS).default([]),
   isInitialPrompt: z.boolean().default(false),
-  quantCapabilityId: boundedOptionalText(128),
-  quantCapabilitySource: z.enum(['manual', 'default', 'inferred']).optional(),
+  capabilityId: boundedOptionalText(128),
+  capabilitySelectionSource: z.enum(['manual', 'default', 'inferred']).optional(),
 }).strict().refine((value) => (
   value.instruction.trim().length > 0 ||
   (value.displayInstruction?.trim().length ?? 0) > 0 ||

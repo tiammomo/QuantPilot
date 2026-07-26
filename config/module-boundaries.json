@@ -403,8 +403,8 @@
       },
       {
         "path": "src/app/api/chat/[project_id]/act/route.ts",
-        "pattern": "body\\.(request_id|selected_model|cliPreference|quant_capability_id|quant_capability_source|is_initial_prompt)|base64_data",
-        "reason": "Act ingress 只接受 chat-act-contract.ts 定义的 camelCase 当前契约。"
+        "pattern": "body\\.(request_id|selected_model|cliPreference|quantCapabilityId|quantCapabilitySource|quant_capability_id|quant_capability_source|is_initial_prompt)|base64_data",
+        "reason": "Act ingress 只接受 chat-act-contract.ts 定义的通用 Data Agent camelCase 当前契约。"
       },
       {
         "path": "src/app/api/projects/route.ts",

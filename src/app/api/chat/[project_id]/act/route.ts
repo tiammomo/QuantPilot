@@ -372,8 +372,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       getDefaultModelForCli(cliPreference);
     const selectedModel = normalizeModelId(cliPreference, selectedModelRaw);
 
-    const quantCapabilityId = body.quantCapabilityId;
-    const quantCapabilitySource = body.quantCapabilitySource;
+    const capabilityId = body.capabilityId;
+    const capabilitySelectionSource = body.capabilitySelectionSource;
 
     await ensureProjectLlmConfiguration({
       projectId: project_id,
@@ -392,7 +392,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       previousPlan: previousRunPlan,
       instruction: finalInstruction,
       displayInstruction,
-      capabilityId: quantCapabilityId,
+      capabilityId,
       reset: isInitialPrompt,
     });
     const effectiveInstruction = clarificationContinuation
@@ -411,7 +411,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       actorUserId: actionContext.actorUserId,
       requestId,
       instruction: effectiveDisplayInstruction || effectiveInstruction,
-      capabilityId: quantCapabilityId,
+      capabilityId,
     });
     const personalizationCandidate = detectPersonalMemoryCandidate(
       effectiveDisplayInstruction ||
@@ -562,8 +562,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       cliPreference,
       selectedModel,
       conversationId: conversationId ?? null,
-      quantCapabilityId,
-      quantCapabilitySource,
+      capabilityId,
+      capabilitySelectionSource,
       processedImageCount: processedImages.length,
       previousRunPlan,
       quotaActorUserId: actorUserId,

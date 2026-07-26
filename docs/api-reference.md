@@ -73,14 +73,14 @@
     }
   ],
   "isInitialPrompt": false,
-  "quantCapabilityId": "stock_diagnosis",
-  "quantCapabilitySource": "manual"
+  "capabilityId": "stock_diagnosis",
+  "capabilitySelectionSource": "manual"
 }
 ```
 
-`instruction`、`displayInstruction` 和 `images` 至少有一项非空；`images` 最多 8 张。图片必须先通过 `/api/assets/[project_id]/upload` 上传，随后只提交服务端返回的 `assets/<filename>` 相对路径。上传响应使用 `originalFilename`、`publicPath`、`publicUrl`，不返回重复 snake_case 字段。服务端会校验真实文件、图片签名、单图/总大小和 canonical project root，再由 Data Agent 通用层写 manifest；金融持仓字段和量化提取要求由 Finance Domain Adapter 注入。
+`instruction`、`displayInstruction` 和 `images` 至少有一项非空；`images` 最多 8 张。`capabilityId` 和 `capabilitySelectionSource` 是通用 Data Agent 合同，由当前 Agent Profile 解析，不携带金融前缀。图片必须先通过 `/api/assets/[project_id]/upload` 上传，随后只提交服务端返回的 `assets/<filename>` 相对路径。上传响应使用 `originalFilename`、`publicPath`、`publicUrl`，不返回重复 snake_case 字段。服务端会校验真实文件、图片签名、单图/总大小和 canonical project root，再由 Data Agent 通用层写 manifest；金融持仓字段和量化提取要求由 Finance Domain Adapter 注入。
 
-`POST /api/chat/[project_id]/messages` 同样只接受 `content`、`role`、`messageType`、`conversationId`、`cliSource`；`DELETE` 只接受 `conversationId` 查询参数。消息、SSE 和 WebSocket 输出均使用 camelCase。客户端如果仍发送 `request_id`、`selected_model`、`base64_data`、`public_url` 或 `conversation_id`，应修复调用方，而不是给服务端增加兼容分支。
+`POST /api/chat/[project_id]/messages` 同样只接受 `content`、`role`、`messageType`、`conversationId`、`cliSource`；`DELETE` 只接受 `conversationId` 查询参数。消息、SSE 和 WebSocket 输出均使用 camelCase。客户端如果仍发送 `request_id`、`selected_model`、`quantCapabilityId`、`quantCapabilitySource`、`base64_data`、`public_url` 或 `conversation_id`，应修复调用方，而不是给服务端增加兼容分支。
 
 `POST /api/projects` 只接受 `projectId`、`name`、`initialPrompt`、`selectedModel`、`description`、`agentProfileId`、通用 `capabilityId` 和 `capabilitySelectionSource`。Profile Catalog 负责解析 capability 并调用对应 workspace adapter，项目 API 不直接读取金融能力目录。项目模型偏好通过 `PUT /api/projects/[project_id]` 的 `selectedModel` 更新；旧 `/api/chat/[project_id]/cli-preference` 平行入口已删除。
 

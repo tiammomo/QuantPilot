@@ -359,7 +359,12 @@ export default function StrategyPlatformClient({ initialData }: Props) {
       await fetch(`${API_BASE}/api/chat/${createdId}/act`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction: prompt, isInitialPrompt: true, quantCapabilityId: capabilityId }),
+        body: JSON.stringify({
+          instruction: prompt,
+          isInitialPrompt: true,
+          capabilityId,
+          capabilitySelectionSource: "manual",
+        }),
       }).catch(() => null);
       router.push(`/${createdId}/chat`);
     } catch (error) {
