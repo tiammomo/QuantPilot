@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "quantpilot-task-e2e-v1",
-  "description": "真实经过 Project API、/act、MoAgent Mission、Workspace、验证和预览链路的任务级回归集。",
+  "description": "真实经过 Project API、/act、PI Agent Mission、Workspace、验证和预览链路的任务级回归集。",
   "cases": [
     { "id": "C01", "capabilityId": "stock_diagnosis", "model": "local_qwen:qwen3.5-9b-q5km", "question": "分析贵州茅台近60个交易日的趋势、量能、估值与主要风险，生成紧凑的个股诊断看板。" },
     { "id": "C02", "capabilityId": "technical_analysis", "model": "local_qwen:qwen3.5-9b-q5km", "question": "分析宁德时代近120个交易日的K线、均线、成交量、波动率和最大回撤，生成技术分析看板。" },

@@ -120,8 +120,8 @@
     {
       "id": "K02",
       "category": "knowledge",
-      "question": "MoAgent 为什么可能一直停在生成看板，正确的工作空间交付闭环是什么？",
-      "expected": { "title": "MoAgent 工作空间交付闭环", "behavior": "context_pack" }
+      "question": "PI Agent 为什么可能一直停在生成看板，正确的工作空间交付闭环是什么？",
+      "expected": { "title": "PI Agent 工作空间交付闭环", "behavior": "context_pack" }
     },
     {
       "id": "K03",
@@ -157,7 +157,7 @@
       "id": "T02",
       "category": "triad",
       "question": "解释为什么任务不能一直停在生成看板，并给出可靠收口方法。",
-      "expected": { "memoryApplied": false, "knowledgeApplied": true, "knowledgeQuestion": "MoAgent 工作空间 生成看板 submit_result Mission accepted" }
+      "expected": { "memoryApplied": false, "knowledgeApplied": true, "knowledgeQuestion": "PI Agent 工作空间 生成看板 submit_result Mission accepted" }
     },
     {
       "id": "T03",

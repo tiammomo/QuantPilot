@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   evidence:
-    name: Current-build MoAgent release evidence
+    name: Current-build PiAgent release evidence
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -31,12 +31,12 @@ jobs:
       PROJECTS_DIR: ./tmp/release-evidence-projects
       QUANTPILOT_EVAL_MODE: e2e
       QUANTPILOT_EVAL_TRIGGER: release
-      MOAGENT_BUILD_REVISION: ${{ github.sha }}
-      MOAGENT_MAX_TURNS: '3'
-      MOAGENT_TIMEOUT_MS: '900000'
-      MOAGENT_E2E_MAX_TURNS_PER_CASE: '12'
-      MOAGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE: '84000'
-      MOAGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES: '0'
+      PI_AGENT_BUILD_REVISION: ${{ github.sha }}
+      PI_AGENT_MAX_TURNS: '3'
+      PI_AGENT_TIMEOUT_MS: '900000'
+      PI_AGENT_E2E_MAX_TURNS_PER_CASE: '12'
+      PI_AGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE: '84000'
+      PI_AGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES: '0'
 
     steps:
       - name: Checkout

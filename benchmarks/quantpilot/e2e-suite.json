@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "id": "moagent-release-evidence-v2",
-  "description": "MoAgent release evidence suite: DeepSeek live Mission cases plus deterministic product and runtime recovery controls",
+  "id": "pi-agent-release-evidence-v2",
+  "description": "PiAgent release evidence suite: DeepSeek live Mission cases plus deterministic product and runtime recovery controls",
   "caseIds": [
     "stock-diagnosis-citic-custom-no-cards",
     "index-technical-hs300",
@@ -61,7 +61,7 @@
       "evidenceClass": "runtime_test",
       "caseIds": [],
       "runtimeTests": [
-        "src/lib/services/moagent-recovery.test.ts",
+        "src/lib/services/pi-agent-recovery.test.ts",
         "src/lib/agent/runtime/workspace-mutation-journal.test.ts"
       ]
     },

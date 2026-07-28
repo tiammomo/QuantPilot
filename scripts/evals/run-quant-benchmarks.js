@@ -14,7 +14,10 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-b
 });
 
 const { ensureQuantDashboardTemplate, scaffoldBasicNextApp } = jiti('../../src/lib/utils/scaffold.ts');
-const { writeInitialRunPlan } = jiti('../../src/lib/domains/finance/workspace.ts');
+const {
+  readQuantRunPlan,
+  writeInitialRunPlan,
+} = jiti('../../src/lib/domains/finance/workspace.ts');
 const { rewriteQuantQuery } = jiti('../../src/lib/domains/finance/query-rewrite.ts');
 const {
   serializeQuantVisualizationTemplate,
@@ -41,22 +44,25 @@ const {
   getModelDefinitionsForCli,
   normalizeModelId,
 } = jiti('../../src/lib/constants/models.ts');
-const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/moagent.ts');
+const { applyChanges, initializeNextJsProject } = jiti('../../src/lib/services/cli/pi-agent.ts');
 const {
   failBenchmarkGenerationRun,
   runBenchmarkRepairLoop,
 } = jiti('../../src/lib/eval/benchmark-repair.ts');
 const {
-  DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
-  evaluateMoAgentE2eQuality,
+  DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS,
+  evaluatePiAgentE2eQuality,
   isE2eAgentExecutionAttested,
   summarizeE2eAgentExecution,
-  summarizeMoAgentE2eQuality,
+  summarizePiAgentE2eQuality,
 } = jiti('../../src/lib/eval/e2e-attestation.ts');
 const {
-  MOAGENT_BUILD_IDENTITY,
-  MOAGENT_FRAMEWORK_VERSION,
+  PI_AGENT_BUILD_IDENTITY,
+  PI_AGENT_FRAMEWORK_VERSION,
 } = jiti('../../src/lib/agent/framework-identity.ts');
+const {
+  createPiAgentPhaseGraph,
+} = jiti('../../src/lib/agent/core/phase-graph.ts');
 const {
   attestEvalReport,
   EVAL_REPORT_SCHEMA_VERSION,
@@ -76,6 +82,14 @@ const { buildEvalTraceDiagnostics } = jiti('../../src/lib/eval/trace-diagnostics
 const { evalSnapshotPayloadSha256 } = jiti('../../src/lib/eval/snapshot-contract.ts');
 const { normalizedPromptHash } = jiti('../../src/lib/eval/dataset-contract.ts');
 
+const CUSTOM_LANE_BUDGETS = createPiAgentPhaseGraph({
+  profile: 'generation',
+  platformPrepared: true,
+  preparedIntent: 'custom',
+  hasAttachments: false,
+  dashboardSpecReady: false,
+}).budgets;
+
 // Keep CLI evaluation consistent with the web launcher while preserving
 // explicitly provided CI environment variables. Local overrides load first.
 dotenv.config({ path: path.resolve('.env.local') });
@@ -89,7 +103,7 @@ const SNAPSHOT_MANIFEST_PATH = path.resolve('benchmarks/quantpilot/snapshot-mani
 const QUERY_REWRITE_FIXTURES_PATH = path.resolve('benchmarks/quantpilot/query-rewrite-fixtures.json');
 const PROJECTS_DIR = path.resolve(process.env.PROJECTS_DIR || './data/projects');
 const REPORTS_DIR = path.resolve('tmp/quantpilot-benchmark-reports');
-const DEFAULT_MODEL = getDefaultModelForCli('moagent');
+const DEFAULT_MODEL = getDefaultModelForCli('pi');
 const QUERY_REWRITE_FIXTURES = require(QUERY_REWRITE_FIXTURES_PATH);
 
 function githubWorkflowCommandValue(value) {
@@ -126,9 +140,9 @@ async function replayContractQueryRewrite({ testCase, instruction, phase = 'prim
 }
 
 function modelRuntime(model) {
-  const definition = getModelDefinitionsForCli('moagent')
+  const definition = getModelDefinitionsForCli('pi')
     .find((candidate) => candidate.id === model);
-  if (!definition) throw new Error(`未注册的 MoAgent 模型：${model || '(empty)'}`);
+  if (!definition) throw new Error(`未注册的 PI Agent 模型：${model || '(empty)'}`);
   return { model: definition.id, provider: definition.provider };
 }
 
@@ -143,7 +157,7 @@ function parseArgs(argv) {
   let mode = process.env.QUANTPILOT_EVAL_MODE || 'contract';
   let datasetVisibility = process.env.QUANTPILOT_EVAL_DATASET_VISIBILITY || 'public';
   let casesFile = process.env.QUANTPILOT_EVAL_CASES_PATH || null;
-  let cli = 'moagent';
+  let cli = 'pi';
   let model = process.env.QUANTPILOT_EVAL_MODEL || DEFAULT_MODEL;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -299,14 +313,14 @@ function parseArgs(argv) {
       if (tracked.status === 0) throw new Error(`${datasetVisibility} 数据集被 Git 跟踪，拒绝执行以防测试集泄漏`);
     }
   }
-  if (cli !== 'moagent') {
-    throw new Error(`benchmark 只接受 --cli=moagent，收到：${cli || '(empty)'}`);
+  if (cli !== 'pi') {
+    throw new Error(`benchmark 只接受 --cli=pi，收到：${cli || '(empty)'}`);
   }
   const requestedModel = model.trim().toLowerCase();
-  const modelDefinition = getModelDefinitionsForCli('moagent').find((definition) =>
+  const modelDefinition = getModelDefinitionsForCli('pi').find((definition) =>
     definition.id.toLowerCase() === requestedModel ||
     definition.aliases.some((alias) => alias.toLowerCase() === requestedModel));
-  if (!modelDefinition) throw new Error(`benchmark 收到未注册的 MoAgent 模型：${model || '(empty)'}`);
+  if (!modelDefinition) throw new Error(`benchmark 收到未注册的 PI Agent 模型：${model || '(empty)'}`);
   model = modelDefinition.id;
   if (!Number.isSafeInteger(repeat) || repeat < 1 || repeat > 5) {
     throw new Error(`--repeat 必须是 1 到 5 的整数，收到：${repeat}`);
@@ -348,7 +362,7 @@ async function fileExists(filePath) {
 }
 
 async function readSkillLockSnapshot() {
-  const lockPath = path.resolve('.moagent/skills.lock.json');
+  const lockPath = path.resolve('.pi/skills.lock.json');
   const lock = await readJson(lockPath).catch(() => null);
   if (!lock || typeof lock !== 'object' || !lock.skills || typeof lock.skills !== 'object') {
     return { schemaVersion: null, skills: {} };
@@ -597,7 +611,7 @@ async function ensureBenchmarkProject({ projectId, projectPath, testCase, select
     name: `Benchmark ${testCase.name}`,
     description: testCase.question,
     initialPrompt: testCase.question,
-    preferredCli: 'moagent',
+    preferredCli: 'pi',
     selectedModel,
     capabilityId: testCase.capabilityId,
     capabilitySelectionSource: 'manual',
@@ -1216,14 +1230,14 @@ function runRuntimeRegistryCase(testCase) {
   const projectId = `benchmark-${testCase.id}`;
   const projectPath = path.join(PROJECTS_DIR, projectId);
   const failures = [];
-  const registeredModels = getModelDefinitionsForCli('moagent');
+  const registeredModels = getModelDefinitionsForCli('pi');
 
   assertCondition(registeredModels.length === 3, `平台应暴露 3 个受控模型，实际 ${registeredModels.length} 个。`, failures);
   assertCondition(registeredModels[0]?.id === DEFAULT_MODEL, `首个模型应为 ${DEFAULT_MODEL}，实际 ${registeredModels[0]?.id}`, failures);
   assertCondition(registeredModels[1]?.id === 'deepseek:deepseek-v4-flash', `第二个模型应为 ModelPort DeepSeek，实际 ${registeredModels[1]?.id}`, failures);
   assertCondition(registeredModels[2]?.id === 'deepseek-v4-flash', `第三个模型应为可选官方直连，实际 ${registeredModels[2]?.id}`, failures);
-  assertCondition(getDefaultModelForCli('moagent') === DEFAULT_MODEL, `默认模型应为 ${DEFAULT_MODEL}，实际 ${getDefaultModelForCli('moagent')}`, failures);
-  assertCondition(normalizeModelId('moagent', 'local_qwen:qwen3.5-9b-q5km') === 'local_qwen:qwen3.5-9b-q5km', '已注册的本地 Qwen 输入应被保留。', failures);
+  assertCondition(getDefaultModelForCli('pi') === DEFAULT_MODEL, `默认模型应为 ${DEFAULT_MODEL}，实际 ${getDefaultModelForCli('pi')}`, failures);
+  assertCondition(normalizeModelId('pi', 'local_qwen:qwen3.5-9b-q5km') === 'local_qwen:qwen3.5-9b-q5km', '已注册的本地 Qwen 输入应被保留。', failures);
   assertCondition(normalizeModelId('codex', 'gpt-5.5') === DEFAULT_MODEL, '任何未注册供应商或模型输入都应安全回退到本地 Qwen。', failures);
 
   return {
@@ -1239,7 +1253,7 @@ function runRuntimeRegistryCase(testCase) {
     prefetch: { skipped: true, summary: '运行时注册表用例不创建生成项目。' },
     artifacts: {
       registeredModels,
-      defaultModel: getDefaultModelForCli('moagent'),
+      defaultModel: getDefaultModelForCli('pi'),
     },
     validation: {
       status: failures.length === 0 ? 'passed' : 'failed',
@@ -1811,7 +1825,7 @@ async function waitForAcceptedMission({ projectPath, projectId, requestId }) {
     });
     if (mission && ['failed', 'cancelled'].includes(mission.status)) {
       throw new Error(
-        `MoAgent Mission ${mission.id} ended as ${mission.status}: ` +
+        `PI Agent Mission ${mission.id} ended as ${mission.status}: ` +
         `${mission.errorCode || 'UNKNOWN'} ${mission.errorMessage || ''}`.trim(),
       );
     }
@@ -1833,7 +1847,7 @@ async function waitForAcceptedMission({ projectPath, projectId, requestId }) {
     }
     await delay(1_000);
   }
-  throw new Error(`等待 MoAgent Mission acceptance 超时：${requestId}`);
+  throw new Error(`等待 PI Agent Mission acceptance 超时：${requestId}`);
 }
 
 function aggregateNumber(records, field) {
@@ -1867,8 +1881,8 @@ function expectedExecutionLaneFailures(testCase, execution, expectedRuntime) {
   const rootRun = execution?.runs?.find((run) => run.requestId === execution.requestId);
   const rootToolNames = rootRun?.tools?.succeededToolNames || [];
   if (testCase.expectedExecutionLane === 'deterministic_standard') {
-    return execution?.provider === 'moagent-trusted-renderer' &&
-      execution?.model === 'moagent-deterministic-renderer-v1' &&
+    return execution?.provider === 'pi-agent-trusted-renderer' &&
+      execution?.model === 'pi-agent-deterministic-renderer-v1' &&
       execution?.turns === 2 &&
       execution?.usage?.totalTokens === 0 &&
       execution?.usage?.inputTokens === 0 &&
@@ -1888,19 +1902,24 @@ function expectedExecutionLaneFailures(testCase, execution, expectedRuntime) {
       execution?.model === expectedRuntime.model &&
       Number.isSafeInteger(rootRun?.turns) &&
       rootRun.turns > 0 &&
-      rootRun.turns <= 3 &&
+      rootRun.turns <= CUSTOM_LANE_BUDGETS.maxTurns &&
       Number.isSafeInteger(rootRun?.usage?.inputTokens) &&
       rootRun.usage.inputTokens >= 0 &&
-      rootRun.usage.inputTokens <= 24_000 &&
+      rootRun.usage.inputTokens <= CUSTOM_LANE_BUDGETS.maxCumulativePreparedInputTokens &&
+      Number.isSafeInteger(rootRun?.usage?.outputTokens) &&
+      rootRun.usage.outputTokens >= 0 &&
+      rootRun.usage.outputTokens <= CUSTOM_LANE_BUDGETS.maxOutputTokens &&
       Number.isSafeInteger(rootRun?.usage?.cacheMissInputTokens) &&
       rootRun.usage.cacheMissInputTokens >= 0 &&
-      rootRun.usage.cacheMissInputTokens <= 24_000 &&
+      rootRun.usage.cacheMissInputTokens <= CUSTOM_LANE_BUDGETS.maxCacheMissInputTokens &&
+      Number.isSafeInteger(rootRun?.tools?.total) &&
+      rootRun.tools.total <= CUSTOM_LANE_BUDGETS.maxToolCalls &&
       rootRun?.tools?.unexpectedFailureCount === 0 &&
       rootToolNames.includes('semantic_edit') &&
       !rootToolNames.includes('quant_api_get') &&
       !rootToolNames.includes('apply_dashboard_spec')
       ? []
-      : ['期望 model_custom DeepSeek 路径，但实际运行身份不匹配。'];
+      : ['期望 model_custom PI Agent 模型路径，但实际运行身份不匹配。'];
   }
   return [`未知 expectedExecutionLane：${testCase.expectedExecutionLane}`];
 }
@@ -1995,7 +2014,7 @@ async function collectLiveAgentExecution({ projectId, requestId, mission }) {
       : null;
   return {
     executed: runs.length > 0,
-    cli: 'moagent',
+    cli: 'pi',
     provider: only('provider'),
     model: only('model'),
     requestId,
@@ -2014,7 +2033,7 @@ async function collectLiveAgentExecution({ projectId, requestId, mission }) {
     acceptedCandidateSource,
     frameworkVersion: only('frameworkVersion'),
     buildRevision: only('buildRevision'),
-    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
     startedAt: startedAt?.toISOString() ?? null,
     completedAt: completedAt?.toISOString() ?? null,
     turns: aggregateNumber(runs, 'turnCount'),
@@ -2521,7 +2540,7 @@ async function runBenchmarkCase(testCase, options) {
     result.passed = false;
     result.failures = Array.from(new Set([
       ...(result.failures || []),
-      '该 E2E case 未实际执行 MoAgent，不能作为真实生成通过证据。',
+      '该 E2E case 未实际执行 PI Agent，不能作为真实生成通过证据。',
     ]));
   }
   result = await applySelectedEvaluator(testCase, result, options);
@@ -2676,7 +2695,7 @@ async function main() {
   const expectedRuntime = modelRuntime(args.model);
   const agentExecutionSummary = summarizeE2eAgentExecution(results, expectedRuntime);
   const e2eQuality = args.mode === 'e2e'
-    ? evaluateMoAgentE2eQuality(results, DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS)
+    ? evaluatePiAgentE2eQuality(results, DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS)
     : null;
   const benchmarkFinishedAt = new Date().toISOString();
   const reportCreatedAt = new Date().toISOString();
@@ -2686,9 +2705,9 @@ async function main() {
       schemaVersion: 1,
       suiteId: e2eSuite.id,
       suiteSchemaVersion: e2eSuite.schemaVersion,
-      frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-      buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-      gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+      frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+      buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+      gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
       startedAt: productControlsStartedAt,
       finishedAt: productControlsFinishedAt,
       caseIds: e2eSuite.productControlCaseIds,
@@ -2698,9 +2717,9 @@ async function main() {
     };
     const productControlAttestation = attestProductControlEvidence(releaseControls, {
       suite: e2eSuite,
-      frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-      buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-      gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+      frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+      buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+      gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
     });
     releaseControls.attestation = {
       schemaVersion: 1,
@@ -2730,8 +2749,8 @@ async function main() {
         agentExecuted: args.mode === 'e2e' && agentExecutionSummary.agentExecuted,
         executedCaseCount: agentExecutionSummary.executedCaseCount,
         unattestedCaseIds: args.mode === 'e2e' ? agentExecutionSummary.unattestedCaseIds : [],
-        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
+        frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+        buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
         reasoningEffort: null,
       },
       suite: {
@@ -2758,10 +2777,10 @@ async function main() {
         ),
       },
       provenance: {
-        gitCommit: MOAGENT_BUILD_IDENTITY.gitRevision,
-        gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
-        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+        gitCommit: PI_AGENT_BUILD_IDENTITY.gitRevision,
+        gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
+        buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+        frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
         casesSha256: sha256(JSON.stringify(cases)),
         promptsSha256: sha256(cases.map((testCase) => testCase.question || '').join('\n')),
         datasetRegistrySha256: evalSnapshotPayloadSha256(datasetRegistry),
@@ -2818,10 +2837,10 @@ async function main() {
         ? testCase.question
         : `[redacted:${normalizedPromptHash(testCase.question || '')}]`,
     ])),
-    frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-    buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
-    qualityThresholds: DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
+    frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+    buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+    gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
+    qualityThresholds: DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS,
     now: new Date(reportCreatedAt),
   });
   report.attestation = {
@@ -2856,9 +2875,9 @@ async function main() {
     `stability=${qualitySummary.stability.passRate}% score=${qualitySummary.averageScore}`,
   );
   if (e2eQuality) {
-    const quality = summarizeMoAgentE2eQuality(results);
+    const quality = summarizePiAgentE2eQuality(results);
     console.log(
-      `[QuantBenchmark] MoAgent quality turns(avg/max)=` +
+      `[QuantBenchmark] PI Agent quality turns(avg/max)=` +
       `${quality.turns.average}/${quality.turns.max.value} ` +
       `cacheMiss(avg/max)=${quality.cacheMissInputTokens.average}/` +
       `${quality.cacheMissInputTokens.max.value} ` +
