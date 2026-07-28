@@ -2,6 +2,8 @@
 
 这份文档记录 QuantPilot 当前对外和内部页面使用的主要 API。它不是替代源码的逐行说明，而是帮助维护者快速判断“这个页面读的是哪个入口、后端职责在哪里、出问题先看哪一层”。
 
+生成类 API 由 PI Agent `0.82.1` 执行完整多轮工具循环，权限、审批、durable run、Mission 和交付验证由 QuantPilot 承担。所有 Agent API、设置和任务信封只接受规范 CLI 值 `pi`。详见 [PI Agent 采用与治理边界](pi-agent-migration.md)。
+
 ## 服务边界
 
 | 服务 | 默认地址 | 代码位置 | 责任 |

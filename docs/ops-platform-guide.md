@@ -34,7 +34,7 @@ http://localhost:3000/ops-platform
 | 全局槽位 | `agent_worker_slots` | 当前到底占用了多少集群执行容量、哪个 Job/Worker 持有槽位、租约是否过期 |
 | Generation queue | `agent_generation_jobs`、`user_requests` | pending/retry/running 数量、排队用户数、最久等待和 24 小时完成/失败量 |
 
-`MOAGENT_DISPATCH_MODE=worker` 时，“有排队任务但没有存活 Worker”是 failed；没有任务但 Worker 不在线是 warning。存活 Worker 的 global concurrency 不一致会阻止新实例加入，运维页仍会把历史漂移显示为 failed。运行中 Job 没有对应有效槽位、槽位心跳过期也会进入 attention queue。
+`PI_AGENT_DISPATCH_MODE=worker` 时，“有排队任务但没有存活 Worker”是 failed；没有任务但 Worker 不在线是 warning。存活 Worker 的 global concurrency 不一致会阻止新实例加入，运维页仍会把历史漂移显示为 failed。运行中 Job 没有对应有效槽位、槽位心跳过期也会进入 attention queue。
 
 ## 评分不是玄学
 

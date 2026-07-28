@@ -1,6 +1,6 @@
 # 架构总览
 
-QuantPilot 是通用 Data Agent 平台上的第一个金融应用。核心链路是：用户提出研究问题，Data Agent 使用所选 LLM 形成通用任务合同，Finance Domain Pack 再通过独立 Resolver 核验证券、生成金融 run plan 并注入数据、Skills、工具和 Mission；MoAgent 根据受控合同生成工作空间，最后由 Delivery 验证、视觉检查、产物契约和评测决定是否可交付。
+QuantPilot 是通用 Data Agent 平台上的第一个金融应用。核心链路是：用户提出研究问题，Data Agent 使用所选 LLM 形成通用任务合同，Finance Domain Pack 再通过独立 Resolver 核验证券、生成金融 run plan 并注入数据、Skills、工具和 Mission；PI Agent 根据受控合同运行完整多轮工具循环，QuantPilot 治理层约束副作用并生成工作空间，最后由 Delivery 验证、视觉检查、产物契约和评测决定是否可交付。
 
 ```mermaid
 flowchart LR
@@ -13,9 +13,9 @@ flowchart LR
   Q --> M[证券 Resolver / 市场数据 :8000]
   Q --> J[(Generation Job / Outbox)]
   J --> WK[独立 Data Agent Worker]
-  WK --> G[Domain Handler / Mission -> MoAgent Graph]
+  WK --> G[Domain Handler / Mission -> Agent Governance]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
-  G --> R[MoAgent Runtime]
+  G --> R[PI Agent Runtime]
   G --> DB
   F --> S[Finance Skills / Tools / Validators]
   S --> R
@@ -70,19 +70,19 @@ flowchart LR
 
 | 内部执行器 | 模型 | 接口边界 | 用途 |
 | --- | --- | --- | --- |
-| `moagent` | `local_qwen:qwen3.5-9b-q5km`（默认） | 本机 `http://127.0.0.1:38082/v1/chat/completions` | 分析、生成与评测 |
-| `moagent` | `deepseek:deepseek-v4-flash`（日常可选） | QuantPilot 调 ModelPort OpenAI-compatible `/chat/completions`；ModelPort 调 DeepSeek Anthropic `/v1/messages` | 分析与生成 |
-| `moagent` | `deepseek-v4-flash`（备用直连） | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 绕过 ModelPort 的部署/CI 备用链路 |
+| PI Agent（执行器 `pi`） | `local_qwen:qwen3.5-9b-q5km`（默认） | 本机 `http://127.0.0.1:38082/v1/chat/completions` | 分析、生成与评测 |
+| PI Agent（执行器 `pi`） | `deepseek:deepseek-v4-flash`（日常可选） | QuantPilot 调 ModelPort OpenAI-compatible `/chat/completions`；ModelPort 调 DeepSeek Anthropic `/v1/messages` | 分析与生成 |
+| PI Agent（执行器 `pi`） | `deepseek-v4-flash`（备用直连） | DeepSeek 官方 OpenAI-compatible `/chat/completions` | 绕过 ModelPort 的部署/CI 备用链路 |
 
-MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent SDK 或 CLI 子进程；它可以运行在 Web 的本地开发进程，也可以运行在生产独立 Worker 进程。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；generation job/outbox、项目级 generation lease、物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。generation lease 在 run plan 落盘前串行化外层编排，数据库唯一 active Mission slot 再保证同一项目不会被两个合规入口同时创建非终态 generation。
+PI Agent `0.82.1` 是 QuantPilot 的进程内开源 Agent loop，不启动 Agent CLI 子进程；它可以运行在 Web 的本地开发进程，也可以运行在生产独立 Worker 进程。QuantPilot 把既有 Provider 和类型化工具适配给 PI，并继续负责权限、上下文、预算与 durable runtime。Provider 地址和模型标识由 `config/llm.json` 的版本化 profile 锁定，客户端不能提交任意 Base URL；凭据仅从服务端环境读取。运行前由 Context Manager 控制输入预算；generation job/outbox、项目级 generation lease、物理运行状态、公开事件、replan checkpoint、工具 operation ledger、MissionSpec 物化节点和不可变 evidence receipt 进入 PostgreSQL，hidden reasoning 永不持久化。generation lease 在 run plan 落盘前串行化外层编排，数据库唯一 active Mission slot 再保证同一项目不会被两个合规入口同时创建非终态 generation。
 
 模型和 CLI 的注册入口：
 
 - `src/lib/constants/models.ts`
 - `src/lib/agent/`
-- `src/lib/services/cli/moagent.ts`
+- `src/lib/services/cli/pi-agent.ts`
 
-完整设计、事件与工具边界见 [MoAgent 架构](moagent.md)。
+实际 PI 集成、版本与治理边界见 [PI Agent 采用与治理边界](pi-agent-migration.md)；durable 事件、Mission 与工具治理细节见 [PI Agent 架构](pi-agent.md)。
 
 通用 Task/Profile/Domain Pack 合同、金融解耦边界和新业务接入步骤见 [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md)。
 
@@ -93,7 +93,7 @@ MoAgent 是 QuantPilot 自研的进程内 Agent 框架，不依赖外部 Agent S
 | 概念 | 生命周期与职责 | 持久化身份 |
 | --- | --- | --- |
 | Worker | 无状态执行进程，从共享队列领取 generation job；进程可以随时扩缩、重启或替换 | `agent_worker_instances.id` 是进程租约身份，槽位的 `lease_owner` 只指向当前持有者 |
-| Job | 一次可重试、可租约接管的后台执行单元，负责把已固化 envelope 交给对应 Profile handler | `moagent_generation_jobs.id` |
+| Job | 一次可重试、可租约接管的后台执行单元，负责把已固化 envelope 交给对应 Profile handler | `agent_generation_jobs.id` |
 | Workspace | 一个 Project 的持久文件与预览边界，保存任务合同、证据、数据、源码和验证产物 | `Project.id` 及其安全解析后的 workspace 路径 |
 | Mission | 一次用户请求的交付状态机，跨越一个或多个物理 AgentRun，并以 accepted evidence receipt 完成 | `agent_missions.id` |
 

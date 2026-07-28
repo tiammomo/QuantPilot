@@ -18,10 +18,10 @@
 | --- | --- | --- |
 | `projects` | `Project` | 首页项目、canonical workspace 路径、Profile ID/版本、Data Agent 组合 SHA-256、模型偏好、预览状态和项目 owner |
 | `messages` | `Message` | 用户、助手、工具调用和错误消息 |
-| `sessions` | `Session` | 旧版 Agent session 兼容记录；MoAgent 当前运行不依赖 provider session |
-| `tool_usages` | `ToolUsage` | 旧版通用工具记录；包含 raw input/output，不得用于 MoAgent durable ledger |
+| `sessions` | `Session` | 旧版 Agent session 兼容记录；PI Agent 当前运行不依赖 provider session |
+| `tool_usages` | `ToolUsage` | 旧版通用工具记录；包含 raw input/output，不得用于 PI Agent durable ledger |
 | `user_requests` | `UserRequest` | 用户请求队列和执行状态；`actor_user_id` 记录发起账号并参与 request ID 防串用校验 |
-| `agent_runs` | `AgentRun` | MoAgent 物理执行、发起账号、run/workspace 双重 fencing、usage、终态和 provenance hashes |
+| `agent_runs` | `AgentRun` | PI Agent 物理执行、发起账号、run/workspace 双重 fencing、usage、终态和 provenance hashes |
 | `agent_workspace_leases` | `AgentWorkspaceLease` | 每个 project/canonical workspace 的跨进程独占 lease、active run 和单调 fencing token |
 | `agent_generation_leases` | `AgentGenerationLease` | 每个 Project 的 planning、prefetch、Agent execution 和 validation 外层编排租约 |
 | `agent_generation_jobs` | `AgentGenerationJob` | HTTP 返回前持久化的 generation envelope、attempt、dispatch lease、fencing 和终态 |
@@ -90,7 +90,7 @@ reservation 创建时先把数量原子加入 `usage_buckets.reserved`；settlem
 
 默认成员模板包含 9 条规则：`projects.owned=10 hard/lifetime`、`agent.pending=4 hard/lifetime`、`agent.concurrent=2 hard/lifetime`、`agent.requests.daily=100 hard/day`、`llm.total_tokens.monthly=2000000 warn/month`、`query_rewrite.llm.daily=200 hard/day`、`quant.data_units.daily=2000 warn/day`、`research.report_runs.daily=20 hard/day`、`research.report_sends.daily=10 hard/day`。两个 Agent 结构指标由 UserRequest/GenerationJob 当前状态计算，不依赖 TTL reservation；管理员解析为无限但仍展示真实结构占用和计量用量。
 
-MoAgent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；`agent_tool_approvals.public_input` 与 `edited_input` 只能包含受信工具主动投影、再次通过凭据字段拒绝策略的公开 JSON。文件内容仍以工作空间为事实源。`agent_runs.workspace_key` 与 `agent_workspace_leases.workspace_key` 都是 deployment namespace 与 canonical realpath 的 `sha256:<64 hex>` 身份，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。`agent_runs.workspace_key` 没有数据库默认值，调用方必须显式提供；数据库 check constraint 和启动 readiness 会拒绝格式漂移。
+PI Agent durable JSON 通过 deny-by-default 策略校验，禁止 reasoning、完整 messages、system prompt、raw provider payload、凭据和 raw cause。工具原始参数/结果只以 SHA-256、UTF-8 字节数和受控计数进入 `agent_events`/`agent_tool_executions`；`agent_tool_approvals.public_input` 与 `edited_input` 只能包含受信工具主动投影、再次通过凭据字段拒绝策略的公开 JSON。文件内容仍以工作空间为事实源。`agent_runs.workspace_key` 与 `agent_workspace_leases.workspace_key` 都是 deployment namespace 与 canonical realpath 的 `sha256:<64 hex>` 身份，不保存宿主绝对路径，也不等同于会随内容变化的 `workspace_hash`。`agent_runs.workspace_key` 没有数据库默认值，调用方必须显式提供；数据库 check constraint 和启动 readiness 会拒绝格式漂移。
 
 ## 量化时序表
 

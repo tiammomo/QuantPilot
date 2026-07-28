@@ -19,7 +19,7 @@ QuantPilot 当前把 Memory 作为可选外部服务使用。聊天执行、项�
 | 显式新增偏好 | 项目对话输入区“记住偏好”/ QuantPilot 项目级 Memory API | 用户确认后创建证据、候选和第一条不可变 revision；不自动保存聊天全文 |
 | 候选偏好确认 | 用户消息下方候选卡 | 只在高置信稳定表达时提示；交易、授权和一次性要求被过滤；不自动写入 |
 | 查看与纠正偏好 | `/account/memory` 或 QuantPilot Memory API | 查看当前值、追加修订、保留历史版本 |
-| 聊天自动召回 | `/api/chat/:projectId/act` | 每轮执行前召回，并把通过过滤的有界 capsule 交给 MoAgent |
+| 聊天自动召回 | `/api/chat/:projectId/act` | 每轮执行前召回，并把通过过滤的有界 capsule 交给 PI Agent |
 | 使用归因 | Memory `/v1/usages` + QuantPilot PostgreSQL `external_memory_uses` | Memory 重建投影并签发 Usage Receipt；QuantPilot 只保存 usage/trace/revision 不透明 ID、策略版本和内容哈希 |
 | 结果反馈 | 已验证完成消息下方“有帮助 / 不适合我” | UI 先读取 QuantPilot 本地归因；持久收据保证重试幂等并拒绝矛盾反馈 |
 | 价值透明度 | `/account/memory`“实际价值闭环” | 只统计真正交给 Agent 的 revision 和明确反馈；旧版空归因单独隔离 |
@@ -72,9 +72,9 @@ QUANTPILOT_DEGRADATION_MODE=offline
 }
 ```
 
-`prepared` 只表示生成了候选 capsule，不证明 Agent 已使用。QuantPilot 仅在把 capsule 交给 MoAgent 前请求 Memory `/v1/usages`；Memory 从不可变 Trace 重建相同算法和预算的投影，核对源摘要及 revision 子集后签发 `usageId`。QuantPilot 随后保存本地归因与[联合上下文清单](context-composition.md)。澄清、拒绝、平台直接生成或用户临时关闭个性化时不会写“已暴露”记录。已验证完成的回复只有查到这份归因后，才显示“本轮实际使用了 N 条个人偏好”及反馈按钮。
+`prepared` 只表示生成了候选 capsule，不证明 Agent 已使用。QuantPilot 仅在把 capsule 交给 PI Agent 前请求 Memory `/v1/usages`；Memory 从不可变 Trace 重建相同算法和预算的投影，核对源摘要及 revision 子集后签发 `usageId`。QuantPilot 随后保存本地归因与[联合上下文清单](context-composition.md)。澄清、拒绝、平台直接生成或用户临时关闭个性化时不会写“已暴露”记录。已验证完成的回复只有查到这份归因后，才显示“本轮实际使用了 N 条个人偏好”及反馈按钮。
 
-MoAgent 收到的是受限 JSON 偏好数据，不是更高优先级指令。可以预期生成结果更倾向于“先结论、再风险和证据”，但当前用户请求、真实金融数据、安全规则和验证合同仍然优先。
+PI Agent 收到的是受限 JSON 偏好数据，不是更高优先级指令。可以预期生成结果更倾向于“先结论、再风险和证据”，但当前用户请求、真实金融数据、安全规则和验证合同仍然优先。
 
 | 场景 | 可观察结果 |
 | --- | --- |
@@ -96,7 +96,7 @@ sequenceDiagram
   participant Q as QuantPilot API
   participant M as Memory API
   participant P as QuantPilot PostgreSQL
-  participant A as MoAgent
+  participant A as PI Agent
 
   B->>Q: 发起项目聊天
   Q->>Q: 项目授权并解析 actorUserId
@@ -453,7 +453,7 @@ QuantPilot -- OpenAI-compatible HTTP --> ModelPort -- Anthropic protocol --> Dee
 QuantPilot -- evolvable-memory-http/v1 --> Evolvable User Memory
 ```
 
-ModelPort 不读取用户记忆，Memory 不调用模型，Qwen 不直接访问两个项目的数据库。QuantPilot 先通过 `PersonalMemoryPort` 召回并过滤有界 capsule，再把它作为不可信偏好数据放进 MoAgent prompt；模型 Provider 与 Memory adapter 因而可以独立替换和降级。
+ModelPort 不读取用户记忆，Memory 不调用模型，Qwen 不直接访问两个项目的数据库。QuantPilot 先通过 `PersonalMemoryPort` 召回并过滤有界 capsule，再把它作为不可信偏好数据放进 PI Agent prompt；模型 Provider 与 Memory adapter 因而可以独立替换和降级。
 
 默认只读验收不会创建偏好或 Outcome：
 
@@ -508,7 +508,7 @@ npm run check:integrations -- \
 ```bash
 npm run prisma:deploy
 npm run type-check
-npx vitest run src/lib/platform/memory src/lib/services/moagent-prompts.test.ts
+npx vitest run src/lib/platform/memory src/lib/services/pi-agent-prompts.test.ts
 npm run check:integrations
 npm run check:service-catalog
 npm run check:docs
@@ -529,6 +529,6 @@ npm run doctor
 | `src/lib/platform/memory/feedback-repository.ts` | 明确反馈的 pending/completed/failed 持久收据与价值统计 |
 | `src/app/api/projects/[project_id]/memory/` | 项目授权后的公开聚合 API |
 | `src/app/api/account/memory/route.ts` | 账号级启停、状态与偏好透明度入口 |
-| `src/app/api/chat/[project_id]/act/route.ts` | 聊天自动召回和 MoAgent 注入点 |
+| `src/app/api/chat/[project_id]/act/route.ts` | 聊天自动召回和 PI Agent 注入点 |
 | `prisma/schema.prisma` 的 `ExternalMemoryUse` / `PersonalMemoryFeedbackReceipt` / `PersonalMemoryControl` | 本地归因、反馈收据与用户控制数据结构 |
 | `scripts/checks/check-long-term-integrations.ts` | ModelPort/Qwen/Memory 只读探测和显式合成闭环验收 |

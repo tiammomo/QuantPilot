@@ -44,7 +44,7 @@ evidence/data_quality.json
 
 | 文件 | 作用 |
 | --- | --- |
-| `.data-agent/workspace.json` | 项目/工作空间身份、当前 MoAgent executor/模型，以及 Profile/Domain/Delivery/capability 版本组合锁和 SHA-256 |
+| `.data-agent/workspace.json` | 项目/工作空间身份、当前 PI Agent executor/模型，以及 Profile/Domain/Delivery/capability 版本组合锁和 SHA-256 |
 | `.data-agent/profile.json` | 当前 Agent Profile、Domain Pack、Delivery Pack、capability 选择和同一组合锁 |
 | `.data-agent/task.json` | 跨业务通用的目标、实体、指标、维度、筛选、时间范围和输出合同 |
 | `.data-agent/plan.json` | 跨业务通用的执行计划、带版本的 Profile/Domain/Delivery 引用、组合 SHA-256、领域计划引用、预期产物和验证规则 |

@@ -64,7 +64,7 @@ QuantPilot 在 Agent 真正收到上下文前写入 `evidence/context-uses/<requ
 2. Memory capsule 已取得服务端可验证的 Usage Receipt；
 3. Knowledge ContextPack 已通过本地契约、purpose 和边界检查；
 4. 清单已原子写入工作空间；
-5. 随后才把两个 capsule 交给 MoAgent。
+5. 随后才把两个 capsule 交给 PI Agent。
 
 澄清、拒绝、取消、空召回和平台确定性直出不冒充 Agent 使用。相同 `requestId` 的不同清单会触发幂等冲突，不能静默覆盖。
 

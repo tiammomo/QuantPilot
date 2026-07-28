@@ -13,7 +13,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `platform-navigation-ui` | 跨业务复用的页头、平台切换、子导航和路由加载状态 | `src/components/layout/**` |
 | `product-shell` | 首页、根布局、主题和平台入口编排 | `src/app/page.tsx`、根布局和主题 |
 | `platform-core` | 项目、设置、Token、服务目录和外部集成 | `src/lib/platform/**`、核心 `src/lib/services/**` |
-| `agent-runtime` | MoAgent Provider、执行循环、上下文、类型化工具、Skills 编译和通用 Mission 机制 | `src/lib/agent/**`、通用运行服务 |
+| `agent-runtime` | PI Agent Provider、执行循环、上下文、类型化工具、Skills 编译和通用 Mission 机制 | `src/lib/agent/**`、通用运行服务 |
 | `data-agent-core` | 通用数据任务、实体、指标、Connector、Domain Pack、Agent Profile 与执行计划合同 | `src/lib/data-agent/**` |
 | `finance-domain` | 证券实体、金融能力目录、行情工具、金融 Mission、验证和可视化配置 | `src/lib/domains/finance/**` |
 | `quant-core` | 金融产品编排、LLM-first Query Rewrite、Resolver、运行规划、策略、证据、验证和数据预取 | `src/lib/quant/**`、策略平台/业务知识中心 |
@@ -39,7 +39,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | --- | --- | --- |
 | `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 685 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
 | `src/app/[project_id]/chat/page.tsx` | 页面仍同时管理消息、生成、预览恢复与大部分布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
-| `src/lib/agent/core/run-engine.ts` | HITL 策略/校验已拆到 `core/tool-approval.ts`，但主状态机仍直接承接上下文、工具循环、验证与封存细节 | 继续按 planning、tool loop、checkpoint、verification、terminalization 拆分 |
+| `src/lib/agent/pi/run-engine.ts` | 上游 PI loop 适配仍集中承接工具治理、事件投影与终态封存 | 保持单一 PI loop，并继续拆分 adapter、tool governance、event projection 与 terminalization |
 | `src/lib/quant/validation.ts` | artifact/data/visual/repair/acceptance 多条验证管线集中 | 拆成独立 validator，保留单一 facade |
 | `src/lib/quant/data-prefetch.ts` | 通用取数计划与金融 endpoint、证据落盘交织 | 抽离通用执行器与 Finance Data Adapter |
 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | 已拆出 helpers、金融知识、股票池、K 线详情、板块资金、因子目录和基础组件视图；主 client 仍承载弹窗和部分扫描编排 | 继续拆成 dialogs、hooks、tables |

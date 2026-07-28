@@ -5,7 +5,7 @@
 ## 当前部署边界
 
 - Web、market-data、PostgreSQL/TimescaleDB、Redis 和 Loki 必须在受控内网通信；只由 HTTPS 反向代理公开 Web。
-- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `MOAGENT_DISPATCH_MODE=worker` 时，独立 generation worker 先注册 `agent_worker_instances` 进程租约并取得 `agent_worker_slots` 全局容量，再按 actor 公平 claim、heartbeat、执行、验证和提交终态。所有实例必须配置相同 `MOAGENT_WORKER_GLOBAL_CONCURRENCY`，且单进程并发不能超过它；存活实例配置不一致时，新 Worker 会失败关闭。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从当前持久化状态重新规划。
+- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `PI_AGENT_DISPATCH_MODE=worker` 时，独立 generation worker 先注册 `agent_worker_instances` 进程租约并取得 `agent_worker_slots` 全局容量，再按 actor 公平 claim、heartbeat、执行、验证和提交终态。所有实例必须配置相同 `PI_AGENT_WORKER_GLOBAL_CONCURRENCY`，且单进程并发不能超过它；存活实例配置不一致时，新 Worker 会失败关闭。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从当前持久化状态重新规划。
 - `PROJECTS_DIR` 必须是持久化、可读写的文件系统，且与数据库备份保持同一恢复点。
 - 生产密钥由 secret manager 或 root-only `EnvironmentFile` 注入，不写入镜像、standalone 目录、日志或 Git。
 

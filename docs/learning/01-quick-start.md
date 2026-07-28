@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Node.js `>= 20.19.0`
+- Node.js `>= 22.19.0`
 - npm `>= 10`
 - Docker / Docker Compose
 - Python `3.14`

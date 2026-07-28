@@ -11,7 +11,7 @@ QuantPilot 采用一个 Next.js 主应用、一个 Python 市场数据后端和�
 | `src/components/` | 可复用前端组件，按业务域拆分为 `chat`、`quant`、`settings`、`ui` 等 |
 | `src/hooks/`、`src/contexts/` | 前端状态、上下文和浏览器侧 hooks |
 | `src/lib/services/` | 主应用业务服务层，封装项目、消息、设置、令牌、预览和外部服务接入 |
-| `src/lib/agent/` | MoAgent 自研内核：Provider、Context Manager、运行循环、durable runtime、类型化工具、Skill 编译器和协议类型 |
+| `src/lib/agent/` | PI Agent loop 适配与 QuantPilot 治理层：Provider、Context Manager、durable runtime、类型化工具、Skill 编译器和运行协议类型 |
 | `src/lib/quant/` | 量化平台领域层，封装能力中心、评测、策略、工作空间健康、生成观测和验证 |
 | `src/lib/db/` | Prisma Client 和数据库访问入口 |
 | `src/types/` | 主应用共享类型 |
@@ -23,7 +23,7 @@ QuantPilot 采用一个 Next.js 主应用、一个 Python 市场数据后端和�
 | `docker-compose.yml` | 本地 TimescaleDB、Redis、ClickHouse、Loki、Grafana 和 Alloy 容器编排 |
 | `scripts/` | 本地开发、诊断、迁移、评测和构建脚本，按职责拆分子目录 |
 | `docs/` | 架构、控制台、基础设施、治理和排障文档 |
-| `.moagent/skills/` | 受 registry/lock、版本与 SHA-256 完整性校验的历史 skills 源资产，仅供 MoAgent 编译器兼容读取；不参与运行时发现 |
+| `.pi/skills/` | 受 registry/lock、版本与 SHA-256 完整性校验的当前 Skill 权威源；工作空间镜像不参与运行时发现 |
 | `data/projects/` | 生成工作空间源码和产物，默认不提交 |
 | `tmp/` | 本地评测报告和临时运行文件，默认不提交 |
 
@@ -60,7 +60,7 @@ QuantPilot 采用一个 Next.js 主应用、一个 Python 市场数据后端和�
 - `tokens.ts`：服务令牌，使用 PostgreSQL 的 `service_tokens`，落库值采用版本化 AES-256-GCM 加密。
 - `env.ts`：项目环境变量，使用 PostgreSQL 并同步到 workspace `.env`；secret API 默认只返回掩码。
 - `preview.ts`：生成项目预览进程管理。
-- `cli/moagent.ts`：把 MoAgent 事件接入项目消息、SSE、取消与量化生成编排。
+- `cli/pi-agent.ts`：PI Agent 的唯一产品入口，把 PI 事件接入项目消息、SSE、取消与量化生成编排。
 
 这些模块不直接渲染 UI，也不直接承担量化领域规则。
 

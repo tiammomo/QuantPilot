@@ -5,8 +5,8 @@ QuantPilot 通过 AKEP v0.1 HTTP 协议使用独立的 Agent Knowledge Platform�
 ## 组件职责
 
 ```text
-Agent Knowledge Platform -- AKEP HTTP --> QuantPilot KnowledgePort --> MoAgent
-ModelPort -- OpenAI-compatible HTTP --> QuantPilot Provider Adapter --> MoAgent
+Agent Knowledge Platform -- AKEP HTTP --> QuantPilot KnowledgePort --> PI Agent
+ModelPort -- OpenAI-compatible HTTP --> QuantPilot Provider Adapter --> PI Agent
 market-data -- Quant HTTP --> QuantPilot data prefetch --> workspace
 ```
 
@@ -48,7 +48,7 @@ review + publish <- evaluated Candidate <- helped / neutral / harmed
 
 当前代码已经打通 ContextPack、accepted Usage、服务端归因账本、显式 helped/neutral/harmed 和 AKEP 效果聚合。AKEP 已提供 Candidate、Evaluation、Review、Publish 与 harmed queue；候选内容的运营规则和评测集由接入业务按 Space 配置。
 
-当前第一阶段使用平台预取，不给模型增加动态知识工具。这样 MoAgent lane 的工具 schema 保持稳定，也不会让知识服务故障改变标准看板的确定性工具面。后续确需动态研究时，可在明确的 data-preparation lane 增加固定 schema 的只读工具，但 URL、Space、purpose、token 和预算仍由平台注入。
+当前第一阶段使用平台预取，不给模型增加动态知识工具。这样 PI Agent lane 的工具 schema 保持稳定，也不会让知识服务故障改变标准看板的确定性工具面。后续确需动态研究时，可在明确的 data-preparation lane 增加固定 schema 的只读工具，但 URL、Space、purpose、token 和预算仍由平台注入。
 
 ## 本地配置
 
@@ -92,7 +92,7 @@ Readiness 会分别展示 `knowledge` 与 `modelPort`，不能用顶层 `ok=true
 
 默认 profile `local_qwen:qwen3.5-9b-q5km` 继续通过 ModelPort `/v1/chat/completions` 使用本地 Qwen。知识检索本身不消耗模型 Token；Qwen 只负责 QuantPilot 已有的 Query Rewrite、自定义生成和评测 lane。标准可信看板 lane 仍使用零模型 Token 的确定性工具计划。
 
-即使本地 Qwen 可高频使用，仍保留 MoAgent 的上下文、轮数、工具调用和超时上限：这些限制用于收敛、防循环和故障隔离，不是模型计费限制。
+即使本地 Qwen 可高频使用，仍保留 PI Agent 的上下文、轮数、工具调用和超时上限：这些限制用于收敛、防循环和故障隔离，不是模型计费限制。
 
 ## 验证
 
@@ -100,7 +100,7 @@ Readiness 会分别展示 `knowledge` 与 `modelPort`，不能用顶层 `ok=true
 curl --fail http://localhost:33005/.well-known/akep
 curl --fail http://localhost:33005/health/ready
 curl --fail http://127.0.0.1:38082/livez
-npx vitest run src/lib/platform/knowledge src/lib/services/moagent-prompts.test.ts
+npx vitest run src/lib/platform/knowledge src/lib/services/pi-agent-prompts.test.ts
 npm run check:service-catalog
 npm run type-check
 ```
@@ -114,5 +114,5 @@ npm run type-check
 - `src/lib/platform/context/use-manifest.ts`：连接 AKEP、Memory 与 Mission receipt 的无正文审计投影。
 - `src/app/api/chat/[project_id]/act/route.ts`：规划后预取、Agent 前联合曝光、Mission 验收后 Usage。
 - `src/app/api/projects/[project_id]/knowledge/*`、`src/components/chat/GovernedKnowledgeFeedback.tsx`：业务效果归因与用户强反馈。
-- `src/lib/services/moagent-prompts.ts`：不可信知识 capsule 的提示边界。
+- `src/lib/services/pi-agent-prompts.ts`：不可信知识 capsule 的提示边界。
 - `config/service-catalog.json`、`src/lib/ops/readiness.ts`：AKEP 与 ModelPort 运维可见性。

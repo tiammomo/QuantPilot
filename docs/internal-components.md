@@ -16,7 +16,7 @@
 | 数据库入口 | `src/lib/db/`、`prisma/` | Prisma 管理的主业务表 |
 | 市场数据服务 | `services/market-data/` | 行情、K 线、财务、公告、补数、基础组件和回测 API |
 | SQL 初始化 | `sqls/` | `quant` schema、TimescaleDB hypertable、股票池和基础组件表 |
-| Skills 权威源 | 仓库根目录 `.moagent/skills/` | 当前 Agent 编译源；受 registry/lock、版本与 SHA-256 完整性校验，source 优先、tgz fallback。项目初始化另配置 workspace `.moagent/skills/` 参考镜像，但执行阶段不从镜像发现能力 |
+| Skills 权威源 | 仓库根目录 `.pi/skills/` | 当前 Agent 编译源；受 registry/lock、版本与 SHA-256 完整性校验，source 优先、tgz fallback。项目初始化另配置 workspace `.pi/skills/` 参考镜像，但执行阶段不从镜像发现能力 |
 | 生成工作空间 | `data/projects/` | 每个 AI 生成项目的源码、数据、证据和验证报告 |
 | 本地基础设施 | `docker-compose.yml`、`deploy/observability/` | TimescaleDB、Redis、Loki、Grafana 和 Alloy |
 | 脚本 | `scripts/` | 启动、构建、检查、数据库迁移、评测和 skill 打包 |
@@ -153,7 +153,7 @@ QUANTPILOT_REDIS_CACHE_ENABLED=1
 | --- | --- | --- |
 | 股票池增加字段 | 对应 market-data repository/model、`src/lib/quant/strategy-mappers.ts`、策略平台客户端 | `docs/learning/03`、市场数据 README |
 | 新增数据源 | provider、注册表、数据质量、候选探针 | `docs/market-data-source-knowledge.md` |
-| 页面生成反复不好看 | `.moagent/skills/dashboard-visualization` 或 UI skill | `docs/learning/04`、`docs/skills-governance.md` |
+| 页面生成反复不好看 | `.pi/skills/dashboard-visualization` 或 UI skill | `docs/learning/04`、`docs/skills-governance.md` |
 | 新增基础设施组件 | `docker-compose.yml`、`.env.example`、doctor、运行治理中心 | `docs/infrastructure.md`、`docs/troubleshooting.md` |
 | 新增评测能力 | `src/lib/eval/index.ts`、评测平台页面 | `docs/evals-guide.md` |
 | 生成工作空间文件变化 | scaffold、validation、artifact contracts | `docs/generated-workspace-contract.md` |

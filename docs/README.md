@@ -20,7 +20,7 @@
 | 想配置 DeepSeek 或本地 Qwen 模型 | [模型 Provider 接入与使用](model-providers.md) |
 | 想确认当前前端启动模式 | [基础设施配置](infrastructure.md#主前端启动器) / [架构总览](architecture.md#构建与开发模式) |
 | 想理解生成链路 | [教学 02：AI 工作空间生成链路](learning/02-ai-workspace-generation.md) |
-| 想理解或扩展自研 Agent | [MoAgent 架构](moagent.md) |
+| 想理解或扩展 Agent 执行内核 | [PI Agent 采用与治理边界](pi-agent-migration.md) / [PI Agent 架构](pi-agent.md) |
 | 想把 Data Agent 接入新业务系统 | [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md) |
 | 想理解数据和策略平台 | [教学 03：市场数据与策略平台](learning/03-market-data-and-strategy-platform.md) |
 | 想优化生成页面 | [教学 04：Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md) |
@@ -47,7 +47,7 @@
 | 改市场数据后端 | [后端能力架构](backend-capability-architecture.md) | [API](api-reference.md)、[数据字典](data-dictionary.md)、[行情数据源](market-data-source-knowledge.md) |
 | 处理生成页面质量 | [AI 工作空间生成链路](learning/02-ai-workspace-generation.md) | [Skills 与可视化看板](learning/04-skills-and-visual-dashboard.md)、[工作空间契约](generated-workspace-contract.md) |
 | 做策略平台或股票数据 | [市场数据与策略平台](learning/03-market-data-and-strategy-platform.md) | [策略平台指南](strategy-platform-guide.md)、[数据字典](data-dictionary.md) |
-| 配模型或 Query Rewrite | [配置指南](configuration.md) | [模型 Provider](model-providers.md)、[MoAgent](moagent.md) |
+| 配模型或 Query Rewrite | [配置指南](configuration.md) | [模型 Provider](model-providers.md)、[PI Agent 迁移边界](pi-agent-migration.md) |
 | 接入或关闭用户记忆 | [配置指南](configuration.md#memory-接入方式) | [Memory 专题](user-memory-integration.md) |
 | 做评测与发布 | [评测、运维与质量门](learning/05-evaluation-and-operations.md) | [评测指南](evals-guide.md)、[生产发布](release-runbook.md) |
 | 写或改 Skill | [Skills 教程](learning/07-skills-authoring.md) | [Skills 治理](skills-governance.md) |
@@ -60,7 +60,7 @@
 | --- | --- | --- |
 | 配置与运行方式 | [配置、模型接入与可选组件指南](configuration.md) | 文件优先级、ModelPort/直连、Memory 开关、secret 边界与模式验收 |
 | 总体架构 | [架构总览](architecture.md) | 主链路、运行时、数据层、控制台和质量门 |
-| Agent 框架 | [MoAgent 架构](moagent.md) | Provider、Context Manager、Run Engine、durable ledger、类型化工具、Skills 与安全边界 |
+| Agent 框架 | [PI Agent 采用与治理边界](pi-agent-migration.md) / [PI Agent 架构](pi-agent.md) | PI Agent loop、Provider 适配、QuantPilot durable ledger、类型化工具、Skills 与安全边界 |
 | Data Agent 与业务扩展 | [Data Agent 平台与 Domain Pack 架构](data-agent-architecture.md) | 通用任务合同、Agent Profile、Domain Pack、工具与 Mission 注入、金融迁移边界 |
 | 内部组件 | [内部组件学习指南](internal-components.md) | 页面、服务、数据、Skills、验证、运维和降级如何协作 |
 | 项目结构 | [项目结构与分层边界](project-structure.md) | 前端、后端、量化领域层、脚本和生成工作空间边界 |
@@ -95,7 +95,7 @@
 ```mermaid
 flowchart TB
   U[用户问题 / 截图] --> W[Next.js AI 工作台]
-  W --> R[MoAgent Runtime]
+  W --> R[PI Agent Runtime + QuantPilot Governance]
   R --> SK[QuantPilot Skills]
   W --> MD[FastAPI 市场数据服务]
   MD --> PG[(PostgreSQL)]
@@ -110,7 +110,7 @@ flowchart TB
   W --> EP[评测平台]
 ```
 
-AI 工作台的最终回复会附带完整业务回合耗时与累计 Token 用量；统计覆盖主 MoAgent run 和自动修复 run，并保存在消息 metadata 中，因此刷新或实时通道重连后仍可恢复，同时不会进入下一轮模型上下文。详细口径见 [MoAgent 架构](moagent.md#回合耗时与-token-口径)。
+AI 工作台的最终回复会附带完整业务回合耗时与累计 Token 用量；统计覆盖主 PI Agent run 和自动修复 run，并保存在消息 metadata 中，因此刷新或实时通道重连后仍可恢复，同时不会进入下一轮模型上下文。执行内核与治理边界见 [PI Agent 迁移文档](pi-agent-migration.md)，详细 Token 口径见 [PI Agent 架构](pi-agent.md#回合耗时与-token-口径)。
 
 ## 文档维护规则
 

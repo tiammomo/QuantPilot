@@ -193,7 +193,7 @@ curl "http://127.0.0.1:8000/api/v1/quotes/realtime/600519"
 再检查生成项目中是否存在：
 
 ```text
-.moagent/skills/
+.pi/skills/
 .data-agent/finance-run-plan.json
 .data-agent/generation-state.json
 .data-agent/generation-queue.json
@@ -268,27 +268,27 @@ npm run package:skills
 确认这些文件有同步更新：
 
 ```text
-.moagent/skills.registry.json
-.moagent/skills.lock.json
-.moagent/skills.changelog.json
-.moagent/skill-packages/<skill-id>.tgz
+.pi/skills.registry.json
+.pi/skills.lock.json
+.pi/skills.changelog.json
+.pi/skill-packages/<skill-id>.tgz
 ```
 
-这里的 `.moagent/**` 表示仓库根目录保留的 Skill 源兼容区，也是当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。MoAgent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.moagent/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
+这里的 `.pi/**` 是仓库 Skill 权威源和当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。PI Agent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.pi/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
 
-## MoAgent 提示 workspace resource lock 被占用
+## PI Agent 提示 workspace resource lock 被占用
 
-`<workspace>/.moagent-workspace.lock/owner.json` 是 fail-closed 的物理写锁。它包含 `instanceId`、`hostname`、`pid`、`purpose`，以及适用时的 `projectId`、`requestId`、`runId`、`operationId`；容器环境应设置 `MOAGENT_INSTANCE_ID` 为可定位的 pod/instance ID。
+`<workspace>/.pi-workspace.lock/owner.json` 是 fail-closed 的物理写锁。它包含 `instanceId`、`hostname`、`pid`、`purpose`，以及适用时的 `projectId`、`requestId`、`runId`、`operationId`；容器环境应设置 `PI_AGENT_INSTANCE_ID` 为可定位的 pod/instance ID。
 
-MoAgent 启动恢复会处理一个严格子集：`owner.json` 必须是 schema v2、`hostname` 与当前主机完全一致，且操作系统确认 PID 已不存在；框架会先原子隔离旧锁，再依据 durable mutation journal 和数据库 ledger 回滚 `prepared/commit_authorized` workspace write。它不会按 `acquiredAt` 猜测，也不会接管远端、存活、损坏或身份不明的 owner。其余情况按下面顺序处理：
+PI Agent 启动恢复会处理一个严格子集：`owner.json` 必须是 schema v2、`hostname` 与当前主机完全一致，且操作系统确认 PID 已不存在；框架会先原子隔离旧锁，再依据 durable mutation journal 和数据库 ledger 回滚 `prepared/commit_authorized` workspace write。它不会按 `acquiredAt` 猜测，也不会接管远端、存活、损坏或身份不明的 owner。其余情况按下面顺序处理：
 
 1. 暂停该 project 的新 generation，并 drain 所有可能挂载同一 workspace 的应用实例。
 2. 读取 `owner.json`，在对应 instance/host 确认进程与 run 已停止；如果实例不可达，按崩溃现场处理。
 3. 在 PostgreSQL 查询该 project/run 的 `agent_runs`、`agent_workspace_leases` 和 `agent_tool_executions`，重点检查 `prepared`、`commit_authorized`、`uncertain` 的 workspace/external write。
-4. 检查 `.moagent-mutation-journal`、operation receipt、before/after SHA-256 和目标当前 hash。用户后续修改冲突、`uncertain`、external write 或缺少可靠 journal 时保持阻断，不要重放。
+4. 检查 `.pi-mutation-journal`、operation receipt、before/after SHA-256 和目标当前 hash。用户后续修改冲突、`uncertain`、external write 或缺少可靠 journal 时保持阻断，不要重放。
 5. 只有确认没有存活 writer，且所有相关未决 operation 已通过受控人工流程完成调和后，才能移除孤儿锁目录并重新发起一个全新的 replan run。
 
-当前自动调和只覆盖 MoAgent typed workspace writer 的同主机死亡 owner 与 v1 journal。删除锁本身不会清除数据库中的未决 ledger；远端实例、external/uncertain operation 仍是人工应急路径。在目标共享卷多主机断电验收和平台级 generation coordinator 完成前，不要让多个应用实例并发运行同一 project 的完整 generation pipeline。
+当前自动调和只覆盖 PI Agent typed workspace writer 的同主机死亡 owner 与 v1 journal。删除锁本身不会清除数据库中的未决 ledger；远端实例、external/uncertain operation 仍是人工应急路径。在目标共享卷多主机断电验收和平台级 generation coordinator 完成前，不要让多个应用实例并发运行同一 project 的完整 generation pipeline。
 
 ## 策略补数看起来卡住
 

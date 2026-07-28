@@ -4,7 +4,7 @@
 
 治理规则见 [Skills 治理规范](../skills-governance.md)。本篇偏教程，重点讲“怎么学、怎么写、怎么改”。
 
-本教程中的 `.moagent/**` 指仓库根目录受 registry/lock、版本与 SHA-256 完整性校验的 Skill 权威源，也是当前 Agent 的 source-first 编译输入，目前没有密码学签名。项目初始化会把校验后的参考镜像配置到 `<workspace>/.moagent/skills/`；Agent 执行阶段仍从仓库输入只读编译上下文，不从 workspace 镜像发现能力。
+本教程中的 `.pi/**` 指仓库根目录受 registry/lock、版本与 SHA-256 完整性校验的 Skill 权威源，也是当前 Agent 的 source-first 编译输入，目前没有密码学签名。项目初始化会把校验后的参考镜像配置到 `<workspace>/.pi/skills/`；Agent 执行阶段仍从仓库输入只读编译上下文，不从 workspace 镜像发现能力。
 
 如果说代码是平台的骨架，Skills 就像 Agent 的工作习惯。很多“生成页面不好看”“数据字段没用上”“多标的变成单股页”的问题，最后不是模型不会，而是我们没有把项目内的经验清楚写给它。
 
@@ -51,7 +51,7 @@ Skill 可以理解成 Agent 的本地专业手册。模型本身有通用能力�
 ## Skill 目录长什么样
 
 ```text
-.moagent/skills/<skill-id>/
+.pi/skills/<skill-id>/
   SKILL.md
   agents/
     openai.yaml
@@ -60,7 +60,7 @@ Skill 可以理解成 Agent 的本地专业手册。模型本身有通用能力�
   assets/                 # 仅在确有输出资源时
 ```
 
-上面的路径只用于仓库内创作、完整性校验和发布；Agent 运行时不会从 workspace `.moagent/skills/` 发现能力。
+上面的路径只用于仓库内创作、完整性校验和发布；Agent 运行时不会从 workspace `.pi/skills/` 发现能力。
 
 | 文件或目录 | 作用 |
 | --- | --- |
@@ -120,8 +120,8 @@ description: Use this skill when ...
 1. 收集失败案例：截图、验证报告、用户反馈或评测失败。
 2. 判断失败原因：数据缺失、模板错配、布局问题、验证规则缺失还是 skill 描述不清。
 3. 修改对应 skill 的 `SKILL.md`、`references/` 或 `scripts/`。
-4. 更新 `.moagent/skills.registry.json` 的版本和描述。
-5. 更新 `.moagent/skills.changelog.json`。
+4. 更新 `.pi/skills.registry.json` 的版本和描述。
+5. 更新 `.pi/skills.changelog.json`。
 6. 运行 `npm run package:skills -- <skill-id>`。
 7. 运行 `npm run check:skills`。
 8. 必要时跑生成页面评测或视觉 smoke。
@@ -177,7 +177,7 @@ npm run check:generated-artifacts
 
 不要只在某个生成工作空间里手改 CSS。更好的做法是：
 
-1. 打开 `.moagent/skills/dashboard-visualization/SKILL.md`。
+1. 打开 `.pi/skills/dashboard-visualization/SKILL.md`。
 2. 找到金融看板、A 股行情看板、视觉验收相关章节。
 3. 补充可执行规则：
    - K 线主图必须占据主要宽度。

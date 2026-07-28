@@ -133,7 +133,7 @@ Dubbo3 暂时不适合当前项目，因为它主要服务 Java 微服务体系�
 | `QUANTPILOT_GENERATED_SANDBOX` | `1` | Linux 上启用 namespace 沙箱。 |
 | `QUANTPILOT_ALLOW_UNSANDBOXED_GENERATED_CODE` | `0` | 仅限已由容器或虚拟机完成外部隔离的本地开发；生产不得开启。 |
 
-非 Linux 平台或缺少 `unshare`、`mount`、`chroot`、`setpriv`、`ip` 时默认 fail closed。V8/WebAssembly 会预留很大的稀疏虚拟地址范围，因此脚本不使用会误杀正常 Next.js build 的 `RLIMIT_AS`；生产部署仍须用 cgroup 或容器内存限制约束整个进程树，并把外层容器网络策略作为纵深防御。完整 Agent 边界见 `docs/moagent.md`。
+非 Linux 平台或缺少 `unshare`、`mount`、`chroot`、`setpriv`、`ip` 时默认 fail closed。V8/WebAssembly 会预留很大的稀疏虚拟地址范围，因此脚本不使用会误杀正常 Next.js build 的 `RLIMIT_AS`；生产部署仍须用 cgroup 或容器内存限制约束整个进程树，并把外层容器网络策略作为纵深防御。当前执行内核和宿主治理边界见 [PI Agent 迁移文档](pi-agent-migration.md)，durable 细节见 [PI Agent 架构](pi-agent.md)。
 
 ## 可观测性
 
@@ -178,9 +178,9 @@ Loki 宿主机端口默认使用 `33100`，生成项目预览端口池从 `4100`
 
 Docker 暴露的 PostgreSQL、Redis、ClickHouse、Loki、Grafana 和 Alloy 端口默认只绑定 `127.0.0.1`。生产部署不要通过修改 Compose 端口直接公开数据库或管理接口，应通过受控网络、认证网关和最小权限令牌接入。
 
-MoAgent 在主应用进程内运行，不启动 Agent CLI 子进程，也不提供通用 Shell。模型只能调用已注册的类型化工具：文件工具受工作空间 realpath、symlink 和写入 allowlist 约束，量化 API 工具只允许访问本机 market-data API；数据库、GitHub 和云服务令牌不会作为工具输入暴露给模型。
+PI Agent loop 在主应用或独立 Worker 进程内运行，不启动 Agent CLI 子进程，也不提供通用 Shell。模型只能调用 QuantPilot 注册并包装的类型化工具：文件工具受工作空间 realpath、symlink 和写入 allowlist 约束，量化 API 工具只允许访问本机 market-data API；数据库、GitHub 和云服务令牌不会作为工具输入暴露给模型。
 
-每个 MoAgent 物理执行会在共享文件系统资源锁内审计旧 attempt，并在 PostgreSQL 原子取得 project/canonical-workspace lease、创建 durable run；独立 heartbeat 同步续租 workspace 与 run 两层 lease，租约判断使用数据库权威时钟。事件写入与 heartbeat 共用 CAS 串行队列，旧 fencing token 不能继续提交。工具副作用前先写 `prepared` ledger；文件写入从临时文件创建前开始持有 `<workspace>/.moagent-workspace.lock`，数据库短事务消费一次性 `commit_authorized` 后，资源锁继续覆盖目标复验和最终 rename；mutating outcome 不明时当前 run 立即停止并禁止后续写。孤儿资源锁不会自动强拆，owner metadata 会记录 instance/host/pid 和可用的 project/request/run/operation 身份，必须按排障 runbook 调和后移除。Checkpoint 只表示 `replan_required`，不包含 Provider session、prompt、messages 或 reasoning。该协调只覆盖 MoAgent typed workspace-write 工具与 run takeover，不覆盖外层数据预取、scaffold、build、preview 或验证编排；生产多实例不得并发运行同一 project 的完整 generation pipeline。共享卷还必须支持跨客户端原子 mkdir/rename/fsync，并在目标 NFS/CSI 上完成多进程、多主机故障验收。开发与生产都通过 `prisma/migrations/` 中的版本化迁移升级；统一运行 `npm run prisma:deploy`。已有数据库必须先按 `prisma/migrations/README.md` 完成备份、基线识别和 schema readiness 校验。
+每个 PI Agent 物理执行会通过 QuantPilot 治理层在共享文件系统资源锁内审计旧 attempt，并在 PostgreSQL 原子取得 project/canonical-workspace lease、创建 durable run；独立 heartbeat 同步续租 workspace 与 run 两层 lease，租约判断使用数据库权威时钟。事件写入与 heartbeat 共用 CAS 串行队列，旧 fencing token 不能继续提交。工具副作用前先写 `prepared` ledger；文件写入从临时文件创建前开始持有 `<workspace>/.pi-workspace.lock`，数据库短事务消费一次性 `commit_authorized` 后，资源锁继续覆盖目标复验和最终 rename；mutating outcome 不明时当前 run 立即停止并禁止后续写。孤儿资源锁不会自动强拆，owner metadata 会记录 instance/host/pid 和可用的 project/request/run/operation 身份，必须按排障 runbook 调和后移除。Checkpoint 只表示 `replan_required`，不包含 Provider session、prompt、messages 或 reasoning。该协调只覆盖 QuantPilot typed workspace-write 工具与 run takeover，不覆盖外层数据预取、scaffold、build、preview 或验证编排；生产多实例不得并发运行同一 project 的完整 generation pipeline。共享卷还必须支持跨客户端原子 mkdir/rename/fsync，并在目标 NFS/CSI 上完成多进程、多主机故障验收。开发与生产都通过 `prisma/migrations/` 中的版本化迁移升级；统一运行 `npm run prisma:deploy`。已有数据库必须先按 `prisma/migrations/README.md` 完成备份、基线识别和 schema readiness 校验。
 
 开发启动脚本会做一次轻量恢复探测：如果上一次是通过 `SKIP_DB_SYNC=1`、`offline` 或关闭组件的方式降级启动，但本次启动时 PostgreSQL/TimescaleDB、market-data、Redis 或 Loki 已经恢复可用，脚本会在当前进程内把这些组件切回启用状态，并把模式恢复为 `auto`。这不会改写 `.env`，只是避免“组件已经拉起来了，前端仍沿用旧的降级环境”。如果确实想强制保持降级，可临时设置：
 

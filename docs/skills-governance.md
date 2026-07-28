@@ -1,8 +1,8 @@
 # Skills 治理规范
 
-QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + MoAgent runtime capsule”的方式管理。目标是让每个 Skill 的能力边界、版本、变更、打包产物、运行时投影和安装结果都可追溯。
+QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + PI Agent runtime capsule”的方式管理。目标是让每个 Skill 的能力边界、版本、变更、打包产物、运行时投影和安装结果都可追溯。
 
-仓库根目录的 `.moagent/**` 是唯一 Skill 权威源和 MoAgent 受信编译输入；完整性由 registry/lock、版本与 SHA-256 校验提供，目前没有密码学签名。生成工作空间的 `.moagent/skills/` 是可检查的参考镜像，不是执行发现源，Agent 不会改写该镜像。
+仓库根目录的 `.pi/**` 是唯一 Skill 权威源和 PI Agent 受信编译输入；完整性由 registry/lock、版本与 SHA-256 校验提供，目前没有密码学签名。生成工作空间的 `.pi/skills/` 是可检查的参考镜像，不是执行发现源，Agent 不会改写该镜像。
 
 如果是第一次学习或修改 skill，先读 [Skills 编写与迭代教程](learning/07-skills-authoring.md)。本文偏治理规范，教程会更详细解释 skill 是什么、怎么写、怎么发布、怎么把用户反馈沉淀成长期规则。
 
@@ -15,7 +15,7 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + MoAgent r
 5. 能用 Python 脚本稳定计算的内容，不要只写成提示词规则。
 6. `SKILL.md` 保持短而硬，复杂模板、字段说明和场景矩阵放到 `references/`。
 7. Skill ID 按能力 scope 命名：只有量化域能力使用 `quant-`，平台 UI 使用 `platform-`，通用工作流、图片、证据和可视化能力不使用 QuantPilot 或 quant 前缀。
-8. `SKILL.md` 是完整源材料，不直接进入模型上下文。MoAgent 只加载与当前 phase、信号和 typed tools 兼容的原子 capsule；必需 section 超出预算时失败关闭，不截断工作流。
+8. `SKILL.md` 是完整源材料，不直接进入模型上下文。PI Agent 只加载与当前 phase、信号和 typed tools 兼容的原子 capsule；必需 section 超出预算时失败关闭，不截断工作流。
 9. 每个源码 Skill 都必须是完整技能包：`SKILL.md`、`references/`、`scripts/`、`agents/openai.yaml` 缺一不可；`assets/` 仅在确有输出模板或素材时加入。
 10. 每个 reference 和 script 都必须由 `SKILL.md` 直接导航并说明使用时机；不允许孤儿资源，也不在 Skill 包中放 README、CHANGELOG 或安装指南。
 
@@ -23,14 +23,14 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + MoAgent r
 
 | 路径 | 作用 |
 | --- | --- |
-| `.moagent/skills.registry.json` | 唯一能力注册表，记录核心 Skill、版本、边界、输入输出、脚本和验证规则 |
-| `.moagent/skills.changelog.json` | 权威版本变更记录 |
-| `.moagent/skills.lock.json` | 打包锁，记录源目录 hash、压缩包 hash、文件数和版本 |
-| `.moagent/skills/<skill-id>/` | 完整源码技能包，必须包含 `SKILL.md`、`references/`、`scripts/`、`agents/openai.yaml`；按需包含 `assets/` |
-| `.moagent/skill-packages/<skill-id>.tgz` | 规范发布包，供 MoAgent 编译器校验和安装 |
-| `.moagent/skill-packages/versions/**` | 已发布版本的不可变快照 |
-| `config/moagent-skill-capsules.json` | MoAgent 可执行投影：phase、工具依赖、领域增量、完成条件，以及按模板/标题选择的 reference |
-| `<workspace>/.moagent/skills/<skill-id>/` | 项目初始化生成的可检查参考镜像；当前 Agent 执行不从这里加载 |
+| `.pi/skills.registry.json` | 唯一能力注册表，记录核心 Skill、版本、边界、输入输出、脚本和验证规则 |
+| `.pi/skills.changelog.json` | 权威版本变更记录 |
+| `.pi/skills.lock.json` | 打包锁，记录源目录 hash、压缩包 hash、文件数和版本 |
+| `.pi/skills/<skill-id>/` | 完整源码技能包，必须包含 `SKILL.md`、`references/`、`scripts/`、`agents/openai.yaml`；按需包含 `assets/` |
+| `.pi/skill-packages/<skill-id>.tgz` | 规范发布包，供 PI Agent 编译器校验和安装 |
+| `.pi/skill-packages/versions/**` | 已发布版本的不可变快照 |
+| `config/pi-agent-skill-capsules.json` | PI Agent 可执行投影：phase、工具依赖、领域增量、完成条件，以及按模板/标题选择的 reference |
+| `<workspace>/.pi/skills/<skill-id>/` | 项目初始化生成的可检查参考镜像；当前 Agent 执行不从这里加载 |
 
 ## 当前核心 skill 边界
 
@@ -53,7 +53,7 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + MoAgent r
 
 ## 命名规则
 
-核心 skill 必须在 `.moagent/skills.registry.json` 中声明 `scope`。命名由 `scope` 决定：
+核心 skill 必须在 `.pi/skills.registry.json` 中声明 `scope`。命名由 `scope` 决定：
 
 | Scope | 命名规则 | 例子 |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + MoAgent r
 
 ## Python 脚本使用原则
 
-每个源码 Skill 必须配套至少一个确定性脚本，但脚本属于平台能力，不代表 MoAgent 获得 Python 或 Shell 工具。只有显式注册为 typed tool 或由平台阶段调用的脚本才能执行：
+每个源码 Skill 必须配套至少一个确定性脚本，但脚本属于平台能力，不代表 PI Agent 获得 Python 或 Shell 工具。只有显式注册为 typed tool 或由平台阶段调用的脚本才能执行：
 
 - 适合脚本：意图槽位检测、字段映射、收益/回撤/波动计算、数据质量扫描、信源探针、schema 校验。
 - 不适合脚本：长篇分析结论、投资建议措辞、页面审美判断。
@@ -129,10 +129,10 @@ http://localhost:3000/skills
 
 需要在命令行手工处理时，遵循同样顺序：
 
-1. 修改 `.moagent/skills/<skill-id>/` 下的 `SKILL.md`、`scripts/` 或 `references/`。
-2. 更新 `.moagent/skills.registry.json` 中该 skill 的 `version`、`boundary`、`outputs`、`scripts` 或 `validation`。
-3. 更新 `.moagent/skills.changelog.json`，新增同版本 release，写明日期、摘要和变更点。
-4. 为新版本生成 `.moagent/skill-packages/versions/<skill-id>/<version>.tgz` 不可变快照；已有同版本快照不得覆盖。手工发布容易遗漏这一项，因此发布版本仍优先使用 `/skills`。
+1. 修改 `.pi/skills/<skill-id>/` 下的 `SKILL.md`、`scripts/` 或 `references/`。
+2. 更新 `.pi/skills.registry.json` 中该 skill 的 `version`、`boundary`、`outputs`、`scripts` 或 `validation`。
+3. 更新 `.pi/skills.changelog.json`，新增同版本 release，写明日期、摘要和变更点。
+4. 为新版本生成 `.pi/skill-packages/versions/<skill-id>/<version>.tgz` 不可变快照；已有同版本快照不得覆盖。手工发布容易遗漏这一项，因此发布版本仍优先使用 `/skills`。
 5. 运行：
 
 ```bash
@@ -140,7 +140,7 @@ npm run package:skills -- <skill-id>
 npm run check:skills
 ```
 
-如果修改影响 MoAgent 的执行顺序、阶段、工具依赖或 reference 选择，还必须同步更新 `config/moagent-skill-capsules.json`。纯背景说明、长示例和平台脚本说明不应复制进 capsule。
+如果修改影响 PI Agent 的执行顺序、阶段、工具依赖或 reference 选择，还必须同步更新 `config/pi-agent-skill-capsules.json`。纯背景说明、长示例和平台脚本说明不应复制进 capsule。
 
 Workspace 回答展示由 `workspaceResponseContract` 统一治理。所有 Skill 继承同一套五阶段协议，只贡献本领域可验证事实、真实缺口和下一步；不得各自复制识别表、重启阶段编号或输出占位式执行文案。该共享合同是平台展示元数据，不进入模型的 capsule 文本，因此同步 12 个核心 Skill 不会产生 12 份重复 Token。
 
@@ -169,7 +169,7 @@ npm run type-check
 
 - 放到已有 skill 的 `references/`。
 - 放到已有 skill 的 `scripts/`。
-- 在 `.moagent/skills.registry.json` 中扩展该核心 skill 的 `outputs` 或 `validation`。
+- 在 `.pi/skills.registry.json` 中扩展该核心 skill 的 `outputs` 或 `validation`。
 
 ## 发布检查会挡住什么
 
@@ -189,7 +189,7 @@ npm run type-check
 - registry 和 Skill 条目是否完全不含已废弃的 `legacyAliases` 字段。
 - 每个核心 skill 是否恰好有一个合法 runtime capsule，phase 和 typed-tool 名是否有效。
 - capsule reference 是否位于对应 skill 的 `references/*.md`、是否存在且不是 symlink。
-- runtime capsule 是否混入 MoAgent 不支持的 MCP、Bash、curl、Python 或 `npm run` 指令。
+- runtime capsule 是否混入 PI Agent 不支持的 MCP、Bash、curl、Python 或 `npm run` 指令。
 
 如果修改了尚未发布的 skill 但忘记重新打包，会出现 source/package hash mismatch，需要重新运行：
 
@@ -204,9 +204,9 @@ npm run package:skills -- <skill-id>
 项目初始化镜像与 Agent 执行编译顺序：
 
 1. registry 按 capability 选择核心 skills，lock 必须同时匹配版本和可用输入的 SHA-256。
-2. 编译器优先读取仓库根目录 `.moagent/skills/<skill-id>` 并校验 source hash 与文件数。
-3. 只有 source 不存在时，才回退读取 `.moagent/skill-packages/<skill-id>.tgz`；除 package hash 外，还会拒绝链接/特殊条目和超限内容，并验证包内 `path + content` 树与 source lock 完全一致。
-4. 创建项目时，编译器把 capability 的完整受检 Skill 集合及显式附加 Skill 安装为 `<workspace>/.moagent/skills/` 参考镜像；安装集合不受单次执行 phase 裁剪。创建服务只以安装成功或抛错作为结果，不把 receipt 注入 Agent。
+2. 编译器优先读取仓库根目录 `.pi/skills/<skill-id>` 并校验 source hash 与文件数。
+3. 只有 source 不存在时，才回退读取 `.pi/skill-packages/<skill-id>.tgz`；除 package hash 外，还会拒绝链接/特殊条目和超限内容，并验证包内 `path + content` 树与 source lock 完全一致。
+4. 创建项目时，编译器把 capability 的完整受检 Skill 集合及显式附加 Skill 安装为 `<workspace>/.pi/skills/` 参考镜像；安装集合不受单次执行 phase 裁剪。创建服务只以安装成功或抛错作为结果，不把 receipt 注入 Agent。
 5. 每次 Agent 执行重新按第 1～3 步验证受信输入，再按 phase、附件、标的解析、template/variant 和当前 typed-tool 名称选择 capsule。
 6. 稳定 Kernel 只接收 skill manifest；动态 user task 依次接收 Task Packet、完整的原子 Skill Capsules 和标为 untrusted data 的 initial dashboard contract。reference 由编译器按 Markdown 二级标题精确注入，模型不再读取相对 reference 路径。
 

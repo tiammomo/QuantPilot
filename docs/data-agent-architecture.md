@@ -1,12 +1,13 @@
 # Data Agent 平台与 Domain Pack 架构
 
-QuantPilot 采用可复用的数据智能平台架构：MoAgent 提供执行框架，Data Agent 提供通用数据任务合同，不同业务通过 Domain Pack 注入实体、数据源、Skills、工具、验证和可视化规则。金融量化是第一个完整 Domain Pack，而不是通用内核的默认假设。
+QuantPilot 采用可复用的数据智能平台架构：开源 PI Agent 提供完整多轮执行循环，QuantPilot 提供权限、durable runtime 与交付治理，Data Agent 提供通用数据任务合同，不同业务通过 Domain Pack 注入实体、数据源、Skills、工具、验证和可视化规则。金融量化是第一个完整 Domain Pack，而不是通用内核的默认假设。
 
 这次调整的目标不是把 QuantPilot 改成抽象框架展示项目，而是建立一条可持续扩展的产品主线：
 
 ```text
 Data Agent 产品
-  = MoAgent Framework
+  = PI Agent Runtime
+  + QuantPilot Agent Governance
   + Data Agent Core
   + 一个或多个 Domain Pack
   + Delivery Pack
@@ -17,7 +18,7 @@ Data Agent 产品
 
 | 层 | 负责什么 | 不负责什么 | 当前入口 |
 | --- | --- | --- | --- |
-| MoAgent Framework | Provider、Agent loop、上下文预算、类型化工具、Skill 编译、Mission 执行与证据验证机制 | 证券、K 线、财报等业务概念 | `src/lib/agent/**` |
+| PI Agent Runtime + QuantPilot Governance | PI 完整 Agent loop；QuantPilot Provider 适配、上下文预算、类型化工具、Skill 编译、durable runtime、Mission 执行与证据验证机制 | 证券、K 线、财报等业务概念 | `src/lib/agent/pi/**`、`src/lib/agent/**` |
 | Data Agent Core | 通用任务、实体、指标、维度、数据集、Connector、Domain Pack、Agent Profile、组合锁、应用 Catalog 和执行计划合同 | 某个行业的解析规则和接口地址 | `src/lib/data-agent/**` |
 | Finance Domain Pack | 证券实体、行情连接器、量化能力、金融 Skills、金融工具、Mission、验证和可视化配置 | 通用 Agent loop 和跨行业任务模型 | `src/lib/domains/finance/**` |
 | QuantPilot Application | 项目、聊天、预取、工作空间交付和金融产品页面 | 定义新的通用 Agent 机制或领域合同 | `src/lib/quant/**`、`src/lib/services/**`、`src/app/**` |
@@ -30,7 +31,7 @@ flowchart LR
   APP[Product Application] --> DA[Data Agent Core]
   APP --> FD[Finance Domain Pack]
   FD --> DA
-  DA --> MA[MoAgent Framework]
+  DA --> MA[PI Agent + QuantPilot Governance]
   FD --> MA
   MA --> SK[Shared Kernel]
 ```
@@ -66,7 +67,7 @@ flowchart LR
 当前 `quantpilot.finance-research@1.0.0` 组合：
 
 ```text
-MoAgent
+PI Agent 0.82.1 + QuantPilot Governance
   + finance.quant
   + workspace.next-dashboard
   + quantpilot.personalization（可选）
@@ -90,7 +91,7 @@ HTTP 请求把规划、数据准备和 Mission 创建委托给 Domain 应用服�
 ```text
 Web: Task -> Domain Plan -> Data Prefetch -> Mission -> durable job/outbox
                                                         |
-Worker/inline: registry -> domain handler -> MoAgent -> Delivery validation -> receipt
+Worker/inline: registry -> domain handler -> PI Agent adapter -> Delivery validation -> receipt
 ```
 
 ## 工作空间合同
@@ -99,7 +100,7 @@ Worker/inline: registry -> domain handler -> MoAgent -> Delivery validation -> r
 
 ```text
 .data-agent/
-  workspace.json     # 项目身份与 MoAgent 运行时选择
+  workspace.json     # 项目身份与 PI Agent 运行时选择
   profile.json       # Agent Profile 与当前 capability
   task.json          # 通用 DataAgentTask
   plan.json          # 通用 DataAgentExecutionPlan
@@ -130,10 +131,10 @@ Agent 工具不能修改这个控制目录；它只能由平台编排器写入�
 5. Finance 工具工厂组合通用文件工具、金融行情工具、看板编译器和检查器。
 6. Finance Mission Definition 声明所需产物、节点、预算、验证和接受条件。
 7. Web 把严格版本化的 Finance generation envelope 与 job/outbox 原子持久化；生产模式由独立 Worker claim。
-8. 通用运行时注册表把任务分派给 Finance handler，MoAgent 只消费注入后的 Skills、Tools 与 Mission，不认识任何证券或量化类型。
+8. 通用运行时注册表把任务分派给 Finance handler，PI Agent 只消费 QuantPilot 适配后的 Skills、Tools 与 Mission，不认识任何证券或量化类型。
 9. Delivery 验证通过且证据 receipt 被接受后，任务才进入 completed。
 
-Skills 编译器只支持通用的 `activatedSkillIds` 与 `excludedSkillIds`。例如“有附件时启用图片提取”“证券已经解析后排除 symbol resolver”均由金融调用方决定，MoAgent 内核不硬编码这些 ID。`query_json` 的 artifact handles、alias、identity 校验、对象字段优先级和领域提示也由 `MoAgentJsonArtifactConfiguration` 注入；Finance 配置位于 `src/lib/domains/finance/agent-tools/structured-read.ts`。
+QuantPilot Skills 编译器只支持通用的 `activatedSkillIds` 与 `excludedSkillIds`。例如“有附件时启用图片提取”“证券已经解析后排除 symbol resolver”均由金融调用方决定，Agent 治理层不硬编码这些 ID。`query_json` 的 artifact handles、alias、identity 校验、对象字段优先级和领域提示仍由兼容类型 `PiAgentJsonArtifactConfiguration` 注入；Finance 配置位于 `src/lib/domains/finance/agent-tools/structured-read.ts`。
 
 ## 项目空间创建与删除
 
@@ -173,7 +174,7 @@ Capability 描述用户目标，不应等同于某个 API。它将多个 Connect
 
 ### 4. 提供工具工厂
 
-使用 `createMoAgentTools` 组装通用工具，再通过 Domain Pack 注入领域工具、prepared compiler、inspector 和 receipt projector。工具名必须唯一；修改型工具必须加入 Profile 的允许列表。
+使用 `createPiAgentTools` 组装通用工具，再通过 Domain Pack 注入领域工具、prepared compiler、inspector 和 receipt projector。工具名必须唯一；修改型工具必须加入 Profile 的允许列表。
 
 金融示例见 `src/lib/domains/finance/agent-tools/factory.ts`。
 
@@ -187,7 +188,7 @@ Mission Definition 必须声明：
 - acceptance predicates；
 - 领域实体引用类型。
 
-MoAgent Mission 编译器只验证这份定义，不内置金融节点或文件名。金融示例见 `src/lib/domains/finance/mission-definition.ts`。
+QuantPilot Mission 编译器只验证这份定义，不内置金融节点或文件名；相关 `PiAgent*` 符号是规范治理 API。金融示例见 `src/lib/domains/finance/mission-definition.ts`。
 
 ### 6. 注册 Delivery Pack、Profile 并做隔离测试
 
@@ -203,7 +204,7 @@ MoAgent Mission 编译器只验证这份定义，不内置金融节点或文件�
 
 - 通用 contracts 与 registry；
 - 金融 Query Rewrite、Planner、capability、数据身份、可视化、工具和 Mission 定义均位于 Finance Domain Pack；
-- MoAgent Skills、Tools、Mission 不再导入量化模块，核心 structured reader 不再保存金融 artifact/path/alias；
+- QuantPilot Skills、Tools、Mission 治理组件不导入量化模块，核心 structured reader 不保存金融 artifact/path/alias；相关 `PiAgent*` 名称是当前规范符号；
 - 工作空间只写入 `.data-agent`，并冻结 workspace/profile/task/plan 四份核心合同；
 - 图片接入已拆为 Data Agent 通用资产层和 Finance Domain Adapter，Act API 不再接收 base64 或绝对路径；
 - schema v3 generation envelope、Profile handler 注册表和独立 Worker 已形成真实运行时分派边界；Finance 不再硬编码在 Worker 主循环；
