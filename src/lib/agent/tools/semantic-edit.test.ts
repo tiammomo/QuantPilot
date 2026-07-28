@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { MoAgentToolContext } from '@/lib/agent/types';
+import type { PiAgentToolContext } from '@/lib/agent/types';
 
 import { createSemanticEditTool } from './semantic-edit';
 
@@ -20,7 +20,7 @@ describe('semantic_edit tool', () => {
   let commitCount: number;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-semantic-edit-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-semantic-edit-'));
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
     page = [
       "import type { ReactNode } from 'react';",
@@ -55,7 +55,7 @@ describe('semantic_edit tool', () => {
     await fs.rm(workspace, { recursive: true, force: true });
   });
 
-  function context(): MoAgentToolContext {
+  function context(): PiAgentToolContext {
     return {
       runId: 'run-semantic-edit',
       turn: 2,
@@ -237,7 +237,13 @@ describe('semantic_edit tool', () => {
       replacement: '.dashboard { display: flex; }',
     }) as never, context());
 
-    expect(result).toMatchObject({ ok: false, error: { code: 'SEMANTIC_TARGET_AMBIGUOUS' } });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'SEMANTIC_TARGET_AMBIGUOUS',
+        message: expect.stringMatching(/do not retry.*reuse beforeSha256.*kind=line_range/i),
+      },
+    });
     expect(commitCount).toBe(0);
   });
 
@@ -257,6 +263,48 @@ describe('semantic_edit tool', () => {
     const updated = await fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8');
     expect(updated).toContain('.shell { display: flex; gap: 12px; }');
     expect(updated).toContain('.metric { color: red; }');
+  });
+
+  it('appends a bounded CSS override without rewriting the existing stylesheet', async () => {
+    const tool = createSemanticEditTool({ workspaceRoot: workspace });
+    const replacement = [
+      '/* Explicit continuous-workbench override */',
+      '.dashboard { border-radius: 0; box-shadow: none; }',
+      '.metric { border-top: 1px solid var(--line); }',
+    ].join('\n');
+    const result = await tool.execute(tool.parseInput?.({
+      path: 'app/globals.css',
+      kind: 'css_append',
+      beforeSha256: sha256(styles),
+      replacement,
+    }) as never, context());
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { kind: 'css_append', target: 'append' },
+    });
+    expect(commitCount).toBe(1);
+    const updated = await fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8');
+    expect(updated.startsWith(styles.trimEnd())).toBe(true);
+    expect(updated).toContain(replacement);
+  });
+
+  it('rejects an oversized CSS override append', async () => {
+    const tool = createSemanticEditTool({ workspaceRoot: workspace });
+    const result = await tool.execute(tool.parseInput?.({
+      path: 'app/globals.css',
+      kind: 'css_append',
+      beforeSha256: sha256(styles),
+      replacement: Array.from(
+        { length: 161 },
+        (_, index) => `.override-${index} { border-radius: 0; }`,
+      ).join('\n'),
+    }) as never, context());
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'SEMANTIC_TARGET_UNSAFE' } });
+    expect(commitCount).toBe(0);
+    await expect(fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8'))
+      .resolves.toBe(styles);
   });
 
   it('supports a versioned exact line range as a bounded fallback', async () => {

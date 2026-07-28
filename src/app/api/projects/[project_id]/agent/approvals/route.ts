@@ -4,9 +4,9 @@ import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
 import {
-  listMoAgentToolApprovals,
-  MoAgentToolApprovalStoreError,
-} from '@/lib/services/moagent-tool-approval-store';
+  listPiAgentToolApprovals,
+  PiAgentToolApprovalStoreError,
+} from '@/lib/services/pi-agent-tool-approval-store';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -31,7 +31,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       );
     }
     const limitValue = Number(url.searchParams.get('limit') ?? '50');
-    const data = await listMoAgentToolApprovals({
+    const data = await listPiAgentToolApprovals({
       projectId: project_id,
       ...(url.searchParams.get('runId')
         ? { runId: url.searchParams.get('runId')! }
@@ -51,13 +51,13 @@ export async function GET(request: Request, { params }: RouteContext) {
     return NextResponse.json({ success: true, data });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    if (error instanceof MoAgentToolApprovalStoreError) {
+    if (error instanceof PiAgentToolApprovalStoreError) {
       return NextResponse.json(
         { success: false, error: error.code },
         { status: error.code === 'APPROVAL_NOT_FOUND' ? 404 : 409 },
       );
     }
-    console.error('[API] Failed to list MoAgent approvals:', error);
+    console.error('[API] Failed to list PI Agent approvals:', error);
     return NextResponse.json(
       { success: false, error: 'FAILED_TO_LIST_APPROVALS' },
       { status: 500 },

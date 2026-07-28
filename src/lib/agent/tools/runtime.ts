@@ -1,11 +1,11 @@
-import type { MoAgentToolResult } from '@/lib/agent/types';
-import { MoAgentToolError, throwIfAborted } from './errors';
+import type { PiAgentToolResult } from '@/lib/agent/types';
+import { PiAgentToolError, throwIfAborted } from './errors';
 
 export const DEFAULT_TOOL_TIMEOUT_MS = 15_000;
 export const DEFAULT_TOOL_OUTPUT_CHARS = 12_000;
 
 function truncationMarker(omitted: number, original: number): string {
-  return `\n\n[MoAgent output truncated: omitted ${omitted} characters from ${original}.]\n\n`;
+  return `\n\n[PI Agent output truncated: omitted ${omitted} characters from ${original}.]\n\n`;
 }
 
 export interface TruncatedText {
@@ -22,7 +22,7 @@ export function truncateToolOutput(
   limit = DEFAULT_TOOL_OUTPUT_CHARS,
 ): TruncatedText {
   if (!Number.isSafeInteger(limit) || limit < 0) {
-    throw new MoAgentToolError('INVALID_LIMIT', 'Tool output limit must be a non-negative integer.');
+    throw new PiAgentToolError('INVALID_LIMIT', 'Tool output limit must be a non-negative integer.');
   }
   if (value.length <= limit) {
     return { text: value, truncated: false, originalChars: value.length };
@@ -53,13 +53,13 @@ export function truncateToolOutput(
   };
 }
 
-export async function withMoAgentTimeout<T>(
+export async function withPiAgentTimeout<T>(
   parentSignal: AbortSignal,
   timeoutMs: number,
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-    throw new MoAgentToolError('INVALID_TIMEOUT', 'MoAgent tool timeout must be a positive integer.');
+    throw new PiAgentToolError('INVALID_TIMEOUT', 'PI Agent tool timeout must be a positive integer.');
   }
   throwIfAborted(parentSignal);
 
@@ -71,23 +71,23 @@ export async function withMoAgentTimeout<T>(
   });
   const abortFromParent = () => {
     controller.abort(parentSignal.reason);
-    rejectCancellation?.(new MoAgentToolError('ABORTED', 'MoAgent tool execution was aborted.'));
+    rejectCancellation?.(new PiAgentToolError('ABORTED', 'PI Agent tool execution was aborted.'));
   };
   parentSignal.addEventListener('abort', abortFromParent, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
-    controller.abort(new Error(`MoAgent tool timed out after ${timeoutMs}ms.`));
-    rejectCancellation?.(new MoAgentToolError('TOOL_TIMEOUT', `MoAgent tool timed out after ${timeoutMs}ms.`));
+    controller.abort(new Error(`PI Agent tool timed out after ${timeoutMs}ms.`));
+    rejectCancellation?.(new PiAgentToolError('TOOL_TIMEOUT', `PI Agent tool timed out after ${timeoutMs}ms.`));
   }, timeoutMs);
 
   try {
     return await Promise.race([operation(controller.signal), cancellation]);
   } catch (error) {
     if (timedOut) {
-      throw new MoAgentToolError('TOOL_TIMEOUT', `MoAgent tool timed out after ${timeoutMs}ms.`);
+      throw new PiAgentToolError('TOOL_TIMEOUT', `PI Agent tool timed out after ${timeoutMs}ms.`);
     }
     if (parentSignal.aborted || controller.signal.aborted) {
-      throw new MoAgentToolError('ABORTED', 'MoAgent tool execution was aborted.');
+      throw new PiAgentToolError('ABORTED', 'PI Agent tool execution was aborted.');
     }
     throw error;
   } finally {
@@ -96,15 +96,15 @@ export async function withMoAgentTimeout<T>(
   }
 }
 
-export async function executeMoAgentTool<T>(
+export async function executePiAgentTool<T>(
   signal: AbortSignal,
   timeoutMs: number,
-  operation: (operationSignal: AbortSignal) => Promise<MoAgentToolResult<T>>,
-): Promise<MoAgentToolResult<T>> {
+  operation: (operationSignal: AbortSignal) => Promise<PiAgentToolResult<T>>,
+): Promise<PiAgentToolResult<T>> {
   try {
-    return await withMoAgentTimeout(signal, timeoutMs, operation);
+    return await withPiAgentTimeout(signal, timeoutMs, operation);
   } catch (error) {
-    if (error instanceof MoAgentToolError) {
+    if (error instanceof PiAgentToolError) {
       return {
         ok: false,
         error: { code: error.code, message: error.message, details: error.details },

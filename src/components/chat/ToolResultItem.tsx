@@ -277,7 +277,7 @@ const buildToolSummary = ({
 
   if (success === false) {
     if (errorCode === 'INVALID_TOOL_ARGUMENTS' || errorCode === 'INVALID_TOOL_INPUT') {
-      return '参数格式需要调整，MoAgent 会根据工具契约重新组织调用。';
+      return '参数格式需要调整，PI Agent 会根据工具契约重新组织调用。';
     }
     if (errorCode === 'PATH_NOT_FOUND' || errorCode === 'EDIT_MATCH_NOT_FOUND') {
       return '目标位置已经变化，需要重新定位后继续。';

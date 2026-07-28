@@ -7,9 +7,14 @@ import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/ba
 import fs from 'fs/promises';
 import path from 'path';
 import {
-  MOAGENT_DEFAULT_MODEL,
-  normalizeMoAgentModelId,
+  PI_AGENT_DEFAULT_MODEL,
+  normalizePiAgentModelId,
 } from '@/lib/constants/models';
+import {
+  PRODUCT_AGENT_FRAMEWORK,
+  PRODUCT_CLI_ID,
+  normalizeProductCliIdOrDefault,
+} from '@/lib/constants/cli';
 import {
   DATA_AGENT_ROOT_RELATIVE_PATH,
   DATA_AGENT_WORKSPACE_RELATIVE_PATH,
@@ -85,7 +90,7 @@ export async function ensureProjectLlmConfiguration(params: {
     params.agentProfileId ?? DEFAULT_DATA_AGENT_PROFILE_ID,
     capabilityId,
   );
-  const selectedModel = normalizeMoAgentModelId(params.selectedModel);
+  const selectedModel = normalizePiAgentModelId(params.selectedModel);
   const llm = getProjectLlmConfig(selectedModel);
   const managedProjectPath = await assertManagedWorkspaceExists(
     params.projectId,
@@ -118,8 +123,8 @@ export async function ensureProjectLlmConfiguration(params: {
     composition: application.composition,
     runtime: {
       ...existingRuntime,
-      framework: 'MoAgent',
-      executorId: params.preferredCli ?? 'moagent',
+      framework: PRODUCT_AGENT_FRAMEWORK,
+      executorId: normalizeProductCliIdOrDefault(params.preferredCli),
       modelId: selectedModel,
       modelProfileId: llm.profileId,
     },
@@ -258,8 +263,8 @@ export async function getAllProjects(access?: {
   });
   return projects.map(project => ({
     ...project,
-    preferredCli: 'moagent',
-    selectedModel: normalizeMoAgentModelId(project.selectedModel),
+    preferredCli: PRODUCT_CLI_ID,
+    selectedModel: normalizePiAgentModelId(project.selectedModel),
   })) as Project[];
 }
 
@@ -273,8 +278,8 @@ export async function getProjectById(id: string): Promise<Project | null> {
   if (!project) return null;
   return {
     ...project,
-    preferredCli: 'moagent',
-    selectedModel: normalizeMoAgentModelId(project.selectedModel),
+    preferredCli: PRODUCT_CLI_ID,
+    selectedModel: normalizePiAgentModelId(project.selectedModel),
   } as Project;
 }
 
@@ -290,8 +295,8 @@ export async function createProject(
     input.capabilityId,
   );
   const projectPath = await assertManagedWorkspaceAvailable(input.project_id);
-  const preferredCli = 'moagent';
-  const selectedModel = normalizeMoAgentModelId(input.selectedModel);
+  const preferredCli = PRODUCT_CLI_ID;
+  const selectedModel = normalizePiAgentModelId(input.selectedModel);
   let project = await prisma.project.create({
     data: {
       id: input.project_id,
@@ -382,7 +387,7 @@ export async function createProject(
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
     ...project,
-    preferredCli: 'moagent',
+    preferredCli: PRODUCT_CLI_ID,
     selectedModel,
   } as Project;
 }
@@ -398,8 +403,8 @@ export async function updateProject(
     where: { id },
     select: { selectedModel: true, settings: true },
   });
-  const selectedModel = normalizeMoAgentModelId(
-    input.selectedModel ?? current?.selectedModel ?? MOAGENT_DEFAULT_MODEL,
+  const selectedModel = normalizePiAgentModelId(
+    input.selectedModel ?? current?.selectedModel ?? PI_AGENT_DEFAULT_MODEL,
   );
   const project = await prisma.project.update({
     where: { id },
@@ -408,7 +413,7 @@ export async function updateProject(
       ...(input.settings !== undefined || input.selectedModel !== undefined
         ? { settings: mergeLlmSettings(input.settings ?? current?.settings, selectedModel) }
         : {}),
-      preferredCli: 'moagent',
+      preferredCli: PRODUCT_CLI_ID,
       selectedModel,
       updatedAt: new Date(),
     },
@@ -417,7 +422,7 @@ export async function updateProject(
   console.log(`[ProjectService] Updated project: ${id}`);
   return {
     ...project,
-    preferredCli: 'moagent',
+    preferredCli: PRODUCT_CLI_ID,
     selectedModel,
   } as Project;
 }

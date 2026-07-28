@@ -1,48 +1,48 @@
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentTool } from '@/lib/agent/types';
 import { firstPartyContextReceiptProjector } from './context-receipts';
-import { createMoAgentFileTools, type MoAgentFileToolOptions } from './filesystem';
+import { createPiAgentFileTools, type PiAgentFileToolOptions } from './filesystem';
 import { createSemanticEditTool } from './semantic-edit';
 import {
   createQueryJsonTool,
   createQueryTextFileTool,
-  type MoAgentJsonArtifactConfiguration,
+  type PiAgentJsonArtifactConfiguration,
 } from './structured-read';
 import { createSubmitResultTool } from './submit-result';
-import { composeMoAgentToolset } from './toolset';
+import { composePiAgentToolset } from './toolset';
 
-export type MoAgentToolProfile = 'generation' | 'repair';
-export type MoAgentPreparedToolSurface = 'standard' | 'custom';
+export type PiAgentToolProfile = 'generation' | 'repair';
+export type PiAgentPreparedToolSurface = 'standard' | 'custom';
 
-export interface CreateMoAgentToolsOptions extends MoAgentFileToolOptions {
-  profile?: MoAgentToolProfile;
+export interface CreatePiAgentToolsOptions extends PiAgentFileToolOptions {
+  profile?: PiAgentToolProfile;
   profileAllowedWriteGlobs?: readonly string[];
   targetedReadsOnly?: boolean;
   /** Domain/delivery-owned authoritative JSON handles and optional aliases. */
-  jsonArtifacts?: MoAgentJsonArtifactConfiguration;
-  preparedSurface?: MoAgentPreparedToolSurface;
+  jsonArtifacts?: PiAgentJsonArtifactConfiguration;
+  preparedSurface?: PiAgentPreparedToolSurface;
   /** Domain/delivery-owned compiler used by a deterministic standard lane. */
-  preparedCompilerTool?: MoAgentTool | null;
+  preparedCompilerTool?: PiAgentTool | null;
   /** Domain/delivery inspectors exposed only before a prepared contract exists. */
-  inspectionTools?: readonly MoAgentTool[];
+  inspectionTools?: readonly PiAgentTool[];
   includeSemanticEdit?: boolean;
   allowedMutationToolNames?: readonly string[];
   /** Trusted typed tools registered by the application composition root. */
-  trustedAdditionalTools?: readonly MoAgentTool[];
+  trustedAdditionalTools?: readonly PiAgentTool[];
   /** Trusted tools intentionally ordered after the terminal submission schema. */
-  trustedTrailingTools?: readonly MoAgentTool[];
+  trustedTrailingTools?: readonly PiAgentTool[];
   /** Plugin tools cross an untrusted receipt-projector boundary. */
-  additionalTools?: readonly MoAgentTool[];
+  additionalTools?: readonly PiAgentTool[];
   /** Trusted application/domain projector registry composed ahead of core defaults. */
   contextReceiptProjector?: (
     toolName: string,
-  ) => MoAgentTool['projectContextReceipt'] | undefined;
+  ) => PiAgentTool['projectContextReceipt'] | undefined;
 }
 
 /** Generation authors source/UI only; data/evidence writes require explicit domain scope. */
-export const MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS = [] as const;
+export const PI_AGENT_GENERATION_ALLOWED_WRITE_GLOBS = [] as const;
 
 /** Structured data/evidence paths supported by the generic workspace reader. */
-export const MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS = [
+export const PI_AGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS = [
   'data/**/*.json',
   'data_file/final/**/*.json',
   'evidence/**/*.json',
@@ -55,38 +55,38 @@ const GENERIC_READ_TOOL_NAMES = new Set([
   'search_files',
 ]);
 
-export function allowedWriteGlobsForMoAgentProfile(
-  profile: MoAgentToolProfile,
+export function allowedWriteGlobsForPiAgentProfile(
+  profile: PiAgentToolProfile,
 ): readonly string[] {
-  return profile === 'repair' ? [] : MOAGENT_GENERATION_ALLOWED_WRITE_GLOBS;
+  return profile === 'repair' ? [] : PI_AGENT_GENERATION_ALLOWED_WRITE_GLOBS;
 }
 
 /**
  * Product-neutral workspace Tool factory. Domain packages contribute only
  * typed tools and a prepared compiler; no finance endpoint is enabled here.
  */
-export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentTool[] {
+export function createPiAgentTools(options: CreatePiAgentToolsOptions): PiAgentTool[] {
   const profile = options.profile ?? 'generation';
   if (profile === 'repair' && options.profileAllowedWriteGlobs === undefined) {
-    throw new Error('MoAgent repair tools require a trusted failure-scoped write allowlist.');
+    throw new Error('PI Agent repair tools require a trusted failure-scoped write allowlist.');
   }
   const allowedWriteGlobs = [
-    ...(options.profileAllowedWriteGlobs ?? allowedWriteGlobsForMoAgentProfile(profile)),
+    ...(options.profileAllowedWriteGlobs ?? allowedWriteGlobsForPiAgentProfile(profile)),
     ...(options.allowedWriteGlobs ?? []),
   ];
   const workspaceOptions = {
     ...options,
     allowedWriteGlobs,
     structuredJsonReadGlobs: options.structuredJsonReadGlobs ?? (
-      profile === 'generation' ? MOAGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS : []
+      profile === 'generation' ? PI_AGENT_GENERATION_STRUCTURED_JSON_READ_GLOBS : []
     ),
   };
   if (options.preparedSurface && options.includeDefaultWriteGlobs !== false) {
     throw new Error(
-      'MoAgent prepared surfaces require includeDefaultWriteGlobs=false and an explicit write scope.',
+      'PI Agent prepared surfaces require includeDefaultWriteGlobs=false and an explicit write scope.',
     );
   }
-  const fileTools = createMoAgentFileTools(workspaceOptions);
+  const fileTools = createPiAgentFileTools(workspaceOptions);
   const semanticEditTool = options.includeSemanticEdit
     ? createSemanticEditTool(workspaceOptions)
     : null;
@@ -97,10 +97,10 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
     timeoutMs: options.timeoutMs,
   });
   if (options.preparedSurface === 'standard' && !options.preparedCompilerTool) {
-    throw new Error('MoAgent prepared standard surface requires a domain delivery compiler.');
+    throw new Error('PI Agent prepared standard surface requires a domain delivery compiler.');
   }
   if (options.preparedSurface === 'custom' && !semanticEditTool) {
-    throw new Error('MoAgent prepared custom surface requires semantic_edit.');
+    throw new Error('PI Agent prepared custom surface requires semantic_edit.');
   }
   if (
     options.preparedSurface &&
@@ -109,10 +109,10 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
       (options.trustedTrailingTools?.length ?? 0) > 0 ||
       (options.additionalTools?.length ?? 0) > 0)
   ) {
-    throw new Error('MoAgent prepared surfaces reject inspection, domain data and plugin tools.');
+    throw new Error('PI Agent prepared surfaces reject inspection, domain data and plugin tools.');
   }
 
-  const trustedTools: MoAgentTool[] = options.preparedSurface === 'standard'
+  const trustedTools: PiAgentTool[] = options.preparedSurface === 'standard'
     ? [options.preparedCompilerTool!, submitResultTool]
     : options.preparedSurface === 'custom'
       ? [queryJsonTool, queryTextFileTool, semanticEditTool!, submitResultTool]
@@ -129,7 +129,7 @@ export function createMoAgentTools(options: CreateMoAgentToolsOptions): MoAgentT
           submitResultTool,
           ...(options.trustedTrailingTools ?? []),
         ];
-  return composeMoAgentToolset({
+  return composePiAgentToolset({
     trustedTools,
     extensionTools: options.additionalTools,
     allowedMutationToolNames: options.allowedMutationToolNames,

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { serializeMessage } from '@/lib/serializers/chat';
 import { ensureMessage } from '@/lib/services/message';
-import { collectMoAgentTurnMetrics } from '@/lib/services/moagent-turn-metrics';
+import { collectPiAgentTurnMetrics } from '@/lib/services/pi-agent-turn-metrics';
 import { streamManager } from '@/lib/services/stream';
 import {
   buildWorkspaceProgressMessage,
@@ -46,7 +46,7 @@ export function createWorkspaceProgressPublisher(params: {
         !options.failureReason &&
         !options.cancelledReason;
       const turnMetrics = options.stage === 5
-        ? await collectMoAgentTurnMetrics({
+        ? await collectPiAgentTurnMetrics({
             projectId: params.projectId,
             requestId: params.requestId,
             relatedRequestIds: params.relatedAgentRequestIds,
@@ -83,7 +83,7 @@ export function createWorkspaceProgressPublisher(params: {
           ...(turnMetrics ? { turnMetrics } : {}),
           ...(successfulFinal
             ? {
-                isMoAgentFinal: true,
+                isPiAgentFinal: true,
                 validationPassed: true,
               }
             : {}),

@@ -4,9 +4,9 @@ import { randomUUID } from 'node:crypto';
 
 import { OpenAICompatibleProvider } from '../../src/lib/agent/providers/openai-compatible';
 import type {
-  MoAgentMessage,
-  MoAgentModelEvent,
-  MoAgentTokenUsage,
+  PiAgentMessage,
+  PiAgentModelEvent,
+  PiAgentTokenUsage,
 } from '../../src/lib/agent/types';
 import { getProjectLlmConfig } from '../../src/lib/config/llm';
 import {
@@ -21,7 +21,7 @@ import {
   type PersonalizationCapsule,
 } from '../../src/lib/platform/memory/types';
 import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/domains/finance/query-rewrite-llm';
-import { buildQuantPilotUserPrompt } from '../../src/lib/services/moagent-prompts';
+import { buildQuantPilotUserPrompt } from '../../src/lib/services/pi-agent-prompts';
 
 const argv = process.argv.slice(2);
 const writeMode = argv.includes('--write');
@@ -56,9 +56,9 @@ interface ProviderRoundTrip {
   toolCallId: string;
   toolName: string;
   toolArguments: string;
-  usage: MoAgentTokenUsage;
+  usage: PiAgentTokenUsage;
   responseModel: string;
-  continuationUsage: MoAgentTokenUsage;
+  continuationUsage: PiAgentTokenUsage;
   continuationCharacters: number;
 }
 
@@ -68,19 +68,19 @@ interface CollectedProviderTurn {
   toolCallId: string;
   toolName: string;
   toolArguments: string;
-  usage: MoAgentTokenUsage | null;
+  usage: PiAgentTokenUsage | null;
   finishReason: string | null;
 }
 
 async function collectProviderTurn(
-  events: AsyncIterable<MoAgentModelEvent>,
+  events: AsyncIterable<PiAgentModelEvent>,
 ): Promise<CollectedProviderTurn> {
   let responseModel = '';
   let text = '';
   let toolCallId = '';
   let toolName = '';
   let toolArguments = '';
-  let usage: MoAgentTokenUsage | null = null;
+  let usage: PiAgentTokenUsage | null = null;
   let finishReason: string | null = null;
   for await (const event of events) {
     if (event.type === 'response_start') responseModel = event.model;
@@ -123,7 +123,7 @@ async function providerToolRoundTrip(params: {
         requireDashboardContract: false,
       })
     : 'Run the integration acceptance protocol without personal memory.';
-  const messages: MoAgentMessage[] = [
+  const messages: PiAgentMessage[] = [
     {
       role: 'system',
       content: [

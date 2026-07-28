@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createMoAgentPhaseGraph } from './phase-graph';
+import { createPiAgentPhaseGraph } from './phase-graph';
 
-describe('MoAgent PhaseGraph', () => {
+describe('PI Agent PhaseGraph', () => {
   it('routes a trusted prepared standard dashboard to zero-model execution', () => {
-    expect(createMoAgentPhaseGraph({
+    expect(createPiAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: true,
       preparedIntent: 'standard',
@@ -21,7 +21,7 @@ describe('MoAgent PhaseGraph', () => {
     { hasAttachments: true, dashboardSpecReady: true },
     { hasAttachments: false, dashboardSpecReady: false },
   ])('fails closed to model preparation when deterministic prerequisites are absent', (override) => {
-    expect(createMoAgentPhaseGraph({
+    expect(createPiAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: true,
       preparedIntent: 'standard',
@@ -30,14 +30,14 @@ describe('MoAgent PhaseGraph', () => {
   });
 
   it('gives custom edits enough inspect/write/submit turns while keeping repair tighter', () => {
-    const custom = createMoAgentPhaseGraph({
+    const custom = createPiAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: true,
       preparedIntent: 'custom',
       hasAttachments: false,
       dashboardSpecReady: false,
     });
-    const repair = createMoAgentPhaseGraph({
+    const repair = createPiAgentPhaseGraph({
       profile: 'repair',
       platformPrepared: true,
       preparedIntent: null,
@@ -48,7 +48,7 @@ describe('MoAgent PhaseGraph', () => {
     expect(custom).toMatchObject({
       lane: 'model_custom',
       budgets: {
-        maxTurns: 6,
+        maxTurns: 8,
         maxToolCalls: 12,
         maxPreparedInputTokens: 24_000,
         maxCumulativePreparedInputTokens: 144_000,
@@ -67,7 +67,7 @@ describe('MoAgent PhaseGraph', () => {
   });
 
   it('keeps per-request, cumulative prepared-input, and cache-miss budgets independent', () => {
-    const dataPreparation = createMoAgentPhaseGraph({
+    const dataPreparation = createPiAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: false,
       preparedIntent: null,
@@ -84,7 +84,7 @@ describe('MoAgent PhaseGraph', () => {
   });
 
   it('returns immutable policy objects', () => {
-    const selected = createMoAgentPhaseGraph({
+    const selected = createPiAgentPhaseGraph({
       profile: 'generation',
       platformPrepared: false,
       preparedIntent: null,

@@ -82,12 +82,12 @@ describe('upsertUserRequest project scope', () => {
       id: 'request-1',
       projectId: 'project-a',
       instruction: 'updated instruction',
-      cliPreference: 'moagent',
+      cliPreference: 'pi',
     });
 
     expect(mocks.transactionClient.userRequest.update).toHaveBeenCalledWith({
       where: { id: 'request-1' },
-      data: { instruction: 'updated instruction', cliPreference: 'moagent' },
+      data: { instruction: 'updated instruction', cliPreference: 'pi' },
     });
   });
 
@@ -116,7 +116,7 @@ describe('upsertUserRequest project scope', () => {
       projectId: 'project-a',
       actorUserId: 'user-a',
       instruction: 'run once',
-      cliPreference: 'moagent',
+      cliPreference: 'pi',
     });
 
     expect(mocks.transactionClient.userRequest.create).toHaveBeenCalledWith({
@@ -126,7 +126,7 @@ describe('upsertUserRequest project scope', () => {
         actorUserId: 'user-a',
         instruction: 'run once',
         status: 'pending',
-        cliPreference: 'moagent',
+        cliPreference: 'pi',
       },
     });
     expect(mocks.assertStructuralQuotaCapacity).toHaveBeenCalledWith(

@@ -5,15 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY,
-  withMoAgentWorkspaceResourceLock,
+  PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY,
+  withPiAgentWorkspaceResourceLock,
 } from './workspace-resource-lock';
 
-describe('MoAgent workspace resource lock', () => {
+describe('PI Agent workspace resource lock', () => {
   let workspace: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-resource-lock-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-resource-lock-'));
   });
 
   afterEach(async () => {
@@ -26,7 +26,7 @@ describe('MoAgent workspace resource lock', () => {
     const entered = new Promise<void>((resolve) => {
       firstEntered = resolve;
     });
-    const first = withMoAgentWorkspaceResourceLock(workspace, async () => {
+    const first = withPiAgentWorkspaceResourceLock(workspace, async () => {
       firstEntered();
       await new Promise<void>((resolve) => {
         releaseFirst = resolve;
@@ -44,7 +44,7 @@ describe('MoAgent workspace resource lock', () => {
     await entered;
     const owner = JSON.parse(await fs.readFile(path.join(
       workspace,
-      MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY,
+      PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY,
       'owner.json'
     ), 'utf8')) as Record<string, unknown>;
     expect(owner).toMatchObject({
@@ -59,7 +59,7 @@ describe('MoAgent workspace resource lock', () => {
     expect(owner.instanceId).toEqual(expect.any(String));
 
     let secondEntered = false;
-    const second = withMoAgentWorkspaceResourceLock(workspace, async () => {
+    const second = withPiAgentWorkspaceResourceLock(workspace, async () => {
       secondEntered = true;
       return 'second';
     }, { retryIntervalMs: 5 });
@@ -72,11 +72,11 @@ describe('MoAgent workspace resource lock', () => {
   });
 
   it('does not auto-break an orphaned lock', async () => {
-    const lockPath = path.join(workspace, MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
+    const lockPath = path.join(workspace, PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
     await fs.mkdir(lockPath);
     await fs.writeFile(path.join(lockPath, 'owner.json'), '{"ownerId":"orphan"}\n');
 
-    await expect(withMoAgentWorkspaceResourceLock(
+    await expect(withPiAgentWorkspaceResourceLock(
       workspace,
       async () => undefined,
       { waitTimeoutMs: 10, retryIntervalMs: 5 }
@@ -93,7 +93,7 @@ describe('MoAgent workspace resource lock', () => {
     child.kill('SIGKILL');
     await once(child, 'exit');
 
-    const lockPath = path.join(workspace, MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
+    const lockPath = path.join(workspace, PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
     await fs.mkdir(lockPath);
     await fs.writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
       schemaVersion: 2,
@@ -106,7 +106,7 @@ describe('MoAgent workspace resource lock', () => {
     })}\n`);
 
     let entered = false;
-    await expect(withMoAgentWorkspaceResourceLock(workspace, async () => {
+    await expect(withPiAgentWorkspaceResourceLock(workspace, async () => {
       entered = true;
       return 'recovered';
     }, {
@@ -127,7 +127,7 @@ describe('MoAgent workspace resource lock', () => {
     child.kill('SIGKILL');
     await once(child, 'exit');
 
-    const lockPath = path.join(workspace, MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
+    const lockPath = path.join(workspace, PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
     await fs.mkdir(lockPath);
     await fs.writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
       schemaVersion: 2,
@@ -146,7 +146,7 @@ describe('MoAgent workspace resource lock', () => {
     });
     let observerClock = 0;
     let staleObserverEntered = false;
-    const staleObserver = withMoAgentWorkspaceResourceLock(workspace, async () => {
+    const staleObserver = withPiAgentWorkspaceResourceLock(workspace, async () => {
       staleObserverEntered = true;
     }, {
       recoverDeadLocalOwner: true,
@@ -168,7 +168,7 @@ describe('MoAgent workspace resource lock', () => {
     const liveEntered = new Promise<void>((resolve) => {
       liveOwnerEntered = resolve;
     });
-    const liveOwner = withMoAgentWorkspaceResourceLock(workspace, async () => {
+    const liveOwner = withPiAgentWorkspaceResourceLock(workspace, async () => {
       liveOwnerEntered();
       await new Promise<void>((resolve) => {
         releaseLiveOwner = resolve;
@@ -199,11 +199,11 @@ describe('MoAgent workspace resource lock', () => {
   });
 
   it('releases its own lock when the protected operation fails', async () => {
-    await expect(withMoAgentWorkspaceResourceLock(workspace, async () => {
+    await expect(withPiAgentWorkspaceResourceLock(workspace, async () => {
       throw new Error('commit failed');
     })).rejects.toThrow('commit failed');
 
-    await expect(fs.stat(path.join(workspace, MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY)))
+    await expect(fs.stat(path.join(workspace, PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY)))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

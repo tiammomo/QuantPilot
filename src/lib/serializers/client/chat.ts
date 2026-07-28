@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/types/chat';
 import type { MessageMetadata } from '@/types/backend';
+import { normalizeProductCliId } from '@/lib/constants/cli';
 
 const pickFirstString = (value: unknown): string | undefined => {
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -158,7 +159,9 @@ export const toChatMessage = (raw: any): ChatMessage => {
     metadata,
     parentMessageId: raw?.parentMessageId ?? null,
     conversationId: raw?.conversationId ?? null,
-    cliSource: raw?.cliSource ?? null,
+    cliSource: typeof raw?.cliSource === 'string'
+      ? normalizeProductCliId(raw.cliSource) ?? raw.cliSource
+      : null,
     requestId: raw?.requestId ?? undefined,
     createdAt,
     updatedAt,

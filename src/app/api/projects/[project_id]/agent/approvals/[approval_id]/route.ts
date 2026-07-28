@@ -3,17 +3,17 @@ import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import type { MoAgentToolApprovalDecision } from '@/lib/agent/types';
+import type { PiAgentToolApprovalDecision } from '@/lib/agent/types';
 import {
-  MoAgentToolApprovalStoreError,
-  resolveMoAgentToolApproval,
-} from '@/lib/services/moagent-tool-approval-store';
+  PiAgentToolApprovalStoreError,
+  resolvePiAgentToolApproval,
+} from '@/lib/services/pi-agent-tool-approval-store';
 
 interface RouteContext {
   params: Promise<{ project_id: string; approval_id: string }>;
 }
 
-const DECISIONS = new Set<MoAgentToolApprovalDecision>([
+const DECISIONS = new Set<PiAgentToolApprovalDecision>([
   'approve',
   'edit',
   'reject',
@@ -36,8 +36,8 @@ export async function POST(request: Request, { params }: RouteContext) {
     const body = record(await request.json().catch(() => ({})));
     const decision =
       typeof body.decision === 'string' &&
-      DECISIONS.has(body.decision as MoAgentToolApprovalDecision)
-        ? body.decision as MoAgentToolApprovalDecision
+      DECISIONS.has(body.decision as PiAgentToolApprovalDecision)
+        ? body.decision as PiAgentToolApprovalDecision
         : null;
     if (!decision) {
       return NextResponse.json(
@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status: 400 },
       );
     }
-    const data = await resolveMoAgentToolApproval({
+    const data = await resolvePiAgentToolApproval({
       projectId: project_id,
       approvalId: approval_id,
       actorId: actor.actorUserId,
@@ -60,7 +60,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     return NextResponse.json({ success: true, data });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    if (error instanceof MoAgentToolApprovalStoreError) {
+    if (error instanceof PiAgentToolApprovalStoreError) {
       const status =
         error.code === 'APPROVAL_NOT_FOUND'
           ? 404
@@ -72,7 +72,7 @@ export async function POST(request: Request, { params }: RouteContext) {
         { status },
       );
     }
-    console.error('[API] Failed to resolve MoAgent approval:', error);
+    console.error('[API] Failed to resolve PI Agent approval:', error);
     return NextResponse.json(
       { success: false, error: 'FAILED_TO_RESOLVE_APPROVAL' },
       { status: 500 },

@@ -1,4 +1,4 @@
-import type { MoAgentAcceptedMissionSnapshot } from '@/lib/agent/mission';
+import type { PiAgentAcceptedMissionSnapshot } from '@/lib/agent/mission';
 import type { QuantGenerationRunStatus } from '@/lib/quant/generation-state';
 import type { QuantValidationReport } from '@/lib/quant/validation';
 import type { PreviewInfo } from '@/lib/services/preview';
@@ -35,7 +35,7 @@ type ValidationReportInput = Pick<
 type PreviewInput = Pick<PreviewInfo, 'status' | 'url' | 'port'>;
 
 type AcceptedMissionInput = Pick<
-  MoAgentAcceptedMissionSnapshot,
+  PiAgentAcceptedMissionSnapshot,
   | 'generationId'
   | 'projectId'
   | 'requestId'
@@ -81,23 +81,16 @@ function generationIdFromState(
   return null;
 }
 
-export function requiresMoAgentMissionAcceptance(
+export function requiresPiAgentMissionAcceptance(
   generation: QuantGenerationTerminalGenerationInput,
 ): boolean {
   if (!generation) return false;
-  const cliPreference = generation.cliPreference?.trim().toLowerCase();
-  if (cliPreference && cliPreference !== 'moagent') return false;
-  // New MoAgent generations always persist Mission identity before Agent
-  // execution and repeat it on candidate/acceptance steps. Historical
-  // pre-Mission generations have cliPreference=moagent but no such identity;
-  // they remain readable without fabricating an unverifiable receipt.
-  return Boolean(
-    generation.steps?.some((step) =>
-      ['missionId', 'generationId', 'acceptedReceiptId'].some((key) => {
-        const value = step.metadata?.[key];
-        return typeof value === 'string' && value.trim().length > 0;
-      }),
-    ),
+  // Refusals and other non-delivery terminal states never produce a candidate.
+  // Every state that can expose or recover a preview must prove that the
+  // current PI Agent Mission accepted it. Unknown or incomplete persisted
+  // identity therefore fails closed instead of bypassing the receipt gate.
+  return !['cancelled', 'needs_clarification', 'refused'].includes(
+    generation.status,
   );
 }
 
@@ -156,7 +149,7 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
   );
   const previewReady =
     params.preview.status === 'running' && Boolean(params.preview.url);
-  const missionAcceptanceRequired = requiresMoAgentMissionAcceptance(
+  const missionAcceptanceRequired = requiresPiAgentMissionAcceptance(
     params.generation,
   );
   const missionAccepted = hasCurrentAcceptedMission(

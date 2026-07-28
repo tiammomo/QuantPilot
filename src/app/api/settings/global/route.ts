@@ -7,6 +7,7 @@ import {
   updateGlobalSettings,
   normalizeCliSettings,
 } from '@/lib/services/settings';
+import { normalizeProductCliId } from '@/lib/constants/cli';
 
 function serialize(settings: Awaited<ReturnType<typeof loadGlobalSettings>>) {
   return {
@@ -47,8 +48,9 @@ export async function PUT(request: NextRequest) {
     const update: Record<string, unknown> = {};
 
     const defaultCli = candidate.default_cli ?? candidate.defaultCli;
-    if (typeof defaultCli === 'string') {
-      update.default_cli = defaultCli;
+    const normalizedDefaultCli = normalizeProductCliId(defaultCli);
+    if (normalizedDefaultCli) {
+      update.default_cli = normalizedDefaultCli;
     }
 
     const cliSettingsRaw = candidate.cli_settings ?? candidate.cliSettings;

@@ -52,7 +52,7 @@ async function inferProject(projectDirName) {
     repoPath,
     initialPrompt: generationState?.originalInstruction || '',
     templateType: 'nextjs',
-    preferredCli: workspace?.runtime?.executorId || generationState?.cliPreference || 'moagent',
+    preferredCli: 'pi',
     selectedModel: workspace?.runtime?.modelId || generationState?.selectedModel || null,
     settings: JSON.stringify({
       quant: {

@@ -125,7 +125,7 @@ export async function getAgentWorkerRuntimeDashboard(params: {
 } = {}): Promise<AgentWorkerRuntimeDashboard> {
   const poolKey = params.poolKey ?? 'generation.default';
   const dispatchMode = params.dispatchMode
-    ?? process.env.MOAGENT_DISPATCH_MODE?.trim()
+    ?? process.env.PI_AGENT_DISPATCH_MODE?.trim()
     ?? 'inline';
   const generatedAt = new Date().toISOString();
   try {
@@ -204,7 +204,7 @@ export async function getAgentWorkerRuntimeDashboard(params: {
     );
     const configuredCapacity = activeWorkers[0]?.globalConcurrency
       ?? (
-        Number.parseInt(process.env.MOAGENT_WORKER_GLOBAL_CONCURRENCY ?? '', 10)
+        Number.parseInt(process.env.PI_AGENT_WORKER_GLOBAL_CONCURRENCY ?? '', 10)
         || slotRows.length
       );
     const slots = slotRows.map((slot) => {

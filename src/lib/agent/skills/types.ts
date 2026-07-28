@@ -1,27 +1,27 @@
-export type MoAgentSkillStatus = 'stable' | 'planned' | 'deprecated';
+export type PiAgentSkillStatus = 'stable' | 'planned' | 'deprecated';
 
-export type MoAgentSkillPhase =
+export type PiAgentSkillPhase =
   | 'planning'
   | 'data-preparation'
   | 'workspace-generation'
   | 'validation-repair'
   | 'platform-ui';
 
-export type MoAgentSkillResourceSelector = 'template-heading' | 'named-headings';
+export type PiAgentSkillResourceSelector = 'template-heading' | 'named-headings';
 
-export interface MoAgentSkillCapsuleResource {
+export interface PiAgentSkillCapsuleResource {
   id: string;
   path: string;
-  profiles: MoAgentSkillPhase[];
-  selector: MoAgentSkillResourceSelector;
+  profiles: PiAgentSkillPhase[];
+  selector: PiAgentSkillResourceSelector;
   headings?: string[];
   maxChars: number;
   required: boolean;
 }
 
-export interface MoAgentSkillRuntimeCapsule {
+export interface PiAgentSkillRuntimeCapsule {
   priority: number;
-  phases: MoAgentSkillPhase[];
+  phases: PiAgentSkillPhase[];
   requiresTools: string[];
   /** At least one complete alternative set must be provider-visible. */
   requiresOneOfToolSets?: string[][];
@@ -29,10 +29,10 @@ export interface MoAgentSkillRuntimeCapsule {
   invariants: string[];
   workflow: string[];
   doneWhen: string[];
-  resources: MoAgentSkillCapsuleResource[];
+  resources: PiAgentSkillCapsuleResource[];
 }
 
-export interface MoAgentSkillCapsuleRegistry {
+export interface PiAgentSkillCapsuleRegistry {
   schemaVersion: 1;
   description?: string;
   workspaceResponseContract: {
@@ -41,14 +41,14 @@ export interface MoAgentSkillCapsuleRegistry {
     stageLabels: string[];
     rules: string[];
   };
-  skills: Record<string, MoAgentSkillRuntimeCapsule>;
+  skills: Record<string, PiAgentSkillRuntimeCapsule>;
 }
 
-export interface MoAgentSkillRegistryEntry {
+export interface PiAgentSkillRegistryEntry {
   id: string;
   name: string;
   version: string;
-  status: MoAgentSkillStatus;
+  status: PiAgentSkillStatus;
   scope?: string;
   boundary: string;
   inputs?: string[];
@@ -59,7 +59,7 @@ export interface MoAgentSkillRegistryEntry {
   validation?: string[];
 }
 
-export interface MoAgentSkillsRegistry {
+export interface PiAgentSkillsRegistry {
   schemaVersion: 1;
   policy: {
     targetCoreSkillCount?: number;
@@ -67,10 +67,10 @@ export interface MoAgentSkillsRegistry {
     packageDir?: string;
     description?: string;
   };
-  coreSkills: MoAgentSkillRegistryEntry[];
+  coreSkills: PiAgentSkillRegistryEntry[];
 }
 
-export interface MoAgentSkillLockEntry {
+export interface PiAgentSkillLockEntry {
   version: string;
   packagePath?: string;
   sourceSha256?: string;
@@ -78,20 +78,20 @@ export interface MoAgentSkillLockEntry {
   fileCount?: number;
 }
 
-export interface MoAgentSkillsLock {
+export interface PiAgentSkillsLock {
   schemaVersion: 1;
   packageFormat?: 'tgz';
-  skills: Record<string, MoAgentSkillLockEntry>;
+  skills: Record<string, PiAgentSkillLockEntry>;
 }
 
-export type MoAgentSkillSource = 'source' | 'package';
+export type PiAgentSkillSource = 'source' | 'package';
 
-export interface CompiledMoAgentSkill {
+export interface CompiledPiAgentSkill {
   id: string;
   name: string;
   version: string;
-  status: MoAgentSkillStatus;
-  source: MoAgentSkillSource;
+  status: PiAgentSkillStatus;
+  source: PiAgentSkillSource;
   sourceSha256: string | null;
   packageSha256: string | null;
   originalCharacters: number;
@@ -106,9 +106,9 @@ export interface CompiledMoAgentSkill {
   }>;
 }
 
-export interface MoAgentSkillsInstallReceipt {
+export interface PiAgentSkillsInstallReceipt {
   schemaVersion: 1;
-  runtime: 'MoAgent';
+  runtime: 'PI Agent';
   installedAt: string;
   capabilityId: string | null;
   skillsDirectory: string;
@@ -116,7 +116,7 @@ export interface MoAgentSkillsInstallReceipt {
     string,
     {
       version: string;
-      source: MoAgentSkillSource;
+      source: PiAgentSkillSource;
       sourceSha256: string | null;
       packageSha256: string | null;
     }
@@ -128,24 +128,24 @@ export interface MoAgentSkillsInstallReceipt {
  * Domain packages own the source capability model and project only the fields
  * required for deterministic Skill selection.
  */
-export interface MoAgentSkillCapabilityDescriptor {
+export interface PiAgentSkillCapabilityDescriptor {
   id: string;
   status: 'ready' | 'planned' | 'deprecated';
   requiredSkillIds: readonly string[];
 }
 
-export interface CompileMoAgentSkillsOptions {
+export interface CompilePiAgentSkillsOptions {
   /** Repository containing the configured registry/lock inputs. */
   repositoryRoot?: string;
   /** Domain-owned, product-neutral capability projection. */
-  capability?: MoAgentSkillCapabilityDescriptor | null;
+  capability?: PiAgentSkillCapabilityDescriptor | null;
   /** Stable label retained in receipts when explicit skill IDs are supplied. */
   capabilityId?: string | null;
   /** Explicit canonical Skill IDs take precedence over capability selection. */
   requiredSkillIds?: readonly string[];
   additionalSkillIds?: readonly string[];
   /** Runtime phase used to activate only compatible skill capsules. */
-  phase?: MoAgentSkillPhase;
+  phase?: PiAgentSkillPhase;
   /** Domain-owned skills activated by the current task context. */
   activatedSkillIds?: readonly string[];
   /** Domain-owned skills made redundant or invalid by the current task context. */
@@ -156,7 +156,7 @@ export interface CompileMoAgentSkillsOptions {
   /** When provided, every capsule-declared tool must exist in this phase tool surface. */
   availableToolNames?: readonly string[];
   maxSystemContextChars?: number;
-  /** When present, verified skills are installed below <workspace>/.moagent/skills. */
+  /** When present, verified skills are installed below <workspace>/.pi/skills. */
   installToWorkspace?: string;
   registryPath?: string;
   lockPath?: string;
@@ -164,11 +164,11 @@ export interface CompileMoAgentSkillsOptions {
   capsuleRegistryPath?: string;
 }
 
-export interface CompileMoAgentSkillsResult {
-  runtime: 'MoAgent';
+export interface CompilePiAgentSkillsResult {
+  runtime: 'PI Agent';
   capabilityId: string | null;
   selectedSkillIds: string[];
-  phase: MoAgentSkillPhase;
+  phase: PiAgentSkillPhase;
   systemContext: string;
   taskContext: string;
   maxSystemContextChars: number;
@@ -176,6 +176,6 @@ export interface CompileMoAgentSkillsResult {
   taskContextCharacters: number;
   totalCharacters: number;
   truncated: boolean;
-  skills: CompiledMoAgentSkill[];
-  installReceipt: MoAgentSkillsInstallReceipt | null;
+  skills: CompiledPiAgentSkill[];
+  installReceipt: PiAgentSkillsInstallReceipt | null;
 }

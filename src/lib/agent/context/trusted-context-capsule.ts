@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 
-import type { MoAgentToolEffect, MoAgentToolResult } from '../types';
+import type { PiAgentToolEffect, PiAgentToolResult } from '../types';
 
 export const TRUSTED_CONTEXT_CAPSULE_VERSION = 1 as const;
-export const TRUSTED_CONTEXT_CAPSULE_PREFIX = '[MoAgent Trusted Context Capsule v1]\n';
+export const TRUSTED_CONTEXT_CAPSULE_PREFIX = '[PI Agent Trusted Context Capsule v1]\n';
 
 const DEFAULT_MAX_CAPSULE_UTF8_BYTES = 8_192;
 const MAX_CAPSULE_RECEIPTS = 64;
@@ -15,20 +15,20 @@ const MAX_CAPSULE_TARGET_REFERENCES = 64;
 const MAX_TARGET_REFERENCE_CHARS = 1_024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
-export type MoAgentContextCapsulePhase = 'exploration' | 'writing' | 'submission';
+export type PiAgentContextCapsulePhase = 'exploration' | 'writing' | 'submission';
 
-export interface MoAgentContextCapsuleSessionOptions {
+export interface PiAgentContextCapsuleSessionOptions {
   maxUtf8Bytes?: number;
 }
 
-export interface MoAgentContextCapsuleOperation {
+export interface PiAgentContextCapsuleOperation {
   operationId: string;
   toolCallId: string;
   toolName: string;
   turn: number;
-  effect: MoAgentToolEffect;
+  effect: PiAgentToolEffect;
   terminal: boolean;
-  result: MoAgentToolResult;
+  result: PiAgentToolResult;
   resultSha256: string;
   targetReferences: readonly string[];
 }
@@ -48,7 +48,7 @@ interface ContextCapsuleFailureReceipt {
   operationId: string;
   toolName: string;
   turn: number;
-  effect: MoAgentToolEffect;
+  effect: PiAgentToolEffect;
   code: string;
   targets: string[];
 }
@@ -65,7 +65,7 @@ interface ContextCapsuleOperationTombstone {
   toolCallId: string;
   toolName: string;
   turn: number;
-  effect: MoAgentToolEffect;
+  effect: PiAgentToolEffect;
   status: ContextCapsuleOperationStatus;
   terminal: boolean;
   targets: string[];
@@ -92,7 +92,7 @@ interface ContextCapsuleOperationTombstoneRollup {
 }
 
 interface TrustedContextCapsuleBody {
-  phase: Exclude<MoAgentContextCapsulePhase, 'exploration'>;
+  phase: Exclude<PiAgentContextCapsulePhase, 'exploration'>;
   workspaceGeneration: number;
   invalidatedReadReceipts: number;
   targetReferences: string[];
@@ -106,10 +106,10 @@ interface TrustedContextCapsuleBody {
 }
 
 interface TrustedContextCapsulePayload extends TrustedContextCapsuleBody {
-  $moagent: {
+  $piAgent: {
     kind: 'trusted_context_capsule';
     version: typeof TRUSTED_CONTEXT_CAPSULE_VERSION;
-    generatedBy: 'MoAgentContextCapsuleSession';
+    generatedBy: 'PiAgentContextCapsuleSession';
     digest: {
       algorithm: 'SHA-256';
       hex: string;
@@ -118,10 +118,10 @@ interface TrustedContextCapsulePayload extends TrustedContextCapsuleBody {
   };
 }
 
-export interface MoAgentTrustedContextCapsuleTelemetry {
+export interface PiAgentTrustedContextCapsuleTelemetry {
   applied: boolean;
   version: typeof TRUSTED_CONTEXT_CAPSULE_VERSION;
-  phase: Exclude<MoAgentContextCapsulePhase, 'exploration'>;
+  phase: Exclude<PiAgentContextCapsulePhase, 'exploration'>;
   sha256: string;
   serializedUtf8Bytes: number;
   coveredToolCalls: number;
@@ -139,29 +139,29 @@ export interface MoAgentTrustedContextCapsuleTelemetry {
   replacedPreviousCapsule: boolean;
 }
 
-export interface MoAgentTrustedContextCapsuleCheckpoint {
+export interface PiAgentTrustedContextCapsuleCheckpoint {
   version: typeof TRUSTED_CONTEXT_CAPSULE_VERSION;
-  phase: Exclude<MoAgentContextCapsulePhase, 'exploration'>;
+  phase: Exclude<PiAgentContextCapsulePhase, 'exploration'>;
   sha256: string;
   content: string;
   serializedUtf8Bytes: number;
   coveredToolCallIds: readonly string[];
   telemetry: Omit<
-    MoAgentTrustedContextCapsuleTelemetry,
+    PiAgentTrustedContextCapsuleTelemetry,
     'applied' | 'replacedToolCallClusters' | 'replacedMessages' | 'replacedPreviousCapsule'
   >;
 }
 
-export type MoAgentContextCapsuleErrorCode =
+export type PiAgentContextCapsuleErrorCode =
   | 'CONTEXT_CAPSULE_BUDGET_EXCEEDED'
   | 'INVALID_CONTEXT_CAPSULE';
 
-export interface MoAgentContextCapsuleFrameworkOutcome {
+export interface PiAgentContextCapsuleFrameworkOutcome {
   operationId: string;
   toolCallId: string;
   toolName: string;
   turn: number;
-  effect: MoAgentToolEffect;
+  effect: PiAgentToolEffect;
   terminal: boolean;
   status: ContextCapsuleOperationStatus;
   resultSha256: string;
@@ -169,17 +169,17 @@ export interface MoAgentContextCapsuleFrameworkOutcome {
   targetIdentitySha256: string;
 }
 
-export class MoAgentContextCapsuleError extends Error {
-  readonly code: MoAgentContextCapsuleErrorCode;
+export class PiAgentContextCapsuleError extends Error {
+  readonly code: PiAgentContextCapsuleErrorCode;
   readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
-    code: MoAgentContextCapsuleErrorCode,
+    code: PiAgentContextCapsuleErrorCode,
     message: string,
     details: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
-    this.name = 'MoAgentContextCapsuleError';
+    this.name = 'PiAgentContextCapsuleError';
     this.code = code;
     this.details = details;
   }
@@ -220,7 +220,7 @@ function safeInteger(value: unknown): number | undefined {
     : undefined;
 }
 
-function artifactMetadata(result: MoAgentToolResult): {
+function artifactMetadata(result: PiAgentToolResult): {
   artifactSha256?: string;
   bytes?: number;
 } {
@@ -311,7 +311,7 @@ function receiptKey(receipt: Pick<ContextCapsuleReceipt, 'toolName' | 'targets'>
 function sharesTarget(
   failure: ContextCapsuleFailureReceipt,
   operation: Pick<
-    MoAgentContextCapsuleOperation,
+    PiAgentContextCapsuleOperation,
     'effect' | 'toolName' | 'targetReferences'
   >,
 ): boolean {
@@ -327,7 +327,7 @@ function sharesTarget(
 
 function validatedIdentifier(value: string, label: string, maxLength = 512): string {
   if (!value || value.length > maxLength || /[\0-\x1f\x7f]/.test(value)) {
-    throw new MoAgentContextCapsuleError(
+    throw new PiAgentContextCapsuleError(
       'INVALID_CONTEXT_CAPSULE',
       `Invalid ${label} supplied to the trusted context capsule.`,
       { field: label },
@@ -336,7 +336,7 @@ function validatedIdentifier(value: string, label: string, maxLength = 512): str
   return value;
 }
 
-export class MoAgentContextCapsuleSession {
+export class PiAgentContextCapsuleSession {
   private readonly maxUtf8Bytes: number;
   private readonly operationTombstones = new Map<string, ContextCapsuleOperationTombstone>();
   private operationTombstoneRollup: ContextCapsuleOperationTombstoneRollup | null = null;
@@ -348,10 +348,10 @@ export class MoAgentContextCapsuleSession {
   private workspaceGeneration = 0;
   private invalidatedReadReceipts = 0;
 
-  constructor(options: MoAgentContextCapsuleSessionOptions = {}) {
+  constructor(options: PiAgentContextCapsuleSessionOptions = {}) {
     const maxUtf8Bytes = options.maxUtf8Bytes ?? DEFAULT_MAX_CAPSULE_UTF8_BYTES;
     if (!Number.isSafeInteger(maxUtf8Bytes) || maxUtf8Bytes < 256) {
-      throw new MoAgentContextCapsuleError(
+      throw new PiAgentContextCapsuleError(
         'INVALID_CONTEXT_CAPSULE',
         'Context capsule maxUtf8Bytes must be a safe integer of at least 256.',
         { field: 'maxUtf8Bytes', value: maxUtf8Bytes },
@@ -394,14 +394,14 @@ export class MoAgentContextCapsuleSession {
     const toolCallId = validatedIdentifier(operation.toolCallId, 'toolCallId');
     const toolName = validatedIdentifier(operation.toolName, 'toolName', 256);
     if (!Number.isSafeInteger(operation.turn) || operation.turn < 1) {
-      throw new MoAgentContextCapsuleError(
+      throw new PiAgentContextCapsuleError(
         'INVALID_CONTEXT_CAPSULE',
         'Context capsule operation turn must be a positive safe integer.',
         { field: 'turn', value: operation.turn },
       );
     }
     if (!SHA256_PATTERN.test(operation.resultSha256)) {
-      throw new MoAgentContextCapsuleError(
+      throw new PiAgentContextCapsuleError(
         'INVALID_CONTEXT_CAPSULE',
         'Context capsule result receipt requires a SHA-256 digest.',
         { field: 'resultSha256' },
@@ -431,7 +431,7 @@ export class MoAgentContextCapsuleSession {
   ): void {
     const existing = this.operationTombstones.get(operationId);
     if (existing && canonicalJson(existing) !== canonicalJson(tombstone)) {
-      throw new MoAgentContextCapsuleError(
+      throw new PiAgentContextCapsuleError(
         'INVALID_CONTEXT_CAPSULE',
         'A framework operation ID cannot be reused for a different context fact.',
         { field: 'operationId' },
@@ -476,7 +476,7 @@ export class MoAgentContextCapsuleSession {
     return true;
   }
 
-  record(operation: MoAgentContextCapsuleOperation): void {
+  record(operation: PiAgentContextCapsuleOperation): void {
     const { operationId, toolCallId, toolName } = this.validateOperationIdentity(operation);
     const targets = collectTrustedContextTargetReferences({
       paths: operation.targetReferences,
@@ -559,10 +559,10 @@ export class MoAgentContextCapsuleSession {
    * projector. Third-party output and model-provided arguments never enter the
    * capsule; their exact bytes are represented only by SHA-256 identities.
    */
-  recordFrameworkOutcome(operation: MoAgentContextCapsuleFrameworkOutcome): void {
+  recordFrameworkOutcome(operation: PiAgentContextCapsuleFrameworkOutcome): void {
     const { operationId, toolCallId, toolName } = this.validateOperationIdentity(operation);
     if (!SHA256_PATTERN.test(operation.targetIdentitySha256)) {
-      throw new MoAgentContextCapsuleError(
+      throw new PiAgentContextCapsuleError(
         'INVALID_CONTEXT_CAPSULE',
         'Framework context target identity requires a SHA-256 digest.',
         { field: 'targetIdentitySha256' },
@@ -586,7 +586,7 @@ export class MoAgentContextCapsuleSession {
     });
   }
 
-  checkpoint(phase: MoAgentContextCapsulePhase): MoAgentTrustedContextCapsuleCheckpoint | null {
+  checkpoint(phase: PiAgentContextCapsulePhase): PiAgentTrustedContextCapsuleCheckpoint | null {
     if (phase === 'exploration') return null;
     const operationTombstones = [...this.operationTombstones.values()];
     const receipts = [
@@ -636,10 +636,10 @@ export class MoAgentContextCapsuleSession {
       maxUtf8Bytes: this.maxUtf8Bytes,
     }));
     const payload: TrustedContextCapsulePayload = {
-      $moagent: {
+      $piAgent: {
         kind: 'trusted_context_capsule',
         version: TRUSTED_CONTEXT_CAPSULE_VERSION,
-        generatedBy: 'MoAgentContextCapsuleSession',
+        generatedBy: 'PiAgentContextCapsuleSession',
         digest: { algorithm: 'SHA-256', hex: digest },
         maxUtf8Bytes: this.maxUtf8Bytes,
       },
@@ -693,7 +693,7 @@ export function isTrustedContextCapsuleMessage(content: string): boolean {
 }
 
 export function assertTrustedContextCapsule(
-  checkpoint: MoAgentTrustedContextCapsuleCheckpoint,
+  checkpoint: PiAgentTrustedContextCapsuleCheckpoint,
 ): void {
   if (
     checkpoint.version !== TRUSTED_CONTEXT_CAPSULE_VERSION ||
@@ -701,7 +701,7 @@ export function assertTrustedContextCapsule(
     utf8Bytes(checkpoint.content) !== checkpoint.serializedUtf8Bytes ||
     !isTrustedContextCapsuleMessage(checkpoint.content)
   ) {
-    throw new MoAgentContextCapsuleError(
+    throw new PiAgentContextCapsuleError(
       'INVALID_CONTEXT_CAPSULE',
       'Trusted context capsule checkpoint framing is invalid.',
     );
@@ -712,12 +712,12 @@ export function assertTrustedContextCapsule(
       checkpoint.content.slice(TRUSTED_CONTEXT_CAPSULE_PREFIX.length),
     ) as TrustedContextCapsulePayload;
   } catch {
-    throw new MoAgentContextCapsuleError(
+    throw new PiAgentContextCapsuleError(
       'INVALID_CONTEXT_CAPSULE',
       'Trusted context capsule payload is not valid JSON.',
     );
   }
-  const { $moagent, ...body } = payload;
+  const { $piAgent, ...body } = payload;
   const coveredToolCallIds = [...checkpoint.coveredToolCallIds];
   const normalizedCoveredToolCallIds = Array.from(new Set(coveredToolCallIds)).sort();
   const validCoverage = coveredToolCallIds.length === normalizedCoveredToolCallIds.length &&
@@ -820,27 +820,27 @@ export function assertTrustedContextCapsule(
     invalidatedReadReceipts: body.invalidatedReadReceipts,
   } : null;
   if (
-    $moagent?.kind !== 'trusted_context_capsule' ||
-    $moagent.version !== TRUSTED_CONTEXT_CAPSULE_VERSION ||
-    $moagent.generatedBy !== 'MoAgentContextCapsuleSession' ||
-    $moagent.digest?.algorithm !== 'SHA-256' ||
-    $moagent.digest.hex !== checkpoint.sha256 ||
+    $piAgent?.kind !== 'trusted_context_capsule' ||
+    $piAgent.version !== TRUSTED_CONTEXT_CAPSULE_VERSION ||
+    $piAgent.generatedBy !== 'PiAgentContextCapsuleSession' ||
+    $piAgent.digest?.algorithm !== 'SHA-256' ||
+    $piAgent.digest.hex !== checkpoint.sha256 ||
     body.phase !== checkpoint.phase ||
     !validCoverage ||
     !coverageMatchesTombstones ||
     !validBodyShape ||
-    !Number.isSafeInteger($moagent.maxUtf8Bytes) ||
-    $moagent.maxUtf8Bytes < 256 ||
+    !Number.isSafeInteger($piAgent.maxUtf8Bytes) ||
+    $piAgent.maxUtf8Bytes < 256 ||
     sha256(canonicalJson({
       body,
       coveredToolCallIds,
-      maxUtf8Bytes: $moagent.maxUtf8Bytes,
+      maxUtf8Bytes: $piAgent.maxUtf8Bytes,
     })) !==
       checkpoint.sha256 ||
-    checkpoint.serializedUtf8Bytes > $moagent.maxUtf8Bytes ||
+    checkpoint.serializedUtf8Bytes > $piAgent.maxUtf8Bytes ||
     canonicalJson(checkpoint.telemetry) !== canonicalJson(expectedTelemetry)
   ) {
-    throw new MoAgentContextCapsuleError(
+    throw new PiAgentContextCapsuleError(
       'INVALID_CONTEXT_CAPSULE',
       'Trusted context capsule version, digest, phase, or budget verification failed.',
     );

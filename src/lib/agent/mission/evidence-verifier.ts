@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
-  MoAgentArtifactRequirement,
-  MoAgentEvidenceVerdict,
-  MoAgentMissionSpec,
+  PiAgentArtifactRequirement,
+  PiAgentEvidenceVerdict,
+  PiAgentMissionSpec,
 } from './types';
 
 const MAX_EVIDENCE_FILE_BYTES = 16 * 1024 * 1024;
@@ -23,14 +23,14 @@ const FORBIDDEN_RECURSIVE_SEGMENTS = new Set([
 
 type JsonRecord = Record<string, unknown>;
 
-export interface MoAgentEvidenceArtifact {
+export interface PiAgentEvidenceArtifact {
   path: string;
   role: 'subject' | 'evidence';
   bytes: number;
   sha256: string;
 }
 
-export interface MoAgentEvidenceArtifactIssue {
+export interface PiAgentEvidenceArtifactIssue {
   path: string;
   role: 'subject' | 'evidence';
   code:
@@ -39,15 +39,15 @@ export interface MoAgentEvidenceArtifactIssue {
     | 'EVIDENCE_ARTIFACT_TOO_LARGE';
 }
 
-export interface MoAgentValidationCheckEvidence {
+export interface PiAgentValidationCheckEvidence {
   id: string;
   status: 'passed' | 'failed' | 'warning';
   summarySha256: string;
 }
 
-export interface MoAgentEvidenceDecision {
+export interface PiAgentEvidenceDecision {
   verdict: Extract<
-    MoAgentEvidenceVerdict,
+    PiAgentEvidenceVerdict,
     'accepted' | 'repair_required' | 'retry_infrastructure' | 'stale' | 'rejected'
   >;
   reasonCodes: string[];
@@ -66,14 +66,14 @@ export interface MoAgentEvidenceDecision {
       reportPath: string;
       reportSha256: string;
       runId: string | null;
-      checks: MoAgentValidationCheckEvidence[];
+      checks: PiAgentValidationCheckEvidence[];
     };
     artifacts: {
       subjectManifestSha256: string;
       evidenceManifestSha256: string;
-      items: MoAgentEvidenceArtifact[];
-      evidenceItems: MoAgentEvidenceArtifact[];
-      issues: MoAgentEvidenceArtifactIssue[];
+      items: PiAgentEvidenceArtifact[];
+      evidenceItems: PiAgentEvidenceArtifact[];
+      issues: PiAgentEvidenceArtifactIssue[];
     };
     preview: {
       url: string;
@@ -83,7 +83,7 @@ export interface MoAgentEvidenceDecision {
       readyAt: string;
     };
     decision: {
-      verdict: MoAgentEvidenceDecision['verdict'];
+      verdict: PiAgentEvidenceDecision['verdict'];
       reasonCodes: string[];
       failedCheckIds: string[];
     };
@@ -92,13 +92,13 @@ export interface MoAgentEvidenceDecision {
   receiptHash: string;
 }
 
-export class MoAgentEvidenceVerificationError extends Error {
+export class PiAgentEvidenceVerificationError extends Error {
   constructor(
     readonly code: string,
     message: string,
   ) {
     super(message);
-    this.name = 'MoAgentEvidenceVerificationError';
+    this.name = 'PiAgentEvidenceVerificationError';
   }
 }
 
@@ -129,7 +129,7 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function framedManifestHash(items: readonly MoAgentEvidenceArtifact[]): string {
+function framedManifestHash(items: readonly PiAgentEvidenceArtifact[]): string {
   return `sha256:${sha256(canonicalJson(items.map((item) => ({
     path: item.path,
     role: item.role,
@@ -160,14 +160,14 @@ function assertRecursiveCanonicalPath(
   logicalPath: string,
 ): void {
   if (!isWorkspaceChild(root, canonicalPath)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_SYMLINK_ESCAPE',
       `Acceptance-surface artifact resolves outside the workspace: ${logicalPath}`,
     );
   }
   const canonicalRelative = path.relative(root, canonicalPath);
   if (hasForbiddenRecursiveSegment(canonicalRelative)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_FORBIDDEN_PATH',
       `Acceptance-surface artifact resolves into an excluded directory: ${logicalPath}`,
     );
@@ -180,14 +180,14 @@ function wildcardPattern(pattern: string): RegExp {
   return new RegExp(`^${parts.join('[^/]*')}$`);
 }
 
-function requirementPriority(requirement: MoAgentArtifactRequirement): number {
+function requirementPriority(requirement: PiAgentArtifactRequirement): number {
   const role = requirement.role === 'subject' ? 3 : requirement.role === 'evidence' ? 2 : 1;
   return role * 2 + (requirement.required ? 1 : 0);
 }
 
 function mergeConcreteRequirement(
-  target: Map<string, MoAgentArtifactRequirement>,
-  requirement: MoAgentArtifactRequirement,
+  target: Map<string, PiAgentArtifactRequirement>,
+  requirement: PiAgentArtifactRequirement,
   concretePath = requirement.path,
 ): void {
   const candidate = { ...requirement, path: concretePath };
@@ -215,7 +215,7 @@ async function canonicalSurfaceEntry(input: {
   try {
     canonicalPath = await fs.realpath(input.absolutePath);
   } catch {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_SURFACE_CHANGED',
       `Acceptance-surface artifact disappeared while it was enumerated: ${input.logicalPath}`,
     );
@@ -228,8 +228,8 @@ async function walkRecursiveSurface(input: {
   root: string;
   canonicalDirectory: string;
   logicalDirectory: string;
-  requirement: MoAgentArtifactRequirement;
-  target: Map<string, MoAgentArtifactRequirement>;
+  requirement: PiAgentArtifactRequirement;
+  target: Map<string, PiAgentArtifactRequirement>;
   ancestors: ReadonlySet<string>;
 }): Promise<void> {
   const entries = await fs.readdir(input.canonicalDirectory, { withFileTypes: true });
@@ -245,7 +245,7 @@ async function walkRecursiveSurface(input: {
     if (resolved.stat.isFile()) {
       mergeConcreteRequirement(input.target, input.requirement, logicalPath);
       if (input.target.size > MAX_EVIDENCE_FILES) {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_FILE_COUNT_LIMIT_EXCEEDED',
           `Acceptance surface exceeds ${MAX_EVIDENCE_FILES} files.`,
         );
@@ -254,7 +254,7 @@ async function walkRecursiveSurface(input: {
     }
     if (resolved.stat.isDirectory()) {
       if (input.ancestors.has(resolved.canonicalPath)) {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_SYMLINK_CYCLE',
           `Acceptance-surface directory contains a symlink cycle: ${logicalPath}`,
         );
@@ -267,7 +267,7 @@ async function walkRecursiveSurface(input: {
       });
       continue;
     }
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_UNSUPPORTED_FILE_TYPE',
       `Acceptance surface contains a non-regular file: ${logicalPath}`,
     );
@@ -276,9 +276,9 @@ async function walkRecursiveSurface(input: {
 
 async function expandArtifactRequirements(
   root: string,
-  requirements: readonly MoAgentArtifactRequirement[],
-): Promise<MoAgentArtifactRequirement[]> {
-  const concrete = new Map<string, MoAgentArtifactRequirement>();
+  requirements: readonly PiAgentArtifactRequirement[],
+): Promise<PiAgentArtifactRequirement[]> {
+  const concrete = new Map<string, PiAgentArtifactRequirement>();
   const ordered = [...requirements].sort((left, right) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   let rootEntryNames: string[] | null = null;
@@ -289,7 +289,7 @@ async function expandArtifactRequirements(
       const logicalDirectory = requirement.path.slice(0, -RECURSIVE_ARTIFACT_SUFFIX.length);
       const absoluteDirectory = path.resolve(root, logicalDirectory);
       if (!isWorkspaceChild(root, absoluteDirectory)) {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_PATH_ESCAPE',
           `Acceptance surface escapes the workspace: ${requirement.path}`,
         );
@@ -309,7 +309,7 @@ async function expandArtifactRequirements(
       try {
         canonicalDirectory = await fs.realpath(absoluteDirectory);
       } catch {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_SURFACE_CHANGED',
           `Recursive acceptance surface cannot be resolved: ${requirement.path}`,
         );
@@ -317,7 +317,7 @@ async function expandArtifactRequirements(
       assertRecursiveCanonicalPath(root, canonicalDirectory, requirement.path);
       const stat = await fs.stat(canonicalDirectory);
       if (!stat.isDirectory()) {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_SURFACE_NOT_DIRECTORY',
           `Recursive acceptance surface is not a directory: ${requirement.path}`,
         );
@@ -334,7 +334,7 @@ async function expandArtifactRequirements(
     }
     if (requirement.path.includes('*')) {
       if (requirement.path.includes('/')) {
-        throw new MoAgentEvidenceVerificationError(
+        throw new PiAgentEvidenceVerificationError(
           'ARTIFACT_PATTERN_INVALID',
           `Only platform root-file wildcard patterns are supported: ${requirement.path}`,
         );
@@ -351,7 +351,7 @@ async function expandArtifactRequirements(
           logicalPath: entryName,
         });
         if (!resolved.stat.isFile()) {
-          throw new MoAgentEvidenceVerificationError(
+          throw new PiAgentEvidenceVerificationError(
             'ARTIFACT_SURFACE_NOT_FILE',
             `Root configuration acceptance artifact is not a file: ${entryName}`,
           );
@@ -364,7 +364,7 @@ async function expandArtifactRequirements(
   }
 
   if (concrete.size > MAX_EVIDENCE_FILES) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_FILE_COUNT_LIMIT_EXCEEDED',
       `Acceptance surface exceeds ${MAX_EVIDENCE_FILES} files.`,
     );
@@ -380,41 +380,41 @@ async function readBoundedWorkspaceFile(
   const candidate = path.resolve(root, relativePath);
   const relative = path.relative(root, candidate);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_PATH_ESCAPE',
       `Evidence artifact escapes the workspace: ${relativePath}`,
     );
   }
   const canonical = await fs.realpath(candidate).catch(() => null);
   if (!canonical) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'REQUIRED_ARTIFACT_MISSING',
       `Required evidence artifact is missing: ${relativePath}`,
     );
   }
   const canonicalRelative = path.relative(root, canonical);
   if (!canonicalRelative || canonicalRelative.startsWith('..') || path.isAbsolute(canonicalRelative)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'ARTIFACT_SYMLINK_ESCAPE',
       `Evidence artifact resolves outside the workspace: ${relativePath}`,
     );
   }
   const stat = await fs.stat(canonical);
   if (!stat.isFile()) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'REQUIRED_ARTIFACT_NOT_FILE',
       `Required evidence artifact is not a file: ${relativePath}`,
     );
   }
   if (stat.size > MAX_EVIDENCE_FILE_BYTES) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'EVIDENCE_ARTIFACT_TOO_LARGE',
       `Evidence artifact exceeds ${MAX_EVIDENCE_FILE_BYTES} bytes: ${relativePath}`,
     );
   }
   const content = await fs.readFile(canonical);
   if (content.byteLength > MAX_EVIDENCE_FILE_BYTES) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'EVIDENCE_ARTIFACT_TOO_LARGE',
       `Evidence artifact exceeds ${MAX_EVIDENCE_FILE_BYTES} bytes: ${relativePath}`,
     );
@@ -424,15 +424,15 @@ async function readBoundedWorkspaceFile(
 
 async function artifactManifest(
   workspaceRoot: string,
-  requirements: readonly MoAgentArtifactRequirement[],
+  requirements: readonly PiAgentArtifactRequirement[],
 ): Promise<{
-  subjects: MoAgentEvidenceArtifact[];
-  evidence: MoAgentEvidenceArtifact[];
-  issues: MoAgentEvidenceArtifactIssue[];
+  subjects: PiAgentEvidenceArtifact[];
+  evidence: PiAgentEvidenceArtifact[];
+  issues: PiAgentEvidenceArtifactIssue[];
 }> {
-  const subjects: MoAgentEvidenceArtifact[] = [];
-  const evidence: MoAgentEvidenceArtifact[] = [];
-  const issues: MoAgentEvidenceArtifactIssue[] = [];
+  const subjects: PiAgentEvidenceArtifact[] = [];
+  const evidence: PiAgentEvidenceArtifact[] = [];
+  const issues: PiAgentEvidenceArtifactIssue[] = [];
   const concreteRequirements = await expandArtifactRequirements(workspaceRoot, requirements);
   let totalBytes = 0;
   let fileCount = 0;
@@ -442,13 +442,13 @@ async function artifactManifest(
     try {
       file = await readBoundedWorkspaceFile(workspaceRoot, requirement.path);
     } catch (error) {
-      if (error instanceof MoAgentEvidenceVerificationError &&
+      if (error instanceof PiAgentEvidenceVerificationError &&
         ['REQUIRED_ARTIFACT_MISSING', 'REQUIRED_ARTIFACT_NOT_FILE'].includes(error.code)) {
         if (!requirement.required) continue;
         issues.push({
           path: requirement.path,
           role: requirement.role,
-          code: error.code as MoAgentEvidenceArtifactIssue['code'],
+          code: error.code as PiAgentEvidenceArtifactIssue['code'],
         });
         continue;
       }
@@ -457,18 +457,18 @@ async function artifactManifest(
     fileCount += 1;
     totalBytes += file.bytes;
     if (fileCount > MAX_EVIDENCE_FILES) {
-      throw new MoAgentEvidenceVerificationError(
+      throw new PiAgentEvidenceVerificationError(
         'ARTIFACT_FILE_COUNT_LIMIT_EXCEEDED',
         `Acceptance surface exceeds ${MAX_EVIDENCE_FILES} files.`,
       );
     }
     if (totalBytes > MAX_EVIDENCE_TOTAL_BYTES) {
-      throw new MoAgentEvidenceVerificationError(
+      throw new PiAgentEvidenceVerificationError(
         'ARTIFACT_TOTAL_BYTES_LIMIT_EXCEEDED',
         `Acceptance surface exceeds ${MAX_EVIDENCE_TOTAL_BYTES} bytes.`,
       );
     }
-    const item: MoAgentEvidenceArtifact = {
+    const item: PiAgentEvidenceArtifact = {
       path: requirement.path,
       role: requirement.role,
       bytes: file.bytes,
@@ -477,7 +477,7 @@ async function artifactManifest(
     if (requirement.role === 'subject') subjects.push(item);
     else evidence.push(item);
   }
-  const comparePath = (left: MoAgentEvidenceArtifact, right: MoAgentEvidenceArtifact) =>
+  const comparePath = (left: PiAgentEvidenceArtifact, right: PiAgentEvidenceArtifact) =>
     left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
   subjects.sort(comparePath);
   evidence.sort(comparePath);
@@ -487,9 +487,9 @@ async function artifactManifest(
   return { subjects, evidence, issues };
 }
 
-function validationChecks(value: unknown): MoAgentValidationCheckEvidence[] {
+function validationChecks(value: unknown): PiAgentValidationCheckEvidence[] {
   if (!Array.isArray(value)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'VALIDATION_CHECKS_INVALID',
       'Validation report checks must be an array.',
     );
@@ -497,7 +497,7 @@ function validationChecks(value: unknown): MoAgentValidationCheckEvidence[] {
   return value.map((item) => {
     if (!isRecord(item) || typeof item.id !== 'string' ||
       !['passed', 'failed', 'warning'].includes(String(item.status))) {
-      throw new MoAgentEvidenceVerificationError(
+      throw new PiAgentEvidenceVerificationError(
         'VALIDATION_CHECK_INVALID',
         'Validation report contains a malformed check.',
       );
@@ -505,18 +505,18 @@ function validationChecks(value: unknown): MoAgentValidationCheckEvidence[] {
     const summary = typeof item.summary === 'string' ? item.summary : '';
     return {
       id: item.id,
-      status: item.status as MoAgentValidationCheckEvidence['status'],
+      status: item.status as PiAgentValidationCheckEvidence['status'],
       summarySha256: `sha256:${sha256(summary)}`,
     };
   });
 }
 
 function classifyValidation(params: {
-  spec: MoAgentMissionSpec;
+  spec: PiAgentMissionSpec;
   report: JsonRecord;
-  checks: readonly MoAgentValidationCheckEvidence[];
+  checks: readonly PiAgentValidationCheckEvidence[];
 }): {
-  verdict: Exclude<MoAgentEvidenceDecision['verdict'], 'accepted' | 'stale'>;
+  verdict: Exclude<PiAgentEvidenceDecision['verdict'], 'accepted' | 'stale'>;
   reasonCodes: string[];
   failedCheckIds: string[];
 } | null {
@@ -588,14 +588,14 @@ function localPreviewUrl(value: string, expectedPort: number): URL {
   const url = new URL(value);
   const localHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
   if (url.protocol !== 'http:' || !localHosts.has(url.hostname)) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_URL_NOT_LOCAL',
       'EvidenceVerifier only accepts the platform-managed local HTTP preview.',
     );
   }
   const port = Number(url.port || 80);
   if (!Number.isSafeInteger(expectedPort) || expectedPort <= 0 || port !== expectedPort) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_PORT_MISMATCH',
       'Preview URL does not match the platform-reported port.',
     );
@@ -624,27 +624,27 @@ async function probePreview(params: {
       signal,
     });
   } catch (error) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_HTTP_UNAVAILABLE',
       `Persistent preview HTTP probe failed: ${error instanceof Error ? error.message : 'unknown error'}`,
     );
   }
   const declaredLength = Number(response.headers.get('content-length') ?? 0);
   if (declaredLength > MAX_PREVIEW_RESPONSE_BYTES) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_RESPONSE_TOO_LARGE',
       'Persistent preview response exceeds the EvidenceVerifier limit.',
     );
   }
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.byteLength > MAX_PREVIEW_RESPONSE_BYTES) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_RESPONSE_TOO_LARGE',
       'Persistent preview response exceeds the EvidenceVerifier limit.',
     );
   }
   if (response.status !== 200) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'PREVIEW_HTTP_NOT_READY',
       `Persistent preview returned HTTP ${response.status}.`,
     );
@@ -659,7 +659,7 @@ async function probePreviewWithRetry(
     return await probePreview(params);
   } catch (error) {
     if (
-      !(error instanceof MoAgentEvidenceVerificationError) ||
+      !(error instanceof PiAgentEvidenceVerificationError) ||
       !['PREVIEW_HTTP_UNAVAILABLE', 'PREVIEW_HTTP_NOT_READY'].includes(error.code)
     ) {
       throw error;
@@ -671,20 +671,20 @@ async function probePreviewWithRetry(
   }
 }
 
-export async function verifyMoAgentMissionEvidence(input: {
+export async function verifyPiAgentMissionEvidence(input: {
   missionId: string;
   generationId: string;
   candidateVersion: number;
-  missionSpec: MoAgentMissionSpec;
+  missionSpec: PiAgentMissionSpec;
   missionSpecSha256: string;
   workspaceRoot: string;
   preview: { url: string; port: number };
   fetchImpl?: typeof fetch;
   now?: () => Date;
   signal?: AbortSignal;
-}): Promise<MoAgentEvidenceDecision> {
+}): Promise<PiAgentEvidenceDecision> {
   if (!Number.isSafeInteger(input.candidateVersion) || input.candidateVersion <= 0) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'CANDIDATE_VERSION_INVALID',
       'EvidenceVerifier requires a positive candidate version.',
     );
@@ -695,7 +695,7 @@ export async function verifyMoAgentMissionEvidence(input: {
   );
   const actualMissionSpecHash = `sha256:${sha256(canonicalJson(input.missionSpec))}`;
   if (suppliedMissionSpecHash !== actualMissionSpecHash) {
-    throw new MoAgentEvidenceVerificationError(
+    throw new PiAgentEvidenceVerificationError(
       'MISSION_SPEC_HASH_MISMATCH',
       'EvidenceVerifier received a MissionSpec that does not match its durable hash.',
     );
@@ -704,12 +704,12 @@ export async function verifyMoAgentMissionEvidence(input: {
   let reportFile: Awaited<ReturnType<typeof readBoundedWorkspaceFile>>;
   let reportAvailable = true;
   let report: JsonRecord = {};
-  let checks: MoAgentValidationCheckEvidence[] = [];
+  let checks: PiAgentValidationCheckEvidence[] = [];
   let reportLoadFailure: ReturnType<typeof classifyValidation> = null;
   try {
     reportFile = await readBoundedWorkspaceFile(root, input.missionSpec.validationReportPath);
   } catch (error) {
-    if (error instanceof MoAgentEvidenceVerificationError &&
+    if (error instanceof PiAgentEvidenceVerificationError &&
       ['REQUIRED_ARTIFACT_MISSING', 'REQUIRED_ARTIFACT_NOT_FILE', 'EVIDENCE_ARTIFACT_TOO_LARGE']
         .includes(error.code)) {
       reportAvailable = false;
@@ -737,7 +737,7 @@ export async function verifyMoAgentMissionEvidence(input: {
       reportLoadFailure = {
         verdict: 'rejected',
         reasonCodes: [
-          error instanceof MoAgentEvidenceVerificationError
+          error instanceof PiAgentEvidenceVerificationError
             ? error.code
             : 'VALIDATION_REPORT_INVALID_JSON',
         ],
@@ -763,7 +763,7 @@ export async function verifyMoAgentMissionEvidence(input: {
     status: 0,
     responseSha256: `sha256:${sha256('not-probed')}`,
   };
-  let previewError: MoAgentEvidenceVerificationError | null = null;
+  let previewError: PiAgentEvidenceVerificationError | null = null;
   if (!validationFailure && !runMismatch && !projectMismatch &&
     firstManifest.issues.length === 0) {
     try {
@@ -773,9 +773,9 @@ export async function verifyMoAgentMissionEvidence(input: {
         ...(input.signal ? { signal: input.signal } : {}),
       });
     } catch (error) {
-      previewError = error instanceof MoAgentEvidenceVerificationError
+      previewError = error instanceof PiAgentEvidenceVerificationError
         ? error
-        : new MoAgentEvidenceVerificationError(
+        : new PiAgentEvidenceVerificationError(
             'PREVIEW_HTTP_UNAVAILABLE',
             'Persistent preview HTTP probe failed.',
           );
@@ -790,7 +790,7 @@ export async function verifyMoAgentMissionEvidence(input: {
       input.missionSpec.validationReportPath,
     );
   } catch (error) {
-    if (error instanceof MoAgentEvidenceVerificationError &&
+    if (error instanceof PiAgentEvidenceVerificationError &&
       ['REQUIRED_ARTIFACT_MISSING', 'REQUIRED_ARTIFACT_NOT_FILE'].includes(error.code)) {
       authoritativeReportAvailable = false;
       authoritativeReportFile = {
@@ -846,7 +846,7 @@ export async function verifyMoAgentMissionEvidence(input: {
       ? ['REQUIRED_DERIVED_EVIDENCE_UNAVAILABLE']
       : []),
   ];
-  let verdict: MoAgentEvidenceDecision['verdict'] = 'accepted';
+  let verdict: PiAgentEvidenceDecision['verdict'] = 'accepted';
   let reasonCodes: string[] = [];
   let failedCheckIds: string[] = [];
   if (projectMismatch) {
@@ -881,7 +881,7 @@ export async function verifyMoAgentMissionEvidence(input: {
   }
 
   const createdAt = now().toISOString();
-  const payload: MoAgentEvidenceDecision['payload'] = {
+  const payload: PiAgentEvidenceDecision['payload'] = {
     schemaVersion: 1,
     missionId: input.missionId,
     generationId: input.generationId,

@@ -395,7 +395,7 @@ export default function HomePage() {
   const formatCliInfo = (cli?: string, model?: string) => {
     const normalizedCli = sanitizeAssistant(cli);
     const opt = ACTIVE_CLI_OPTIONS_MAP[normalizedCli];
-    const name = opt?.name ?? "MoAgent";
+    const name = opt?.name ?? "PI Agent";
     const modelId = normalizeModelForAssistant(normalizedCli, model);
     const label = getModelDisplayName(normalizedCli, modelId);
     return `${name} · ${label}`;

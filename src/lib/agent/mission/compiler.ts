@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 
 import type {
-  MoAgentArtifactRequirement,
-  MoAgentMissionDefinition,
-  MoAgentExpectedEntityRef,
-  MoAgentMissionCompositionRef,
-  MoAgentMissionNodeKey,
-  MoAgentMissionNodeSpec,
-  MoAgentMissionSpec,
+  PiAgentArtifactRequirement,
+  PiAgentMissionDefinition,
+  PiAgentExpectedEntityRef,
+  PiAgentMissionCompositionRef,
+  PiAgentMissionNodeKey,
+  PiAgentMissionNodeSpec,
+  PiAgentMissionSpec,
 } from './types';
 
 function sha256(value: string): string {
@@ -45,9 +45,9 @@ function safeArtifactPattern(value: string): string {
 }
 
 function compileArtifacts(
-  artifacts: readonly MoAgentArtifactRequirement[],
-): MoAgentArtifactRequirement[] {
-  const compiled = new Map<string, MoAgentArtifactRequirement>();
+  artifacts: readonly PiAgentArtifactRequirement[],
+): PiAgentArtifactRequirement[] {
+  const compiled = new Map<string, PiAgentArtifactRequirement>();
   for (const artifact of artifacts) {
     const artifactPath = safeArtifactPattern(artifact.path);
     const existing = compiled.get(artifactPath);
@@ -60,8 +60,8 @@ function compileArtifacts(
   return [...compiled.values()].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function compileNodes(nodes: readonly MoAgentMissionNodeSpec[]): MoAgentMissionNodeSpec[] {
-  const byKey = new Map<MoAgentMissionNodeKey, MoAgentMissionNodeSpec>();
+function compileNodes(nodes: readonly PiAgentMissionNodeSpec[]): PiAgentMissionNodeSpec[] {
+  const byKey = new Map<PiAgentMissionNodeKey, PiAgentMissionNodeSpec>();
   for (const node of nodes) {
     if (byKey.has(node.key)) throw new Error(`Duplicate Mission node: ${node.key}`);
     if (
@@ -97,18 +97,18 @@ function compileNodes(nodes: readonly MoAgentMissionNodeSpec[]): MoAgentMissionN
   return [...byKey.values()];
 }
 
-export function compileMoAgentMissionSpec(input: {
+export function compilePiAgentMissionSpec(input: {
   projectId: string;
   requestId: string;
   objective: string;
   capabilityId: string;
   runPlanId: string;
-  composition: MoAgentMissionCompositionRef;
-  entities?: readonly MoAgentExpectedEntityRef[];
+  composition: PiAgentMissionCompositionRef;
+  entities?: readonly PiAgentExpectedEntityRef[];
   maxRepairAttempts: number;
-  definition: MoAgentMissionDefinition;
+  definition: PiAgentMissionDefinition;
   createdAt?: string;
-}): MoAgentMissionSpec {
+}): PiAgentMissionSpec {
   if (!Number.isSafeInteger(input.maxRepairAttempts) || input.maxRepairAttempts < 0) {
     throw new Error('maxRepairAttempts must be a non-negative safe integer.');
   }
@@ -139,7 +139,7 @@ export function compileMoAgentMissionSpec(input: {
     };
   });
   const nodes = compileNodes(input.definition.nodes);
-  const expectedEntities = new Map<string, MoAgentExpectedEntityRef>();
+  const expectedEntities = new Map<string, PiAgentExpectedEntityRef>();
   for (const entity of input.entities ?? []) {
     const normalized = {
       entityType: boundedIdentifier(entity.entityType, 'entityType', 128),
@@ -149,7 +149,7 @@ export function compileMoAgentMissionSpec(input: {
   }
   return {
     schemaVersion: 1,
-    framework: 'MoAgent',
+    framework: 'PI Agent',
     projectId: boundedIdentifier(input.projectId, 'projectId'),
     requestId: boundedIdentifier(input.requestId, 'requestId'),
     objectiveSha256: `sha256:${sha256(objective)}`,

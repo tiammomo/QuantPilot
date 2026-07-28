@@ -31,7 +31,7 @@ function shouldRunMarketApi() {
 
 function shouldRunGenerationWorker() {
   return (
-    process.env.MOAGENT_DISPATCH_MODE?.trim().toLowerCase() === 'worker' &&
+    process.env.PI_AGENT_DISPATCH_MODE?.trim().toLowerCase() === 'worker' &&
     envFlag('QUANTPILOT_DEV_MANAGE_GENERATION_WORKER', true)
   );
 }

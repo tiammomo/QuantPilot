@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const ROOT = process.cwd();
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
@@ -23,7 +24,35 @@ function pass(message) {
   console.log(`✅ ${message}`);
 }
 
-console.log('\n🔒 MoAgent AI 接入边界检查：ModelPort 日常路由 + 可选 DeepSeek 官方直连\n');
+console.log('\n🔒 PI Agent AI 接入边界检查：ModelPort 日常路由 + 可选 DeepSeek 官方直连\n');
+
+const retiredFrameworkToken = ['mo', 'agent'].join('');
+const repositoryFiles = execFileSync(
+  'git',
+  ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+  { cwd: ROOT, maxBuffer: 16 * 1024 * 1024 },
+).toString('utf8').split('\0').filter(Boolean);
+const retiredFrameworkHits = [];
+for (const relativePath of repositoryFiles) {
+  const normalizedPath = relativePath.replaceAll('\\', '/');
+  const absolutePath = path.join(ROOT, relativePath);
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) continue;
+  if (normalizedPath.startsWith('prisma/migrations/')) continue;
+  if (normalizedPath.toLowerCase().includes(retiredFrameworkToken)) {
+    retiredFrameworkHits.push(`${normalizedPath} (path)`);
+    continue;
+  }
+  const content = fs.readFileSync(absolutePath);
+  if (content.includes(0)) continue;
+  if (content.toString('utf8').toLowerCase().includes(retiredFrameworkToken)) {
+    retiredFrameworkHits.push(`${normalizedPath} (content)`);
+  }
+}
+if (retiredFrameworkHits.length > 0) {
+  fail(`活动仓库仍包含退役框架标识：${retiredFrameworkHits.join(', ')}`);
+} else {
+  pass('活动源码、配置、测试和文档只使用 PI Agent 标识');
+}
 
 const envExample = read('.env.example');
 if (!/^MODELPORT_API_KEY=/m.test(envExample)) {
@@ -103,23 +132,25 @@ if (!modelRegistry.includes(`DEEPSEEK_MODEL_ID = '${DEEPSEEK_MODEL}'`)) {
   fail(`模型注册表必须锁定本地地址 ${LOCAL_BASE_URL}`);
 } else if (!modelRegistry.includes(`MODELPORT_DEEPSEEK_MODEL_ID = '${MODELPORT_DEEPSEEK_MODEL}'`)) {
   fail(`模型注册表必须包含 ModelPort DeepSeek 模型 ${MODELPORT_DEEPSEEK_MODEL}`);
-} else if (!modelRegistry.includes('MOAGENT_DEFAULT_MODEL: MoAgentModelId = LOCAL_QWEN_MODEL_ID')) {
-  fail(`MoAgent 默认模型必须为 ${LOCAL_MODEL}`);
+} else if (!modelRegistry.includes('PI_AGENT_DEFAULT_MODEL: PiAgentModelId = LOCAL_QWEN_MODEL_ID')) {
+  fail(`PI Agent 默认模型必须为 ${LOCAL_MODEL}`);
 } else {
   pass('本地 Qwen 默认模型、ModelPort DeepSeek 与官方直连地址均已锁定');
 }
 
 const requiredRuntimeFiles = [
   'src/lib/agent/types.ts',
-  'src/lib/agent/core/run-engine.ts',
   'src/lib/agent/providers/deepseek.ts',
   'src/lib/agent/providers/openai-compatible.ts',
+  'src/lib/agent/pi/identity.ts',
+  'src/lib/agent/pi/options.ts',
+  'src/lib/agent/pi/run-engine.ts',
   'src/lib/agent/tools/index.ts',
   'src/lib/agent/skills/compiler.ts',
-  'src/lib/services/cli/moagent.ts',
+  'src/lib/services/cli/pi-agent.ts',
 ];
 for (const file of requiredRuntimeFiles) {
-  if (!fs.existsSync(path.join(ROOT, file))) fail(`MoAgent 运行时缺少：${file}`);
+  if (!fs.existsSync(path.join(ROOT, file))) fail(`PI Agent 运行时缺少：${file}`);
 }
 
 const removedRuntimeFiles = [
@@ -134,19 +165,27 @@ const packageJson = read('package.json');
 const nextConfig = read('next.config.js');
 const sdkPackageName = ['@anthropic-ai', 'claude-agent-sdk'].join('/');
 if (packageJson.includes(sdkPackageName) || nextConfig.includes(sdkPackageName)) {
-  fail('依赖或 Next.js 配置中仍存在外部 Agent SDK');
+  fail('依赖或 Next.js 配置中仍存在旧 Anthropic Agent SDK');
 } else {
-  pass('外部 Agent SDK 已从依赖和构建配置移除');
+  pass('旧 Anthropic Agent SDK 已从依赖和构建配置移除');
+}
+if (
+  !packageJson.includes('"@earendil-works/pi-agent-core": "0.82.1"') ||
+  !packageJson.includes('"@earendil-works/pi-ai": "0.82.1"')
+) {
+  fail('PI Agent 依赖必须精确锁定为 0.82.1');
+} else {
+  pass('PI Agent core 与 AI 包已精确锁定为 0.82.1');
 }
 
 const provider = read('src/lib/agent/providers/deepseek.ts');
 const openAICompatibleProvider = read('src/lib/agent/providers/openai-compatible.ts');
 if (!provider.includes('/chat/completions') || !provider.includes('globalThis.fetch')) {
-  fail('DeepSeek Provider 必须由 MoAgent 直接调用 /chat/completions');
+  fail('DeepSeek Provider 必须由 PI Agent 适配层直接调用 /chat/completions');
 } else if (provider.includes('/anthropic')) {
   fail('DeepSeek Provider 不得继续使用 Anthropic 兼容端点');
 } else {
-  pass('MoAgent 通过 OpenAI-compatible SSE 直连 DeepSeek');
+  pass('PI Agent 通过 OpenAI-compatible SSE 适配层直连 DeepSeek');
 }
 if (
   !openAICompatibleProvider.includes("reasoningWireFormat: 'none'") ||
@@ -157,7 +196,7 @@ if (
   pass('本地 OpenAI-compatible Provider 已禁用 DeepSeek 私有 thinking wire format');
 }
 
-const runtime = read('src/lib/services/cli/moagent.ts');
+const runtime = read('src/lib/services/cli/pi-agent.ts');
 for (const input of [
   'process.env.ANTHROPIC_BASE_URL',
   'process.env.OPENAI_API_KEY',
@@ -165,16 +204,32 @@ for (const input of [
   'process.env.MINIMAX_API_KEY',
   'process.env.DEEPSEEK_BASE_URL',
 ]) {
-  if (runtime.includes(input)) fail(`MoAgent 不得读取旧供应商或自定义中转配置：${input}`);
+  if (runtime.includes(input)) fail(`PI Agent 不得读取旧供应商或自定义中转配置：${input}`);
 }
 if (!runtime.includes('process.env[llmConfig.credentialEnv]')) {
-  fail('MoAgent 必须按锁定 profile 读取对应凭据');
+  fail('PI Agent 必须按锁定 profile 读取对应凭据');
 } else if (!runtime.includes('baseUrl: llmConfig.baseUrl')) {
-  fail('MoAgent 必须按锁定 profile 使用 Provider Base URL');
+  fail('PI Agent 必须按锁定 profile 使用 Provider Base URL');
 } else if (!runtime.includes("llmConfig.provider === 'deepseek'")) {
-  fail('MoAgent 必须显式分派 DeepSeek 与 OpenAI-compatible Provider');
+  fail('PI Agent 必须显式分派 DeepSeek 与 OpenAI-compatible Provider');
 } else {
-  pass('MoAgent 多 Provider 凭据和地址边界正确');
+  pass('PI Agent 多 Provider 凭据和地址边界正确');
+}
+
+const piRunEngine = read('src/lib/agent/pi/run-engine.ts');
+if (
+  !piRunEngine.includes('runAgentLoopContinue') ||
+  !piRunEngine.includes("toolExecution: 'sequential'")
+) {
+  fail('PI Agent 必须使用上游完整 loop 并保持受控顺序工具执行');
+} else if (
+  !piRunEngine.includes("import('@earendil-works/pi-agent-core')") ||
+  !piRunEngine.includes("import('@earendil-works/pi-ai')") ||
+  !piRunEngine.includes('loadUpstreamPiRuntime')
+) {
+  fail('PI Agent ESM-only 上游包必须通过 Worker 可用的动态 import 边界加载');
+} else {
+  pass('PI Agent 使用上游完整多轮 loop、Worker ESM 边界与受控顺序工具执行');
 }
 
 const route = read('src/app/api/chat/[project_id]/act/route.ts');
@@ -183,16 +238,16 @@ const financeGenerationExecutor = read('src/lib/quant/finance-generation-executo
 if (
   !route.includes('createApplicationGenerationRuntime().execute') ||
   !generationRuntime.includes('FINANCE_GENERATION_HANDLER') ||
-  !financeGenerationExecutor.includes('import("@/lib/services/cli/moagent")')
+  !financeGenerationExecutor.includes('import("@/lib/services/cli/pi-agent")')
 ) {
-  fail('聊天执行链路尚未切换至 MoAgent');
+  fail('聊天执行链路尚未切换至 PI Agent');
 } else if (
   route.includes('activeClaudeSessionId') ||
   financeGenerationExecutor.includes('activeClaudeSessionId')
 ) {
   fail('聊天执行链路仍依赖供应商 session id');
 } else {
-  pass('QuantPilot inline 与 Worker 主执行链路均通过 Domain handler 使用 MoAgent');
+  pass('QuantPilot inline 与 Worker 主执行链路均通过 Domain handler 使用 PI Agent');
 }
 
 const queryRewriteRoute = read('src/app/api/quant/query/rewrite/route.ts');
@@ -232,6 +287,6 @@ if (
 }
 
 if (!process.exitCode) {
-  pass('MoAgent 双 Provider 边界完整');
+  pass('PI Agent 双 Provider 边界完整');
   console.log('');
 }

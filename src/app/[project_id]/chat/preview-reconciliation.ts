@@ -21,14 +21,14 @@ function recoveryAttemptKey(
   projectId: string,
   snapshot: QuantGenerationTerminalSnapshot,
 ): string {
-  return `${projectId}:${snapshot.requestId ?? 'legacy'}`;
+  return `${projectId}:${snapshot.requestId}`;
 }
 
 /**
  * Converts the server's Mission-aware terminal snapshot into a client action.
  *
  * The raw Project preview URL and the validation report are intentionally not
- * inputs: neither proves that a new MoAgent Mission was accepted. This keeps
+ * inputs: neither proves that a new PI Agent Mission was accepted. This keeps
  * provisional previews hidden and makes automatic recovery idempotent per run.
  */
 export function planPreviewReconciliation(params: {
@@ -74,7 +74,8 @@ export function planPreviewReconciliation(params: {
 
   if (
     snapshot.status === 'preview_pending' &&
-    snapshot.validationStatus === 'passed'
+    snapshot.validationStatus === 'passed' &&
+    snapshot.requestId
   ) {
     const attemptKey = recoveryAttemptKey(projectId, snapshot);
     return attemptedRecoveryKey === attemptKey

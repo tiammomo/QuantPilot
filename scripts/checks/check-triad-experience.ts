@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { OpenAICompatibleProvider } from '../../src/lib/agent/providers/openai-compatible';
-import type { MoAgentMessage, MoAgentModelEvent, MoAgentTokenUsage } from '../../src/lib/agent/types';
+import type { PiAgentMessage, PiAgentModelEvent, PiAgentTokenUsage } from '../../src/lib/agent/types';
 import { getProjectLlmConfig } from '../../src/lib/config/llm';
 import { LOCAL_QWEN_MODEL_ID, MODELPORT_DEEPSEEK_MODEL_ID } from '../../src/lib/constants/models';
 import { prisma } from '../../src/lib/db/client';
@@ -35,7 +35,7 @@ import {
 import type { PersonalizationCapsule } from '../../src/lib/platform/memory/types';
 import { rewriteQuantQuery } from '../../src/lib/domains/finance/query-rewrite';
 import { rewriteQuantQuerySemanticsWithConfiguredProvider } from '../../src/lib/domains/finance/query-rewrite-llm';
-import { buildQuantPilotUserPrompt } from '../../src/lib/services/moagent-prompts';
+import { buildQuantPilotUserPrompt } from '../../src/lib/services/pi-agent-prompts';
 
 type JsonRecord = Record<string, unknown>;
 type CaseCategory = 'query_rewrite' | 'memory' | 'knowledge' | 'triad';
@@ -72,7 +72,7 @@ interface CollectedTurn {
   toolCallId: string;
   toolName: string;
   toolArguments: string;
-  usage: MoAgentTokenUsage | null;
+  usage: PiAgentTokenUsage | null;
   finishReason: string | null;
   text: string;
 }
@@ -166,7 +166,7 @@ function syntheticSubject(variant: number): string {
   return variant === 0 ? SYNTHETIC_SUBJECT : `${SYNTHETIC_SUBJECT}-v${variant + 1}`;
 }
 
-async function collectTurn(events: AsyncIterable<MoAgentModelEvent>): Promise<CollectedTurn> {
+async function collectTurn(events: AsyncIterable<PiAgentModelEvent>): Promise<CollectedTurn> {
   const turn: CollectedTurn = {
     responseModel: '',
     toolCallId: '',
@@ -564,7 +564,7 @@ async function triadModelTurn(input: {
     initialDashboardContract: null,
     requireDashboardContract: false,
   });
-  const messages: MoAgentMessage[] = [
+  const messages: PiAgentMessage[] = [
     {
       role: 'system',
       content: [
@@ -731,7 +731,7 @@ async function probeDefaultKnowledge(runId: string): Promise<JsonRecord> {
   });
   const preparation = await prepareGovernedKnowledge({
     requestId: `triad-default-knowledge-${runId}`,
-    task: 'QuantPilot ModelPort Memory Knowledge MoAgent 工作空间 看板 Query Rewrite',
+    task: 'QuantPilot ModelPort Memory Knowledge PI Agent 工作空间 看板 Query Rewrite',
     scope,
   });
   return {

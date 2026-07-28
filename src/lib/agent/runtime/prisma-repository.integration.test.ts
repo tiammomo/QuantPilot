@@ -5,29 +5,29 @@ import path from 'node:path';
 import { PrismaClient, type AgentMission } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaAgentRuntimeRepository } from './prisma-repository';
-import { withMoAgentWorkspaceResourceLock } from './workspace-resource-lock';
+import { withPiAgentWorkspaceResourceLock } from './workspace-resource-lock';
 import {
-  abandonMoAgentMissionVerification,
-  beginMoAgentMissionVerification,
-  heartbeatMoAgentMissionVerification,
-} from '@/lib/services/moagent-mission-store';
+  abandonPiAgentMissionVerification,
+  beginPiAgentMissionVerification,
+  heartbeatPiAgentMissionVerification,
+} from '@/lib/services/pi-agent-mission-store';
 import {
-  claimMoAgentGenerationLease,
-  heartbeatMoAgentGenerationLease,
-  releaseMoAgentGenerationLease,
-} from '@/lib/services/moagent-generation-lease-store';
+  claimPiAgentGenerationLease,
+  heartbeatPiAgentGenerationLease,
+  releasePiAgentGenerationLease,
+} from '@/lib/services/pi-agent-generation-lease-store';
 import {
-  cancelMoAgentGenerationJob,
-  claimMoAgentGenerationJob,
-  enqueueMoAgentGenerationJob,
-  finishMoAgentGenerationJob,
-  heartbeatMoAgentGenerationJob,
-  reconcileExpiredMoAgentGenerationJobs,
-} from '@/lib/services/moagent-generation-dispatch-store';
+  cancelPiAgentGenerationJob,
+  claimPiAgentGenerationJob,
+  enqueuePiAgentGenerationJob,
+  finishPiAgentGenerationJob,
+  heartbeatPiAgentGenerationJob,
+  reconcileExpiredPiAgentGenerationJobs,
+} from '@/lib/services/pi-agent-generation-dispatch-store';
 import type { AgentRunRecord, AgentWriteFence, CreateAgentRunInput } from './types';
 
-const TEST_DATABASE_URL = process.env.MOAGENT_TEST_DATABASE_URL?.trim();
-const TEST_SCOPE = `moagent_pg_it_${randomUUID().replaceAll('-', '')}`;
+const TEST_DATABASE_URL = process.env.PI_AGENT_TEST_DATABASE_URL?.trim();
+const TEST_SCOPE = `pi_agent_pg_it_${randomUUID().replaceAll('-', '')}`;
 const ZERO_USAGE = {
   inputTokens: 0,
   outputTokens: 0,
@@ -68,7 +68,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       workspaceKey: workspace,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
-      frameworkVersion: 'moagent:integration-test',
+      frameworkVersion: 'pi-agent:integration-test',
       buildRevision: 'test:postgres-integration',
       profileHash: 'sha256:integration-profile',
       promptHash: 'sha256:integration-prompt',
@@ -102,7 +102,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
   async function createProject(label: string): Promise<string> {
     const id = uniqueId(`project:${label}`);
     await clientA.project.create({
-      data: { id, name: `MoAgent PostgreSQL integration: ${label}` },
+      data: { id, name: `PI Agent PostgreSQL integration: ${label}` },
     });
     projectIds.add(id);
     return id;
@@ -176,9 +176,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       leaseOwner: uniqueId(`generation-owner:${index}`),
       leaseTtlMs: 120_000,
     }));
-    const outcomes = await Promise.allSettled(inputs.map(claimMoAgentGenerationLease));
+    const outcomes = await Promise.allSettled(inputs.map(claimPiAgentGenerationLease));
     const claimed = outcomes.filter((outcome): outcome is PromiseFulfilledResult<
-      Awaited<ReturnType<typeof claimMoAgentGenerationLease>>
+      Awaited<ReturnType<typeof claimPiAgentGenerationLease>>
     > => outcome.status === 'fulfilled');
     const rejected = outcomes.filter(
       (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
@@ -197,19 +197,19 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       where: { projectId },
       data: { leaseExpiresAt: new Date(0) },
     });
-    const takeover = await claimMoAgentGenerationLease({
+    const takeover = await claimPiAgentGenerationLease({
       ...takeoverInput,
       stage: 'agent_execution',
     });
     expect(takeover.fencingToken).toBe(first.fencingToken + 1);
 
-    await expect(heartbeatMoAgentGenerationLease({
+    await expect(heartbeatPiAgentGenerationLease({
       fence: first,
       leaseTtlMs: 120_000,
     })).rejects.toMatchObject({ code: 'GENERATION_LEASE_LOST' });
-    await expect(releaseMoAgentGenerationLease({ fence: first }))
+    await expect(releasePiAgentGenerationLease({ fence: first }))
       .rejects.toMatchObject({ code: 'GENERATION_LEASE_LOST' });
-    await expect(releaseMoAgentGenerationLease({ fence: takeover })).resolves.toBeUndefined();
+    await expect(releasePiAgentGenerationLease({ fence: takeover })).resolves.toBeUndefined();
     await expect(clientA.agentGenerationLease.findUnique({ where: { projectId } }))
       .resolves.toMatchObject({
         status: 'free',
@@ -233,7 +233,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       })),
     });
     const jobs = await Promise.all(requestIds.map((requestId) =>
-      enqueueMoAgentGenerationJob({
+      enqueuePiAgentGenerationJob({
         projectId,
         requestId,
         instruction: `Durable dispatch ${requestId}`,
@@ -249,14 +249,14 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     })).toBe(2);
 
     const outcomes = await Promise.allSettled(requestIds.map((requestId, index) =>
-      claimMoAgentGenerationJob({
+      claimPiAgentGenerationJob({
         projectId,
         requestId,
         leaseOwner: uniqueId(`dispatch-worker:${index}`),
         leaseTtlMs: 120_000,
       })));
     const claimed = outcomes.filter((outcome): outcome is PromiseFulfilledResult<
-      Awaited<ReturnType<typeof claimMoAgentGenerationJob>>
+      Awaited<ReturnType<typeof claimPiAgentGenerationJob>>
     > => outcome.status === 'fulfilled');
     const rejected = outcomes.filter(
       (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
@@ -266,7 +266,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     expect(rejected[0].reason).toMatchObject({ code: 'GENERATION_PROJECT_BUSY' });
 
     const winner = claimed[0].value;
-    await expect(finishMoAgentGenerationJob({
+    await expect(finishPiAgentGenerationJob({
       projectId,
       requestId: winner.requestId,
       status: 'completed',
@@ -284,7 +284,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
   });
 
   it('rejects credentials before a dispatch envelope can reach PostgreSQL', async () => {
-    await expect(enqueueMoAgentGenerationJob({
+    await expect(enqueuePiAgentGenerationJob({
       projectId: 'project-not-written',
       requestId: 'request-not-written',
       instruction: 'Do not persist credentials.',
@@ -303,18 +303,18 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     await clientA.userRequest.create({
       data: { id: requestId, projectId, instruction: 'Cancel the claimed dispatch.' },
     });
-    await enqueueMoAgentGenerationJob({
+    await enqueuePiAgentGenerationJob({
       projectId,
       requestId,
       instruction: 'Cancel the claimed dispatch.',
     });
-    const claim = await claimMoAgentGenerationJob({
+    const claim = await claimPiAgentGenerationJob({
       projectId,
       requestId,
       leaseOwner: uniqueId('dispatch-worker:cancelled'),
       leaseTtlMs: 120_000,
     });
-    await expect(cancelMoAgentGenerationJob({
+    await expect(cancelPiAgentGenerationJob({
       projectId,
       requestId,
       reason: 'integration cancellation',
@@ -322,11 +322,11 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       status: 'cancelled',
       errorCode: 'USER_CANCELLED',
     });
-    await expect(heartbeatMoAgentGenerationJob({
+    await expect(heartbeatPiAgentGenerationJob({
       fence: claim,
       leaseTtlMs: 120_000,
     })).rejects.toMatchObject({ code: 'GENERATION_DISPATCH_LEASE_LOST' });
-    await expect(finishMoAgentGenerationJob({
+    await expect(finishPiAgentGenerationJob({
       projectId,
       requestId,
       status: 'completed',
@@ -356,12 +356,12 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
         specHash: 'sha256:dispatch-expired-replan',
       },
     });
-    await enqueueMoAgentGenerationJob({
+    await enqueuePiAgentGenerationJob({
       projectId,
       requestId,
       instruction: 'Expire and reconcile this dispatch.',
     });
-    await claimMoAgentGenerationJob({
+    await claimPiAgentGenerationJob({
       projectId,
       requestId,
       leaseOwner: uniqueId('dispatch-worker:expired'),
@@ -372,7 +372,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       data: { leaseExpiresAt: new Date(0) },
     });
 
-    await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+    await expect(reconcileExpiredPiAgentGenerationJobs({ projectId })).resolves.toEqual([
       expect.objectContaining({
         requestId,
         status: 'interrupted',
@@ -400,13 +400,13 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
         status: 'processing',
       },
     });
-    await enqueueMoAgentGenerationJob({
+    await enqueuePiAgentGenerationJob({
       projectId,
       requestId,
       instruction: 'Retry this expired worker attempt.',
       maxAttempts: 3,
     });
-    const claim = await claimMoAgentGenerationJob({
+    const claim = await claimPiAgentGenerationJob({
       projectId,
       requestId,
       leaseOwner: uniqueId('dispatch-worker:retry'),
@@ -416,12 +416,12 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       where: { requestId_projectId: { requestId, projectId } },
       data: { leaseExpiresAt: new Date(0) },
     });
-    const previousMode = process.env.MOAGENT_DISPATCH_MODE;
-    const previousDelay = process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS;
-    process.env.MOAGENT_DISPATCH_MODE = 'worker';
-    process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS = '100';
+    const previousMode = process.env.PI_AGENT_DISPATCH_MODE;
+    const previousDelay = process.env.PI_AGENT_DISPATCH_RETRY_BASE_DELAY_MS;
+    process.env.PI_AGENT_DISPATCH_MODE = 'worker';
+    process.env.PI_AGENT_DISPATCH_RETRY_BASE_DELAY_MS = '100';
     try {
-      await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+      await expect(reconcileExpiredPiAgentGenerationJobs({ projectId })).resolves.toEqual([
         expect.objectContaining({
           requestId,
           status: 'retry_wait',
@@ -432,10 +432,10 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       await expect(clientA.userRequest.findUnique({ where: { id: requestId } }))
         .resolves.toMatchObject({ status: 'processing' });
     } finally {
-      if (previousMode === undefined) delete process.env.MOAGENT_DISPATCH_MODE;
-      else process.env.MOAGENT_DISPATCH_MODE = previousMode;
-      if (previousDelay === undefined) delete process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS;
-      else process.env.MOAGENT_DISPATCH_RETRY_BASE_DELAY_MS = previousDelay;
+      if (previousMode === undefined) delete process.env.PI_AGENT_DISPATCH_MODE;
+      else process.env.PI_AGENT_DISPATCH_MODE = previousMode;
+      if (previousDelay === undefined) delete process.env.PI_AGENT_DISPATCH_RETRY_BASE_DELAY_MS;
+      else process.env.PI_AGENT_DISPATCH_RETRY_BASE_DELAY_MS = previousDelay;
     }
   });
 
@@ -450,7 +450,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
         status: 'processing',
       },
     });
-    await enqueueMoAgentGenerationJob({
+    await enqueuePiAgentGenerationJob({
       projectId,
       requestId,
       instruction: 'Persist this job, then simulate a crash before claim.',
@@ -460,7 +460,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       data: { availableAt: new Date(0) },
     });
 
-    await expect(reconcileExpiredMoAgentGenerationJobs({ projectId })).resolves.toEqual([
+    await expect(reconcileExpiredPiAgentGenerationJobs({ projectId })).resolves.toEqual([
       expect.objectContaining({
         requestId,
         status: 'interrupted',
@@ -492,7 +492,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       },
     });
 
-    await expect(claimMoAgentGenerationLease({
+    await expect(claimPiAgentGenerationLease({
       projectId,
       operationId: newRequestId,
       requestId: newRequestId,
@@ -505,7 +505,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       activeStage: 'mission',
     });
 
-    const recovery = await claimMoAgentGenerationLease({
+    const recovery = await claimPiAgentGenerationLease({
       projectId,
       operationId: uniqueId('manual-validation'),
       requestId: null,
@@ -513,7 +513,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       leaseOwner: uniqueId('generation-owner:manual-recovery'),
       leaseTtlMs: 120_000,
     });
-    await expect(releaseMoAgentGenerationLease({ fence: recovery })).resolves.toBeUndefined();
+    await expect(releasePiAgentGenerationLease({ fence: recovery })).resolves.toBeUndefined();
   });
 
   it('rejects the same canonical workspaceKey across different projects', async () => {
@@ -633,12 +633,12 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     });
     const ref = { missionId, projectId, requestId };
     const claims = await Promise.allSettled([
-      beginMoAgentMissionVerification({
+      beginPiAgentMissionVerification({
         ...ref,
         leaseOwner: uniqueId('verifier:a'),
         leaseTtlMs: 120_000,
       }),
-      beginMoAgentMissionVerification({
+      beginPiAgentMissionVerification({
         ...ref,
         leaseOwner: uniqueId('verifier:b'),
         leaseTtlMs: 120_000,
@@ -646,7 +646,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     ]);
     const claimed = claims.filter(
       (claim): claim is PromiseFulfilledResult<
-        Awaited<ReturnType<typeof beginMoAgentMissionVerification>>
+        Awaited<ReturnType<typeof beginPiAgentMissionVerification>>
       > => claim.status === 'fulfilled',
     );
     const rejected = claims.filter(
@@ -663,21 +663,21 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       where: { id: missionId },
       data: { verificationLeaseExpiresAt: new Date(0) },
     });
-    const takeover = await beginMoAgentMissionVerification({
+    const takeover = await beginPiAgentMissionVerification({
       ...ref,
       leaseOwner: uniqueId('verifier:takeover'),
       leaseTtlMs: 120_000,
     });
     expect(takeover.fencingToken).toBe(staleClaim.fencingToken + 1);
 
-    await expect(heartbeatMoAgentMissionVerification({
+    await expect(heartbeatPiAgentMissionVerification({
       ...ref,
       leaseOwner: staleClaim.leaseOwner,
       fencingToken: staleClaim.fencingToken,
       leaseTtlMs: 120_000,
     })).rejects.toMatchObject({ code: 'MISSION_VERIFICATION_LEASE_LOST' });
 
-    await expect(abandonMoAgentMissionVerification({
+    await expect(abandonPiAgentMissionVerification({
       ...ref,
       leaseOwner: takeover.leaseOwner,
       fencingToken: takeover.fencingToken,
@@ -978,9 +978,9 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     });
     const enteredCommit = deferred();
     const releaseCommit = deferred();
-    const physicalWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-pg-lock-'));
+    const physicalWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-pg-lock-'));
     try {
-      const physicalCommit = withMoAgentWorkspaceResourceLock(
+      const physicalCommit = withPiAgentWorkspaceResourceLock(
         physicalWorkspace,
         () => repositoryA.commitWorkspaceMutation(
           { ...fence(prepared.run), operationId },
@@ -997,7 +997,7 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       );
 
       let takeoverSettled = false;
-      const takeover = withMoAgentWorkspaceResourceLock(
+      const takeover = withPiAgentWorkspaceResourceLock(
         physicalWorkspace,
         () => repositoryB.createRun(runInput(projectId, workspace, 'blocked-takeover'))
       ).finally(() => {

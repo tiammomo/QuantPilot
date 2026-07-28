@@ -21,7 +21,7 @@ export interface DataAgentProjectProvisionInput {
   projectPath: string;
   projectId: string;
   projectName: string;
-  preferredCli: 'moagent';
+  preferredCli: 'pi';
   selectedModel: string;
   capabilitySelectionSource: DataAgentCapabilitySelectionSource;
 }

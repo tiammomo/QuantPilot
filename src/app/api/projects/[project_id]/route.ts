@@ -29,7 +29,7 @@ const updateProjectRequestSchema = z.object({
   status: z.enum(['idle', 'running', 'stopped', 'error', 'initializing', 'active', 'failed']).optional(),
   previewUrl: z.string().trim().max(2_048).nullable().optional(),
   previewPort: z.number().int().min(1).max(65_535).nullable().optional(),
-  preferredCli: z.literal('moagent').optional(),
+  preferredCli: z.literal('pi').optional(),
   selectedModel: z.string().trim().min(1).max(256).optional(),
   settings: z.string().max(1_000_000).optional(),
 }).strict().refine((value) => Object.keys(value).length > 0, {

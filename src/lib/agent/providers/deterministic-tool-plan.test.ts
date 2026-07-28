@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { MoAgentModelEvent, MoAgentModelRequest } from '../types';
-import { MoAgentDeterministicToolPlanProvider } from './deterministic-tool-plan';
+import type { PiAgentModelEvent, PiAgentModelRequest } from '../types';
+import { PiAgentDeterministicToolPlanProvider } from './deterministic-tool-plan';
 
-const request = (messages: MoAgentModelRequest['messages']): MoAgentModelRequest => ({
-  model: 'moagent-deterministic-renderer',
+const request = (messages: PiAgentModelRequest['messages']): PiAgentModelRequest => ({
+  model: 'pi-agent-deterministic-renderer',
   messages,
   tools: [
     { name: 'compile', description: '', inputSchema: { type: 'object' } },
@@ -13,17 +13,17 @@ const request = (messages: MoAgentModelRequest['messages']): MoAgentModelRequest
 });
 
 async function events(
-  provider: MoAgentDeterministicToolPlanProvider,
-  modelRequest: MoAgentModelRequest,
-): Promise<MoAgentModelEvent[]> {
-  const collected: MoAgentModelEvent[] = [];
+  provider: PiAgentDeterministicToolPlanProvider,
+  modelRequest: PiAgentModelRequest,
+): Promise<PiAgentModelEvent[]> {
+  const collected: PiAgentModelEvent[] = [];
   for await (const event of provider.complete(modelRequest)) collected.push(event);
   return collected;
 }
 
-describe('MoAgent deterministic tool-plan provider', () => {
+describe('PI Agent deterministic tool-plan provider', () => {
   it('executes a fixed plan and reports zero token usage', async () => {
-    const provider = new MoAgentDeterministicToolPlanProvider({
+    const provider = new PiAgentDeterministicToolPlanProvider({
       steps: [
         { name: 'compile', arguments: {} },
         { name: 'submit', arguments: { summary: 'done' } },
@@ -61,7 +61,7 @@ describe('MoAgent deterministic tool-plan provider', () => {
   });
 
   it('stops instead of submitting after a failed trusted step', async () => {
-    const provider = new MoAgentDeterministicToolPlanProvider({
+    const provider = new PiAgentDeterministicToolPlanProvider({
       steps: [
         { name: 'compile', arguments: {} },
         { name: 'submit', arguments: { summary: 'done' } },
@@ -89,7 +89,7 @@ describe('MoAgent deterministic tool-plan provider', () => {
   });
 
   it('rejects a plan step that is not present in the fixed schema', async () => {
-    const provider = new MoAgentDeterministicToolPlanProvider({
+    const provider = new PiAgentDeterministicToolPlanProvider({
       steps: [{ name: 'missing', arguments: {} }],
     });
     await expect(events(provider, request([{ role: 'user', content: 'build' }])))
@@ -98,7 +98,7 @@ describe('MoAgent deterministic tool-plan provider', () => {
 
   it('snapshots trusted plan arguments and rejects an unrelated tool outcome', async () => {
     const argumentsObject = { nested: { variant: 'original' } };
-    const provider = new MoAgentDeterministicToolPlanProvider({
+    const provider = new PiAgentDeterministicToolPlanProvider({
       steps: [
         { name: 'compile', arguments: argumentsObject },
         { name: 'submit', arguments: { summary: 'done' } },

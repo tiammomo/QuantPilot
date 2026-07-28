@@ -43,7 +43,7 @@ afterEach(async () => {
   );
 });
 
-describe('MoAgent image extraction tool', () => {
+describe('PI Agent image extraction tool', () => {
   it('validates attachment metadata and preserves the manual-confirmation contract', async () => {
     const workspace = await makeWorkspace();
     const imagePath = path.join(workspace, 'uploads', 'portfolio.png');
@@ -67,7 +67,7 @@ describe('MoAgent image extraction tool', () => {
     expect(tool.name).toBe('quant_extract_uploaded_image');
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data.runtime).toBe('MoAgent');
+    expect(result.data.runtime).toBe('PI Agent');
     expect(result.data.status).toBe('metadata_ready');
     if (result.data.status !== 'metadata_ready') return;
     expect(result.data.images[0]).toMatchObject({
@@ -111,7 +111,7 @@ describe('MoAgent image extraction tool', () => {
     const result = await extractUploadedImageMetadata({}, { workspaceRoot: workspace });
     expect(result).toMatchObject({
       schemaVersion: 1,
-      runtime: 'MoAgent',
+      runtime: 'PI Agent',
       tool: 'image-extraction',
       status: 'no_attachments',
     });
@@ -119,7 +119,7 @@ describe('MoAgent image extraction tool', () => {
 
   it('rejects direct paths and symlinks that escape the workspace', async () => {
     const workspace = await makeWorkspace();
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-image-outside-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-image-outside-'));
     temporaryDirectories.push(outside);
     const outsideImage = path.join(outside, 'outside.png');
     await fs.writeFile(outsideImage, png(1, 1));

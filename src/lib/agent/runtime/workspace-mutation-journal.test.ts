@@ -5,24 +5,24 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  cleanupMoAgentWorkspaceMutationJournal,
-  commitMoAgentWorkspaceMutationJournal,
-  listMoAgentWorkspaceMutationJournals,
-  MoAgentWorkspaceMutationRecoveryConflictError,
-  prepareMoAgentWorkspaceMutationJournal,
-  rollbackMoAgentWorkspaceMutationJournal,
-  setMoAgentWorkspaceMutationJournalState,
+  cleanupPiAgentWorkspaceMutationJournal,
+  commitPiAgentWorkspaceMutationJournal,
+  listPiAgentWorkspaceMutationJournals,
+  PiAgentWorkspaceMutationRecoveryConflictError,
+  preparePiAgentWorkspaceMutationJournal,
+  rollbackPiAgentWorkspaceMutationJournal,
+  setPiAgentWorkspaceMutationJournalState,
 } from './workspace-mutation-journal';
 
 function hash(content: Buffer | string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-describe('MoAgent durable workspace mutation journal', () => {
+describe('PI Agent durable workspace mutation journal', () => {
   let workspace: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-mutation-journal-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-mutation-journal-'));
     await fs.mkdir(path.join(workspace, 'app'));
     await Promise.all([
       fs.writeFile(path.join(workspace, 'app', 'page.tsx'), 'before page\n'),
@@ -37,7 +37,7 @@ describe('MoAgent durable workspace mutation journal', () => {
   async function prepare(operationId: string) {
     const page = Buffer.from('after page\n');
     const css = Buffer.from('after css\n');
-    return prepareMoAgentWorkspaceMutationJournal({
+    return preparePiAgentWorkspaceMutationJournal({
       workspaceRoot: workspace,
       runId: 'run-journal-test',
       operationId,
@@ -64,32 +64,32 @@ describe('MoAgent durable workspace mutation journal', () => {
 
   it('persists pre-images, applies a batch, and deterministically rolls it back', async () => {
     const journal = await prepare('op_journal_complete');
-    await commitMoAgentWorkspaceMutationJournal(journal);
+    await commitPiAgentWorkspaceMutationJournal(journal);
     await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
       .resolves.toBe('after page\n');
     await expect(fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8'))
       .resolves.toBe('after css\n');
 
-    await rollbackMoAgentWorkspaceMutationJournal(journal);
+    await rollbackPiAgentWorkspaceMutationJournal(journal);
     await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
       .resolves.toBe('before page\n');
     await expect(fs.readFile(path.join(workspace, 'app', 'globals.css'), 'utf8'))
       .resolves.toBe('before css\n');
     expect(journal.manifest.state).toBe('rolled_back');
 
-    await cleanupMoAgentWorkspaceMutationJournal(journal);
-    await expect(listMoAgentWorkspaceMutationJournals(workspace)).resolves.toEqual([]);
+    await cleanupPiAgentWorkspaceMutationJournal(journal);
+    await expect(listPiAgentWorkspaceMutationJournals(workspace)).resolves.toEqual([]);
   });
 
   it('recovers a fault injected between two target renames', async () => {
     const journal = await prepare('op_journal_partial_rename');
-    await setMoAgentWorkspaceMutationJournalState(journal, 'committing');
+    await setPiAgentWorkspaceMutationJournalState(journal, 'committing');
     await fs.rename(
       path.join(journal.transactionDirectory, 'staged', '0'),
       path.join(workspace, 'app', 'page.tsx'),
     );
 
-    await rollbackMoAgentWorkspaceMutationJournal(journal);
+    await rollbackPiAgentWorkspaceMutationJournal(journal);
 
     await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
       .resolves.toBe('before page\n');
@@ -99,11 +99,11 @@ describe('MoAgent durable workspace mutation journal', () => {
 
   it('preflights every target and never overwrites a later user modification', async () => {
     const journal = await prepare('op_journal_user_conflict');
-    await commitMoAgentWorkspaceMutationJournal(journal);
+    await commitPiAgentWorkspaceMutationJournal(journal);
     await fs.writeFile(path.join(workspace, 'app', 'globals.css'), 'user changed css\n');
 
-    await expect(rollbackMoAgentWorkspaceMutationJournal(journal))
-      .rejects.toBeInstanceOf(MoAgentWorkspaceMutationRecoveryConflictError);
+    await expect(rollbackPiAgentWorkspaceMutationJournal(journal))
+      .rejects.toBeInstanceOf(PiAgentWorkspaceMutationRecoveryConflictError);
 
     // No earlier target was restored before the conflict on the second target.
     await expect(fs.readFile(path.join(workspace, 'app', 'page.tsx'), 'utf8'))
@@ -113,9 +113,9 @@ describe('MoAgent durable workspace mutation journal', () => {
   });
 
   it('refuses a symlinked framework journal root', async () => {
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-journal-outside-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-journal-outside-'));
     try {
-      await fs.symlink(outside, path.join(workspace, '.moagent-mutation-journal'));
+      await fs.symlink(outside, path.join(workspace, '.pi-mutation-journal'));
 
       await expect(prepare('op_journal_symlink_root'))
         .rejects.toThrow('framework-owned directory');

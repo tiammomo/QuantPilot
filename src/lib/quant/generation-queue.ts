@@ -3,29 +3,29 @@ import path from "node:path";
 
 import type { AgentGenerationJob } from "@prisma/client";
 
-import { withMoAgentWorkspaceResourceLock } from "@/lib/agent/runtime/workspace-resource-lock";
+import { withPiAgentWorkspaceResourceLock } from "@/lib/agent/runtime/workspace-resource-lock";
 import { DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH } from "@/lib/data-agent/workspace-layout";
 import {
   appendQuantWorkspaceEvent,
   ensureQuantWorkspace,
 } from "@/lib/domains/finance/workspace";
 import {
-  currentMoAgentGenerationDispatchFence,
-  currentMoAgentGenerationDispatchSession,
-  MoAgentGenerationDispatchSession,
-} from "@/lib/services/moagent-generation-dispatch-session";
+  currentPiAgentGenerationDispatchFence,
+  currentPiAgentGenerationDispatchSession,
+  PiAgentGenerationDispatchSession,
+} from "@/lib/services/pi-agent-generation-dispatch-session";
 import {
-  cancelMoAgentGenerationJob,
-  enqueueMoAgentGenerationJob,
-  finishMoAgentGenerationJob,
-  listMoAgentGenerationJobs,
-  listPendingMoAgentGenerationOutboxEvents,
-  markMoAgentGenerationOutboxEventsPublished,
-  reconcileExpiredMoAgentGenerationJobs,
-  MoAgentGenerationDispatchError,
-} from "@/lib/services/moagent-generation-dispatch-store";
-import { withMoAgentGenerationLease } from "@/lib/services/moagent-generation-lease-session";
-import type { MoAgentGenerationStage } from "@/lib/services/moagent-generation-lease-store";
+  cancelPiAgentGenerationJob,
+  enqueuePiAgentGenerationJob,
+  finishPiAgentGenerationJob,
+  listPiAgentGenerationJobs,
+  listPendingPiAgentGenerationOutboxEvents,
+  markPiAgentGenerationOutboxEventsPublished,
+  reconcileExpiredPiAgentGenerationJobs,
+  PiAgentGenerationDispatchError,
+} from "@/lib/services/pi-agent-generation-dispatch-store";
+import { withPiAgentGenerationLease } from "@/lib/services/pi-agent-generation-lease-session";
+import type { PiAgentGenerationStage } from "@/lib/services/pi-agent-generation-lease-store";
 
 export type QuantGenerationQueueStatus =
   | "queued"
@@ -125,11 +125,11 @@ async function projectDurableQueue(
   options: { reconcileExpired?: boolean } = {},
 ): Promise<QuantGenerationQueueState> {
   if (options.reconcileExpired !== false) {
-    await reconcileExpiredMoAgentGenerationJobs({ projectId });
+    await reconcileExpiredPiAgentGenerationJobs({ projectId });
   }
   const [jobs, pendingEvents] = await Promise.all([
-    listMoAgentGenerationJobs(projectId, MAX_QUEUE_ITEMS),
-    listPendingMoAgentGenerationOutboxEvents(projectId),
+    listPiAgentGenerationJobs(projectId, MAX_QUEUE_ITEMS),
+    listPendingPiAgentGenerationOutboxEvents(projectId),
   ]);
   const items = jobs.map(projectJob);
   const state: QuantGenerationQueueState = {
@@ -142,7 +142,7 @@ async function projectDurableQueue(
   };
   await writeProjection(projectPath, state);
   if (pendingEvents.length > 0) {
-    await markMoAgentGenerationOutboxEventsPublished(
+    await markPiAgentGenerationOutboxEventsPublished(
       pendingEvents.map((event) => event.id),
     );
   }
@@ -171,22 +171,22 @@ export async function runQuantGenerationStage<T>(params: {
   projectPath: string;
   projectId: string;
   requestId?: string | null;
-  stage: MoAgentGenerationStage;
+  stage: PiAgentGenerationStage;
   lockWorkspace?: boolean;
   task: QueueTask<T>;
 }): Promise<T> {
   if (params.stage === "planning_data_prefetch") {
-    await reconcileExpiredMoAgentGenerationJobs({
+    await reconcileExpiredPiAgentGenerationJobs({
       projectId: params.projectId,
     });
   }
-  return withMoAgentGenerationLease({
+  return withPiAgentGenerationLease({
     projectId: params.projectId,
     requestId: params.requestId,
     stage: params.stage,
     task: async () => {
       if (!params.lockWorkspace) return params.task();
-      return withMoAgentWorkspaceResourceLock(params.projectPath, params.task, {
+      return withPiAgentWorkspaceResourceLock(params.projectPath, params.task, {
         metadata: {
           purpose: "platform_generation",
           projectId: params.projectId,
@@ -214,10 +214,10 @@ interface QuantGenerationQueuedParams<T> {
 
 async function prepareQuantGenerationDispatch<T>(
   params: QuantGenerationQueuedParams<T>,
-): Promise<MoAgentGenerationDispatchSession> {
-  let dispatch: MoAgentGenerationDispatchSession;
+): Promise<PiAgentGenerationDispatchSession> {
+  let dispatch: PiAgentGenerationDispatchSession;
   try {
-    dispatch = await MoAgentGenerationDispatchSession.enqueueAndClaim({
+    dispatch = await PiAgentGenerationDispatchSession.enqueueAndClaim({
       projectId: params.projectId,
       requestId: params.requestId,
       instruction: params.instruction,
@@ -228,7 +228,7 @@ async function prepareQuantGenerationDispatch<T>(
     });
   } catch (error) {
     if (
-      error instanceof MoAgentGenerationDispatchError &&
+      error instanceof PiAgentGenerationDispatchError &&
       error.code === "GENERATION_DISPATCH_CANCELLED"
     ) {
       await projectDurableQueue(params.projectPath, params.projectId, {
@@ -258,7 +258,7 @@ async function prepareQuantGenerationDispatch<T>(
     });
     return dispatch;
   } catch (error) {
-    await finishMoAgentGenerationJob({
+    await finishPiAgentGenerationJob({
       projectId: params.projectId,
       requestId: params.requestId,
       status: "failed",
@@ -275,7 +275,7 @@ export async function enqueueQuantGeneration(params: Omit<
   QuantGenerationQueuedParams<never>,
   "task" | "completeOnTaskSuccess" | "completeOnTaskFailure"
 >): Promise<void> {
-  await enqueueMoAgentGenerationJob({
+  await enqueuePiAgentGenerationJob({
     projectId: params.projectId,
     requestId: params.requestId,
     instruction: params.instruction,
@@ -298,10 +298,10 @@ export async function enqueueQuantGeneration(params: Omit<
 
 async function executeQuantGenerationDispatch<T>(
   params: QuantGenerationQueuedParams<T>,
-  dispatch: MoAgentGenerationDispatchSession,
+  dispatch: PiAgentGenerationDispatchSession,
 ): Promise<T> {
   try {
-    const result = await withMoAgentGenerationLease({
+    const result = await withPiAgentGenerationLease({
       projectId: params.projectId,
       requestId: params.requestId,
       stage: "agent_execution",
@@ -383,14 +383,14 @@ export async function finishQuantGenerationQueueItem(params: {
       reason: params.errorMessage,
     });
   }
-  currentMoAgentGenerationDispatchSession()?.assertHealthy();
-  const job = await finishMoAgentGenerationJob({
+  currentPiAgentGenerationDispatchSession()?.assertHealthy();
+  const job = await finishPiAgentGenerationJob({
     projectId: params.projectId,
     requestId: params.requestId,
     status: params.status,
     errorCode: params.status === "failed" ? "GENERATION_FAILED" : null,
     errorMessage: params.errorMessage,
-    fence: currentMoAgentGenerationDispatchFence(),
+    fence: currentPiAgentGenerationDispatchFence(),
   });
   await projectDurableQueue(params.projectPath, params.projectId, {
     reconcileExpired: false,
@@ -405,7 +405,7 @@ export async function finishQuantGenerationQueueItem(params: {
         ? "生成任务执行完成。"
         : `生成任务失败：${params.errorMessage ?? "未知错误"}`,
   });
-  currentMoAgentGenerationDispatchSession()?.markTerminal();
+  currentPiAgentGenerationDispatchSession()?.markTerminal();
   return job;
 }
 
@@ -415,7 +415,7 @@ export async function markQuantGenerationQueueCancelled(params: {
   requestId: string;
   reason?: string | null;
 }) {
-  const job = await cancelMoAgentGenerationJob({
+  const job = await cancelPiAgentGenerationJob({
     projectId: params.projectId,
     requestId: params.requestId,
     reason: params.reason,
@@ -431,7 +431,7 @@ export async function markQuantGenerationQueueCancelled(params: {
     status: "warning",
     summary: "生成任务已取消。",
   });
-  currentMoAgentGenerationDispatchSession()?.markTerminal();
+  currentPiAgentGenerationDispatchSession()?.markTerminal();
   return job;
 }
 

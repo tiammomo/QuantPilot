@@ -10,12 +10,12 @@ import {
 } from "@/lib/data-agent";
 import {
   capturePlatformMissionCandidate,
-  loadMoAgentMissionContext,
-} from "@/lib/services/moagent-mission-control";
+  loadPiAgentMissionContext,
+} from "@/lib/services/pi-agent-mission-control";
 import {
-  failMoAgentMission,
-  readMoAgentMissionSpec,
-} from "@/lib/services/moagent-mission-store";
+  failPiAgentMission,
+  readPiAgentMissionSpec,
+} from "@/lib/services/pi-agent-mission-store";
 import { getProjectById, updateProjectActivity } from "@/lib/services/project";
 import { createWorkspaceProgressPublisher } from "@/lib/quant/workspace-progress";
 import { updateQuantGenerationStep } from "@/lib/quant/generation-state";
@@ -23,7 +23,7 @@ import {
   readQuantRunPlan,
   type QuantRunPlan,
 } from "@/lib/domains/finance/workspace";
-import type { MoAgentMissionSpec } from "@/lib/agent/mission";
+import type { PiAgentMissionSpec } from "@/lib/agent/mission";
 import {
   exposePersonalization,
   type PersonalizationRecallResult,
@@ -43,7 +43,7 @@ export interface FinanceGenerationPayload {
   effectiveInstruction: string;
   userVisibleInstructionForRepair: string;
   selectedModel: string;
-  cliPreference: "moagent";
+  cliPreference: "pi";
   isInitialPrompt: boolean;
   conversationId: string | null;
   actorUserId: string | null;
@@ -57,7 +57,7 @@ export interface FinanceGenerationPayload {
   governedKnowledgePreparation: GovernedKnowledgePreparation;
 }
 
-type CliRuntime = typeof import("@/lib/services/cli/moagent");
+type CliRuntime = typeof import("@/lib/services/cli/pi-agent");
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -241,8 +241,8 @@ export function parseFinanceGenerationEnvelope(
     );
   }
   const payload = record(envelope.payload, "finance generation payload");
-  if (payload.cliPreference !== "moagent") {
-    throw new Error("Finance generation only supports the MoAgent runtime.");
+  if (payload.cliPreference !== "pi") {
+    throw new Error("Finance generation only supports the PI Agent runtime.");
   }
   if (typeof payload.isInitialPrompt !== "boolean") {
     throw new Error("isInitialPrompt must be a boolean.");
@@ -260,7 +260,7 @@ export function parseFinanceGenerationEnvelope(
       "userVisibleInstructionForRepair",
     ),
     selectedModel: requiredString(payload.selectedModel, "selectedModel", 512),
-    cliPreference: "moagent",
+    cliPreference: "pi",
     isInitialPrompt: payload.isInitialPrompt,
     conversationId: nullableString(payload.conversationId, "conversationId"),
     actorUserId: nullableString(payload.actorUserId, "actorUserId"),
@@ -295,7 +295,7 @@ function sameVersionedRefs(
 export function assertFinanceGenerationComposition(input: {
   envelope: DataAgentGenerationEnvelope;
   runPlan: QuantRunPlan;
-  missionSpec: MoAgentMissionSpec;
+  missionSpec: PiAgentMissionSpec;
 }): void {
   const { envelope, runPlan, missionSpec } = input;
   const composition = envelope.composition;
@@ -327,7 +327,7 @@ export function assertFinanceGenerationComposition(input: {
     )
   ) {
     throw new Error(
-      "MoAgent Mission composition does not match the dispatch envelope.",
+      "PI Agent Mission composition does not match the dispatch envelope.",
     );
   }
 }
@@ -370,7 +370,7 @@ async function executeFinanceGeneration(
     job.projectId,
     project.repoPath,
   );
-  const mission = await loadMoAgentMissionContext({
+  const mission = await loadPiAgentMissionContext({
     projectId: job.projectId,
     projectPath: workspace,
     requestId: job.requestId,
@@ -383,7 +383,7 @@ async function executeFinanceGeneration(
       "A planned Finance run plan is required before worker execution.",
     );
   }
-  const missionSpec = await readMoAgentMissionSpec({
+  const missionSpec = await readPiAgentMissionSpec({
     missionId: mission.id,
     projectId: job.projectId,
     requestId: job.requestId,
@@ -419,7 +419,7 @@ async function executeFinanceGeneration(
     knowledge: governedKnowledge,
   });
   await updateProjectActivity(job.projectId);
-  const cliRuntime: CliRuntime = await import("@/lib/services/cli/moagent");
+  const cliRuntime: CliRuntime = await import("@/lib/services/cli/pi-agent");
 
   await runValidationAfterExecution({
     execution: (async () => {
@@ -510,7 +510,7 @@ export const FINANCE_GENERATION_HANDLER: DataAgentGenerationHandler = {
         project?.repoPath,
       );
       await Promise.allSettled([
-        failMoAgentMission({
+        failPiAgentMission({
           missionId: payload.missionId,
           projectId: job.projectId,
           requestId: job.requestId,

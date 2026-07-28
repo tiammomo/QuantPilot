@@ -50,10 +50,10 @@ vi.mock('@/lib/quant/generation-state', () => ({
   cancelQuantGenerationRun: mocks.cancelGenerationRun,
 }));
 
-vi.mock('@/lib/services/moagent-mission-store', () => ({
-  readMoAgentMission: mocks.readMission,
-  cancelMoAgentMission: mocks.cancelMission,
-  cancelActiveMoAgentMissions: mocks.cancelActiveMissions,
+vi.mock('@/lib/services/pi-agent-mission-store', () => ({
+  readPiAgentMission: mocks.readMission,
+  cancelPiAgentMission: mocks.cancelMission,
+  cancelActivePiAgentMissions: mocks.cancelActiveMissions,
 }));
 
 import { POST } from './route';

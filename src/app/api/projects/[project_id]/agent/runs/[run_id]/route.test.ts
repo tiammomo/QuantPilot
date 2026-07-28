@@ -6,8 +6,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.requireAction }));
-vi.mock('@/lib/services/moagent-tool-approval-store', () => ({
-  readMoAgentRunTimeline: mocks.readTimeline,
+vi.mock('@/lib/services/pi-agent-tool-approval-store', () => ({
+  readPiAgentRunTimeline: mocks.readTimeline,
 }));
 
 import { GET } from './route';

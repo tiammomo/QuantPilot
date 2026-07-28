@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  formatMoAgentDuration,
-  formatMoAgentTokens,
-  parseMoAgentTurnMetrics,
-  type MoAgentTurnMetrics,
+  formatPiAgentDuration,
+  formatPiAgentTokens,
+  parsePiAgentTurnMetrics,
+  type PiAgentTurnMetrics,
 } from './turn-metrics';
 
-function metrics(overrides: Partial<MoAgentTurnMetrics> = {}): MoAgentTurnMetrics {
+function metrics(overrides: Partial<PiAgentTurnMetrics> = {}): PiAgentTurnMetrics {
   return {
     schemaVersion: 1,
     elapsedMs: 138_000,
@@ -24,9 +24,9 @@ function metrics(overrides: Partial<MoAgentTurnMetrics> = {}): MoAgentTurnMetric
   };
 }
 
-describe('MoAgent turn metrics', () => {
+describe('PI Agent turn metrics', () => {
   it('accepts a consistent versioned metric projection', () => {
-    expect(parseMoAgentTurnMetrics(metrics())).toEqual(metrics());
+    expect(parsePiAgentTurnMetrics(metrics())).toEqual(metrics());
   });
 
   it.each([
@@ -38,18 +38,18 @@ describe('MoAgent turn metrics', () => {
     { ...metrics(), tokenAccounting: 'exact' },
     { ...metrics(), schemaVersion: 2 },
   ])('rejects malformed or arithmetically inconsistent metadata', (value) => {
-    expect(parseMoAgentTurnMetrics(value)).toBeNull();
+    expect(parsePiAgentTurnMetrics(value)).toBeNull();
   });
 
   it('formats durations without false precision', () => {
-    expect(formatMoAgentDuration(450)).toBe('<1 秒');
-    expect(formatMoAgentDuration(12_000)).toBe('12 秒');
-    expect(formatMoAgentDuration(138_000)).toBe('2 分 18 秒');
-    expect(formatMoAgentDuration(3_660_000)).toBe('1 小时 1 分');
+    expect(formatPiAgentDuration(450)).toBe('<1 秒');
+    expect(formatPiAgentDuration(12_000)).toBe('12 秒');
+    expect(formatPiAgentDuration(138_000)).toBe('2 分 18 秒');
+    expect(formatPiAgentDuration(3_660_000)).toBe('1 小时 1 分');
   });
 
   it('formats token counts with locale grouping', () => {
-    expect(formatMoAgentTokens(36_420)).toBe('36,420');
-    expect(formatMoAgentTokens(0)).toBe('0');
+    expect(formatPiAgentTokens(36_420)).toBe('36,420');
+    expect(formatPiAgentTokens(0)).toBe('0');
   });
 });

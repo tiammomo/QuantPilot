@@ -1,8 +1,8 @@
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentTool } from '@/lib/agent/types';
 import {
-  createMoAgentTools,
-  type CreateMoAgentToolsOptions,
-  type MoAgentToolProfile,
+  createPiAgentTools,
+  type CreatePiAgentToolsOptions,
+  type PiAgentToolProfile,
 } from '@/lib/agent/tools';
 import { createInspectDashboardContractTool } from './dashboard-contract';
 import {
@@ -10,11 +10,11 @@ import {
 } from './dashboard-spec';
 import {
   createImageExtractionTool,
-  type MoAgentImageExtractionToolOptions,
+  type PiAgentImageExtractionToolOptions,
 } from './image-extraction';
 import {
   createQuantApiGetTool,
-  type MoAgentQuantApiToolOptions,
+  type PiAgentQuantApiToolOptions,
 } from './quant-api';
 import { financeContextReceiptProjector } from './context-receipts';
 import { FINANCE_JSON_ARTIFACT_CONFIGURATION } from './structured-read';
@@ -24,24 +24,24 @@ export const FINANCE_PREPARED_SOURCE_WRITE_GLOBS = [
   'app/globals.css',
 ] as const;
 
-export interface CreateFinanceMoAgentToolsOptions
+export interface CreateFinancePiAgentToolsOptions
   extends Omit<
-    CreateMoAgentToolsOptions,
+    CreatePiAgentToolsOptions,
     'preparedCompilerTool' | 'inspectionTools' | 'trustedAdditionalTools' | 'trustedTrailingTools'
   > {
-  profile?: MoAgentToolProfile;
-  quantApi?: MoAgentQuantApiToolOptions;
+  profile?: PiAgentToolProfile;
+  quantApi?: PiAgentQuantApiToolOptions;
   includeQuantApi?: boolean;
   includeDashboardSpec?: boolean;
   includeDashboardInspector?: boolean;
-  imageExtraction?: Omit<MoAgentImageExtractionToolOptions, 'workspaceRoot'>;
+  imageExtraction?: Omit<PiAgentImageExtractionToolOptions, 'workspaceRoot'>;
   includeImageExtraction?: boolean;
 }
 
-/** Finance Domain Pack adapter over the product-neutral MoAgent Tool factory. */
-export function createFinanceMoAgentTools(
-  options: CreateFinanceMoAgentToolsOptions,
-): MoAgentTool[] {
+/** Finance Domain Pack adapter over the product-neutral PI Agent Tool factory. */
+export function createFinancePiAgentTools(
+  options: CreateFinancePiAgentToolsOptions,
+): PiAgentTool[] {
   const allowedWriteGlobs = [
     ...(options.profileAllowedWriteGlobs ?? []),
     ...(options.allowedWriteGlobs ?? []),
@@ -75,14 +75,14 @@ export function createFinanceMoAgentTools(
   const inspectionTools = options.includeDashboardInspector === false
     ? []
     : [createInspectDashboardContractTool(options)];
-  const trustedAdditionalTools: MoAgentTool[] = options.includeQuantApi === false ? [] : [
+  const trustedAdditionalTools: PiAgentTool[] = options.includeQuantApi === false ? [] : [
     createQuantApiGetTool({
       timeoutMs: options.timeoutMs,
       maxOutputChars: options.maxOutputChars,
       ...options.quantApi,
     }),
   ];
-  const trustedTrailingTools: MoAgentTool[] = options.includeImageExtraction === false ? [] : [
+  const trustedTrailingTools: PiAgentTool[] = options.includeImageExtraction === false ? [] : [
     createImageExtractionTool({
       workspaceRoot: options.workspaceRoot,
       timeoutMs: options.timeoutMs,
@@ -90,7 +90,7 @@ export function createFinanceMoAgentTools(
       ...options.imageExtraction,
     }),
   ];
-  return createMoAgentTools({
+  return createPiAgentTools({
     ...options,
     jsonArtifacts: FINANCE_JSON_ARTIFACT_CONFIGURATION,
     preparedCompilerTool,

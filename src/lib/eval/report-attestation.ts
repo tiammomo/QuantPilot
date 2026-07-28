@@ -1,10 +1,10 @@
 import {
-  evaluateMoAgentE2eQuality,
+  evaluatePiAgentE2eQuality,
   isE2eAgentExecutionAttested,
   summarizeE2eAgentExecution,
   type AgentExecutionResultLike,
   type E2eAgentExpectedRuntime,
-  type MoAgentE2eQualityThresholds,
+  type PiAgentE2eQualityThresholds,
 } from './e2e-attestation';
 import { LOCAL_QWEN_MODEL_ID } from '@/lib/constants/models';
 import { isCurrentEvaluation } from './evaluators';
@@ -37,7 +37,7 @@ export interface EvalReportAttestationOptions {
   frameworkVersion: string;
   buildRevision: string;
   gitRevision: string | null;
-  qualityThresholds: MoAgentE2eQualityThresholds;
+  qualityThresholds: PiAgentE2eQualityThresholds;
   now?: Date;
 }
 
@@ -140,8 +140,8 @@ export function attestEvalReport(
       }
     }
   }
-  if (runtime.cli !== 'moagent') {
-    problems.push(`报告 runtime.cli 必须为 moagent，实际为 ${string(runtime.cli) || 'missing'}`);
+  if (runtime.cli !== 'pi') {
+    problems.push(`报告 runtime.cli 必须为 pi，实际为 ${string(runtime.cli) || 'missing'}`);
   }
   if (!string(evaluator.id) || !string(evaluator.version) || !string(evaluator.rubricVersion)) {
     problems.push('报告缺少 evaluator id/version/rubricVersion');
@@ -157,7 +157,7 @@ export function attestEvalReport(
     problems.push(`E2E 报告 runtime.provider 必须为 ${expectedRuntime.provider}`);
   }
   if (runtime.frameworkVersion !== options.frameworkVersion) {
-    problems.push('报告 frameworkVersion 与当前 MoAgent 不一致');
+    problems.push('报告 frameworkVersion 与当前 PI Agent 不一致');
   }
   if (runtime.buildRevision !== options.buildRevision) {
     problems.push('报告 buildRevision 与当前构建不一致');
@@ -524,7 +524,7 @@ export function attestEvalReport(
         problems.push(`${item.caseId} 第 ${item.attempt} 次 AgentRun 时间窗口超出报告执行窗口`);
       }
     }
-    quality = evaluateMoAgentE2eQuality(
+    quality = evaluatePiAgentE2eQuality(
       results as AgentExecutionResultLike[],
       options.qualityThresholds,
     );

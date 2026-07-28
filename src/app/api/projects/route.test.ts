@@ -81,7 +81,11 @@ describe('POST /api/projects quota orchestration', () => {
       reservationTtlSeconds: 3_600,
     });
     expect(mocks.createProject).toHaveBeenCalledWith(
-      expect.objectContaining({ project_id: 'project-new', name: 'New project' }),
+      expect.objectContaining({
+        project_id: 'project-new',
+        name: 'New project',
+        preferredCli: 'pi',
+      }),
       { ownerId: 'member-1' },
     );
     expect(mocks.settleQuotaReservation).toHaveBeenCalledWith({

@@ -1,10 +1,10 @@
 import type {
-  MoAgentArtifactMutability,
-  MoAgentArtifactRequirement,
-  MoAgentArtifactRole,
-  MoAgentMissionDefinition,
-  MoAgentMissionNodeBudget,
-  MoAgentMissionNodeSpec,
+  PiAgentArtifactMutability,
+  PiAgentArtifactRequirement,
+  PiAgentArtifactRole,
+  PiAgentMissionDefinition,
+  PiAgentMissionNodeBudget,
+  PiAgentMissionNodeSpec,
 } from '@/lib/agent/mission';
 
 export const FINANCE_REQUIRED_VALIDATION_CHECK_IDS = [
@@ -73,8 +73,8 @@ const CONTROL_ARTIFACTS = [
 ] as const;
 
 function classification(path: string): {
-  role: MoAgentArtifactRole;
-  mutability: MoAgentArtifactMutability;
+  role: PiAgentArtifactRole;
+  mutability: PiAgentArtifactMutability;
 } {
   if ((CONTROL_ARTIFACTS as readonly string[]).includes(path)) {
     return { role: 'control', mutability: 'mutable' };
@@ -88,8 +88,8 @@ function classification(path: string): {
   return { role: 'subject', mutability: 'frozen' };
 }
 
-function artifacts(expectedArtifacts: readonly string[]): MoAgentArtifactRequirement[] {
-  const result = new Map<string, MoAgentArtifactRequirement>();
+function artifacts(expectedArtifacts: readonly string[]): PiAgentArtifactRequirement[] {
+  const result = new Map<string, PiAgentArtifactRequirement>();
   const add = (
     path: string,
     required: boolean,
@@ -108,7 +108,7 @@ function artifacts(expectedArtifacts: readonly string[]): MoAgentArtifactRequire
   return [...result.values()];
 }
 
-function budget(overrides: Partial<MoAgentMissionNodeBudget>): MoAgentMissionNodeBudget {
+function budget(overrides: Partial<PiAgentMissionNodeBudget>): PiAgentMissionNodeBudget {
   return {
     maxAttempts: 1,
     maxToolCalls: 0,
@@ -119,7 +119,7 @@ function budget(overrides: Partial<MoAgentMissionNodeBudget>): MoAgentMissionNod
   };
 }
 
-function nodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
+function nodes(maxRepairAttempts: number): PiAgentMissionNodeSpec[] {
   return [
     {
       key: 'planning',
@@ -246,7 +246,7 @@ function nodes(maxRepairAttempts: number): MoAgentMissionNodeSpec[] {
 export function createFinanceMissionDefinition(input: {
   maxRepairAttempts: number;
   expectedArtifacts?: readonly string[];
-}): MoAgentMissionDefinition {
+}): PiAgentMissionDefinition {
   return {
     id: 'finance.quant-workspace',
     version: '1.0.0',

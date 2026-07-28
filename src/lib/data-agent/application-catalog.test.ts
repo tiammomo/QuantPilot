@@ -51,7 +51,7 @@ describe('DataAgentApplicationCatalog', () => {
       projectPath: '/tmp/project',
       projectId: 'project-1',
       projectName: 'Project',
-      preferredCli: 'moagent',
+      preferredCli: 'pi',
       selectedModel: 'model',
       capabilitySelectionSource: 'default',
     }, application);

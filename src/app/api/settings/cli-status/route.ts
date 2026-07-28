@@ -3,11 +3,11 @@ import type { CLIStatus } from '@/types/backend';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import { MOAGENT_MODEL_DEFINITIONS } from '@/lib/constants/models';
+import { PI_AGENT_MODEL_DEFINITIONS } from '@/lib/constants/models';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 
-async function checkMoAgent(): Promise<CLIStatus[string]> {
-  const configuredModels = MOAGENT_MODEL_DEFINITIONS.filter((model) => {
+async function checkPiAgent(): Promise<CLIStatus[string]> {
+  const configuredModels = PI_AGENT_MODEL_DEFINITIONS.filter((model) => {
     const config = getProjectLlmConfig(model.id);
     return Boolean(process.env[config.credentialEnv]?.trim());
   });
@@ -15,7 +15,7 @@ async function checkMoAgent(): Promise<CLIStatus[string]> {
 
   return {
     installed: true,
-    version: 'MoAgent Runtime (built-in)',
+    version: 'PI Agent Runtime (built-in)',
     checking: false,
     configured,
     available: configured,
@@ -33,17 +33,17 @@ export async function GET(request: Request) {
       action: 'quant.data.read',
     });
     const status: CLIStatus = {
-      moagent: await checkMoAgent(),
+      pi: await checkPiAgent(),
     };
     const response = NextResponse.json(status);
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    console.error('[API] Failed to check MoAgent provider status:', error);
+    console.error('[API] Failed to check PI Agent provider status:', error);
     return NextResponse.json(
       {
-        error: 'Failed to check MoAgent provider status',
+        error: 'Failed to check PI Agent provider status',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }

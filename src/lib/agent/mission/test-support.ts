@@ -1,11 +1,11 @@
 import type {
-  MoAgentArtifactRequirement,
-  MoAgentMissionDefinition,
-  MoAgentMissionNodeBudget,
-  MoAgentMissionNodeSpec,
+  PiAgentArtifactRequirement,
+  PiAgentMissionDefinition,
+  PiAgentMissionNodeBudget,
+  PiAgentMissionNodeSpec,
 } from './types';
 
-function budget(overrides: Partial<MoAgentMissionNodeBudget> = {}): MoAgentMissionNodeBudget {
+function budget(overrides: Partial<PiAgentMissionNodeBudget> = {}): PiAgentMissionNodeBudget {
   return {
     maxAttempts: 1,
     maxToolCalls: 0,
@@ -16,7 +16,7 @@ function budget(overrides: Partial<MoAgentMissionNodeBudget> = {}): MoAgentMissi
   };
 }
 
-function classify(path: string): MoAgentArtifactRequirement {
+function classify(path: string): PiAgentArtifactRequirement {
   if (path === '.data-agent/state.json') {
     return { path, role: 'control', mutability: 'mutable', required: true };
   }
@@ -33,8 +33,8 @@ function classify(path: string): MoAgentArtifactRequirement {
 export function createTestMissionDefinition(input: {
   maxRepairAttempts: number;
   expectedArtifacts?: readonly string[];
-}): MoAgentMissionDefinition {
-  const artifacts = new Map<string, MoAgentArtifactRequirement>();
+}): PiAgentMissionDefinition {
+  const artifacts = new Map<string, PiAgentArtifactRequirement>();
   for (const path of [
     'app/page.tsx',
     'evidence/sources.json',
@@ -52,7 +52,7 @@ export function createTestMissionDefinition(input: {
     { path: 'package-lock.json', role: 'subject', mutability: 'frozen', required: false },
   ] as const) artifacts.set(artifact.path, artifact);
 
-  const nodes: MoAgentMissionNodeSpec[] = [
+  const nodes: PiAgentMissionNodeSpec[] = [
     {
       key: 'planning', type: 'planner', effect: 'platform_write', dependencies: [],
       allowedTools: [], requiredSkillSections: ['run-planner'], inputArtifacts: [],

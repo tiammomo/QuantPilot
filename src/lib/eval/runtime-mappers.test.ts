@@ -19,7 +19,7 @@ describe('evaluation runtime mappers', () => {
     const item = mapDbQueueItem({
       id: 'queue-1',
       status: 'queued',
-      cli: 'moagent',
+      cli: 'pi',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'high',
       selectedCases: ['case-a'],
@@ -52,7 +52,7 @@ describe('evaluation runtime mappers', () => {
     const item = mapDbQueueItem({
       id: 'queue-e2e',
       status: 'queued',
-      cli: 'moagent',
+      cli: 'pi',
       model: 'deepseek-v4-flash',
       reasoningEffort: '',
       evaluatorId: 'rule-balanced',

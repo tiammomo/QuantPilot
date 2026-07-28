@@ -3,12 +3,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MoAgentTool, MoAgentToolContext, MoAgentToolResult } from '@/lib/agent/types';
-import { createFinanceMoAgentTools as createMoAgentTools } from './factory';
+import type { PiAgentTool, PiAgentToolContext, PiAgentToolResult } from '@/lib/agent/types';
+import { createFinancePiAgentTools as createPiAgentTools } from './factory';
 import { createQuantApiGetTool } from './quant-api';
 import { createSubmitResultTool } from '@/lib/agent/tools/submit-result';
 
-function context(signal = new AbortController().signal): MoAgentToolContext {
+function context(signal = new AbortController().signal): PiAgentToolContext {
   return {
     runId: 'run',
     turn: 1,
@@ -19,15 +19,15 @@ function context(signal = new AbortController().signal): MoAgentToolContext {
   };
 }
 
-async function invoke(tool: MoAgentTool, input: unknown, signal?: AbortSignal): Promise<MoAgentToolResult> {
+async function invoke(tool: PiAgentTool, input: unknown, signal?: AbortSignal): Promise<PiAgentToolResult> {
   return tool.execute(tool.parseInput ? tool.parseInput(input) : input, context(signal));
 }
 
-describe('MoAgent typed quant and terminal tools', () => {
+describe('PI Agent typed quant and terminal tools', () => {
   let workspace: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-terminal-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-terminal-'));
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'app', 'page.tsx'), 'export default function Page() { return null; }\n');
   });
@@ -90,7 +90,7 @@ describe('MoAgent typed quant and terminal tools', () => {
     }
     expect(result.content.length).toBeLessThanOrEqual(2_500);
     const content = JSON.parse(result.content);
-    expect(content.$moagent).toMatchObject({
+    expect(content.$piAgent).toMatchObject({
       kind: 'quant_api_result_window',
       version: 1,
       strategy: 'head_and_recent_tail',
@@ -130,12 +130,12 @@ describe('MoAgent typed quant and terminal tools', () => {
     }
     expect(result.content.length).toBeLessThanOrEqual(1_000);
     const content = JSON.parse(result.content);
-    expect(content.$moagent).toMatchObject({
+    expect(content.$piAgent).toMatchObject({
       kind: 'quant_api_result_window',
       responseByteLimitReached: true,
       strategy: 'response_byte_limit',
     });
-    expect(content.$moagent.retryHint).toContain('smaller limit');
+    expect(content.$piAgent.retryHint).toContain('smaller limit');
   });
 
   it('rejects arbitrary hosts, traversal, encoded traversal, and query text in path', async () => {
@@ -214,14 +214,14 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('builds generation and repair registries without any Bash tool', () => {
-    const imageTool: MoAgentTool = {
+    const imageTool: PiAgentTool = {
       name: 'image_extract',
       description: 'test typed extension',
       inputSchema: { type: 'object' },
       projectContextReceipt: () => ({ targetReferences: ['../../untrusted'] }),
       execute: () => ({ ok: true, data: {} }),
     };
-    const generation = createMoAgentTools({ workspaceRoot: workspace, additionalTools: [imageTool] });
+    const generation = createPiAgentTools({ workspaceRoot: workspace, additionalTools: [imageTool] });
     expect(generation.map((tool) => tool.name)).toEqual([
       'list_files',
       'read_file',
@@ -243,14 +243,14 @@ describe('MoAgent typed quant and terminal tools', () => {
       .toEqual(expect.any(Function));
     expect(generation.find((tool) => tool.name === 'image_extract')?.projectContextReceipt)
       .toBeUndefined();
-    expect(() => createMoAgentTools({
+    expect(() => createPiAgentTools({
       workspaceRoot: workspace,
       additionalTools: [generation[0]],
-    })).toThrow(/Duplicate MoAgent tool name/);
+    })).toThrow(/Duplicate PI Agent tool name/);
   });
 
   it('builds a minimal recoverable standard surface for prepared data', () => {
-    const prepared = createMoAgentTools({
+    const prepared = createPiAgentTools({
       workspaceRoot: workspace,
       targetedReadsOnly: true,
       preparedSurface: 'standard',
@@ -286,7 +286,7 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('builds a compiler-free prepared custom surface without legacy mutations', () => {
-    const custom = createMoAgentTools({
+    const custom = createPiAgentTools({
       workspaceRoot: workspace,
       preparedSurface: 'custom',
       profileAllowedWriteGlobs: ['app/page.tsx', 'app/globals.css'],
@@ -313,7 +313,7 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('fails configuration instead of silently discarding tools from a prepared surface', () => {
-    expect(() => createMoAgentTools({
+    expect(() => createPiAgentTools({
       workspaceRoot: workspace,
       preparedSurface: 'standard',
       includeDashboardSpec: true,
@@ -321,7 +321,7 @@ describe('MoAgent typed quant and terminal tools', () => {
       includeImageExtraction: false,
     })).toThrow(/require quant API, image extraction, and plugin tools to be disabled/);
 
-    expect(() => createMoAgentTools({
+    expect(() => createPiAgentTools({
       workspaceRoot: workspace,
       preparedSurface: 'custom',
       includeQuantApi: false,
@@ -329,7 +329,7 @@ describe('MoAgent typed quant and terminal tools', () => {
       includeSemanticEdit: true,
     })).toThrow(/includeDefaultWriteGlobs=false/);
 
-    expect(() => createMoAgentTools({
+    expect(() => createPiAgentTools({
       workspaceRoot: workspace,
       preparedSurface: 'custom',
       profileAllowedWriteGlobs: ['public/**'],
@@ -341,7 +341,7 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('narrows a repair episode to its trusted mutation strategy', () => {
-    const repair = createMoAgentTools({
+    const repair = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'repair',
       profileAllowedWriteGlobs: ['app/page.tsx', 'app/globals.css'],
@@ -359,13 +359,13 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('treats extension tools without an effect as mutations in the allowlist gate', () => {
-    const implicitMutator: MoAgentTool = {
+    const implicitMutator: PiAgentTool = {
       name: 'implicit_mutator',
       description: 'Effect intentionally omitted.',
       inputSchema: { type: 'object' },
       execute: () => ({ ok: true, data: {} }),
     };
-    const repair = createMoAgentTools({
+    const repair = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'repair',
       profileAllowedWriteGlobs: ['app/page.tsx'],
@@ -381,7 +381,7 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('omits dashboard inspection after orchestration already preflighted the contract', () => {
-    const tools = createMoAgentTools({
+    const tools = createPiAgentTools({
       workspaceRoot: workspace,
       includeDashboardInspector: false,
       includeImageExtraction: false,
@@ -391,19 +391,19 @@ describe('MoAgent typed quant and terminal tools', () => {
   });
 
   it('rejects unknown mutation allowlist entries', () => {
-    expect(() => createMoAgentTools({
+    expect(() => createPiAgentTools({
       workspaceRoot: workspace,
       allowedMutationToolNames: ['shell'],
-    })).toThrow(/Unknown MoAgent mutation tool allowlist entries: shell/);
+    })).toThrow(/Unknown PI Agent mutation tool allowlist entries: shell/);
   });
 
   it('applies the named generation and repair write profiles', async () => {
-    const generationWrite = createMoAgentTools({
+    const generationWrite = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'generation',
       includeImageExtraction: false,
     }).find((tool) => tool.name === 'write_file')!;
-    const repairWrite = createMoAgentTools({
+    const repairWrite = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'repair',
       profileAllowedWriteGlobs: ['data_file/final/**', 'evidence/**'],
@@ -423,7 +423,7 @@ describe('MoAgent typed quant and terminal tools', () => {
   it('passes the exact repair allowlist to semantic tools without reopening default source roots', async () => {
     const pagePath = path.join(workspace, 'app', 'page.tsx');
     const page = await fs.readFile(pagePath, 'utf8');
-    const repairTools = createMoAgentTools({
+    const repairTools = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'repair',
       profileAllowedWriteGlobs: ['app/**/*.tsx'],

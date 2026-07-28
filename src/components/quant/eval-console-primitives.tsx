@@ -12,8 +12,12 @@ import {
 import { cn } from '@/lib/utils';
 import {
   LOCAL_QWEN_MODEL_ID,
-  MOAGENT_MODEL_DEFINITIONS,
+  PI_AGENT_MODEL_DEFINITIONS,
 } from '@/lib/constants/models';
+import {
+  PRODUCT_CLI_ID,
+  normalizeProductCliId,
+} from '@/lib/constants/cli';
 import type {
   QuantEvalDashboardData,
   QuantEvalFlowSimulation,
@@ -35,15 +39,15 @@ export type EvalSet = {
 export type EvalView = 'overview' | 'cases' | 'evalSets' | 'evaluator' | 'queue';
 
 export const CLI_LABELS: Record<string, string> = {
-  moagent: 'MoAgent',
+  pi: 'PI Agent',
 };
 
 export const FALLBACK_RUNTIME: QuantEvalRuntimeOption = {
-  cli: 'moagent',
-  label: 'MoAgent',
+  cli: PRODUCT_CLI_ID,
+  label: 'PI Agent',
   defaultModel: LOCAL_QWEN_MODEL_ID,
   supportsReasoningEffort: false,
-  models: MOAGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
+  models: PI_AGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
 };
 
 export const selectClassName =
@@ -290,11 +294,25 @@ export function getLatestRunDelta(runs: QuantEvalRun[]) {
 }
 
 export function getRuntimeOption(runtimeOptions: QuantEvalRuntimeOption[], cli: string) {
-  return runtimeOptions.find((option) => option.cli === cli) ?? runtimeOptions[0] ?? FALLBACK_RUNTIME;
+  const canonicalCli = normalizeProductCliId(cli);
+  const option = (
+    canonicalCli
+      ? runtimeOptions.find((candidate) =>
+          normalizeProductCliId(candidate.cli) === canonicalCli,
+        )
+      : runtimeOptions.find((candidate) => candidate.cli === cli)
+  ) ?? runtimeOptions[0];
+  return option
+    ? {
+        ...option,
+        cli: normalizeProductCliId(option.cli) ?? option.cli,
+        label: normalizeProductCliId(option.cli) ? 'PI Agent' : option.label,
+      }
+    : FALLBACK_RUNTIME;
 }
 
 export function getInitialRuntime(data: QuantEvalDashboardData) {
-  return data.runtimeOptions.find((option) => option.cli === 'moagent') ?? data.runtimeOptions[0] ?? FALLBACK_RUNTIME;
+  return getRuntimeOption(data.runtimeOptions, PRODUCT_CLI_ID);
 }
 
 export function getReasoningEffort(runtime: QuantEvalRuntimeOption, value: string | null | undefined) {

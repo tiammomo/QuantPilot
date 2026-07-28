@@ -12,7 +12,7 @@ import {
   writeWorkspaceFileAtomic,
   writeWorkspaceJsonAtomic,
 } from '@/lib/data-agent';
-import { installMoAgentSkillsForWorkspace } from '@/lib/agent/skills';
+import { installPiAgentSkillsForWorkspace } from '@/lib/agent/skills';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildQuantProjectSettings,
@@ -46,7 +46,7 @@ const financeAdapter: DataAgentApplicationAdapter = {
       createdAt: now,
       updatedAt: now,
       runtime: {
-        framework: 'MoAgent',
+        framework: 'PI Agent',
         executorId: input.preferredCli,
         modelId: input.selectedModel,
         modelProfileId: llm.profileId,
@@ -117,7 +117,7 @@ const financeAdapter: DataAgentApplicationAdapter = {
         '',
       ),
     ]);
-    await installMoAgentSkillsForWorkspace(input.projectPath, {
+    await installPiAgentSkillsForWorkspace(input.projectPath, {
       capabilityId: capability.id,
       capability: getFinanceSkillCapabilityDescriptor(capability.id),
       additionalSkillIds: ['platform-ui-product-design'],

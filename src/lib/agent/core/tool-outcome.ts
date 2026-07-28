@@ -1,4 +1,4 @@
-import type { MoAgentToolEffect, MoAgentToolResult } from '@/lib/agent/types';
+import type { PiAgentToolEffect, PiAgentToolResult } from '@/lib/agent/types';
 
 const DEFINITELY_PRE_EXECUTION_FAILURE_CODES = new Set([
   'UNKNOWN_TOOL',
@@ -61,8 +61,8 @@ const DEFINITELY_PRE_EXECUTION_FAILURE_CODES = new Set([
  * failures may have crossed an irreversible side-effect boundary.
  */
 export function mutationOutcomeRequiresReconciliation(
-  effect: MoAgentToolEffect,
-  result: MoAgentToolResult
+  effect: PiAgentToolEffect,
+  result: PiAgentToolResult
 ): boolean {
   return (
     !result.ok &&

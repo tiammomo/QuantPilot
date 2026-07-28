@@ -55,28 +55,28 @@ vi.mock("@/lib/quant/validation", () => ({
   readQuantValidationRepairPlan: mocks.readRepairPlan,
 }));
 
-vi.mock("@/lib/services/moagent-mission-control", () => ({
+vi.mock("@/lib/services/pi-agent-mission-control", () => ({
   capturePlatformMissionCandidate: mocks.captureCandidate,
-  sealQuantMoAgentMissionCandidate: mocks.sealCandidate,
-  claimQuantMoAgentMissionVerification: mocks.claimVerification,
-  verifyAndRecordQuantMoAgentMission: mocks.verifyEvidence,
+  sealQuantPiAgentMissionCandidate: mocks.sealCandidate,
+  claimQuantPiAgentMissionVerification: mocks.claimVerification,
+  verifyAndRecordQuantPiAgentMission: mocks.verifyEvidence,
 }));
 
-vi.mock("@/lib/services/moagent-mission-store", () => {
-  class MoAgentMissionStateError extends Error {
+vi.mock("@/lib/services/pi-agent-mission-store", () => {
+  class PiAgentMissionStateError extends Error {
     constructor(
       readonly code: string,
       message: string,
     ) {
       super(message);
-      this.name = "MoAgentMissionStateError";
+      this.name = "PiAgentMissionStateError";
     }
   }
   return {
-    MoAgentMissionStateError,
-    readMoAgentMission: mocks.readMission,
-    readMoAgentAcceptedMissionSnapshot: mocks.readAcceptanceSnapshot,
-    markMoAgentMissionRepairing: mocks.markRepairing,
+    PiAgentMissionStateError,
+    readPiAgentMission: mocks.readMission,
+    readPiAgentAcceptedMissionSnapshot: mocks.readAcceptanceSnapshot,
+    markPiAgentMissionRepairing: mocks.markRepairing,
   };
 });
 
@@ -405,11 +405,11 @@ describe("Mission-backed manual quant validation", () => {
   );
 
   it("rejects a verifying Mission while its database lease is still active", async () => {
-    const { MoAgentMissionStateError } =
-      await import("@/lib/services/moagent-mission-store");
+    const { PiAgentMissionStateError } =
+      await import("@/lib/services/pi-agent-mission-store");
     mocks.readMission.mockResolvedValue(mission("verifying"));
     mocks.claimVerification.mockRejectedValue(
-      new MoAgentMissionStateError(
+      new PiAgentMissionStateError(
         "MISSION_VERIFICATION_BUSY",
         "Mission verification is already owned by another orchestrator.",
       ),

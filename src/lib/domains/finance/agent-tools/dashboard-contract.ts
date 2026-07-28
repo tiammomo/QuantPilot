@@ -1,13 +1,13 @@
 import fs from "node:fs/promises";
-import type { MoAgentTool } from "@/lib/agent/types";
-import { MoAgentToolError, throwIfAborted } from "@/lib/agent/tools/errors";
-import type { MoAgentFileToolOptions } from "@/lib/agent/tools/filesystem";
+import type { PiAgentTool } from "@/lib/agent/types";
+import { PiAgentToolError, throwIfAborted } from "@/lib/agent/tools/errors";
+import type { PiAgentFileToolOptions } from "@/lib/agent/tools/filesystem";
 import { inputRecord } from "@/lib/agent/tools/input";
-import { MoAgentWorkspacePolicy } from "@/lib/agent/tools/path-policy";
+import { PiAgentWorkspacePolicy } from "@/lib/agent/tools/path-policy";
 import {
   DEFAULT_TOOL_OUTPUT_CHARS,
   DEFAULT_TOOL_TIMEOUT_MS,
-  executeMoAgentTool,
+  executePiAgentTool,
   truncateToolOutput,
 } from "@/lib/agent/tools/runtime";
 
@@ -71,7 +71,7 @@ interface InspectDashboardContractOutput {
 }
 
 export interface DashboardContractInspectionOptions extends Pick<
-  MoAgentFileToolOptions,
+  PiAgentFileToolOptions,
   "workspaceRoot" | "timeoutMs" | "maxOutputChars" | "maxFileBytes"
 > {}
 
@@ -131,7 +131,7 @@ function textLineCount(content: string): number {
 }
 
 async function inspectFirstExistingFile(options: {
-  policy: MoAgentWorkspacePolicy;
+  policy: PiAgentWorkspacePolicy;
   candidates: readonly string[];
   maxFileBytes: number;
   signal: AbortSignal;
@@ -143,7 +143,7 @@ async function inspectFirstExistingFile(options: {
       resolved = await options.policy.resolveReadPath(candidate);
     } catch (error) {
       if (
-        error instanceof MoAgentToolError &&
+        error instanceof PiAgentToolError &&
         error.code === "PATH_NOT_FOUND"
       ) {
         continue;
@@ -1009,7 +1009,7 @@ function renderBoundedReport(
 function parseInput(value: unknown): Record<string, never> {
   const record = inputRecord(value);
   if (Object.keys(record).length > 0) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       "INVALID_TOOL_INPUT",
       "inspect_dashboard_contract does not accept paths or other arguments.",
     );
@@ -1019,10 +1019,10 @@ function parseInput(value: unknown): Record<string, never> {
 
 export function createInspectDashboardContractTool(
   options: DashboardContractInspectionOptions,
-): MoAgentTool<Record<string, never>, InspectDashboardContractOutput> {
-  let policyPromise: Promise<MoAgentWorkspacePolicy> | undefined;
+): PiAgentTool<Record<string, never>, InspectDashboardContractOutput> {
+  let policyPromise: Promise<PiAgentWorkspacePolicy> | undefined;
   const policy = () =>
-    (policyPromise ??= MoAgentWorkspacePolicy.create({
+    (policyPromise ??= PiAgentWorkspacePolicy.create({
       workspaceRoot: options.workspaceRoot,
     }));
   const timeoutMs = options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
@@ -1044,7 +1044,7 @@ export function createInspectDashboardContractTool(
     },
     parseInput,
     execute: (_input, context) =>
-      executeMoAgentTool(context.signal, timeoutMs, async (signal) => {
+      executePiAgentTool(context.signal, timeoutMs, async (signal) => {
         const workspacePolicy = await policy();
         const pairs = await Promise.all(
           (

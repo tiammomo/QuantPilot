@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { AnimatePresence } from 'framer-motion';
 import { MotionDiv, MotionP } from '@/lib/motion';
 import { getModelDefinitionsForCli, getDefaultModelForCli, normalizeModelId } from '@/lib/constants/models';
+import { PRODUCT_CLI_ID } from '@/lib/constants/cli';
+import { sanitizeActiveCli } from '@/lib/utils/cliOptions';
 import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
 import type { CLIStatus } from '@/types/cli';
 import {
@@ -18,19 +20,19 @@ type CLIOption = CreateProjectCLIOption;
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
-const DEFAULT_MODEL_ID = getDefaultModelForCli('moagent');
+const DEFAULT_MODEL_ID = getDefaultModelForCli(PRODUCT_CLI_ID);
 
 const sanitizeModel = (cli: string, model?: string | null) => normalizeModelId(cli, model);
 
 const CLI_OPTIONS: CLIOption[] = [
   {
-    id: 'moagent',
-    name: 'MoAgent',
+    id: PRODUCT_CLI_ID,
+    name: 'PI Agent',
     icon: '◈',
-    description: 'QuantPilot 自研 Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型',
+    description: '基于开源 PI Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型',
     color: 'from-blue-600 to-indigo-600',
-    downloadUrl: 'https://api-docs.deepseek.com/guides/coding_agents',
-    models: getModelDefinitionsForCli('moagent').map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
+    downloadUrl: 'https://github.com/earendil-works/pi',
+    models: getModelDefinitionsForCli(PRODUCT_CLI_ID).map(({ id, name, description, supportsImages, provider, runtime, external }) => ({
       id,
       name,
       description,
@@ -39,7 +41,7 @@ const CLI_OPTIONS: CLIOption[] = [
       runtime,
       external,
     })),
-    features: ['MoAgent 自研内核', '多 Provider 模型选择', '受控工具执行'],
+    features: ['PI 开源 Agent 内核', '多 Provider 模型选择', '受控工具执行'],
   },
 ];
 
@@ -61,7 +63,7 @@ interface CreateProjectModalProps {
 export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlobalSettings }: CreateProjectModalProps) {
   const [projectName, setProjectName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [selectedCLI, setSelectedCLI] = useState<string>('moagent');
+  const [selectedCLI, setSelectedCLI] = useState<string>(PRODUCT_CLI_ID);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
   const [selectedCapability, setSelectedCapability] = useState<QuantCapabilityId>(DEFAULT_QUANT_CAPABILITY_ID);
   const [useDefaultSettings, setUseDefaultSettings] = useState(true);
@@ -92,14 +94,18 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
       let settings: GlobalSettings | null = null;
       if (settingsResponse.ok) {
-        settings = await settingsResponse.json();
-        if (settings?.cli_settings) {
-          for (const [cli, config] of Object.entries(settings.cli_settings)) {
-            if (config && typeof config === 'object' && 'model' in config && config.model) {
-              config.model = sanitizeModel(cli, config.model as string);
-            }
-          }
-        }
+        const rawSettings = await settingsResponse.json() as GlobalSettings;
+        const providerConfig = rawSettings.cli_settings?.[PRODUCT_CLI_ID] ?? {};
+        settings = {
+          ...rawSettings,
+          default_cli: sanitizeActiveCli(rawSettings.default_cli),
+          cli_settings: {
+            [PRODUCT_CLI_ID]: {
+              ...providerConfig,
+              model: sanitizeModel(PRODUCT_CLI_ID, providerConfig.model),
+            },
+          },
+        };
         setGlobalSettings(settings);
       }
 
@@ -114,9 +120,9 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         const effectiveCLIs = enabled.length > 0 ? enabled : CLI_OPTIONS.filter((cli) => cli.enabled !== false);
         setEnabledCLIs(effectiveCLIs);
 
-        const defaultCLI = settings.default_cli || 'moagent';
+        const defaultCLI = sanitizeActiveCli(settings.default_cli);
         const preferredCLI =
-          effectiveCLIs.find((cli) => cli.id === defaultCLI)?.id ?? effectiveCLIs[0]?.id ?? 'moagent';
+          effectiveCLIs.find((cli) => cli.id === defaultCLI)?.id ?? effectiveCLIs[0]?.id ?? PRODUCT_CLI_ID;
         setSelectedCLI(preferredCLI);
 
         const preferredModelSetting = settings.cli_settings?.[preferredCLI]?.model;
@@ -134,7 +140,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         const effectiveCLIs = available.length > 0 ? available : CLI_OPTIONS.filter((cli) => cli.enabled !== false);
         setEnabledCLIs(effectiveCLIs);
 
-        const fallbackCLI = effectiveCLIs[0]?.id ?? 'moagent';
+        const fallbackCLI = effectiveCLIs[0]?.id ?? PRODUCT_CLI_ID;
         setSelectedCLI(fallbackCLI);
         const fallbackModel = effectiveCLIs[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
         setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
@@ -144,7 +150,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
       setCLIStatus(createCliStatusFallback());
       const available = CLI_OPTIONS.filter((cli) => cli.enabled !== false);
       setEnabledCLIs(available);
-      const fallbackCLI = available[0]?.id ?? 'moagent';
+      const fallbackCLI = available[0]?.id ?? PRODUCT_CLI_ID;
       setSelectedCLI(fallbackCLI);
       const fallbackModel = available[0]?.models[0]?.id ?? DEFAULT_MODEL_ID;
       setSelectedModel(sanitizeModel(fallbackCLI, fallbackModel));
@@ -274,11 +280,12 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
 
     // Reset to global defaults or fallback
     if (globalSettings) {
-      setSelectedCLI(globalSettings.default_cli || 'moagent');
-      const cliSettings = globalSettings.cli_settings?.[globalSettings.default_cli || 'moagent'];
-      setSelectedModel(sanitizeModel(globalSettings.default_cli || 'moagent', cliSettings?.model));
+      const defaultCli = sanitizeActiveCli(globalSettings.default_cli);
+      setSelectedCLI(defaultCli);
+      const cliSettings = globalSettings.cli_settings?.[defaultCli];
+      setSelectedModel(sanitizeModel(defaultCli, cliSettings?.model));
     } else {
-      setSelectedCLI('moagent');
+      setSelectedCLI(PRODUCT_CLI_ID);
       setSelectedModel(DEFAULT_MODEL_ID);
     }
 
@@ -328,7 +335,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     let finalModel = selectedModel;
 
     if (useDefaultSettings && globalSettings) {
-      finalCLI = globalSettings.default_cli || 'moagent';
+      finalCLI = sanitizeActiveCli(globalSettings.default_cli);
       const cliSettings = globalSettings.cli_settings?.[finalCLI];
       finalModel = sanitizeModel(finalCLI, cliSettings?.model || selectedModel || DEFAULT_MODEL_ID);
     }

@@ -2,16 +2,16 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import type {
   JsonValue,
-  MoAgentTool,
-  MoAgentToolApprovalDecision,
-  MoAgentToolApprovalRequest,
-  MoAgentToolApprovalResolution,
-  MoAgentToolCall,
-  MoAgentToolEffect,
-  MoAgentToolIdempotency,
+  PiAgentTool,
+  PiAgentToolApprovalDecision,
+  PiAgentToolApprovalRequest,
+  PiAgentToolApprovalResolution,
+  PiAgentToolCall,
+  PiAgentToolEffect,
+  PiAgentToolIdempotency,
 } from '../types';
-import { MOAGENT_TOOL_APPROVAL_DECISIONS } from '../types';
-import { parseMoAgentToolArguments } from './tool-arguments';
+import { PI_AGENT_TOOL_APPROVAL_DECISIONS } from '../types';
+import { parsePiAgentToolArguments } from './tool-arguments';
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_APPROVAL_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
@@ -43,7 +43,7 @@ const FORBIDDEN_PUBLIC_KEYS = new Set([
   'rawresponse',
 ]);
 
-export class MoAgentToolApprovalError extends Error {
+export class PiAgentToolApprovalError extends Error {
   constructor(
     readonly code:
       | 'INVALID_TOOL_APPROVAL_POLICY'
@@ -52,7 +52,7 @@ export class MoAgentToolApprovalError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'MoAgentToolApprovalError';
+    this.name = 'PiAgentToolApprovalError';
   }
 }
 
@@ -76,13 +76,13 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
   const visit = (candidate: unknown, path: string, depth: number): JsonValue => {
     nodes += 1;
     if (nodes > MAX_PUBLIC_INPUT_NODES) {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_INPUT',
         `${label} exceeds the maximum JSON node count.`,
       );
     }
     if (depth > MAX_PUBLIC_INPUT_DEPTH) {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_INPUT',
         `${label} exceeds the maximum nesting depth at ${path}.`,
       );
@@ -96,7 +96,7 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
     }
     if (typeof candidate === 'number') {
       if (!Number.isFinite(candidate)) {
-        throw new MoAgentToolApprovalError(
+        throw new PiAgentToolApprovalError(
           'INVALID_TOOL_APPROVAL_INPUT',
           `${label} contains a non-finite number at ${path}.`,
         );
@@ -104,13 +104,13 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
       return candidate;
     }
     if (!candidate || typeof candidate !== 'object') {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_INPUT',
         `${label} contains a non-JSON value at ${path}.`,
       );
     }
     if (ancestors.has(candidate)) {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_INPUT',
         `${label} contains a cycle at ${path}.`,
       );
@@ -122,7 +122,7 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
       }
       const prototype = Object.getPrototypeOf(candidate);
       if (prototype !== Object.prototype && prototype !== null) {
-        throw new MoAgentToolApprovalError(
+        throw new PiAgentToolApprovalError(
           'INVALID_TOOL_APPROVAL_INPUT',
           `${label} contains a non-plain object at ${path}.`,
         );
@@ -135,7 +135,7 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
           FORBIDDEN_OBJECT_KEYS.has(key) ||
           FORBIDDEN_PUBLIC_KEYS.has(normalizeKey(key))
         ) {
-          throw new MoAgentToolApprovalError(
+          throw new PiAgentToolApprovalError(
             'INVALID_TOOL_APPROVAL_INPUT',
             `${label} contains forbidden key ${path}.${key}.`,
           );
@@ -150,14 +150,14 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
 
   const result = visit(value, '$', 0);
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_INPUT',
       `${label} must be a JSON object.`,
     );
   }
   const serialized = canonicalJson(result);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_PUBLIC_INPUT_BYTES) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_INPUT',
       `${label} exceeds the ${MAX_PUBLIC_INPUT_BYTES}-byte limit.`,
     );
@@ -166,34 +166,34 @@ function publicInput(value: unknown, label: string): { [key: string]: JsonValue 
 }
 
 function allowedDecisions(
-  values: readonly MoAgentToolApprovalDecision[] | undefined,
-): MoAgentToolApprovalDecision[] {
+  values: readonly PiAgentToolApprovalDecision[] | undefined,
+): PiAgentToolApprovalDecision[] {
   const decisions = [...new Set(values ?? ['approve', 'reject'])];
   if (
     decisions.length === 0 ||
     decisions.some(
-      (decision) => !(MOAGENT_TOOL_APPROVAL_DECISIONS as readonly string[]).includes(decision),
+      (decision) => !(PI_AGENT_TOOL_APPROVAL_DECISIONS as readonly string[]).includes(decision),
     ) ||
     !decisions.includes('approve') ||
     !decisions.includes('reject')
   ) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_POLICY',
       'Tool approval decisions must contain approve and reject, with edit optional.',
     );
   }
-  return MOAGENT_TOOL_APPROVAL_DECISIONS.filter((decision) =>
+  return PI_AGENT_TOOL_APPROVAL_DECISIONS.filter((decision) =>
     decisions.includes(decision),
   );
 }
 
-export function assertMoAgentToolApprovalPolicy(
-  tool: MoAgentTool,
-  effect: MoAgentToolEffect,
+export function assertPiAgentToolApprovalPolicy(
+  tool: PiAgentTool,
+  effect: PiAgentToolEffect,
 ): void {
   if (!tool.approval) return;
   if (effect !== 'workspace_write' && effect !== 'external_write') {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_POLICY',
       `Tool "${tool.name}" can require approval only for a mutating effect.`,
     );
@@ -204,7 +204,7 @@ export function assertMoAgentToolApprovalPolicy(
     reason.length > MAX_APPROVAL_REASON_CHARS ||
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(reason)
   ) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_POLICY',
       `Tool "${tool.name}" has an invalid approval reason.`,
     );
@@ -216,31 +216,31 @@ export function assertMoAgentToolApprovalPolicy(
     timeoutMs <= 0 ||
     timeoutMs > MAX_APPROVAL_TIMEOUT_MS
   ) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_POLICY',
       `Tool "${tool.name}" approval timeout must be between 1 and ${MAX_APPROVAL_TIMEOUT_MS} ms.`,
     );
   }
 }
 
-function parseInput(tool: MoAgentTool, value: { [key: string]: JsonValue }): unknown {
+function parseInput(tool: PiAgentTool, value: { [key: string]: JsonValue }): unknown {
   return tool.parseInput ? tool.parseInput(value) : value;
 }
 
-export function createMoAgentToolApprovalRequest(options: {
+export function createPiAgentToolApprovalRequest(options: {
   runId: string;
   turn: number;
-  toolCall: MoAgentToolCall;
-  tool: MoAgentTool;
-  effect: Extract<MoAgentToolEffect, 'workspace_write' | 'external_write'>;
-  idempotency: MoAgentToolIdempotency;
+  toolCall: PiAgentToolCall;
+  tool: PiAgentTool;
+  effect: Extract<PiAgentToolEffect, 'workspace_write' | 'external_write'>;
+  idempotency: PiAgentToolIdempotency;
   now: number;
-}): MoAgentToolApprovalRequest | null {
+}): PiAgentToolApprovalRequest | null {
   const policy = options.tool.approval;
   if (!policy) return null;
   let parsed: unknown;
   try {
-    parsed = parseMoAgentToolArguments(options.toolCall.arguments).value;
+    parsed = parsePiAgentToolArguments(options.toolCall.arguments).value;
   } catch {
     // The normal tool-input path will produce INVALID_TOOL_ARGUMENTS without
     // creating an approval for a call that can never execute.
@@ -284,25 +284,25 @@ export function createMoAgentToolApprovalRequest(options: {
   };
 }
 
-export function applyMoAgentToolApprovalResolution(options: {
-  request: MoAgentToolApprovalRequest;
-  resolution: MoAgentToolApprovalResolution;
-  tool: MoAgentTool;
-  toolCall: MoAgentToolCall;
+export function applyPiAgentToolApprovalResolution(options: {
+  request: PiAgentToolApprovalRequest;
+  resolution: PiAgentToolApprovalResolution;
+  tool: PiAgentTool;
+  toolCall: PiAgentToolCall;
 }): {
-  resolution: MoAgentToolApprovalResolution;
-  toolCall: MoAgentToolCall;
+  resolution: PiAgentToolApprovalResolution;
+  toolCall: PiAgentToolCall;
   effectiveInputSha256: string;
 } {
   const { request, resolution, tool } = options;
   if (!request.allowedDecisions.includes(resolution.decision)) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_RESOLUTION',
       `Decision "${resolution.decision}" is not allowed for approval ${request.approvalId}.`,
     );
   }
   if (resolution.resolvedBy !== undefined && !SAFE_ACTOR_PATTERN.test(resolution.resolvedBy)) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_RESOLUTION',
       'Approval resolver must be a bounded public identifier.',
     );
@@ -311,7 +311,7 @@ export function applyMoAgentToolApprovalResolution(options: {
   let toolCall = { ...options.toolCall };
   if (resolution.decision === 'edit') {
     if (!resolution.editedInput) {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_RESOLUTION',
         'An edit decision requires editedInput.',
       );
@@ -326,14 +326,14 @@ export function applyMoAgentToolApprovalResolution(options: {
       `Tool "${tool.name}" edited approval projection`,
     );
     if (canonicalJson(projected) !== canonicalJson(editedInput)) {
-      throw new MoAgentToolApprovalError(
+      throw new PiAgentToolApprovalError(
         'INVALID_TOOL_APPROVAL_RESOLUTION',
         'Editable approval input must be the complete public tool input.',
       );
     }
     toolCall = { ...toolCall, arguments: canonicalJson(editedInput) };
   } else if (resolution.editedInput !== undefined) {
-    throw new MoAgentToolApprovalError(
+    throw new PiAgentToolApprovalError(
       'INVALID_TOOL_APPROVAL_RESOLUTION',
       'editedInput is allowed only for an edit decision.',
     );
@@ -356,7 +356,7 @@ type ToolApprovalLifecycleEvent =
   | {
       type: 'tool_approval_requested';
       turn: number;
-      request: MoAgentToolApprovalRequest;
+      request: PiAgentToolApprovalRequest;
     }
   | {
       type: 'tool_approval_resolved';
@@ -364,15 +364,15 @@ type ToolApprovalLifecycleEvent =
       approvalId: string;
       toolCallId: string;
       toolName: string;
-      decision: MoAgentToolApprovalDecision;
+      decision: PiAgentToolApprovalDecision;
       inputSha256: string;
       effectiveInputSha256: string;
       resolvedBy?: string;
     };
 
 function approvalEffect(
-  effect: MoAgentToolEffect,
-): Extract<MoAgentToolEffect, 'workspace_write' | 'external_write'> | null {
+  effect: PiAgentToolEffect,
+): Extract<PiAgentToolEffect, 'workspace_write' | 'external_write'> | null {
   return effect === 'workspace_write' || effect === 'external_write' ? effect : null;
 }
 
@@ -403,29 +403,29 @@ async function abortable<T>(value: Promise<T>, signal: AbortSignal): Promise<T> 
  * Emits the requested boundary before awaiting a decision, then returns the
  * effective call only after the resolved boundary has been consumed.
  */
-export async function* resolveMoAgentToolApproval(options: {
+export async function* resolvePiAgentToolApproval(options: {
   runId: string;
   turn: number;
-  toolCall: MoAgentToolCall;
-  tool: MoAgentTool | undefined;
-  effect: MoAgentToolEffect;
-  idempotency: MoAgentToolIdempotency;
+  toolCall: PiAgentToolCall;
+  tool: PiAgentTool | undefined;
+  effect: PiAgentToolEffect;
+  idempotency: PiAgentToolIdempotency;
   handler: (
-    request: MoAgentToolApprovalRequest,
+    request: PiAgentToolApprovalRequest,
     context: { signal: AbortSignal },
-  ) => Promise<MoAgentToolApprovalResolution> | MoAgentToolApprovalResolution;
+  ) => Promise<PiAgentToolApprovalResolution> | PiAgentToolApprovalResolution;
   signal: AbortSignal;
   now: () => number;
 }): AsyncGenerator<
   ToolApprovalLifecycleEvent,
-  { toolCall: MoAgentToolCall; rejected: boolean },
+  { toolCall: PiAgentToolCall; rejected: boolean },
   void
 > {
   const effect = approvalEffect(options.effect);
   if (!options.tool?.approval || !effect) {
     return { toolCall: options.toolCall, rejected: false };
   }
-  const request = createMoAgentToolApprovalRequest({
+  const request = createPiAgentToolApprovalRequest({
     runId: options.runId,
     turn: options.turn,
     toolCall: options.toolCall,
@@ -440,7 +440,7 @@ export async function* resolveMoAgentToolApproval(options: {
     Promise.resolve(options.handler(request, { signal: options.signal })),
     options.signal,
   );
-  const applied = applyMoAgentToolApprovalResolution({
+  const applied = applyPiAgentToolApprovalResolution({
     request,
     resolution: rawResolution,
     tool: options.tool,

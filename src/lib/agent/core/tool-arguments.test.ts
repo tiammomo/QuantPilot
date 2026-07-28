@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseMoAgentToolArguments } from './tool-arguments';
+import { parsePiAgentToolArguments } from './tool-arguments';
 
-describe('parseMoAgentToolArguments', () => {
+describe('parsePiAgentToolArguments', () => {
   it('keeps valid JSON canonical and unchanged in meaning', () => {
-    expect(parseMoAgentToolArguments('{"path":"app/page.tsx","anchors":["main"]}'))
+    expect(parsePiAgentToolArguments('{"path":"app/page.tsx","anchors":["main"]}'))
       .toEqual({
         value: { path: 'app/page.tsx', anchors: ['main'] },
         normalized: '{"path":"app/page.tsx","anchors":["main"]}',
@@ -13,7 +13,7 @@ describe('parseMoAgentToolArguments', () => {
   });
 
   it('repairs fenced JSON, trailing commas, and raw newlines inside strings', () => {
-    const parsed = parseMoAgentToolArguments(`\`\`\`json
+    const parsed = parsePiAgentToolArguments(`\`\`\`json
 {"path":"app/page.tsx","anchors":["function Header() {
   return null
 }",],}
@@ -28,7 +28,7 @@ describe('parseMoAgentToolArguments', () => {
   });
 
   it('does not invent structure for incomplete JSON', () => {
-    expect(() => parseMoAgentToolArguments('{"path":"app/page.tsx"'))
+    expect(() => parsePiAgentToolArguments('{"path":"app/page.tsx"'))
       .toThrow();
   });
 });

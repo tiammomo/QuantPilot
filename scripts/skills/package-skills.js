@@ -5,10 +5,10 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 
 const root = process.cwd();
-const registryPath = path.join(root, '.moagent', 'skills.registry.json');
-const skillsDir = path.join(root, '.moagent', 'skills');
+const registryPath = path.join(root, '.pi', 'skills.registry.json');
+const skillsDir = path.join(root, '.pi', 'skills');
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-const configuredPackageDir = registry.policy?.packageDir || '.moagent/skill-packages';
+const configuredPackageDir = registry.policy?.packageDir || '.pi/skill-packages';
 if (
   typeof configuredPackageDir !== 'string' ||
   !configuredPackageDir ||
@@ -18,7 +18,7 @@ if (
   fail('registry.policy.packageDir must be a safe repository-relative path');
 }
 const packageDir = path.resolve(root, configuredPackageDir);
-const lockPath = path.join(root, '.moagent', 'skills.lock.json');
+const lockPath = path.join(root, '.pi', 'skills.lock.json');
 const transactionId = `${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
 
 function fail(message) {

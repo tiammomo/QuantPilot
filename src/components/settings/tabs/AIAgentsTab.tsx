@@ -62,7 +62,7 @@ function AIAgentsTab({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Multi-provider runtime</p>
-          <h3 className="mt-2 text-lg font-semibold text-slate-950">MoAgent 模型接入</h3>
+          <h3 className="mt-2 text-lg font-semibold text-slate-950">PI Agent 模型接入</h3>
           <p className="mt-1 text-sm text-slate-600">本机 Qwen 为默认模型；日常 DeepSeek 经 ModelPort，官方直连仅作为可选备用。</p>
         </div>
         <div className="flex items-center gap-2">
@@ -92,9 +92,9 @@ function AIAgentsTab({
         <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-black text-white">M</span>
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-xl font-black text-white">P</span>
               <div>
-                <h4 className="font-semibold text-slate-950">{runtime?.name ?? "MoAgent"}</h4>
+                <h4 className="font-semibold text-slate-950">{runtime?.name ?? "PI Agent"}</h4>
                 <p className="mt-1 text-xs text-slate-600">{runtime?.description}</p>
               </div>
             </div>

@@ -1,16 +1,16 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentTool } from '@/lib/agent/types';
 
-import { MoAgentToolError, throwIfAborted } from './errors';
-import type { MoAgentFileToolOptions } from './filesystem';
+import { PiAgentToolError, throwIfAborted } from './errors';
+import type { PiAgentFileToolOptions } from './filesystem';
 import { inputRecord, optionalInteger, requiredString } from './input';
-import { MoAgentWorkspacePolicy } from './path-policy';
+import { PiAgentWorkspacePolicy } from './path-policy';
 import {
   DEFAULT_TOOL_OUTPUT_CHARS,
   DEFAULT_TOOL_TIMEOUT_MS,
-  executeMoAgentTool,
+  executePiAgentTool,
   truncateToolOutput,
 } from './runtime';
 
@@ -35,11 +35,11 @@ type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
 interface StructuredReadRuntime {
-  policy(): Promise<MoAgentWorkspacePolicy>;
+  policy(): Promise<PiAgentWorkspacePolicy>;
   timeoutMs: number;
   maxOutputChars: number;
   maxFileBytes: number;
-  jsonArtifacts: MoAgentJsonArtifactConfiguration;
+  jsonArtifacts: PiAgentJsonArtifactConfiguration;
   preferredObjectKeys: readonly string[];
 }
 
@@ -62,24 +62,24 @@ const GENERIC_JSON_ARTIFACT_PATHS = {
 
 type JsonArtifactId = string;
 
-export interface MoAgentJsonArtifactAlias {
+export interface PiAgentJsonArtifactAlias {
   artifactId: string;
   requestedIdentity?: string;
 }
 
-export interface MoAgentJsonArtifactIdentityResult {
+export interface PiAgentJsonArtifactIdentityResult {
   matches: boolean;
   availableIdentities: string[];
 }
 
-export interface MoAgentJsonArtifactConfiguration {
+export interface PiAgentJsonArtifactConfiguration {
   paths: Readonly<Record<string, string>>;
   preferredObjectKeys?: readonly string[];
-  resolveAlias?: (requestedPath: string) => MoAgentJsonArtifactAlias | null;
+  resolveAlias?: (requestedPath: string) => PiAgentJsonArtifactAlias | null;
   validateAliasIdentity?: (
     root: unknown,
     requestedIdentity: string,
-  ) => MoAgentJsonArtifactIdentityResult;
+  ) => PiAgentJsonArtifactIdentityResult;
   toolDescription?: string;
   artifactDescription?: string;
   pathDescription?: string;
@@ -102,7 +102,7 @@ interface JsonArtifactReference {
 
 function parseJsonArtifactReference(
   record: Record<string, unknown>,
-  configuration: MoAgentJsonArtifactConfiguration,
+  configuration: PiAgentJsonArtifactConfiguration,
 ): JsonArtifactReference {
   const artifactPaths = configuration.paths;
   const rawArtifact = record.artifact;
@@ -112,7 +112,7 @@ function parseJsonArtifactReference(
       typeof rawArtifact !== 'string' ||
       !Object.hasOwn(artifactPaths, rawArtifact)
     ) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_TOOL_INPUT',
         `artifact must be one of: ${Object.keys(artifactPaths).join(', ')}.`,
       );
@@ -137,7 +137,7 @@ function parseJsonArtifactReference(
     };
   }
   if (!explicitPath) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_TOOL_INPUT',
       'query_json requires either an authoritative artifact handle or a workspace-relative path.',
     );
@@ -146,7 +146,7 @@ function parseJsonArtifactReference(
   if (alias) {
     const resolvedPath = artifactPaths[alias.artifactId];
     if (!resolvedPath) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_TOOL_CONFIGURATION',
         `Artifact alias resolved an unregistered artifact: ${alias.artifactId}.`,
       );
@@ -165,23 +165,23 @@ function parseJsonArtifactReference(
   return { path: explicitPath, requestedPath: explicitPath };
 }
 
-export interface MoAgentStructuredReadOptions extends Pick<
-  MoAgentFileToolOptions,
+export interface PiAgentStructuredReadOptions extends Pick<
+  PiAgentFileToolOptions,
   'workspaceRoot' | 'timeoutMs' | 'maxOutputChars' | 'maxFileBytes'
 > {
-  jsonArtifacts?: MoAgentJsonArtifactConfiguration;
+  jsonArtifacts?: PiAgentJsonArtifactConfiguration;
 }
 
-function createRuntime(options: MoAgentStructuredReadOptions): StructuredReadRuntime {
-  let policyPromise: Promise<MoAgentWorkspacePolicy> | undefined;
-  const jsonArtifacts: MoAgentJsonArtifactConfiguration = options.jsonArtifacts ?? {
+function createRuntime(options: PiAgentStructuredReadOptions): StructuredReadRuntime {
+  let policyPromise: Promise<PiAgentWorkspacePolicy> | undefined;
+  const jsonArtifacts: PiAgentJsonArtifactConfiguration = options.jsonArtifacts ?? {
     paths: GENERIC_JSON_ARTIFACT_PATHS,
   };
   if (Object.keys(jsonArtifacts.paths).length === 0) {
     throw new Error('Structured JSON readers require at least one artifact handle.');
   }
   return {
-    policy: () => policyPromise ??= MoAgentWorkspacePolicy.create({
+    policy: () => policyPromise ??= PiAgentWorkspacePolicy.create({
       workspaceRoot: options.workspaceRoot,
     }),
     timeoutMs: options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
@@ -202,17 +202,17 @@ async function readWorkspaceTextFile(
   const resolved = await (await runtime.policy()).resolveReadPath(requestedPath);
   const stat = await fs.stat(resolved.canonicalPath);
   if (!stat.isFile()) {
-    throw new MoAgentToolError('NOT_A_FILE', `Expected a file: ${resolved.relativePath}.`);
+    throw new PiAgentToolError('NOT_A_FILE', `Expected a file: ${resolved.relativePath}.`);
   }
   if (stat.size > runtime.maxFileBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'FILE_TOO_LARGE',
       `File is ${stat.size} bytes; structured readers allow at most ${runtime.maxFileBytes} bytes.`,
     );
   }
   const buffer = await fs.readFile(resolved.canonicalPath, { signal });
   if (buffer.includes(0)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'BINARY_FILE_DENIED',
       `Cannot read binary file as text: ${resolved.relativePath}.`,
     );
@@ -237,7 +237,7 @@ function parseStringList(
 ): string[] {
   const items = typeof value === 'string' && limits.allowSingle ? [value] : value;
   if (!Array.isArray(items) || items.length === 0 || items.length > limits.maxItems) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_TOOL_INPUT',
       `${label} must be ${limits.allowSingle ? 'a string or ' : ''}an array containing between 1 and ${limits.maxItems} strings.`,
     );
@@ -250,7 +250,7 @@ function parseStringList(
       item.length > limits.maxChars ||
       /[\r\n\0]/.test(item)
     ) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_TOOL_INPUT',
         `${label}[${index}] must be a${limits.allowEmpty ? '' : ' non-empty'} single-line string of at most ${limits.maxChars} characters.`,
       );
@@ -310,7 +310,7 @@ interface QueryJsonInput {
 
 function parseQueryJsonInput(
   value: unknown,
-  configuration: MoAgentJsonArtifactConfiguration,
+  configuration: PiAgentJsonArtifactConfiguration,
 ): QueryJsonInput {
   const record = inputRecord(value);
   const reference = parseJsonArtifactReference(record, configuration);
@@ -363,9 +363,9 @@ async function readJsonQueryFile(
     const file = await readWorkspaceTextFile(runtime, input.path, signal);
     return input.pathCorrection ? { ...file, pathCorrection: input.pathCorrection } : file;
   } catch (error) {
-    if (!(error instanceof MoAgentToolError) || error.code !== 'PATH_NOT_FOUND') throw error;
+    if (!(error instanceof PiAgentToolError) || error.code !== 'PATH_NOT_FOUND') throw error;
     const suggestions = await existingAuthoritativeJsonArtifacts(runtime);
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'PATH_NOT_FOUND',
       suggestions.length > 0
         ? `Workspace JSON path does not exist: ${input.requestedPath}. Use one of the authoritative artifacts: ${suggestions.join(', ')}.`
@@ -384,14 +384,14 @@ async function readJsonQueryFile(
 function decodeJsonPointer(pointer: string): string[] {
   if (pointer === '') return [];
   if (!pointer.startsWith('/')) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_TOOL_INPUT',
       `JSON Pointer must be empty for the root or start with '/': ${pointer}`,
     );
   }
   return pointer.slice(1).split('/').map((segment) => {
     if (/~(?:[^01]|$)/.test(segment)) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_TOOL_INPUT',
         `JSON Pointer contains an invalid '~' escape: ${pointer}`,
       );
@@ -553,7 +553,7 @@ function projectJson(
       retainedSize: 0,
     });
     return {
-      $moagent: 'max_depth_summary',
+      $piAgent: 'max_depth_summary',
       valueType: Array.isArray(value) ? 'array' : 'object',
       size,
     };
@@ -609,7 +609,7 @@ function projectJson(
 }
 
 interface JsonQueryReport {
-  $moagent: {
+  $piAgent: {
     kind: 'bounded_json_pointer_query';
     version: 1;
     path: string;
@@ -659,7 +659,7 @@ function buildJsonQueryReport(
     };
   });
   return {
-    $moagent: {
+    $piAgent: {
       kind: 'bounded_json_pointer_query',
       version: 1,
       path: file.path,
@@ -723,13 +723,13 @@ function boundedJsonQueryReport(
           candidateSettings.maxStringChars < input.maxStringChars ||
           candidateSettings.maxObjectKeys < input.maxObjectKeys ||
           candidateSettings.maxDepth < input.maxDepth;
-        return { content, truncated: reduced || report.$moagent.omissionCount > 0 };
+        return { content, truncated: reduced || report.$piAgent.omissionCount > 0 };
       }
     }
   }
 
   const minimal = JSON.stringify({
-    $moagent: {
+    $piAgent: {
       kind: 'bounded_json_pointer_query',
       version: 1,
       path: file.path,
@@ -754,7 +754,7 @@ function boundedJsonQueryReport(
     }),
   }, null, 2);
   if (minimal.length > maxOutputChars) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'TOOL_OUTPUT_TOO_LARGE',
       'query_json metadata exceeds the configured tool output budget; request fewer pointers.',
     );
@@ -763,8 +763,8 @@ function boundedJsonQueryReport(
 }
 
 export function createQueryJsonTool(
-  options: MoAgentStructuredReadOptions,
-): MoAgentTool<QueryJsonInput> {
+  options: PiAgentStructuredReadOptions,
+): PiAgentTool<QueryJsonInput> {
   const runtime = createRuntime(options);
   const artifactIds = Object.keys(runtime.jsonArtifacts.paths);
   return {
@@ -801,7 +801,7 @@ export function createQueryJsonTool(
       additionalProperties: false,
     },
     parseInput: (value) => parseQueryJsonInput(value, runtime.jsonArtifacts),
-    execute: (input, context) => executeMoAgentTool(
+    execute: (input, context) => executePiAgentTool(
       context.signal,
       runtime.timeoutMs,
       async (signal) => {
@@ -810,13 +810,13 @@ export function createQueryJsonTool(
         try {
           parsed = JSON.parse(file.content) as unknown;
         } catch {
-          throw new MoAgentToolError(
+          throw new PiAgentToolError(
             'INVALID_JSON_FILE',
             `Cannot query invalid JSON: ${file.path}.`,
           );
         }
         if (parsed === undefined) {
-          throw new MoAgentToolError('INVALID_JSON_FILE', `JSON has no root value: ${file.path}.`);
+          throw new PiAgentToolError('INVALID_JSON_FILE', `JSON has no root value: ${file.path}.`);
         }
         if (
           input.requestedIdentity
@@ -827,7 +827,7 @@ export function createQueryJsonTool(
             input.requestedIdentity,
           );
           if (!identity.matches) {
-            throw new MoAgentToolError(
+            throw new PiAgentToolError(
               'ARTIFACT_IDENTITY_MISMATCH',
               `The requested alias identity ${input.requestedIdentity} does not match the authoritative artifact.`,
               {
@@ -1026,12 +1026,12 @@ function boundedTextWindows(
       windows,
     };
   }
-  throw new MoAgentToolError('TEXT_WINDOW_PROJECTION_FAILED', 'Unable to bound text windows.');
+  throw new PiAgentToolError('TEXT_WINDOW_PROJECTION_FAILED', 'Unable to bound text windows.');
 }
 
 export function createQueryTextFileTool(
-  options: MoAgentStructuredReadOptions,
-): MoAgentTool<QueryTextFileInput> {
+  options: PiAgentStructuredReadOptions,
+): PiAgentTool<QueryTextFileInput> {
   const runtime = createRuntime(options);
   return {
     name: 'query_text_file',
@@ -1055,12 +1055,12 @@ export function createQueryTextFileTool(
       additionalProperties: false,
     },
     parseInput: parseQueryTextFileInput,
-    execute: (input, context) => executeMoAgentTool(
+    execute: (input, context) => executePiAgentTool(
       context.signal,
       runtime.timeoutMs,
       async (signal) => {
         if (/\.json$/i.test(input.path)) {
-          throw new MoAgentToolError(
+          throw new PiAgentToolError(
             'STRUCTURED_JSON_QUERY_REQUIRED',
             'Use query_json with JSON Pointers instead of query_text_file for JSON files.',
           );

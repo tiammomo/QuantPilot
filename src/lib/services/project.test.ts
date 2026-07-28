@@ -56,7 +56,7 @@ function row(id: string, root: string, status: string) {
     repoPath: path.join(root, id),
     initialPrompt: '',
     templateType: 'nextjs',
-    preferredCli: 'moagent',
+    preferredCli: 'pi',
     selectedModel: 'local_qwen:qwen3.5-9b-q5km',
     agentProfileId: 'test.profile',
     agentProfileVersion: '1.0.0',
@@ -107,9 +107,17 @@ describe('Project service workspace transaction', () => {
     });
 
     expect(project.status).toBe('idle');
+    expect(project.preferredCli).toBe('pi');
     expect(mocks.projectCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'initializing' }),
+      data: expect.objectContaining({
+        status: 'initializing',
+        preferredCli: 'pi',
+      }),
     }));
+    expect(mocks.provisionProject).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredCli: 'pi' }),
+      expect.anything(),
+    );
     expect(mocks.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'idle' }),
     }));

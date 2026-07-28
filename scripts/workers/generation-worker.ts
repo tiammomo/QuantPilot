@@ -4,16 +4,16 @@ import './worker-environment';
 
 import { createApplicationGenerationRuntime } from '../../src/lib/quant/generation-runtime';
 import { prisma } from '../../src/lib/db/client';
-import { MoAgentGenerationDispatchSession } from '../../src/lib/services/moagent-generation-dispatch-session';
+import { PiAgentGenerationDispatchSession } from '../../src/lib/services/pi-agent-generation-dispatch-session';
 import {
-  finishMoAgentGenerationJob,
-  getMoAgentGenerationJob,
-  listClaimableMoAgentGenerationJobs,
-  MoAgentGenerationDispatchError,
-  reconcileExpiredMoAgentGenerationJobs,
-} from '../../src/lib/services/moagent-generation-dispatch-store';
-import { MoAgentWorkerCapacitySession } from '../../src/lib/services/moagent-worker-capacity';
-import { MoAgentWorkerRegistrySession } from '../../src/lib/services/moagent-worker-registry';
+  finishPiAgentGenerationJob,
+  getPiAgentGenerationJob,
+  listClaimablePiAgentGenerationJobs,
+  PiAgentGenerationDispatchError,
+  reconcileExpiredPiAgentGenerationJobs,
+} from '../../src/lib/services/pi-agent-generation-dispatch-store';
+import { PiAgentWorkerCapacitySession } from '../../src/lib/services/pi-agent-worker-capacity';
+import { PiAgentWorkerRegistrySession } from '../../src/lib/services/pi-agent-worker-registry';
 import { previewManager } from '../../src/lib/services/preview';
 import { QuotaExceededError } from '../../src/lib/quota';
 
@@ -25,26 +25,26 @@ function positiveInteger(name: string, fallback: number, max: number): number {
   return value;
 }
 
-const pollIntervalMs = positiveInteger('MOAGENT_WORKER_POLL_INTERVAL_MS', 1_000, 60_000);
-const concurrency = positiveInteger('MOAGENT_WORKER_CONCURRENCY', 1, 16);
+const pollIntervalMs = positiveInteger('PI_AGENT_WORKER_POLL_INTERVAL_MS', 1_000, 60_000);
+const concurrency = positiveInteger('PI_AGENT_WORKER_CONCURRENCY', 1, 16);
 const globalConcurrency = positiveInteger(
-  'MOAGENT_WORKER_GLOBAL_CONCURRENCY',
+  'PI_AGENT_WORKER_GLOBAL_CONCURRENCY',
   concurrency,
   256,
 );
 const slotLeaseTtlMs = positiveInteger(
-  'MOAGENT_WORKER_SLOT_LEASE_TTL_MS',
+  'PI_AGENT_WORKER_SLOT_LEASE_TTL_MS',
   120_000,
   24 * 60 * 60 * 1_000,
 );
 const slotHeartbeatIntervalMs = positiveInteger(
-  'MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS',
+  'PI_AGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS',
   30_000,
   24 * 60 * 60 * 1_000,
 );
-const claimBatchSize = positiveInteger('MOAGENT_WORKER_CLAIM_BATCH_SIZE', 20, 200);
+const claimBatchSize = positiveInteger('PI_AGENT_WORKER_CLAIM_BATCH_SIZE', 20, 200);
 const previewReconcileIntervalMs = positiveInteger(
-  'MOAGENT_WORKER_PREVIEW_RECONCILE_INTERVAL_MS',
+  'PI_AGENT_WORKER_PREVIEW_RECONCILE_INTERVAL_MS',
   5_000,
   60 * 60 * 1_000,
 );
@@ -55,12 +55,12 @@ let nextPreviewReconcileAt = 0;
 
 if (concurrency > globalConcurrency) {
   throw new Error(
-    'MOAGENT_WORKER_CONCURRENCY cannot exceed MOAGENT_WORKER_GLOBAL_CONCURRENCY.',
+    'PI_AGENT_WORKER_CONCURRENCY cannot exceed PI_AGENT_WORKER_GLOBAL_CONCURRENCY.',
   );
 }
 if (slotHeartbeatIntervalMs >= slotLeaseTtlMs) {
   throw new Error(
-    'MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS must be smaller than its lease TTL.',
+    'PI_AGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS must be smaller than its lease TTL.',
   );
 }
 
@@ -69,11 +69,11 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 async function executeJob(
-  job: Awaited<ReturnType<typeof listClaimableMoAgentGenerationJobs>>[number],
+  job: Awaited<ReturnType<typeof listClaimablePiAgentGenerationJobs>>[number],
   workerLeaseOwner: string,
 ): Promise<boolean> {
-  let session: MoAgentGenerationDispatchSession | null = null;
-  const capacity = await MoAgentWorkerCapacitySession.tryClaim({
+  let session: PiAgentGenerationDispatchSession | null = null;
+  const capacity = await PiAgentWorkerCapacitySession.tryClaim({
     capacity: globalConcurrency,
     activeJobId: job.id,
     leaseOwner: workerLeaseOwner,
@@ -82,7 +82,7 @@ async function executeJob(
   });
   if (!capacity) return false;
   try {
-    session = await MoAgentGenerationDispatchSession.claimExisting({
+    session = await PiAgentGenerationDispatchSession.claimExisting({
       projectId: job.projectId,
       requestId: job.requestId,
     });
@@ -101,7 +101,7 @@ async function executeJob(
       cliPreference: job.cliPreference,
       executionEnvelope: job.executionEnvelope,
     }));
-    const current = await getMoAgentGenerationJob(job.projectId, job.requestId);
+    const current = await getPiAgentGenerationJob(job.projectId, job.requestId);
     if (current?.status === 'running') {
       throw new Error('Generation handler returned without committing a terminal job state.');
     }
@@ -119,7 +119,7 @@ async function executeJob(
       return false;
     }
     if (
-      error instanceof MoAgentGenerationDispatchError
+      error instanceof PiAgentGenerationDispatchError
       && [
         'GENERATION_DISPATCH_BUSY',
         'GENERATION_PROJECT_BUSY',
@@ -142,7 +142,7 @@ async function executeJob(
       error: message,
     }));
     if (session) {
-      await session.run(() => finishMoAgentGenerationJob({
+      await session.run(() => finishPiAgentGenerationJob({
         projectId: job.projectId,
         requestId: job.requestId,
         status: 'failed',
@@ -177,8 +177,8 @@ async function tick(workerLeaseOwner: string): Promise<number> {
       }));
     }
   }
-  await reconcileExpiredMoAgentGenerationJobs({ limit: claimBatchSize });
-  const jobs = await listClaimableMoAgentGenerationJobs(claimBatchSize);
+  await reconcileExpiredPiAgentGenerationJobs({ limit: claimBatchSize });
+  const jobs = await listClaimablePiAgentGenerationJobs(claimBatchSize);
   let completed = 0;
   for (let index = 0; index < jobs.length && !stopping; index += concurrency) {
     const batch = jobs.slice(index, index + concurrency);
@@ -191,10 +191,10 @@ async function tick(workerLeaseOwner: string): Promise<number> {
 }
 
 async function main() {
-  if (process.env.MOAGENT_DISPATCH_MODE !== 'worker') {
-    throw new Error('Generation worker requires MOAGENT_DISPATCH_MODE=worker.');
+  if (process.env.PI_AGENT_DISPATCH_MODE !== 'worker') {
+    throw new Error('Generation worker requires PI_AGENT_DISPATCH_MODE=worker.');
   }
-  const registration = await MoAgentWorkerRegistrySession.start({
+  const registration = await PiAgentWorkerRegistrySession.start({
     processConcurrency: concurrency,
     globalConcurrency,
     leaseTtlMs: slotLeaseTtlMs,

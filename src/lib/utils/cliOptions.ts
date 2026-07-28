@@ -1,7 +1,11 @@
 import { CLI_OPTIONS, type CLIOption } from '@/types/cli';
 import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/models';
+import {
+  PRODUCT_CLI_ID,
+  normalizeProductCliId,
+} from '@/lib/constants/cli';
 
-export const ACTIVE_CLI_IDS = ['moagent'] as const;
+export const ACTIVE_CLI_IDS = [PRODUCT_CLI_ID] as const;
 
 export type ActiveCliId = (typeof ACTIVE_CLI_IDS)[number];
 
@@ -11,7 +15,7 @@ const isActiveCliId = (value: string): value is ActiveCliId => {
   return ACTIVE_CLI_ID_SET.has(value as ActiveCliId);
 };
 
-export const DEFAULT_ACTIVE_CLI: ActiveCliId = 'moagent';
+export const DEFAULT_ACTIVE_CLI: ActiveCliId = PRODUCT_CLI_ID;
 
 type ActiveCliOption = CLIOption & { id: ActiveCliId };
 
@@ -53,11 +57,8 @@ export const ACTIVE_CLI_MODEL_OPTIONS = ACTIVE_CLI_OPTIONS.reduce<Record<ActiveC
 );
 
 export const sanitizeActiveCli = (cli: string | null | undefined, fallback: ActiveCliId = DEFAULT_ACTIVE_CLI): ActiveCliId => {
-  if (!cli) {
-    return fallback;
-  }
-  const normalized = cli.toLowerCase();
-  return isActiveCliId(normalized) ? (normalized as ActiveCliId) : fallback;
+  const normalized = normalizeProductCliId(cli);
+  return normalized && isActiveCliId(normalized) ? normalized : fallback;
 };
 
 export const normalizeModelForCli = (

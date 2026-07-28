@@ -1,7 +1,7 @@
 {
   "name": "quantpilot",
   "version": "2.0.0",
-  "description": "Quant-focused AI workflow builder powered by MoAgent and configurable model providers",
+  "description": "Quant-focused AI workflow builder powered by PI Agent and configurable model providers",
   "private": true,
   "main": "index.js",
   "scripts": {
@@ -25,7 +25,7 @@
     "lint": "eslint .",
     "test": "npm run test:unit && npm run test:backend",
     "test:unit": "vitest run",
-    "test:moagent:postgres": "node scripts/checks/run-moagent-postgres-integration.js",
+    "test:pi-agent:postgres": "node scripts/checks/run-pi-agent-postgres-integration.js",
     "test:backend": "uv run --project services/market-data pytest -q services/market-data/tests",
     "type-check": "node scripts/checks/type-check.js",
     "prisma:generate": "prisma generate",
@@ -61,6 +61,7 @@
     "setup": "npm install && prisma generate && npm run db:init",
     "check:models": "node scripts/checks/check-deepseek-runtime.js",
     "check:ai-provider-boundary": "node scripts/checks/check-ai-provider-boundary.js",
+    "check:pi-agent-worker-runtime": "node --import tsx scripts/checks/check-pi-agent-worker-runtime.ts",
     "check:integrations": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-long-term-integrations.ts",
     "check:memory-production": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-memory-production-readiness.ts",
     "check:triad-experience": "node --env-file-if-exists=.env.local --import tsx scripts/checks/check-triad-experience.ts",
@@ -117,6 +118,8 @@
     "postinstall": "npm run ensure:env"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.82.1",
+    "@earendil-works/pi-ai": "0.82.1",
     "@node-rs/argon2": "^2.0.2",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -169,7 +172,7 @@
     "sharp": "0.35.3"
   },
   "engines": {
-    "node": ">=20.19.0",
+    "node": ">=22.19.0",
     "npm": ">=10.0.0"
   },
   "keywords": [
@@ -208,8 +211,8 @@
         "to": "public"
       },
       {
-        "from": ".moagent",
-        "to": ".moagent"
+        "from": ".pi",
+        "to": ".pi"
       },
       {
         "from": "scripts/security",

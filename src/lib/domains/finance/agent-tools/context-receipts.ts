@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 
 import type {
-  MoAgentTool,
-  MoAgentToolContextReceipt,
-  MoAgentToolResult,
+  PiAgentTool,
+  PiAgentToolContextReceipt,
+  PiAgentToolResult,
 } from '@/lib/agent/types';
 
-type Projector = NonNullable<MoAgentTool['projectContextReceipt']>;
+type Projector = NonNullable<PiAgentTool['projectContextReceipt']>;
 
 const CONTRACT_TARGETS = [
   '.data-agent/task.json',
@@ -31,7 +31,7 @@ function stringField(value: unknown, key: string): string | undefined {
   return typeof data?.[key] === 'string' ? data[key] as string : undefined;
 }
 
-function dashboardReceipt(result: MoAgentToolResult): MoAgentToolContextReceipt {
+function dashboardReceipt(result: PiAgentToolResult): PiAgentToolContextReceipt {
   const data = result.ok ? record(result.data) : null;
   const files = Array.isArray(data?.files) ? data.files.slice(0, 16) : [];
   const targets = files
@@ -55,7 +55,7 @@ function dashboardReceipt(result: MoAgentToolResult): MoAgentToolContextReceipt 
   };
 }
 
-function imageReceipt(input: unknown, result: MoAgentToolResult): MoAgentToolContextReceipt {
+function imageReceipt(input: unknown, result: PiAgentToolResult): PiAgentToolContextReceipt {
   const data = result.ok ? record(result.data) : null;
   const images = Array.isArray(data?.images) ? data.images.slice(0, 32) : [];
   const targets = images

@@ -14,8 +14,8 @@ vi.mock('@/lib/services/stream', () => ({
   streamManager: { publish: mocks.publish },
 }));
 
-vi.mock('@/lib/services/moagent-turn-metrics', () => ({
-  collectMoAgentTurnMetrics: mocks.collectMetrics,
+vi.mock('@/lib/services/pi-agent-turn-metrics', () => ({
+  collectPiAgentTurnMetrics: mocks.collectMetrics,
 }));
 
 vi.mock('@/lib/serializers/chat', () => ({
@@ -54,7 +54,7 @@ describe('workspace progress publisher', () => {
       projectId: 'project-a',
       requestId: 'request-a',
       conversationId: 'conversation-a',
-      cliSource: 'moagent',
+      cliSource: 'pi',
     });
 
     await publish({ stage: 1 });
@@ -82,7 +82,7 @@ describe('workspace progress publisher', () => {
       id: workspaceProgressMessageId('project-a', 'request-a', 5),
       metadata: expect.objectContaining({
         isWorkspaceProgress: true,
-        isMoAgentFinal: true,
+        isPiAgentFinal: true,
         isMissionFinal: true,
         validationPassed: true,
         progressStep: 5,
@@ -97,7 +97,7 @@ describe('workspace progress publisher', () => {
     const publish = createWorkspaceProgressPublisher({
       projectId: 'project-a',
       requestId: 'request-paused',
-      cliSource: 'moagent',
+      cliSource: 'pi',
     });
 
     await publish({ stage: 5, cancelledReason: '用户暂停了当前任务' });
@@ -111,7 +111,7 @@ describe('workspace progress publisher', () => {
       }),
     }));
     const metadata = mocks.ensureMessage.mock.calls[0]?.[0]?.metadata;
-    expect(metadata).not.toHaveProperty('isMoAgentFinal');
+    expect(metadata).not.toHaveProperty('isPiAgentFinal');
     expect(metadata).not.toHaveProperty('validationPassed');
   });
 

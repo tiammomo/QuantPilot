@@ -16,6 +16,7 @@ import {
   getDefaultModelForCli,
   normalizeModelId,
 } from "@/lib/constants/models";
+import { PRODUCT_CLI_ID } from "@/lib/constants/cli";
 import { streamManager } from "@/lib/services/stream";
 import { generateProjectId } from "@/lib/utils";
 import fs from "fs/promises";
@@ -66,24 +67,24 @@ import {
   enqueueQuantGeneration,
   startQuantGenerationQueued,
 } from "@/lib/quant/generation-queue";
-import { validateMoAgentIngressInput } from "@/lib/agent/input-policy";
-import { classifyMoAgentExecutionError } from "@/lib/services/moagent-execution-error";
-import { MoAgentGenerationLeaseError } from "@/lib/services/moagent-generation-lease-store";
-import { refreshMoAgentCandidateWorkspace } from "@/lib/services/moagent-candidate";
-import type { MoAgentCandidateSubmission } from "@/lib/agent/mission";
+import { validatePiAgentIngressInput } from "@/lib/agent/input-policy";
+import { classifyPiAgentExecutionError } from "@/lib/services/pi-agent-execution-error";
+import { PiAgentGenerationLeaseError } from "@/lib/services/pi-agent-generation-lease-store";
+import { refreshPiAgentCandidateWorkspace } from "@/lib/services/pi-agent-candidate";
+import type { PiAgentCandidateSubmission } from "@/lib/agent/mission";
 import {
-  claimQuantMoAgentMissionVerification,
-  refreshMoAgentMissionContext,
-  sealQuantMoAgentMissionCandidate,
-  verifyAndRecordQuantMoAgentMission,
-  type MoAgentMissionContext,
-} from "@/lib/services/moagent-mission-control";
+  claimQuantPiAgentMissionVerification,
+  refreshPiAgentMissionContext,
+  sealQuantPiAgentMissionCandidate,
+  verifyAndRecordQuantPiAgentMission,
+  type PiAgentMissionContext,
+} from "@/lib/services/pi-agent-mission-control";
 import {
-  cancelMoAgentMission,
-  failMoAgentMission,
-  markMoAgentMissionRepairing,
-  readMoAgentAcceptedMissionSnapshot,
-} from "@/lib/services/moagent-mission-store";
+  cancelPiAgentMission,
+  failPiAgentMission,
+  markPiAgentMissionRepairing,
+  readPiAgentAcceptedMissionSnapshot,
+} from "@/lib/services/pi-agent-mission-store";
 import {
   startPersistentValidatedPreview,
   type ValidatedGenerationPreview,
@@ -113,7 +114,7 @@ interface RouteContext {
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
   let claimedRequest: { projectId: string; requestId: string } | null = null;
-  let acceptedMission: MoAgentMissionContext | null = null;
+  let acceptedMission: PiAgentMissionContext | null = null;
   try {
     const { project_id } = await params;
     const actionContext = await requireAction({
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const rawInstruction = body.instruction;
     const rawDisplayInstruction = body.displayInstruction;
     const requestId = body.requestId ?? generateProjectId();
-    const ingressDecision = validateMoAgentIngressInput({
+    const ingressDecision = validatePiAgentIngressInput({
       instruction: rawInstruction,
       displayInstruction: rawDisplayInstruction,
       requestId,
@@ -240,7 +241,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreference = "moagent";
+    const cliPreference = PRODUCT_CLI_ID;
     try {
       await claimUserRequest({
         id: requestId,
@@ -548,7 +549,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     await updateProjectActivity(project_id);
 
     const existingSelected = normalizeModelId(
-      project.preferredCli ?? "moagent",
+      project.preferredCli ?? PRODUCT_CLI_ID,
       project.selectedModel ?? undefined,
     );
     const preparation = await prepareFinanceActGeneration({
@@ -580,9 +581,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       governedKnowledgePreparation,
       governedKnowledgeTaskCategory,
     } = preparation;
-    const queuedMission = missionContext as MoAgentMissionContext | null;
+    const queuedMission = missionContext as PiAgentMissionContext | null;
     if (!queuedMission) {
-      throw new Error("MoAgent Mission was not created after planning.");
+      throw new Error("PI Agent Mission was not created after planning.");
     }
     if (!governedKnowledgePreparation) {
       throw new Error(
@@ -639,7 +640,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       capabilityId: plannedRunPlan.capabilityId,
     });
 
-    if (process.env.MOAGENT_DISPATCH_MODE === "worker") {
+    if (process.env.PI_AGENT_DISPATCH_MODE === "worker") {
       await enqueueQuantGeneration({
         projectPath,
         projectId: project_id,
@@ -697,7 +698,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   } catch (error) {
     console.error("[API] Failed to execute AI:", error);
     if (acceptedMission) {
-      await failMoAgentMission({
+      await failPiAgentMission({
         missionId: acceptedMission.id,
         projectId: acceptedMission.projectId,
         requestId: acceptedMission.requestId,
@@ -728,7 +729,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const quotaResponse = quotaErrorResponse(error);
     if (quotaResponse) return quotaResponse;
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    if (error instanceof MoAgentGenerationLeaseError) {
+    if (error instanceof PiAgentGenerationLeaseError) {
       return NextResponse.json(
         {
           success: false,

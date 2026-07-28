@@ -8,7 +8,7 @@ import React, {
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { ChatMessage } from "@/types";
-import { parseMoAgentTurnMetrics } from "@/lib/chat/turn-metrics";
+import { parsePiAgentTurnMetrics } from "@/lib/chat/turn-metrics";
 import { normalizeChatContent } from "@/lib/serializers/client/chat";
 import { toRelativePath } from "@/lib/utils/path";
 import type { ToolExpansionState } from "@/lib/chat/chat-message-runtime";
@@ -361,19 +361,19 @@ export default function ChatLogView({
           const messageText = normalizeChatContent(message.content);
           const turnMetrics =
             messageMetadata?.isMissionFinal === true
-              ? parseMoAgentTurnMetrics(messageMetadata.turnMetrics)
+              ? parsePiAgentTurnMetrics(messageMetadata.turnMetrics)
               : null;
           const canRatePersonalMemory =
             message.role === "assistant" &&
             message.messageType === "chat" &&
-            messageMetadata?.isMoAgentFinal === true &&
+            messageMetadata?.isPiAgentFinal === true &&
             messageMetadata?.validationPassed === true &&
             Boolean(message.requestId) &&
             preparedPersonalizationRequests.has(message.requestId ?? "");
           const canRateGovernedKnowledge =
             message.role === "assistant" &&
             message.messageType === "chat" &&
-            messageMetadata?.isMoAgentFinal === true &&
+            messageMetadata?.isPiAgentFinal === true &&
             messageMetadata?.validationPassed === true &&
             Boolean(message.requestId);
           const isToolMessage =

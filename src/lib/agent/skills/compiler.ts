@@ -4,18 +4,18 @@ import path from 'node:path';
 import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
 import * as tar from 'tar';
 import type {
-  CompileMoAgentSkillsOptions,
-  CompileMoAgentSkillsResult,
-  CompiledMoAgentSkill,
-  MoAgentSkillCapsuleRegistry,
-  MoAgentSkillCapsuleResource,
-  MoAgentSkillLockEntry,
-  MoAgentSkillPhase,
-  MoAgentSkillRegistryEntry,
-  MoAgentSkillRuntimeCapsule,
-  MoAgentSkillsInstallReceipt,
-  MoAgentSkillsLock,
-  MoAgentSkillsRegistry,
+  CompilePiAgentSkillsOptions,
+  CompilePiAgentSkillsResult,
+  CompiledPiAgentSkill,
+  PiAgentSkillCapsuleRegistry,
+  PiAgentSkillCapsuleResource,
+  PiAgentSkillLockEntry,
+  PiAgentSkillPhase,
+  PiAgentSkillRegistryEntry,
+  PiAgentSkillRuntimeCapsule,
+  PiAgentSkillsInstallReceipt,
+  PiAgentSkillsLock,
+  PiAgentSkillsRegistry,
 } from './types';
 
 const DEFAULT_CONTEXT_BUDGET = 6_000;
@@ -23,12 +23,12 @@ const MIN_CONTEXT_BUDGET = 256;
 const MAX_PACKAGE_ENTRIES = 500;
 const MAX_PACKAGE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_PACKAGE_TOTAL_BYTES = 50 * 1024 * 1024;
-const MOAGENT_DIRECTORY = '.moagent';
-const DEFAULT_CAPSULE_REGISTRY_PATH = 'config/moagent-skill-capsules.json';
-const DEFAULT_SKILL_PHASE: MoAgentSkillPhase = 'data-preparation';
+const PI_AGENT_DIRECTORY = '.pi';
+const DEFAULT_CAPSULE_REGISTRY_PATH = 'config/pi-agent-skill-capsules.json';
+const DEFAULT_SKILL_PHASE: PiAgentSkillPhase = 'data-preparation';
 const FORBIDDEN_RUNTIME_SKILL_PATTERNS = [
   /mcp__/i,
-  /\.moagent\/skills\//i,
+  /\.pi\/skills\//i,
   /\bcurl\b/i,
   /\bbash\b/i,
   /\bpython3?\b/i,
@@ -38,8 +38,8 @@ const FORBIDDEN_RUNTIME_SKILL_PATTERNS = [
 ];
 
 type LoadedSkill = {
-  registry: MoAgentSkillRegistryEntry;
-  lock: MoAgentSkillLockEntry;
+  registry: PiAgentSkillRegistryEntry;
+  lock: PiAgentSkillLockEntry;
   markdown: string;
   source: 'source' | 'package';
   sourceDirectory: string | null;
@@ -70,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`MoAgent Skills 配置无效：${label} 必须是非空字符串。`);
+    throw new Error(`PI Agent Skills 配置无效：${label} 必须是非空字符串。`);
   }
 }
 
@@ -81,7 +81,7 @@ function resolveFromRoot(root: string, candidate: string): string {
 function assertInside(parent: string, candidate: string, label: string): void {
   const relative = path.relative(parent, candidate);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new Error(`MoAgent Skills ${label} 必须位于 repositoryRoot 内：${candidate}`);
+    throw new Error(`PI Agent Skills ${label} 必须位于 repositoryRoot 内：${candidate}`);
   }
 }
 
@@ -99,47 +99,47 @@ async function readJsonFile(filePath: string, label: string): Promise<unknown> {
     return JSON.parse(await fs.readFile(filePath, 'utf8')) as unknown;
   } catch (error) {
     throw new Error(
-      `MoAgent Skills ${label} 不可用：${error instanceof Error ? error.message : String(error)}`,
+      `PI Agent Skills ${label} 不可用：${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-function parseRegistry(value: unknown): MoAgentSkillsRegistry {
+function parseRegistry(value: unknown): PiAgentSkillsRegistry {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.coreSkills)) {
-    throw new Error('MoAgent Skills registry schema 无效。');
+    throw new Error('PI Agent Skills registry schema 无效。');
   }
   if (!isRecord(value.policy)) {
-    throw new Error('MoAgent Skills registry 缺少 policy。');
+    throw new Error('PI Agent Skills registry 缺少 policy。');
   }
 
   const seen = new Set<string>();
   for (const [index, raw] of value.coreSkills.entries()) {
     if (!isRecord(raw)) {
-      throw new Error(`MoAgent Skills registry coreSkills[${index}] 无效。`);
+      throw new Error(`PI Agent Skills registry coreSkills[${index}] 无效。`);
     }
     assertString(raw.id, `coreSkills[${index}].id`);
     assertString(raw.name, `coreSkills[${index}].name`);
     assertString(raw.version, `coreSkills[${index}].version`);
     assertString(raw.boundary, `coreSkills[${index}].boundary`);
     if (!['stable', 'planned', 'deprecated'].includes(String(raw.status))) {
-      throw new Error(`MoAgent Skills registry 中 ${raw.id} 的 status 无效。`);
+      throw new Error(`PI Agent Skills registry 中 ${raw.id} 的 status 无效。`);
     }
     if (seen.has(raw.id)) {
-      throw new Error(`MoAgent Skills registry 包含重复 ID：${raw.id}。`);
+      throw new Error(`PI Agent Skills registry 包含重复 ID：${raw.id}。`);
     }
     seen.add(raw.id);
   }
-  return value as unknown as MoAgentSkillsRegistry;
+  return value as unknown as PiAgentSkillsRegistry;
 }
 
-function parseLock(value: unknown): MoAgentSkillsLock {
+function parseLock(value: unknown): PiAgentSkillsLock {
   if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.skills)) {
-    throw new Error('MoAgent Skills lock schema 无效。');
+    throw new Error('PI Agent Skills lock schema 无效。');
   }
-  return value as unknown as MoAgentSkillsLock;
+  return value as unknown as PiAgentSkillsLock;
 }
 
-const SKILL_PHASES = new Set<MoAgentSkillPhase>([
+const SKILL_PHASES = new Set<PiAgentSkillPhase>([
   'planning',
   'data-preparation',
   'workspace-generation',
@@ -149,47 +149,47 @@ const SKILL_PHASES = new Set<MoAgentSkillPhase>([
 
 function assertStringArray(value: unknown, label: string, allowEmpty = true): asserts value is string[] {
   if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label} 必须是字符串数组。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label} 必须是字符串数组。`);
   }
   for (const [index, entry] of value.entries()) {
     assertString(entry, `${label}[${index}]`);
   }
 }
 
-function parseCapsuleResource(value: unknown, label: string): MoAgentSkillCapsuleResource {
+function parseCapsuleResource(value: unknown, label: string): PiAgentSkillCapsuleResource {
   if (!isRecord(value)) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label} 必须是对象。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label} 必须是对象。`);
   }
   assertString(value.id, `${label}.id`);
   assertString(value.path, `${label}.path`);
   assertStringArray(value.profiles, `${label}.profiles`, false);
-  if (!value.profiles.every((phase) => SKILL_PHASES.has(phase as MoAgentSkillPhase))) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.profiles 包含未知阶段。`);
+  if (!value.profiles.every((phase) => SKILL_PHASES.has(phase as PiAgentSkillPhase))) {
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label}.profiles 包含未知阶段。`);
   }
   if (!['template-heading', 'named-headings'].includes(String(value.selector))) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.selector 无效。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label}.selector 无效。`);
   }
   if (!Number.isSafeInteger(value.maxChars) || Number(value.maxChars) < 256) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.maxChars 必须至少为 256。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label}.maxChars 必须至少为 256。`);
   }
   if (typeof value.required !== 'boolean') {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.required 必须是布尔值。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label}.required 必须是布尔值。`);
   }
   if (value.headings !== undefined) assertStringArray(value.headings, `${label}.headings`, false);
   if (value.selector === 'named-headings' && value.headings === undefined) {
-    throw new Error(`MoAgent Skills Capsule 配置无效：${label}.headings 为必填项。`);
+    throw new Error(`PI Agent Skills Capsule 配置无效：${label}.headings 为必填项。`);
   }
-  return value as unknown as MoAgentSkillCapsuleResource;
+  return value as unknown as PiAgentSkillCapsuleResource;
 }
 
-function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
+function parseCapsuleRegistry(value: unknown): PiAgentSkillCapsuleRegistry {
   if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.skills)) {
-    throw new Error('MoAgent Skills Capsule registry schema 无效。');
+    throw new Error('PI Agent Skills Capsule registry schema 无效。');
   }
   const responseContract = value.workspaceResponseContract;
   if (!isRecord(responseContract) || responseContract.schemaVersion !== 1 ||
     responseContract.owner !== 'platform') {
-    throw new Error('MoAgent Skills Capsule workspaceResponseContract 无效。');
+    throw new Error('PI Agent Skills Capsule workspaceResponseContract 无效。');
   }
   assertStringArray(
     responseContract.stageLabels,
@@ -197,32 +197,32 @@ function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
     false,
   );
   if (responseContract.stageLabels.length !== 5) {
-    throw new Error('MoAgent Skills Capsule workspaceResponseContract 必须包含五个阶段。');
+    throw new Error('PI Agent Skills Capsule workspaceResponseContract 必须包含五个阶段。');
   }
   assertStringArray(responseContract.rules, 'workspaceResponseContract.rules', false);
   for (const [skillId, raw] of Object.entries(value.skills)) {
     if (!isRecord(raw)) {
-      throw new Error(`MoAgent Skill ${skillId} 的 runtime capsule 无效。`);
+      throw new Error(`PI Agent Skill ${skillId} 的 runtime capsule 无效。`);
     }
     if (FORBIDDEN_RUNTIME_SKILL_PATTERNS.some((pattern) => pattern.test(JSON.stringify(raw)))) {
-      throw new Error(`MoAgent Skill ${skillId} 的 runtime capsule 包含不兼容执行指令。`);
+      throw new Error(`PI Agent Skill ${skillId} 的 runtime capsule 包含不兼容执行指令。`);
     }
     if (!Number.isSafeInteger(raw.priority) || Number(raw.priority) < 1) {
-      throw new Error(`MoAgent Skill ${skillId} 的 capsule priority 无效。`);
+      throw new Error(`PI Agent Skill ${skillId} 的 capsule priority 无效。`);
     }
     assertStringArray(raw.phases, `${skillId}.phases`, false);
-    if (!raw.phases.every((phase) => SKILL_PHASES.has(phase as MoAgentSkillPhase))) {
-      throw new Error(`MoAgent Skill ${skillId} 的 capsule phases 包含未知阶段。`);
+    if (!raw.phases.every((phase) => SKILL_PHASES.has(phase as PiAgentSkillPhase))) {
+      throw new Error(`PI Agent Skill ${skillId} 的 capsule phases 包含未知阶段。`);
     }
     const capsulePhases = raw.phases;
     assertStringArray(raw.requiresTools, `${skillId}.requiresTools`);
     if (!raw.requiresTools.every((toolName) => /^[a-z][a-z0-9_]*$/.test(toolName))) {
-      throw new Error(`MoAgent Skill ${skillId} 的 capsule requiresTools 包含非法工具名。`);
+      throw new Error(`PI Agent Skill ${skillId} 的 capsule requiresTools 包含非法工具名。`);
     }
     if (raw.requiresOneOfToolSets !== undefined) {
       if (!Array.isArray(raw.requiresOneOfToolSets) || raw.requiresOneOfToolSets.length === 0) {
         throw new Error(
-          `MoAgent Skill ${skillId} 的 capsule requiresOneOfToolSets 必须是非空工具集合数组。`,
+          `PI Agent Skill ${skillId} 的 capsule requiresOneOfToolSets 必须是非空工具集合数组。`,
         );
       }
       raw.requiresOneOfToolSets.forEach((toolSet, index) => {
@@ -233,7 +233,7 @@ function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
         );
         if (!toolSet.every((toolName) => /^[a-z][a-z0-9_]*$/.test(toolName))) {
           throw new Error(
-            `MoAgent Skill ${skillId} 的 capsule requiresOneOfToolSets 包含非法工具名。`,
+            `PI Agent Skill ${skillId} 的 capsule requiresOneOfToolSets 包含非法工具名。`,
           );
         }
       });
@@ -243,23 +243,23 @@ function parseCapsuleRegistry(value: unknown): MoAgentSkillCapsuleRegistry {
     assertStringArray(raw.workflow, `${skillId}.workflow`, false);
     assertStringArray(raw.doneWhen, `${skillId}.doneWhen`, false);
     if (!Array.isArray(raw.resources)) {
-      throw new Error(`MoAgent Skill ${skillId} 的 capsule resources 必须是数组。`);
+      throw new Error(`PI Agent Skill ${skillId} 的 capsule resources 必须是数组。`);
     }
     const resourceIds = new Set<string>();
     raw.resources.forEach((resource, index) => {
       const parsed = parseCapsuleResource(resource, `${skillId}.resources[${index}]`);
       if (resourceIds.has(parsed.id)) {
-        throw new Error(`MoAgent Skill ${skillId} 的 capsule 包含重复 resource：${parsed.id}。`);
+        throw new Error(`PI Agent Skill ${skillId} 的 capsule 包含重复 resource：${parsed.id}。`);
       }
       resourceIds.add(parsed.id);
       if (parsed.profiles.some((phase) => !capsulePhases.includes(phase))) {
         throw new Error(
-          `MoAgent Skill ${skillId} 的 resource ${parsed.id} 使用了 capsule 未声明的阶段。`,
+          `PI Agent Skill ${skillId} 的 resource ${parsed.id} 使用了 capsule 未声明的阶段。`,
         );
       }
     });
   }
-  return value as unknown as MoAgentSkillCapsuleRegistry;
+  return value as unknown as PiAgentSkillCapsuleRegistry;
 }
 
 async function listSourceFiles(directory: string): Promise<string[]> {
@@ -270,7 +270,7 @@ async function listSourceFiles(directory: string): Promise<string[]> {
       if (entry.name === '.DS_Store') continue;
       const absolute = path.join(current, entry.name);
       if (entry.isSymbolicLink()) {
-        throw new Error(`MoAgent Skill 源目录不允许符号链接：${absolute}`);
+        throw new Error(`PI Agent Skill 源目录不允许符号链接：${absolute}`);
       }
       if (entry.isDirectory()) await visit(absolute);
       else if (entry.isFile()) output.push(absolute);
@@ -338,7 +338,7 @@ async function readSkillMarkdownFromPackage(packagePath: string, skillId: string
     );
   } catch (error) {
     throw new Error(
-      `MoAgent Skill ${skillId} 无法从已验证安装包读取：${error instanceof Error ? error.message : String(error)}`,
+      `PI Agent Skill ${skillId} 无法从已验证安装包读取：${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -361,7 +361,7 @@ function normalizeSkillResourcePath(value: string): string {
     normalized.split('/').includes('..') ||
     !normalized.endsWith('.md')
   ) {
-    throw new Error(`MoAgent Skill resource 路径无效：${value}`);
+    throw new Error(`PI Agent Skill resource 路径无效：${value}`);
   }
   return normalized;
 }
@@ -373,12 +373,12 @@ async function readSkillResource(skill: LoadedSkill, relativePath: string): Prom
     assertInside(skill.sourceDirectory, candidate, `${skill.registry.id} resource`);
     const stat = await fs.lstat(candidate).catch(() => null);
     if (!stat?.isFile() || stat.isSymbolicLink()) {
-      throw new Error(`MoAgent Skill ${skill.registry.id} resource 不可用：${normalized}`);
+      throw new Error(`PI Agent Skill ${skill.registry.id} resource 不可用：${normalized}`);
     }
     return fs.readFile(candidate, 'utf8');
   }
   if (!skill.packagePath) {
-    throw new Error(`MoAgent Skill ${skill.registry.id} 缺少可验证 resource 来源。`);
+    throw new Error(`PI Agent Skill ${skill.registry.id} 缺少可验证 resource 来源。`);
   }
   await assertSafePackageEntries(
     skill.packagePath,
@@ -394,7 +394,7 @@ async function readSkillResource(skill: LoadedSkill, relativePath: string): Prom
     );
   } catch (error) {
     throw new Error(
-      `MoAgent Skill ${skill.registry.id} 无法读取 resource ${normalized}：${error instanceof Error ? error.message : String(error)}`,
+      `PI Agent Skill ${skill.registry.id} 无法读取 resource ${normalized}：${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -413,8 +413,8 @@ function packWholeSections(sections: readonly MarkdownSection[], maxChars: numbe
 
 async function compileCapsuleResources(params: {
   skill: LoadedSkill;
-  capsule: MoAgentSkillRuntimeCapsule;
-  phase: MoAgentSkillPhase;
+  capsule: PiAgentSkillRuntimeCapsule;
+  phase: PiAgentSkillPhase;
   templateId?: string | null;
 }): Promise<LoadedSkillResource[]> {
   const resources: LoadedSkillResource[] = [];
@@ -441,13 +441,13 @@ async function compileCapsuleResources(params: {
     for (const section of candidates) expectedHeadings?.delete(section.title);
     if (resource.required && expectedHeadings && expectedHeadings.size > 0) {
       throw new Error(
-        `MoAgent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 缺少标题：${Array.from(expectedHeadings).join('、')}。`,
+        `PI Agent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 缺少标题：${Array.from(expectedHeadings).join('、')}。`,
       );
     }
     const completeText = candidates.map((section) => section.text).join('\n\n');
     if (resource.required && completeText.length > resource.maxChars) {
       throw new Error(
-        `MoAgent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 需要 ${completeText.length} 字符，超过原子预算 ${resource.maxChars}。`,
+        `PI Agent Skill ${params.skill.registry.id} 的 runtime resource ${resource.id} 需要 ${completeText.length} 字符，超过原子预算 ${resource.maxChars}。`,
       );
     }
     const text = resource.required
@@ -455,7 +455,7 @@ async function compileCapsuleResources(params: {
       : packWholeSections(candidates, resource.maxChars);
     if (!text && resource.required) {
       throw new Error(
-        `MoAgent Skill ${params.skill.registry.id} 缺少必需的 runtime resource 片段：${resource.id}`,
+        `PI Agent Skill ${params.skill.registry.id} 缺少必需的 runtime resource 片段：${resource.id}`,
       );
     }
     if (!text) continue;
@@ -469,7 +469,7 @@ async function compileCapsuleResources(params: {
   return resources;
 }
 
-function capsuleLines(skill: LoadedSkill, capsule: MoAgentSkillRuntimeCapsule): string[] {
+function capsuleLines(skill: LoadedSkill, capsule: PiAgentSkillRuntimeCapsule): string[] {
   return [
     `## ${skill.registry.id} — ${skill.registry.name}`,
     `目标：${capsule.objective}`,
@@ -481,7 +481,7 @@ function capsuleLines(skill: LoadedSkill, capsule: MoAgentSkillRuntimeCapsule): 
 
 function compileSkillBlock(params: {
   skill: LoadedSkill;
-  capsule: MoAgentSkillRuntimeCapsule;
+  capsule: PiAgentSkillRuntimeCapsule;
   resources: LoadedSkillResource[];
   maxChars: number;
 }): CompiledSkillBlock {
@@ -492,12 +492,12 @@ function compileSkillBlock(params: {
   const full = [base, ...resourceBlocks].join('\n\n');
   if (FORBIDDEN_RUNTIME_SKILL_PATTERNS.some((pattern) => pattern.test(full))) {
     throw new Error(
-      `MoAgent Skill ${params.skill.registry.id} 的 runtime capsule/resource 包含不兼容执行指令。`,
+      `PI Agent Skill ${params.skill.registry.id} 的 runtime capsule/resource 包含不兼容执行指令。`,
     );
   }
   if (full.length > params.maxChars) {
     throw new Error(
-      `MoAgent Skill ${params.skill.registry.id} 的原子 runtime capsule 需要 ${full.length} 字符，超过分配预算 ${params.maxChars}；拒绝截断关键步骤。`,
+      `PI Agent Skill ${params.skill.registry.id} 的原子 runtime capsule 需要 ${full.length} 字符，超过分配预算 ${params.maxChars}；拒绝截断关键步骤。`,
     );
   }
   return {
@@ -510,19 +510,19 @@ function compileSkillBlock(params: {
 async function loadSkill(params: {
   root: string;
   sourceSkillsPath: string;
-  registry: MoAgentSkillRegistryEntry;
-  lock: MoAgentSkillLockEntry | undefined;
+  registry: PiAgentSkillRegistryEntry;
+  lock: PiAgentSkillLockEntry | undefined;
 }): Promise<LoadedSkill> {
   const { root, registry } = params;
   const lock = params.lock;
-  if (!lock) throw new Error(`MoAgent Skills lock 缺少 ${registry.id}。`);
+  if (!lock) throw new Error(`PI Agent Skills lock 缺少 ${registry.id}。`);
   if (lock.version !== registry.version) {
     throw new Error(
-      `MoAgent Skill ${registry.id} 版本不一致：registry=${registry.version}，lock=${lock.version ?? 'missing'}。`,
+      `PI Agent Skill ${registry.id} 版本不一致：registry=${registry.version}，lock=${lock.version ?? 'missing'}。`,
     );
   }
   if (!lock.sourceSha256 && !lock.packageSha256) {
-    throw new Error(`MoAgent Skill ${registry.id} 在 lock 中缺少完整性哈希。`);
+    throw new Error(`PI Agent Skill ${registry.id} 在 lock 中缺少完整性哈希。`);
   }
 
   const sourceDirectory = path.join(params.sourceSkillsPath, registry.id);
@@ -531,37 +531,37 @@ async function loadSkill(params: {
   if (sourceExists) {
     const sourceStat = await fs.lstat(sourceDirectory);
     if (sourceStat.isSymbolicLink() || !sourceStat.isDirectory()) {
-      throw new Error(`MoAgent Skill ${registry.id} 源路径必须是普通目录且不能是符号链接。`);
+      throw new Error(`PI Agent Skill ${registry.id} 源路径必须是普通目录且不能是符号链接。`);
     }
     assertInside(root, await fs.realpath(sourceDirectory), `${registry.id} source directory`);
-    if (!lock.sourceSha256) throw new Error(`MoAgent Skill ${registry.id} 缺少 sourceSha256。`);
+    if (!lock.sourceSha256) throw new Error(`PI Agent Skill ${registry.id} 缺少 sourceSha256。`);
     const actual = await hashSkillSource(sourceDirectory);
     if (actual.hash !== lock.sourceSha256) {
-      throw new Error(`MoAgent Skill ${registry.id} 源目录哈希不一致，拒绝编译。`);
+      throw new Error(`PI Agent Skill ${registry.id} 源目录哈希不一致，拒绝编译。`);
     }
     if (typeof lock.fileCount === 'number' && actual.fileCount !== lock.fileCount) {
-      throw new Error(`MoAgent Skill ${registry.id} 源文件数量与 lock 不一致，拒绝编译。`);
+      throw new Error(`PI Agent Skill ${registry.id} 源文件数量与 lock 不一致，拒绝编译。`);
     }
     sourceMarkdown = await fs.readFile(path.join(sourceDirectory, 'SKILL.md'), 'utf8').catch((error) => {
       throw new Error(
-        `MoAgent Skill ${registry.id} 缺少 SKILL.md：${error instanceof Error ? error.message : String(error)}`,
+        `PI Agent Skill ${registry.id} 缺少 SKILL.md：${error instanceof Error ? error.message : String(error)}`,
       );
     });
   }
 
   const packageCandidate = lock.packagePath
     ? resolveFromRoot(root, lock.packagePath)
-    : path.resolve(root, MOAGENT_DIRECTORY, 'skill-packages', `${registry.id}.tgz`);
+    : path.resolve(root, PI_AGENT_DIRECTORY, 'skill-packages', `${registry.id}.tgz`);
   assertInside(root, packageCandidate, 'packagePath');
   const packageExists = await pathExists(packageCandidate);
   if (packageExists) {
     const packageStat = await fs.lstat(packageCandidate);
     if (packageStat.isSymbolicLink() || !packageStat.isFile()) {
-      throw new Error(`MoAgent Skill ${registry.id} packagePath 必须是普通文件且不能是符号链接。`);
+      throw new Error(`PI Agent Skill ${registry.id} packagePath 必须是普通文件且不能是符号链接。`);
     }
-    if (!lock.packageSha256) throw new Error(`MoAgent Skill ${registry.id} 缺少 packageSha256。`);
+    if (!lock.packageSha256) throw new Error(`PI Agent Skill ${registry.id} 缺少 packageSha256。`);
     if ((await hashFile(packageCandidate)) !== lock.packageSha256) {
-      throw new Error(`MoAgent Skill ${registry.id} 安装包哈希不一致，拒绝编译。`);
+      throw new Error(`PI Agent Skill ${registry.id} 安装包哈希不一致，拒绝编译。`);
     }
   }
 
@@ -576,10 +576,10 @@ async function loadSkill(params: {
     };
   }
   if (!packageExists) {
-    throw new Error(`MoAgent Skill ${registry.id} 既没有可验证源目录，也没有可验证安装包。`);
+    throw new Error(`PI Agent Skill ${registry.id} 既没有可验证源目录，也没有可验证安装包。`);
   }
   if (!lock.sourceSha256 || !Number.isSafeInteger(lock.fileCount)) {
-    throw new Error(`MoAgent Skill ${registry.id} package-only 模式缺少 sourceSha256/fileCount。`);
+    throw new Error(`PI Agent Skill ${registry.id} package-only 模式缺少 sourceSha256/fileCount。`);
   }
   await assertSafePackageEntries(
     packageCandidate,
@@ -624,39 +624,39 @@ async function assertSafePackageEntries(
         (canonical !== skillId && !canonical.startsWith(prefix))
       ) {
         validationError = new Error(
-          `MoAgent Skill ${skillId} 安装包包含越界条目：${normalized}`,
+          `PI Agent Skill ${skillId} 安装包包含越界条目：${normalized}`,
         );
         return;
       }
       if (seen.has(canonical)) {
-        validationError = new Error(`MoAgent Skill ${skillId} 安装包包含重复条目。`);
+        validationError = new Error(`PI Agent Skill ${skillId} 安装包包含重复条目。`);
         return;
       }
       seen.add(canonical);
       canonicalEntries.push(canonical);
       if (!['File', 'Directory'].includes(entry.type)) {
         validationError = new Error(
-          `MoAgent Skill ${skillId} 安装包包含不安全类型：${entry.type}`,
+          `PI Agent Skill ${skillId} 安装包包含不安全类型：${entry.type}`,
         );
         return;
       }
       if (entry.type === 'File') {
         if (!Number.isSafeInteger(entry.size) || entry.size < 0 || entry.size > MAX_PACKAGE_FILE_BYTES) {
-          validationError = new Error(`MoAgent Skill ${skillId} 安装包包含尺寸无效的文件。`);
+          validationError = new Error(`PI Agent Skill ${skillId} 安装包包含尺寸无效的文件。`);
           return;
         }
         totalBytes += entry.size;
         if (totalBytes > MAX_PACKAGE_TOTAL_BYTES) {
-          validationError = new Error(`MoAgent Skill ${skillId} 安装包展开后超过 50MB。`);
+          validationError = new Error(`PI Agent Skill ${skillId} 安装包展开后超过 50MB。`);
         }
         const relativePath = canonical.slice(prefix.length);
         if (!relativePath) {
-          validationError = new Error(`MoAgent Skill ${skillId} 安装包文件路径无效。`);
+          validationError = new Error(`PI Agent Skill ${skillId} 安装包文件路径无效。`);
           return;
         }
         if (relativePath.startsWith('scripts/') && ((entry.mode ?? 0) & 0o111) === 0) {
           validationError = new Error(
-            `MoAgent Skill ${skillId} 安装包脚本不可执行：${relativePath}`,
+            `PI Agent Skill ${skillId} 安装包脚本不可执行：${relativePath}`,
           );
           return;
         }
@@ -670,7 +670,7 @@ async function assertSafePackageEntries(
   });
   if (validationError !== null) throw validationError;
   if (canonicalEntries.length === 0 || canonicalEntries.length > MAX_PACKAGE_ENTRIES) {
-    throw new Error(`MoAgent Skill ${skillId} 安装包条目数量无效。`);
+    throw new Error(`PI Agent Skill ${skillId} 安装包条目数量无效。`);
   }
   const entrySet = new Set(canonicalEntries);
   const requiredEntries = [
@@ -681,15 +681,15 @@ async function assertSafePackageEntries(
   ];
   const missing = requiredEntries.find((entry) => !entrySet.has(entry));
   if (missing) {
-    throw new Error(`MoAgent Skill ${skillId} 安装包缺少完整包条目：${missing}`);
+    throw new Error(`PI Agent Skill ${skillId} 安装包缺少完整包条目：${missing}`);
   }
   if (!canonicalEntries.some((entry) =>
     entry.startsWith(`${skillId}/references/`) && entry.endsWith('.md'))) {
-    throw new Error(`MoAgent Skill ${skillId} 安装包缺少 references/*.md。`);
+    throw new Error(`PI Agent Skill ${skillId} 安装包缺少 references/*.md。`);
   }
   if (!canonicalEntries.some((entry) =>
     entry.startsWith(`${skillId}/scripts/`) && /\.(?:py|js|mjs|sh)$/.test(entry))) {
-    throw new Error(`MoAgent Skill ${skillId} 安装包缺少确定性脚本。`);
+    throw new Error(`PI Agent Skill ${skillId} 安装包缺少确定性脚本。`);
   }
   if (expectedSourceSha256 !== undefined || expectedFileCount !== undefined) {
     const hash = createHash('sha256');
@@ -703,18 +703,18 @@ async function assertSafePackageEntries(
     }
     const sourceSha256 = hash.digest('hex');
     if (expectedSourceSha256 !== sourceSha256 || expectedFileCount !== files.size) {
-      throw new Error(`MoAgent Skill ${skillId} 安装包内容与 source lock 不一致。`);
+      throw new Error(`PI Agent Skill ${skillId} 安装包内容与 source lock 不一致。`);
     }
   }
 }
 
 async function assertCompleteInstalledSkillDirectory(
   directory: string,
-  registry: MoAgentSkillRegistryEntry,
+  registry: PiAgentSkillRegistryEntry,
 ): Promise<void> {
   const directoryStat = await fs.lstat(directory).catch(() => null);
   if (!directoryStat?.isDirectory() || directoryStat.isSymbolicLink()) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装结果不是普通目录。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装结果不是普通目录。`);
   }
   const files = await listSourceFiles(directory);
   const relativeFiles = files.map((filePath) =>
@@ -722,7 +722,7 @@ async function assertCompleteInstalledSkillDirectory(
   const fileSet = new Set(relativeFiles);
   for (const required of ['SKILL.md', 'agents/openai.yaml']) {
     if (!fileSet.has(required)) {
-      throw new Error(`MoAgent Skill ${registry.id} 安装后缺少 ${required}。`);
+      throw new Error(`PI Agent Skill ${registry.id} 安装后缺少 ${required}。`);
     }
   }
   const agentSource = await fs.readFile(path.join(directory, 'agents', 'openai.yaml'), 'utf8');
@@ -730,46 +730,46 @@ async function assertCompleteInstalledSkillDirectory(
   try {
     agentDocument = loadYaml(agentSource, { schema: JSON_SCHEMA });
   } catch {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后的 agents/openai.yaml 无效。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后的 agents/openai.yaml 无效。`);
   }
   if (!isRecord(agentDocument) || !isRecord(agentDocument.interface)) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后的 agents/openai.yaml 缺少 interface。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后的 agents/openai.yaml 缺少 interface。`);
   }
   const agentInterface = agentDocument.interface;
   for (const field of ['display_name', 'short_description', 'default_prompt']) {
     if (typeof agentInterface[field] !== 'string' || !agentInterface[field].trim()) {
-      throw new Error(`MoAgent Skill ${registry.id} 安装后的 interface.${field} 无效。`);
+      throw new Error(`PI Agent Skill ${registry.id} 安装后的 interface.${field} 无效。`);
     }
   }
   const shortLength = Array.from(agentInterface.short_description as string).length;
   if (shortLength < 25 || shortLength > 64 ||
     !(agentInterface.default_prompt as string).includes(`$${registry.id}`)) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后的 Agent 元数据不符合完整包合同。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后的 Agent 元数据不符合完整包合同。`);
   }
 
   const references = relativeFiles.filter((entry) => entry.startsWith('references/'));
   const scripts = relativeFiles.filter((entry) => entry.startsWith('scripts/'));
   if (references.length === 0 || references.some((entry) => !entry.endsWith('.md'))) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后 references/ 不完整。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后 references/ 不完整。`);
   }
   if (scripts.length === 0 || scripts.some((entry) => !/\.(?:py|js|mjs|sh)$/.test(entry))) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后 scripts/ 不完整。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后 scripts/ 不完整。`);
   }
   if (process.platform !== 'win32') {
     for (const script of scripts) {
       const stat = await fs.lstat(path.join(directory, script));
       if ((stat.mode & 0o111) === 0) {
-        throw new Error(`MoAgent Skill ${registry.id} 安装后脚本不可执行：${script}。`);
+        throw new Error(`PI Agent Skill ${registry.id} 安装后脚本不可执行：${script}。`);
       }
     }
   }
   const registeredReferences = [...(registry.references ?? [])].sort();
   const registeredScripts = [...(registry.scripts ?? [])].sort();
   if (JSON.stringify([...references].sort()) !== JSON.stringify(registeredReferences)) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后的 references 与 registry 不一致。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后的 references 与 registry 不一致。`);
   }
   if (JSON.stringify([...scripts].sort()) !== JSON.stringify(registeredScripts)) {
-    throw new Error(`MoAgent Skill ${registry.id} 安装后的 scripts 与 registry 不一致。`);
+    throw new Error(`PI Agent Skill ${registry.id} 安装后的 scripts 与 registry 不一致。`);
   }
 }
 
@@ -777,17 +777,17 @@ async function installSkills(params: {
   workspace: string;
   capabilityId: string | null;
   skills: LoadedSkill[];
-}): Promise<MoAgentSkillsInstallReceipt> {
+}): Promise<PiAgentSkillsInstallReceipt> {
   const requestedWorkspace = path.resolve(params.workspace);
   const workspace = await fs.realpath(requestedWorkspace).catch((error) => {
     throw new Error(
-      `MoAgent Skills workspace 必须是已存在目录：${error instanceof Error ? error.message : String(error)}`,
+      `PI Agent Skills workspace 必须是已存在目录：${error instanceof Error ? error.message : String(error)}`,
     );
   });
   if (!(await fs.stat(workspace)).isDirectory()) {
-    throw new Error(`MoAgent Skills workspace 不是目录：${requestedWorkspace}`);
+    throw new Error(`PI Agent Skills workspace 不是目录：${requestedWorkspace}`);
   }
-  const runtimeDirectory = path.join(workspace, MOAGENT_DIRECTORY);
+  const runtimeDirectory = path.join(workspace, PI_AGENT_DIRECTORY);
   const skillsDirectory = path.join(runtimeDirectory, 'skills');
   for (const candidate of [runtimeDirectory, skillsDirectory]) {
     const stat = await fs.lstat(candidate).catch((error: NodeJS.ErrnoException) => {
@@ -795,7 +795,7 @@ async function installSkills(params: {
       throw error;
     });
     if (stat?.isSymbolicLink()) {
-      throw new Error(`MoAgent Skills 运行目录不允许符号链接：${candidate}`);
+      throw new Error(`PI Agent Skills 运行目录不允许符号链接：${candidate}`);
     }
   }
   await fs.mkdir(skillsDirectory, { recursive: true });
@@ -805,7 +805,7 @@ async function installSkills(params: {
     path.join(runtimeDirectory, 'installed-skills.json'),
     'utf8',
   ).then((content) => JSON.parse(content) as unknown).catch(() => null);
-  const previouslyManaged = isRecord(previousReceipt) && previousReceipt.runtime === 'MoAgent' &&
+  const previouslyManaged = isRecord(previousReceipt) && previousReceipt.runtime === 'PI Agent' &&
     isRecord(previousReceipt.skills)
     ? Object.keys(previousReceipt.skills)
     : [];
@@ -847,7 +847,7 @@ async function installSkills(params: {
         throw error;
       });
       if (previousStat?.isSymbolicLink()) {
-        throw new Error(`MoAgent Skill 目标目录不允许符号链接：${destination}`);
+        throw new Error(`PI Agent Skill 目标目录不允许符号链接：${destination}`);
       }
       const backupDestination = path.join(stagingRoot, '.previous');
       if (previousStat) await fs.rename(destination, backupDestination);
@@ -861,7 +861,7 @@ async function installSkills(params: {
             keepStagingForRecovery = true;
             throw new AggregateError(
               [error, restoreError],
-              `MoAgent Skill ${skill.registry.id} 替换与恢复均失败；备份保留在 ${backupDestination}`,
+              `PI Agent Skill ${skill.registry.id} 替换与恢复均失败；备份保留在 ${backupDestination}`,
             );
           }
         }
@@ -874,9 +874,9 @@ async function installSkills(params: {
     }
   }
 
-  const receipt: MoAgentSkillsInstallReceipt = {
+  const receipt: PiAgentSkillsInstallReceipt = {
     schemaVersion: 1,
-    runtime: 'MoAgent',
+    runtime: 'PI Agent',
     installedAt: new Date().toISOString(),
     capabilityId: params.capabilityId,
     skillsDirectory: path.relative(workspace, skillsDirectory).replaceAll(path.sep, '/'),
@@ -896,12 +896,12 @@ async function installSkills(params: {
 }
 
 function selectRequestedSkillIds(
-  registry: MoAgentSkillsRegistry,
-  capsuleRegistry: MoAgentSkillCapsuleRegistry,
-  options: CompileMoAgentSkillsOptions,
+  registry: PiAgentSkillsRegistry,
+  capsuleRegistry: PiAgentSkillCapsuleRegistry,
+  options: CompilePiAgentSkillsOptions,
 ): {
   capabilityId: string | null;
-  phase: MoAgentSkillPhase;
+  phase: PiAgentSkillPhase;
   requested: string[];
   installationRequested: string[];
 } {
@@ -911,7 +911,7 @@ function selectRequestedSkillIds(
     options.capability.id !== options.capabilityId
   ) {
     throw new Error(
-      `MoAgent Skill capability identity mismatch: ${options.capabilityId} != ${options.capability.id}.`,
+      `PI Agent Skill capability identity mismatch: ${options.capabilityId} != ${options.capability.id}.`,
     );
   }
   const phase = options.phase ?? DEFAULT_SKILL_PHASE;
@@ -925,7 +925,7 @@ function selectRequestedSkillIds(
     requested = [...options.capability.requiredSkillIds];
   } else if (options.capabilityId) {
     throw new Error(
-      `MoAgent capability ${options.capabilityId} requires a domain-owned capability descriptor.`,
+      `PI Agent capability ${options.capabilityId} requires a domain-owned capability descriptor.`,
     );
   } else {
     requested = registry.coreSkills
@@ -953,24 +953,24 @@ function selectRequestedSkillIds(
 }
 
 /**
- * Compiles verified domain skill packages into a bounded MoAgent system context.
- * Compiles the canonical `.moagent` registry and packages; runtime discovery is never used.
+ * Compiles verified domain skill packages into a bounded PI Agent system context.
+ * Compiles the canonical `.pi` registry and packages; runtime discovery is never used.
  */
-export async function compileMoAgentSkills(
-  options: CompileMoAgentSkillsOptions = {},
-): Promise<CompileMoAgentSkillsResult> {
+export async function compilePiAgentSkills(
+  options: CompilePiAgentSkillsOptions = {},
+): Promise<CompilePiAgentSkillsResult> {
   const root = path.resolve(options.repositoryRoot ?? process.cwd());
   const registryPath = resolveFromRoot(
     root,
-    options.registryPath ?? path.join(MOAGENT_DIRECTORY, 'skills.registry.json'),
+    options.registryPath ?? path.join(PI_AGENT_DIRECTORY, 'skills.registry.json'),
   );
   const lockPath = resolveFromRoot(
     root,
-    options.lockPath ?? path.join(MOAGENT_DIRECTORY, 'skills.lock.json'),
+    options.lockPath ?? path.join(PI_AGENT_DIRECTORY, 'skills.lock.json'),
   );
   const sourceSkillsPath = resolveFromRoot(
     root,
-    options.sourceSkillsPath ?? path.join(MOAGENT_DIRECTORY, 'skills'),
+    options.sourceSkillsPath ?? path.join(PI_AGENT_DIRECTORY, 'skills'),
   );
   const capsuleRegistryPath = resolveFromRoot(
     root,
@@ -992,17 +992,17 @@ export async function compileMoAgentSkills(
   const registeredSkillIds = new Set(registry.coreSkills.map((skill) => skill.id));
   for (const capsuleId of Object.keys(capsuleRegistry.skills)) {
     if (!registeredSkillIds.has(capsuleId)) {
-      throw new Error(`MoAgent runtime capsule 指向未注册 Skill：${capsuleId}。`);
+      throw new Error(`PI Agent runtime capsule 指向未注册 Skill：${capsuleId}。`);
     }
   }
   for (const skill of registry.coreSkills) {
     if (!capsuleRegistry.skills[skill.id]) {
-      throw new Error(`MoAgent Skill ${skill.id} 缺少 runtime capsule。`);
+      throw new Error(`PI Agent Skill ${skill.id} 缺少 runtime capsule。`);
     }
   }
   const selection = selectRequestedSkillIds(registry, capsuleRegistry, options);
   if (selection.requested.length === 0) {
-    throw new Error('MoAgent Skills 未选择任何 skill。');
+    throw new Error('PI Agent Skills 未选择任何 skill。');
   }
 
   const registryById = new Map(registry.coreSkills.map((skill) => [skill.id, skill]));
@@ -1018,20 +1018,20 @@ export async function compileMoAgentSkills(
   const loaded: LoadedSkill[] = [];
   for (const skillId of selection.requested) {
     const skill = registryById.get(skillId);
-    if (!skill) throw new Error(`MoAgent Skill ${skillId} 未在 registry 注册。`);
+    if (!skill) throw new Error(`PI Agent Skill ${skillId} 未在 registry 注册。`);
     if (skill.status === 'deprecated') {
-      throw new Error(`MoAgent Skill ${skillId} 已废弃，拒绝编译。`);
+      throw new Error(`PI Agent Skill ${skillId} 已废弃，拒绝编译。`);
     }
     const capsule = capsuleRegistry.skills[skillId];
     if (!capsule?.phases.includes(selection.phase)) {
-      throw new Error(`MoAgent Skill ${skillId} 不允许在 ${selection.phase} 阶段加载。`);
+      throw new Error(`PI Agent Skill ${skillId} 不允许在 ${selection.phase} 阶段加载。`);
     }
     if (options.availableToolNames) {
       const availableTools = new Set(options.availableToolNames);
       const missingTools = capsule.requiresTools.filter((toolName) => !availableTools.has(toolName));
       if (missingTools.length > 0) {
         throw new Error(
-          `MoAgent Skill ${skillId} 与当前工具面不兼容，缺少：${missingTools.join('、')}。`,
+          `PI Agent Skill ${skillId} 与当前工具面不兼容，缺少：${missingTools.join('、')}。`,
         );
       }
       const alternatives = capsule.requiresOneOfToolSets ?? [];
@@ -1040,7 +1040,7 @@ export async function compileMoAgentSkills(
         !alternatives.some((toolSet) => toolSet.every((toolName) => availableTools.has(toolName)))
       ) {
         throw new Error(
-          `MoAgent Skill ${skillId} 与当前工具面不兼容，至少需要一组完整替代工具：${alternatives
+          `PI Agent Skill ${skillId} 与当前工具面不兼容，至少需要一组完整替代工具：${alternatives
             .map((toolSet) => `[${toolSet.join('、')}]`)
             .join(' 或 ')}。`,
         );
@@ -1056,10 +1056,10 @@ export async function compileMoAgentSkills(
 
   const requestedBudget = options.maxSystemContextChars ?? DEFAULT_CONTEXT_BUDGET;
   if (!Number.isInteger(requestedBudget) || requestedBudget < MIN_CONTEXT_BUDGET) {
-    throw new Error(`MoAgent Skills 上下文预算必须是至少 ${MIN_CONTEXT_BUDGET} 的整数。`);
+    throw new Error(`PI Agent Skills 上下文预算必须是至少 ${MIN_CONTEXT_BUDGET} 的整数。`);
   }
   const systemContext = [
-    '# MoAgent Skill Manifest',
+    '# PI Agent Skill Manifest',
     `phase=${selection.phase}; capability=${selection.capabilityId ?? 'explicit/default'}`,
     '以下能力已经 registry/version/SHA-256 与 runtime capsule 校验；全局安全、权限和终止规则由 Kernel 负责，Skill 只补充领域步骤。',
     ...loaded.map((skill) => {
@@ -1085,7 +1085,7 @@ export async function compileMoAgentSkills(
     }));
   }
   const taskContext = [
-    '# MoAgent Skill Capsules',
+    '# PI Agent Skill Capsules',
     `执行阶段：${selection.phase}${options.templateId ? `；模板：${options.templateId}` : ''}${options.variantId ? `；变体：${options.variantId}` : ''}`,
     '按以下原子步骤执行；不要从 SKILL.md 猜测未声明工具，也不要自行读取相对 reference 路径。',
     ...compiledBlocks.map((block) => block.text),
@@ -1093,11 +1093,11 @@ export async function compileMoAgentSkills(
   const totalCharacters = systemContext.length + taskContext.length;
   if (totalCharacters > requestedBudget) {
     throw new Error(
-      `MoAgent Skills 原子上下文需要 ${totalCharacters} 字符，超过总预算 ${requestedBudget}；拒绝截断关键 Skill Capsule。`,
+      `PI Agent Skills 原子上下文需要 ${totalCharacters} 字符，超过总预算 ${requestedBudget}；拒绝截断关键 Skill Capsule。`,
     );
   }
 
-  const skills: CompiledMoAgentSkill[] = loaded.map((skill, index) => ({
+  const skills: CompiledPiAgentSkill[] = loaded.map((skill, index) => ({
     id: skill.registry.id,
     name: skill.registry.name,
     version: skill.registry.version,
@@ -1117,15 +1117,15 @@ export async function compileMoAgentSkills(
     })),
   }));
 
-  let installReceipt: MoAgentSkillsInstallReceipt | null = null;
+  let installReceipt: PiAgentSkillsInstallReceipt | null = null;
   if (options.installToWorkspace) {
     const installableById = new Map(loaded.map((skill) => [skill.registry.id, skill]));
     for (const skillId of selection.installationRequested) {
       if (installableById.has(skillId)) continue;
       const skill = registryById.get(skillId);
-      if (!skill) throw new Error(`MoAgent Skill ${skillId} 未在 registry 注册。`);
+      if (!skill) throw new Error(`PI Agent Skill ${skillId} 未在 registry 注册。`);
       if (skill.status === 'deprecated') {
-        throw new Error(`MoAgent Skill ${skillId} 已废弃，拒绝安装。`);
+        throw new Error(`PI Agent Skill ${skillId} 已废弃，拒绝安装。`);
       }
       installableById.set(skillId, await loadSkill({
         root,
@@ -1141,7 +1141,7 @@ export async function compileMoAgentSkills(
     });
   }
   return {
-    runtime: 'MoAgent',
+    runtime: 'PI Agent',
     capabilityId: selection.capabilityId,
     selectedSkillIds: loaded.map((skill) => skill.registry.id),
     phase: selection.phase,
@@ -1157,11 +1157,11 @@ export async function compileMoAgentSkills(
   };
 }
 
-export async function installMoAgentSkillsForWorkspace(
+export async function installPiAgentSkillsForWorkspace(
   workspace: string,
-  options: Omit<CompileMoAgentSkillsOptions, 'installToWorkspace'> = {},
-): Promise<MoAgentSkillsInstallReceipt> {
-  const result = await compileMoAgentSkills({ ...options, installToWorkspace: workspace });
-  if (!result.installReceipt) throw new Error('MoAgent Skills 安装未生成 receipt。');
+  options: Omit<CompilePiAgentSkillsOptions, 'installToWorkspace'> = {},
+): Promise<PiAgentSkillsInstallReceipt> {
+  const result = await compilePiAgentSkills({ ...options, installToWorkspace: workspace });
+  if (!result.installReceipt) throw new Error('PI Agent Skills 安装未生成 receipt。');
   return result.installReceipt;
 }

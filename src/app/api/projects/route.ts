@@ -11,7 +11,8 @@ import { z } from 'zod';
 import { getAllProjects, createProject } from '@/lib/services/project';
 import type { CreateProjectInput } from '@/types/backend';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
-import { normalizeMoAgentModelId } from '@/lib/constants/models';
+import { normalizePiAgentModelId } from '@/lib/constants/models';
+import { PRODUCT_CLI_ID } from '@/lib/constants/cli';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
 import { DEFAULT_DATA_AGENT_PROFILE_ID } from '@/lib/config/data-agent';
 import { getProjectAuthConfig } from '@/lib/config/auth';
@@ -117,8 +118,8 @@ export async function POST(request: NextRequest) {
       project_id: body.projectId,
       name: body.name,
       initialPrompt: body.initialPrompt ?? '',
-      preferredCli: 'moagent',
-      selectedModel: normalizeMoAgentModelId(body.selectedModel),
+      preferredCli: PRODUCT_CLI_ID,
+      selectedModel: normalizePiAgentModelId(body.selectedModel),
       description: body.description ?? undefined,
       capabilityId: body.capabilityId,
       capabilitySelectionSource: body.capabilitySelectionSource,

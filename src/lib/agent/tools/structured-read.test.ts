@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { MoAgentTool, MoAgentToolContext, MoAgentToolResult } from '@/lib/agent/types';
+import type { PiAgentTool, PiAgentToolContext, PiAgentToolResult } from '@/lib/agent/types';
 
 import { createReadFileRangeTool, createReadFileTool } from './filesystem';
-import { createMoAgentTools } from './index';
+import { createPiAgentTools } from './index';
 import { createQueryJsonTool, createQueryTextFileTool } from './structured-read';
 
 const TEST_JSON_ARTIFACTS = {
@@ -47,7 +47,7 @@ const TEST_JSON_ARTIFACTS = {
   },
 } as const;
 
-const context: MoAgentToolContext = {
+const context: PiAgentToolContext = {
   runId: 'run-structured-read',
   turn: 1,
   toolCallId: 'call-structured-read',
@@ -55,18 +55,18 @@ const context: MoAgentToolContext = {
   signal: new AbortController().signal,
 };
 
-async function invoke(tool: MoAgentTool, input: unknown): Promise<MoAgentToolResult> {
+async function invoke(tool: PiAgentTool, input: unknown): Promise<PiAgentToolResult> {
   const parsed = tool.parseInput ? tool.parseInput(input) : input;
   return tool.execute(parsed, context);
 }
 
-describe('MoAgent structured read tools', () => {
+describe('PI Agent structured read tools', () => {
   let workspace: string;
   let outside: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-structured-read-'));
-    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-structured-outside-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-structured-read-'));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-structured-outside-'));
     await fs.mkdir(path.join(workspace, 'data_file', 'final'), { recursive: true });
     await fs.mkdir(path.join(workspace, 'evidence'), { recursive: true });
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
@@ -117,7 +117,7 @@ describe('MoAgent structured read tools', () => {
     if (!result.ok || !result.content) throw new Error('Expected query_json content');
     expect(result.content.length).toBeLessThanOrEqual(4_000);
     const report = JSON.parse(result.content);
-    expect(report.$moagent).toMatchObject({
+    expect(report.$piAgent).toMatchObject({
       kind: 'bounded_json_pointer_query',
       selection: 'head_and_recent_tail',
       omissionCount: expect.any(Number),
@@ -177,7 +177,7 @@ describe('MoAgent structured read tools', () => {
         },
       });
       if (!corrected.ok || !corrected.content) throw new Error('Expected corrected query');
-      expect(JSON.parse(corrected.content).$moagent.pathCorrection).toEqual({
+      expect(JSON.parse(corrected.content).$piAgent.pathCorrection).toEqual({
         requestedPath: alias,
         resolvedPath: 'data_file/final/dashboard-data.json',
         reason: 'recognized_artifact_alias',
@@ -341,7 +341,7 @@ describe('MoAgent structured read tools', () => {
     if (!result.ok || !result.content) throw new Error('Expected bounded batch');
     expect(result.content.length).toBeLessThanOrEqual(3_000);
     const report = JSON.parse(result.content);
-    expect(report.$moagent).toMatchObject({
+    expect(report.$piAgent).toMatchObject({
       kind: 'bounded_json_pointer_query',
       omissionCount: expect.any(Number),
       omissionDetailsTruncated: true,
@@ -499,7 +499,7 @@ describe('MoAgent structured read tools', () => {
       JSON.stringify({ rows: Array.from({ length: 100 }, (_, index) => ({ index })) }),
       'utf8',
     );
-    const generation = createMoAgentTools({
+    const generation = createPiAgentTools({
       workspaceRoot: workspace,
       profile: 'generation',
     });

@@ -1,10 +1,10 @@
-import type { MoAgentTool } from '@/lib/agent/types';
-import { MoAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
+import type { PiAgentTool } from '@/lib/agent/types';
+import { PiAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
 import { inputRecord, requiredString } from '@/lib/agent/tools/input';
 import {
   DEFAULT_TOOL_OUTPUT_CHARS,
   DEFAULT_TOOL_TIMEOUT_MS,
-  executeMoAgentTool,
+  executePiAgentTool,
   truncateToolOutput,
 } from '@/lib/agent/tools/runtime';
 
@@ -56,7 +56,7 @@ export interface QuantApiGetInput {
   query: Record<string, QueryValue>;
 }
 
-export interface MoAgentQuantApiToolOptions {
+export interface PiAgentQuantApiToolOptions {
   timeoutMs?: number;
   maxOutputChars?: number;
   maxResponseBytes?: number;
@@ -71,7 +71,7 @@ function validateQueryValue(value: unknown, key: string): QueryValue {
     (typeof candidate === 'number' && Number.isFinite(candidate));
   if (validPrimitive(value)) return value;
   if (Array.isArray(value) && value.length <= 100 && value.every(validPrimitive)) return value;
-  throw new MoAgentToolError(
+  throw new PiAgentToolError(
     'INVALID_TOOL_INPUT',
     `query.${key} must be a string, finite number, boolean, or an array of those values.`,
   );
@@ -83,11 +83,11 @@ function parseQuantApiGetInput(value: unknown): QuantApiGetInput {
   const query = Object.create(null) as Record<string, QueryValue>;
   const entries = Object.entries(rawQuery);
   if (entries.length > 100) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', 'query accepts at most 100 keys.');
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', 'query accepts at most 100 keys.');
   }
   for (const [key, queryValue] of entries) {
     if (!key || key.length > 200 || /[\r\n\0]/.test(key)) {
-      throw new MoAgentToolError('INVALID_TOOL_INPUT', 'Query keys must be 1-200 printable characters.');
+      throw new PiAgentToolError('INVALID_TOOL_INPUT', 'Query keys must be 1-200 printable characters.');
     }
     query[key] = validateQueryValue(queryValue, key);
   }
@@ -99,13 +99,13 @@ function parseQuantApiGetInput(value: unknown): QuantApiGetInput {
 
 function buildQuantApiUrl(apiPath: string, query: Record<string, QueryValue>): URL {
   if (!apiPath.startsWith(QUANT_API_PREFIX) || apiPath.startsWith('//')) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'QUANT_API_PATH_DENIED',
       'quant_api_get only accepts paths beginning with /api/v1/.',
     );
   }
   if (apiPath.includes('\\') || apiPath.includes('?') || apiPath.includes('#') || /[\r\n\0]/.test(apiPath)) {
-    throw new MoAgentToolError('QUANT_API_PATH_DENIED', 'The API path must not contain query text, fragments, backslashes, or control characters.');
+    throw new PiAgentToolError('QUANT_API_PATH_DENIED', 'The API path must not contain query text, fragments, backslashes, or control characters.');
   }
   const rawSegments = apiPath.split('/');
   for (const rawSegment of rawSegments) {
@@ -113,21 +113,21 @@ function buildQuantApiUrl(apiPath: string, query: Record<string, QueryValue>): U
     try {
       decoded = decodeURIComponent(rawSegment);
     } catch {
-      throw new MoAgentToolError('QUANT_API_PATH_DENIED', 'The API path contains malformed percent encoding.');
+      throw new PiAgentToolError('QUANT_API_PATH_DENIED', 'The API path contains malformed percent encoding.');
     }
     if (decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\')) {
-      throw new MoAgentToolError('QUANT_API_PATH_DENIED', 'API path traversal and encoded separators are denied.');
+      throw new PiAgentToolError('QUANT_API_PATH_DENIED', 'API path traversal and encoded separators are denied.');
     }
   }
 
   const url = new URL(apiPath, QUANT_API_ORIGIN);
   if (url.origin !== QUANT_API_ORIGIN || !url.pathname.startsWith(QUANT_API_PREFIX)) {
-    throw new MoAgentToolError('QUANT_API_PATH_DENIED', 'The API request must remain on the local /api/v1/ endpoint.');
+    throw new PiAgentToolError('QUANT_API_PATH_DENIED', 'The API request must remain on the local /api/v1/ endpoint.');
   }
   if (!ALLOWED_QUANT_API_PATHS.some((pattern) => pattern.test(url.pathname))) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'QUANT_API_ENDPOINT_DENIED',
-      'The requested local API endpoint is not in the MoAgent read-only quant allowlist.',
+      'The requested local API endpoint is not in the PI Agent read-only quant allowlist.',
     );
   }
   for (const [key, value] of Object.entries(query)) {
@@ -135,7 +135,7 @@ function buildQuantApiUrl(apiPath: string, query: Record<string, QueryValue>): U
     for (const item of values) url.searchParams.append(key, String(item));
   }
   if (url.toString().length > MAX_URL_CHARS) {
-    throw new MoAgentToolError('QUANT_API_URL_TOO_LONG', `Quant API URLs cannot exceed ${MAX_URL_CHARS} characters.`);
+    throw new PiAgentToolError('QUANT_API_URL_TOO_LONG', `Quant API URLs cannot exceed ${MAX_URL_CHARS} characters.`);
   }
   return url;
 }
@@ -159,14 +159,14 @@ async function readBoundedResponse(
       const remaining = maxBytes - bytes;
       if (remaining <= 0) {
         truncated = true;
-        await reader.cancel('MoAgent response byte limit reached.').catch(() => undefined);
+        await reader.cancel('PI Agent response byte limit reached.').catch(() => undefined);
         break;
       }
       if (result.value.byteLength > remaining) {
         chunks.push(result.value.subarray(0, remaining));
         bytes += remaining;
         truncated = true;
-        await reader.cancel('MoAgent response byte limit reached.').catch(() => undefined);
+        await reader.cancel('PI Agent response byte limit reached.').catch(() => undefined);
         break;
       }
       chunks.push(result.value);
@@ -265,7 +265,7 @@ function serializeBoundedPreview(
     const previewChars = Math.floor((low + high) / 2);
     const preview = compactString(value, previewChars);
     const candidate = JSON.stringify({
-      $moagent: metadata,
+      $piAgent: metadata,
       preview,
     });
     if (candidate.length <= limit) {
@@ -278,7 +278,7 @@ function serializeBoundedPreview(
   if (fitted) return fitted;
 
   const minimal = JSON.stringify({
-    $moagent: {
+    $piAgent: {
       kind: 'quant_api_result_window',
       version: QUANT_WINDOW_VERSION,
       truncated: true,
@@ -332,7 +332,7 @@ function compactQuantOutput(
         const state: QuantJsonProjectionState = { omissionCount: 0, omissions: [] };
         const data = projectJsonValue(parsed, projection, '$', state);
         const candidate = JSON.stringify({
-          $moagent: {
+          $piAgent: {
             ...baseMetadata,
             strategy: 'head_and_recent_tail',
             originalCharacters: value.length,
@@ -369,7 +369,7 @@ function compactQuantOutput(
   };
 }
 
-export function createQuantApiGetTool(options: MoAgentQuantApiToolOptions = {}): MoAgentTool<QuantApiGetInput> {
+export function createQuantApiGetTool(options: PiAgentQuantApiToolOptions = {}): PiAgentTool<QuantApiGetInput> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_TOOL_OUTPUT_CHARS;
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
@@ -402,12 +402,12 @@ export function createQuantApiGetTool(options: MoAgentQuantApiToolOptions = {}):
       additionalProperties: false,
     },
     parseInput: parseQuantApiGetInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, timeoutMs, async (signal) => {
       requestCount += 1;
       if (requestCount > maxRequests) {
-        throw new MoAgentToolError(
+        throw new PiAgentToolError(
           'QUANT_API_REQUEST_BUDGET_EXCEEDED',
-          `This MoAgent run exceeded its ${maxRequests}-request quant API budget.`,
+          `This PI Agent run exceeded its ${maxRequests}-request quant API budget.`,
         );
       }
       const url = buildQuantApiUrl(input.path, input.query);

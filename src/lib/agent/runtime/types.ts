@@ -1,5 +1,5 @@
 /**
- * Durable-runtime contracts for MoAgent.
+ * Durable-runtime contracts for PI Agent.
  *
  * These records intentionally contain provenance, counters, public lifecycle
  * data, and opaque recovery handles only. Model reasoning, full prompts, raw

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { createMoAgentOperationId } from '../core/operation-id';
-import type { MoAgentEvent, MoAgentToolCall } from '../types';
-import { auditUtf8, projectMoAgentEvent, sha256 } from './event-projector';
+import { createPiAgentOperationId } from '../core/operation-id';
+import type { PiAgentEvent, PiAgentToolCall } from '../types';
+import { auditUtf8, projectPiAgentEvent, sha256 } from './event-projector';
 
 const SECRET = 'secret-DO-NOT-PERSIST-7c440d';
 
@@ -13,12 +13,12 @@ const base = {
   timestamp: 1_720_000_000_000,
 };
 
-function serialized(event: MoAgentEvent): string {
-  return JSON.stringify(projectMoAgentEvent(event));
+function serialized(event: PiAgentEvent): string {
+  return JSON.stringify(projectPiAgentEvent(event));
 }
 
 function toolCall(argumentsValue = JSON.stringify({ path: `/private/${SECRET}.tsx` })):
-  MoAgentToolCall {
+  PiAgentToolCall {
   return { id: 'call-1', name: 'write_file', arguments: argumentsValue };
 }
 
@@ -27,15 +27,15 @@ function toolEventBase(call = toolCall()) {
     ...base,
     turn: 2,
     toolCall: call,
-    operationId: createMoAgentOperationId(base.runId, 2, call),
+    operationId: createPiAgentOperationId(base.runId, 2, call),
     effect: 'workspace_write' as const,
     idempotency: 'reconcile_required' as const,
   };
 }
 
-describe('MoAgent durable event projector', () => {
+describe('PI Agent durable event projector', () => {
   it('persists only the explicit public approval projection and input hashes', () => {
-    const projected = projectMoAgentEvent({
+    const projected = projectPiAgentEvent({
       ...base,
       type: 'tool_approval_requested',
       turn: 2,
@@ -79,10 +79,10 @@ describe('MoAgent durable event projector', () => {
 
   it('drops high-volume model deltas instead of making them durable', () => {
     expect(
-      projectMoAgentEvent({ ...base, type: 'text_delta', turn: 1, delta: SECRET })
+      projectPiAgentEvent({ ...base, type: 'text_delta', turn: 1, delta: SECRET })
     ).toBeNull();
     expect(
-      projectMoAgentEvent({
+      projectPiAgentEvent({
         ...base,
         type: 'tool_call_delta',
         turn: 1,
@@ -110,9 +110,9 @@ describe('MoAgent durable event projector', () => {
           },
         ],
       },
-    } as unknown as MoAgentEvent;
+    } as unknown as PiAgentEvent;
 
-    const projection = projectMoAgentEvent(event);
+    const projection = projectPiAgentEvent(event);
     expect(projection).toMatchObject({
       finishReason: 'tool_calls',
       toolCallCount: 1,
@@ -124,7 +124,7 @@ describe('MoAgent durable event projector', () => {
   });
 
   it('hashes non-canonical progress fingerprints before they cross the durable boundary', () => {
-    const event: MoAgentEvent = {
+    const event: PiAgentEvent = {
       ...base,
       type: 'progress_evaluated',
       turn: 1,
@@ -148,7 +148,7 @@ describe('MoAgent durable event projector', () => {
     };
 
     expect(serialized(event)).not.toContain(SECRET);
-    expect(projectMoAgentEvent(event)).toMatchObject({
+    expect(projectPiAgentEvent(event)).toMatchObject({
       progressOracle: {
         seenTrustedFactFingerprints: [sha256(SECRET)],
         lastWorkspaceFingerprint: sha256(SECRET),
@@ -157,7 +157,7 @@ describe('MoAgent durable event projector', () => {
   });
 
   it('projects tool input, target, result data and content as non-reversible audits', () => {
-    const started: MoAgentEvent = {
+    const started: PiAgentEvent = {
       ...toolEventBase(),
       type: 'tool_started',
     };
@@ -173,9 +173,9 @@ describe('MoAgent durable event projector', () => {
         metadata: { privateValue: SECRET },
         reasoning: SECRET,
       },
-    } as unknown as MoAgentEvent;
+    } as unknown as PiAgentEvent;
 
-    const startedProjection = projectMoAgentEvent(started);
+    const startedProjection = projectPiAgentEvent(started);
     expect(startedProjection).toMatchObject({
       operationId: toolEventBase().operationId,
       toolName: 'write_file',
@@ -188,7 +188,7 @@ describe('MoAgent durable event projector', () => {
     expect(serialized(started)).not.toContain(SECRET);
     expect(serialized(completed)).not.toContain(SECRET);
     expect(serialized(completed)).not.toContain('raw content');
-    expect(projectMoAgentEvent(completed)).toMatchObject({
+    expect(projectPiAgentEvent(completed)).toMatchObject({
       resultAudit: {
         ok: true,
         dataAudit: { kind: 'object' },
@@ -214,7 +214,7 @@ describe('MoAgent durable event projector', () => {
         metadata: { privateValue: SECRET },
       },
       cause: new Error(SECRET),
-    } as unknown as MoAgentEvent;
+    } as unknown as PiAgentEvent;
     const finished = {
       ...base,
       type: 'run_finished',
@@ -230,14 +230,14 @@ describe('MoAgent durable event projector', () => {
           cause: new Error(SECRET),
         },
       },
-    } as unknown as MoAgentEvent;
+    } as unknown as PiAgentEvent;
 
-    const failedProjection = projectMoAgentEvent(failed);
+    const failedProjection = projectPiAgentEvent(failed);
     expect(failedProjection).toMatchObject({
       errorCode: 'WRITE_FAILED',
       resultAudit: { ok: false, errorCode: 'WRITE_FAILED' },
     });
-    expect(projectMoAgentEvent(finished)).toMatchObject({ errorCode: 'RUN_FAILED' });
+    expect(projectPiAgentEvent(finished)).toMatchObject({ errorCode: 'RUN_FAILED' });
 
     for (const event of [failed, finished]) {
       const output = serialized(event);
@@ -250,23 +250,23 @@ describe('MoAgent durable event projector', () => {
 
   it('uses the framework operation ID and derives a valid fallback for malformed input', () => {
     const call = toolCall('{}');
-    const expected = createMoAgentOperationId(base.runId, 2, call);
-    const valid: MoAgentEvent = {
+    const expected = createPiAgentOperationId(base.runId, 2, call);
+    const valid: PiAgentEvent = {
       ...toolEventBase(call),
       type: 'tool_started',
     };
     const malformed = {
       ...valid,
       operationId: `model-controlled-${SECRET}`,
-    } as MoAgentEvent;
+    } as PiAgentEvent;
 
-    expect(projectMoAgentEvent(valid)).toMatchObject({ operationId: expected });
-    expect(projectMoAgentEvent(malformed)).toMatchObject({ operationId: expected });
+    expect(projectPiAgentEvent(valid)).toMatchObject({ operationId: expected });
+    expect(projectPiAgentEvent(malformed)).toMatchObject({ operationId: expected });
     expect(serialized(malformed)).not.toContain(SECRET);
   });
 
   it('projects every low-volume lifecycle event through the public JSON policy', () => {
-    const events: MoAgentEvent[] = [
+    const events: PiAgentEvent[] = [
       {
         ...base,
         type: 'run_started',
@@ -394,12 +394,12 @@ describe('MoAgent durable event projector', () => {
     ];
 
     for (const event of events) {
-      const projection = projectMoAgentEvent(event);
+      const projection = projectPiAgentEvent(event);
       expect(projection).not.toBeNull();
       expect(JSON.stringify(projection)).not.toContain(SECRET);
     }
     const compacted = events.find((event) => event.type === 'context_compacted');
-    expect(compacted && projectMoAgentEvent(compacted)).toMatchObject({
+    expect(compacted && projectPiAgentEvent(compacted)).toMatchObject({
       contextCapsule: {
         applied: true,
         phase: 'writing',

@@ -27,11 +27,11 @@ const {
 
 function validProductControlEvidence() {
   const suite = loadQuantE2eSuite({ requireReleaseCoverage: true });
-  const frameworkVersion = 'moagent:test';
+  const frameworkVersion = 'pi-agent:test';
   const buildRevision = 'build:test';
   const gitRevision = 'a'.repeat(40);
   const id = suite.productControlCaseIds[0];
-  const runId = 'moagent_product_control';
+  const runId = 'pi_product_control';
   const requestId = 'request-product-control';
   const missionId = 'mission-product-control';
   const generationId = '11111111-1111-4111-8111-111111111111';
@@ -63,9 +63,9 @@ function validProductControlEvidence() {
         agentExecuted: true,
         agentExecution: {
           executed: true,
-          cli: 'moagent',
-          provider: 'moagent-trusted-renderer',
-          model: 'moagent-deterministic-renderer-v1',
+          cli: 'pi',
+          provider: 'pi-agent-trusted-renderer',
+          model: 'pi-agent-deterministic-renderer-v1',
           frameworkVersion,
           buildRevision,
           gitRevision,
@@ -77,7 +77,7 @@ function validProductControlEvidence() {
           acceptedReceiptHash: receiptHash,
           acceptedReceiptType: 'acceptance',
           acceptedReceiptVerdict: 'accepted',
-          acceptedCandidateSource: 'moagent_submit_result',
+          acceptedCandidateSource: 'pi_agent_submit_result',
           acceptedSourceRunId: runId,
           acceptedSourceRequestId: requestId,
           startedAt,
@@ -106,8 +106,8 @@ function validProductControlEvidence() {
             id: runId,
             requestId,
             status: 'candidate_complete',
-            provider: 'moagent-trusted-renderer',
-            model: 'moagent-deterministic-renderer-v1',
+            provider: 'pi-agent-trusted-renderer',
+            model: 'pi-agent-deterministic-renderer-v1',
             frameworkVersion,
             buildRevision,
             turns: 2,
@@ -131,7 +131,7 @@ function validProductControlEvidence() {
           acceptedReceiptHash: receiptHash,
           acceptedSourceRunId: runId,
           acceptedSourceRequestId: requestId,
-          acceptedCandidateSource: 'moagent_submit_result',
+          acceptedCandidateSource: 'pi_agent_submit_result',
         },
         validation: { status: 'passed', checks: [] },
         visualCheck: { passed: true },
@@ -141,7 +141,7 @@ function validProductControlEvidence() {
   };
 }
 
-describe('MoAgent release E2E suite', () => {
+describe('PI Agent release E2E suite', () => {
   it('requires all production scenarios and separates zero-model controls', () => {
     const suite = loadQuantE2eSuite({ requireReleaseCoverage: true });
 

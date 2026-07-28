@@ -1,5 +1,6 @@
 import type { Project as ProjectEntity } from '@/types/backend';
 import type { Project } from '@/types';
+import { normalizeProductCliIdOrDefault } from '@/lib/constants/cli';
 
 function readDataAgentCapabilityId(settings?: string | null) {
   if (!settings) return null;
@@ -27,7 +28,9 @@ export function serializeProject(project: ProjectEntity): Project {
     updatedAt: project.updatedAt.toISOString(),
     lastActiveAt: project.lastActiveAt ? project.lastActiveAt.toISOString() : null,
     initialPrompt: project.initialPrompt ?? null,
-    preferredCli: (project.preferredCli ?? null) as Project['preferredCli'],
+    preferredCli: project.preferredCli == null
+      ? null
+      : normalizeProductCliIdOrDefault(project.preferredCli),
     selectedModel: project.selectedModel ?? null,
     agentProfileId: project.agentProfileId,
     agentProfileVersion: project.agentProfileVersion,

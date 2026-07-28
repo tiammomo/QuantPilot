@@ -96,8 +96,8 @@ const workspaceSchema = z.object({
   platform: nonEmptyString,
   composition: compositionLockSchema,
   runtime: z.object({
-    framework: z.literal('MoAgent'),
-    executorId: nonEmptyString,
+    framework: z.literal('PI Agent'),
+    executorId: z.literal('pi'),
     modelId: nonEmptyString,
     modelProfileId: nonEmptyString,
   }),

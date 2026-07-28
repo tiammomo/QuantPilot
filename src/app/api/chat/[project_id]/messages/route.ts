@@ -28,7 +28,7 @@ const createMessageSchema = z.object({
   role: z.enum(['assistant', 'user', 'system', 'tool']).default('user'),
   messageType: z.enum(['chat', 'tool_use', 'tool_result', 'error', 'info', 'system']).optional(),
   conversationId: z.string().trim().min(1).max(256).optional(),
-  cliSource: z.literal('moagent').optional(),
+  cliSource: z.literal('pi').optional(),
 }).strict();
 
 /**

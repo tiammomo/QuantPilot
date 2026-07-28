@@ -1,8 +1,8 @@
-import { MoAgentToolError } from './errors';
+import { PiAgentToolError } from './errors';
 
 export function inputRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', 'Tool input must be a JSON object.');
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', 'Tool input must be a JSON object.');
   }
   return value as Record<string, unknown>;
 }
@@ -14,10 +14,10 @@ export function requiredString(
 ): string {
   const value = record[key];
   if (typeof value !== 'string' || (!options.allowEmpty && value.length === 0)) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', `${key} must be a${options.allowEmpty ? '' : ' non-empty'} string.`);
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', `${key} must be a${options.allowEmpty ? '' : ' non-empty'} string.`);
   }
   if (options.maxLength !== undefined && value.length > options.maxLength) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', `${key} exceeds ${options.maxLength} characters.`);
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', `${key} exceeds ${options.maxLength} characters.`);
   }
   return value;
 }
@@ -36,7 +36,7 @@ export function optionalBoolean(record: Record<string, unknown>, key: string, fa
   const value = record[key];
   if (value === undefined) return fallback;
   if (typeof value !== 'boolean') {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', `${key} must be a boolean.`);
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', `${key} must be a boolean.`);
   }
   return value;
 }
@@ -50,7 +50,7 @@ export function optionalInteger(
   const value = record[key];
   if (value === undefined) return fallback;
   if (!Number.isSafeInteger(value) || (value as number) < options.min || (value as number) > options.max) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_TOOL_INPUT',
       `${key} must be an integer between ${options.min} and ${options.max}.`,
     );

@@ -1,6 +1,6 @@
-import type { MoAgentMissionDefinition } from '@/lib/agent/mission';
-import type { MoAgentSkillCapabilityDescriptor } from '@/lib/agent/skills';
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentMissionDefinition } from '@/lib/agent/mission';
+import type { PiAgentSkillCapabilityDescriptor } from '@/lib/agent/skills';
+import type { PiAgentTool } from '@/lib/agent/types';
 
 export type DataAgentOutputKind =
   | 'answer'
@@ -248,7 +248,7 @@ export interface DataAgentWorkspaceDescriptor {
   platform: string;
   composition: DataAgentCompositionLock;
   runtime: {
-    framework: 'MoAgent';
+    framework: 'PI Agent';
     executorId: string;
     modelId: string;
     modelProfileId: string;
@@ -257,13 +257,13 @@ export interface DataAgentWorkspaceDescriptor {
   updatedAt: string;
 }
 
-/** Runtime composition owned by an application/domain adapter, never by MoAgent core. */
+/** Runtime composition owned by an application/domain adapter, never by PI Agent core. */
 export interface DataAgentRuntimeComposition {
   profile: DataAgentProfile;
   deliveryPack: DataAgentDeliveryPackDescriptor;
   domainPacks: DataAgentDomainPack[];
   capability: DataAgentCapabilityDescriptor;
-  skillCapability: MoAgentSkillCapabilityDescriptor;
-  missionDefinition: MoAgentMissionDefinition;
-  tools: MoAgentTool[];
+  skillCapability: PiAgentSkillCapabilityDescriptor;
+  missionDefinition: PiAgentMissionDefinition;
+  tools: PiAgentTool[];
 }

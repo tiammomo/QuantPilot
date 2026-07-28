@@ -82,14 +82,14 @@ describe('realtime generation terminal classification', () => {
     });
   });
 
-  it('does not let a hidden MoAgent candidate summary stop the waiting state', () => {
+  it('does not let a hidden PI Agent candidate summary stop the waiting state', () => {
     expect(
       shouldRealtimeAssistantUpdateStopWaiting({
         hasContent: true,
         isFinal: true,
         metadata: {
-          runtime: 'moagent',
-          isMoAgentCandidate: true,
+          runtime: 'pi',
+          isPiAgentCandidate: true,
           hidden_from_ui: true,
         },
       }),

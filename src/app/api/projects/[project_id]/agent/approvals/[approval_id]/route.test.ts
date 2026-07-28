@@ -6,12 +6,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.requireAction }));
-vi.mock('@/lib/services/moagent-tool-approval-store', async (importOriginal) => {
+vi.mock('@/lib/services/pi-agent-tool-approval-store', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@/lib/services/moagent-tool-approval-store')>();
+    await importOriginal<typeof import('@/lib/services/pi-agent-tool-approval-store')>();
   return {
     ...actual,
-    resolveMoAgentToolApproval: mocks.resolveApproval,
+    resolvePiAgentToolApproval: mocks.resolveApproval,
   };
 });
 

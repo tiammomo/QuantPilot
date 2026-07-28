@@ -1,22 +1,22 @@
 import { collectTrustedContextTargetReferences } from '../context';
 import type {
-  MoAgentRunRequest,
-  MoAgentTool,
-  MoAgentToolCall,
-  MoAgentToolContextReceipt,
-  MoAgentToolResult,
+  PiAgentRunRequest,
+  PiAgentTool,
+  PiAgentToolCall,
+  PiAgentToolContextReceipt,
+  PiAgentToolResult,
 } from '../types';
-import { parseMoAgentToolArguments } from './tool-arguments';
+import { parsePiAgentToolArguments } from './tool-arguments';
 
-export interface MoAgentToolExecution {
-  result: MoAgentToolResult;
+export interface PiAgentToolExecution {
+  result: PiAgentToolResult;
   terminal: boolean;
   durationMs: number;
   targetReferences: string[];
-  contextReceipt?: MoAgentToolContextReceipt;
+  contextReceipt?: PiAgentToolContextReceipt;
 }
 
-function failure(code: string, message: string, details?: unknown): MoAgentToolResult {
+function failure(code: string, message: string, details?: unknown): PiAgentToolResult {
   return {
     ok: false,
     error: { code, message, ...(details === undefined ? {} : { details }) },
@@ -31,7 +31,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isToolResult(value: unknown): value is MoAgentToolResult {
+function isToolResult(value: unknown): value is PiAgentToolResult {
   if (!isRecord(value) || typeof value.ok !== 'boolean') return false;
   return value.ok
     ? Object.prototype.hasOwnProperty.call(value, 'data')
@@ -63,10 +63,10 @@ async function abortable<T>(operation: PromiseLike<T>, signal: AbortSignal): Pro
 }
 
 function projectContextReceipt(
-  tool: MoAgentTool,
+  tool: PiAgentTool,
   input: unknown,
-  result: MoAgentToolResult,
-): MoAgentToolContextReceipt | undefined {
+  result: PiAgentToolResult,
+): PiAgentToolContextReceipt | undefined {
   if (!tool.projectContextReceipt) return undefined;
   try {
     const projected = tool.projectContextReceipt(input, result);
@@ -97,10 +97,10 @@ function projectContextReceipt(
 }
 
 function emptyFailure(
-  result: MoAgentToolResult,
+  result: PiAgentToolResult,
   startedAt: number,
   now: () => number,
-): MoAgentToolExecution {
+): PiAgentToolExecution {
   return {
     result,
     terminal: false,
@@ -109,16 +109,16 @@ function emptyFailure(
   };
 }
 
-export async function executeMoAgentTool(options: {
-  tool: MoAgentTool | undefined;
-  toolCall: MoAgentToolCall;
+export async function executePiAgentTool(options: {
+  tool: PiAgentTool | undefined;
+  toolCall: PiAgentToolCall;
   turn: number;
   runId: string;
   operationId: string;
   signal: AbortSignal;
   now: () => number;
-  commitWorkspaceMutation: MoAgentRunRequest['commitWorkspaceMutation'];
-}): Promise<MoAgentToolExecution> {
+  commitWorkspaceMutation: PiAgentRunRequest['commitWorkspaceMutation'];
+}): Promise<PiAgentToolExecution> {
   const startedAt = options.now();
   const { tool, toolCall, signal } = options;
   if (!tool) {
@@ -131,7 +131,7 @@ export async function executeMoAgentTool(options: {
 
   let parsed: unknown;
   try {
-    parsed = parseMoAgentToolArguments(toolCall.arguments).value;
+    parsed = parsePiAgentToolArguments(toolCall.arguments).value;
   } catch (error) {
     return emptyFailure(
       failure('INVALID_TOOL_ARGUMENTS', 'Tool arguments must be valid JSON.', {

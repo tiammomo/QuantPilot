@@ -100,7 +100,7 @@ assertCondition(instruction.includes('定向读取'), '修复提示词应要求�
 assertCondition(instruction.includes('整个 `.data-agent/**`'), '修复提示词应保持平台目录只读。', failures);
 assertCondition(instruction.includes('构建、预览与自动验证由 QuantPilot 平台统一执行'), '修复提示词应把 build/preview/validation 交给平台。', failures);
 assertCondition(instruction.includes('submit_result'), '修复提示词应要求提交候选结果。', failures);
-assertCondition(!instruction.includes('npm run build'), '修复提示词不得要求 MoAgent 运行 build。', failures);
+assertCondition(!instruction.includes('npm run build'), '修复提示词不得要求 PI Agent 运行 build。', failures);
 assertCondition(
   JSON.stringify(writableGlobs) === JSON.stringify([
     'app/page.tsx',

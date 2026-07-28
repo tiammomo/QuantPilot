@@ -1,13 +1,13 @@
-export const MOAGENT_TURN_METRICS_SCHEMA_VERSION = 1 as const;
+export const PI_AGENT_TURN_METRICS_SCHEMA_VERSION = 1 as const;
 
-export type MoAgentTokenAccounting =
+export type PiAgentTokenAccounting =
   | 'provider'
   | 'estimated'
   | 'mixed'
   | 'partial';
 
-export interface MoAgentTurnMetrics {
-  schemaVersion: typeof MOAGENT_TURN_METRICS_SCHEMA_VERSION;
+export interface PiAgentTurnMetrics {
+  schemaVersion: typeof PI_AGENT_TURN_METRICS_SCHEMA_VERSION;
   elapsedMs: number;
   agentRunCount: number;
   modelTurnCount: number;
@@ -17,17 +17,17 @@ export interface MoAgentTurnMetrics {
   cachedInputTokens: number;
   cacheMissInputTokens: number;
   reasoningTokens: number;
-  tokenAccounting: MoAgentTokenAccounting;
+  tokenAccounting: PiAgentTokenAccounting;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
-export function parseMoAgentTurnMetrics(value: unknown): MoAgentTurnMetrics | null {
+export function parsePiAgentTurnMetrics(value: unknown): PiAgentTurnMetrics | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (candidate.schemaVersion !== MOAGENT_TURN_METRICS_SCHEMA_VERSION) return null;
+  if (candidate.schemaVersion !== PI_AGENT_TURN_METRICS_SCHEMA_VERSION) return null;
 
   const numericKeys = [
     'elapsedMs',
@@ -54,8 +54,8 @@ export function parseMoAgentTurnMetrics(value: unknown): MoAgentTurnMetrics | nu
     return null;
   }
 
-  const metrics: MoAgentTurnMetrics = {
-    schemaVersion: MOAGENT_TURN_METRICS_SCHEMA_VERSION,
+  const metrics: PiAgentTurnMetrics = {
+    schemaVersion: PI_AGENT_TURN_METRICS_SCHEMA_VERSION,
     elapsedMs: candidate.elapsedMs as number,
     agentRunCount: candidate.agentRunCount as number,
     modelTurnCount: candidate.modelTurnCount as number,
@@ -78,7 +78,7 @@ export function parseMoAgentTurnMetrics(value: unknown): MoAgentTurnMetrics | nu
   return metrics;
 }
 
-export function formatMoAgentDuration(elapsedMs: number): string {
+export function formatPiAgentDuration(elapsedMs: number): string {
   if (!isNonNegativeSafeInteger(elapsedMs)) return '未知';
   if (elapsedMs < 1_000) return '<1 秒';
 
@@ -93,7 +93,7 @@ export function formatMoAgentDuration(elapsedMs: number): string {
   return minutes === 0 ? `${hours} 小时` : `${hours} 小时 ${minutes} 分`;
 }
 
-export function formatMoAgentTokens(tokens: number): string {
+export function formatPiAgentTokens(tokens: number): string {
   if (!isNonNegativeSafeInteger(tokens)) return '未知';
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(tokens);
 }

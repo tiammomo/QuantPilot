@@ -14,14 +14,14 @@ const preview = (
   url: string | null,
 ) => ({ status, url, port: url ? 4100 : null, logs: [] });
 
-const moAgentGeneration = (
+const piAgentGeneration = (
   requestId: string,
   generationId = 'generation-1',
 ) => ({
   projectId: 'project-1',
   requestId,
   status: 'completed' as const,
-  cliPreference: 'moagent',
+  cliPreference: 'pi',
   error: null,
   steps: [{ metadata: { generationId } }],
 });
@@ -43,7 +43,7 @@ describe('generation terminal snapshot', () => {
         projectId: 'project-1',
         requestId: 'refused-request',
         status: 'refused',
-        cliPreference: 'moagent',
+        cliPreference: 'pi',
         error: null,
       },
       validation: null,
@@ -60,7 +60,7 @@ describe('generation terminal snapshot', () => {
 
   it('is ready only after current-run validation and a running preview URL', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
-      generation: moAgentGeneration('request-1'),
+      generation: piAgentGeneration('request-1'),
       validation: validation('request-1'),
       preview: preview('running', 'http://localhost:4100'),
       acceptedMission: acceptedMission('request-1'),
@@ -78,9 +78,9 @@ describe('generation terminal snapshot', () => {
     });
   });
 
-  it('fails closed for a MoAgent generation without an accepted receipt', () => {
+  it('fails closed for a PI Agent generation without an accepted receipt', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
-      generation: moAgentGeneration('request-1'),
+      generation: piAgentGeneration('request-1'),
       validation: validation('request-1'),
       preview: preview('running', 'http://localhost:4100'),
       acceptedMission: null,
@@ -125,7 +125,7 @@ describe('generation terminal snapshot', () => {
     'rejects accepted evidence bound to a different or incomplete $name',
     ({ mission }) => {
       const snapshot = deriveQuantGenerationTerminalSnapshot({
-        generation: moAgentGeneration('request-1'),
+        generation: piAgentGeneration('request-1'),
         validation: validation('request-1'),
         preview: preview('running', 'http://localhost:4100'),
         acceptedMission: mission,
@@ -137,55 +137,56 @@ describe('generation terminal snapshot', () => {
     },
   );
 
-  it('keeps legacy non-MoAgent generations backward compatible without a receipt', () => {
+  it('fails closed when persisted generation identity is not canonical', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {
         projectId: 'project-1',
-        requestId: 'legacy-request',
+        requestId: 'noncanonical-request',
         status: 'completed',
-        cliPreference: 'legacy',
+        cliPreference: 'unsupported',
         error: null,
       },
-      validation: validation('legacy-request'),
+      validation: validation('noncanonical-request'),
       preview: preview('running', 'http://localhost:4100'),
     });
 
     expect(snapshot).toMatchObject({
-      status: 'ready',
-      terminal: true,
-      missionAcceptanceRequired: false,
-      missionAcceptanceSatisfied: true,
+      status: 'preview_pending',
+      terminal: false,
+      missionAcceptanceRequired: true,
+      missionAcceptanceSatisfied: false,
       acceptedReceiptId: null,
-      previewUrl: 'http://localhost:4100',
+      previewUrl: null,
     });
   });
 
-  it('keeps pre-Mission MoAgent generations readable without inventing a receipt', () => {
+  it('fails closed when a persisted PI Agent generation lacks Mission identity', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {
         projectId: 'project-1',
-        requestId: 'legacy-moagent-request',
+        requestId: 'incomplete-request',
         status: 'completed',
-        cliPreference: 'moagent',
+        cliPreference: 'pi',
         steps: [],
         error: null,
       },
-      validation: validation('legacy-moagent-request'),
+      validation: validation('incomplete-request'),
       preview: preview('running', 'http://localhost:4100'),
     });
 
     expect(snapshot).toMatchObject({
-      status: 'ready',
-      terminal: true,
-      missionAcceptanceRequired: false,
-      missionAcceptanceSatisfied: true,
+      status: 'preview_pending',
+      terminal: false,
+      missionAcceptanceRequired: true,
+      missionAcceptanceSatisfied: false,
+      previewUrl: null,
     });
   });
 
   it('fails closed for Mission-backed recovery state without a cliPreference', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {
-        ...moAgentGeneration('request-1'),
+        ...piAgentGeneration('request-1'),
         cliPreference: null,
       },
       validation: validation('request-1'),
@@ -237,7 +238,7 @@ describe('generation terminal snapshot', () => {
     },
   );
 
-  it('keeps a validated run recoverable when its persistent preview is absent', () => {
+  it('does not revive a failed generation from validation without acceptance', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {
         requestId: 'request-preview-failed',
@@ -249,9 +250,11 @@ describe('generation terminal snapshot', () => {
     });
 
     expect(snapshot).toMatchObject({
-      status: 'preview_pending',
-      terminal: false,
+      status: 'failed',
+      terminal: true,
       validationStatus: 'passed',
+      missionAcceptanceRequired: true,
+      missionAcceptanceSatisfied: false,
       errorMessage: 'preview failed',
     });
   });
@@ -259,7 +262,7 @@ describe('generation terminal snapshot', () => {
   it('does not revive a failed Mission-backed generation from a passed report', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {
-        ...moAgentGeneration('request-mission-failed'),
+        ...piAgentGeneration('request-mission-failed'),
         status: 'failed',
         error: { message: 'Mission verification failed' },
       },

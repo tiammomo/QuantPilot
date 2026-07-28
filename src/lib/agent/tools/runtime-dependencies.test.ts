@@ -10,7 +10,7 @@ type PackageManifest = {
   devDependencies?: Record<string, string>;
 };
 
-describe('MoAgent runtime parser dependencies', () => {
+describe('PI Agent runtime parser dependencies', () => {
   it('keeps semantic-edit parsers in production dependencies and loadable', async () => {
     const root = process.cwd();
     const [manifest, lock] = await Promise.all([

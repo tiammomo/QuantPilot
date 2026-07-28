@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import { normalizeMoAgentModelId } from '@/lib/constants/models';
+import { normalizePiAgentModelId } from '@/lib/constants/models';
+import { PRODUCT_CLI_ID } from '@/lib/constants/cli';
 import { serializeProject } from '@/lib/serializers/project';
 import { streamManager } from '@/lib/services/stream';
 import { getProjectById, updateProject } from '@/lib/services/project';
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreference = 'moagent';
-    const selectedModel = normalizeMoAgentModelId(
+    const cliPreference = PRODUCT_CLI_ID;
+    const selectedModel = normalizePiAgentModelId(
       body?.selectedModel ?? project.selectedModel,
     );
     const requestId =

@@ -1,8 +1,8 @@
 import type {
-  MoAgentMessage,
-  MoAgentModelEvent,
-  MoAgentModelProvider,
-  MoAgentModelRequest,
+  PiAgentMessage,
+  PiAgentModelEvent,
+  PiAgentModelProvider,
+  PiAgentModelRequest,
 } from '../types';
 import {
   DeepSeekProvider,
@@ -39,8 +39,8 @@ export class OpenAICompatibleProviderError extends Error {
 }
 
 function mergeLeadingSystemMessages(
-  messages: readonly MoAgentMessage[],
-): readonly MoAgentMessage[] {
+  messages: readonly PiAgentMessage[],
+): readonly PiAgentMessage[] {
   const leadingSystemCount = messages.findIndex((message) => message.role !== 'system');
   const count = leadingSystemCount < 0 ? messages.length : leadingSystemCount;
   if (count <= 1) return messages;
@@ -60,7 +60,7 @@ function mergeLeadingSystemMessages(
  * OpenAI-compatible chat-completions adapter backed by the hardened SSE parser.
  * It deliberately omits DeepSeek-only thinking fields and reasoning replay.
  */
-export class OpenAICompatibleProvider implements MoAgentModelProvider {
+export class OpenAICompatibleProvider implements PiAgentModelProvider {
   readonly name: string;
   private readonly delegate: DeepSeekProvider;
 
@@ -73,13 +73,13 @@ export class OpenAICompatibleProvider implements MoAgentModelProvider {
     });
   }
 
-  async *complete(request: MoAgentModelRequest): AsyncGenerator<MoAgentModelEvent> {
+  async *complete(request: PiAgentModelRequest): AsyncGenerator<PiAgentModelEvent> {
     try {
       yield* this.delegate.complete({
         ...request,
         // OpenAI permits multiple system messages, while common local Qwen
         // Jinja templates accept exactly one system message at the beginning.
-        // MoAgent has two leading authorities (kernel policy and trusted
+        // PI Agent has two leading authorities (kernel policy and trusted
         // context protocol); ordered concatenation preserves both without
         // teaching the core runtime a provider-specific chat-template rule.
         messages: mergeLeadingSystemMessages(request.messages),

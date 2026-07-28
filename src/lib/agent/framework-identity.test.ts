@@ -2,42 +2,42 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   fingerprintUntrackedFiles,
-  MOAGENT_FRAMEWORK_VERSION,
-  resolveMoAgentBuildIdentity,
+  PI_AGENT_FRAMEWORK_VERSION,
+  resolvePiAgentBuildIdentity,
 } from './framework-identity';
 
-describe('MoAgent framework identity', () => {
-  it('uses the single 1.12 framework version and an explicit immutable build revision', () => {
+describe('PI Agent framework identity', () => {
+  it('uses the pinned upstream PI version and an explicit immutable build revision', () => {
     const readGitRevision = vi.fn(() => 'a'.repeat(40));
 
-    expect(resolveMoAgentBuildIdentity({
+    expect(resolvePiAgentBuildIdentity({
       environment: {
         NODE_ENV: 'test',
-        MOAGENT_BUILD_REVISION: 'image:sha256-deadbeef',
+        PI_AGENT_BUILD_REVISION: 'image:sha256-deadbeef',
       },
       readGitRevision,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.13.0',
+      frameworkVersion: 'pi-agent:0.82.1',
       buildRevision: 'image:sha256-deadbeef',
       gitRevision: 'a'.repeat(40),
     });
-    expect(MOAGENT_FRAMEWORK_VERSION).toBe('moagent:1.13.0');
+    expect(PI_AGENT_FRAMEWORK_VERSION).toBe('pi-agent:0.82.1');
   });
 
   it('prefers deployment git provenance and rejects malformed revision input', () => {
     const readGitRevision = vi.fn(() => 'b'.repeat(40));
 
-    expect(resolveMoAgentBuildIdentity({
+    expect(resolvePiAgentBuildIdentity({
       environment: {
         NODE_ENV: 'test',
-        MOAGENT_BUILD_REVISION: 'contains spaces and is invalid',
+        PI_AGENT_BUILD_REVISION: 'contains spaces and is invalid',
         GITHUB_SHA: 'C'.repeat(40),
       },
       readGitRevision,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.13.0',
+      frameworkVersion: 'pi-agent:0.82.1',
       buildRevision: 'c'.repeat(40),
       gitRevision: 'c'.repeat(40),
     });
@@ -45,24 +45,24 @@ describe('MoAgent framework identity', () => {
   });
 
   it('fails visibly to an unversioned identity outside a git checkout', () => {
-    expect(resolveMoAgentBuildIdentity({
+    expect(resolvePiAgentBuildIdentity({
       environment: { NODE_ENV: 'test' },
       readGitRevision: () => null,
       readWorkspaceFingerprint: () => null,
     })).toEqual({
-      frameworkVersion: 'moagent:1.13.0',
-      buildRevision: 'unversioned:moagent:1.13.0',
+      frameworkVersion: 'pi-agent:0.82.1',
+      buildRevision: 'unversioned:pi-agent:0.82.1',
       gitRevision: null,
     });
   });
 
   it('binds a local dirty build to a bounded workspace fingerprint', () => {
-    expect(resolveMoAgentBuildIdentity({
+    expect(resolvePiAgentBuildIdentity({
       environment: { NODE_ENV: 'test' },
       readGitRevision: () => 'd'.repeat(40),
       readWorkspaceFingerprint: () => 'diff0123456789',
     })).toEqual({
-      frameworkVersion: 'moagent:1.13.0',
+      frameworkVersion: 'pi-agent:0.82.1',
       buildRevision: `${'d'.repeat(40)}-dirty.diff0123456789`,
       gitRevision: 'd'.repeat(40),
     });

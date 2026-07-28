@@ -14,7 +14,7 @@ function messageWith(content: string, metadata: Record<string, unknown>): Messag
     messageType: 'tool_result',
     metadataJson: JSON.stringify(metadata),
     parentMessageId: null,
-    cliSource: 'moagent',
+    cliSource: 'pi',
     createdAt: now,
     updatedAt: now,
   };
@@ -35,6 +35,7 @@ describe('tool output serialization', () => {
     expect(serialized.metadata?.toolOutput).toBe(preview);
     expect(serialized.metadata?.toolOutputTruncated).toBe(true);
     expect(serialized.metadata?.toolOutputOriginalChars).toBe(raw.length);
+    expect(serialized.cliSource).toBe('pi');
     expect(preview).toContain('HEAD:');
     expect(preview).toContain(':TAIL_DIAGNOSTIC');
   });

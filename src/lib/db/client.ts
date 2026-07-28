@@ -1,10 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-import { MOAGENT_SCHEMA_CONTRACT_VERSION } from '@/lib/db/moagent-schema-readiness';
+import { PI_AGENT_SCHEMA_CONTRACT_VERSION } from '@/lib/db/pi-agent-schema-readiness';
 
 // Prisma Client singleton pattern for Next.js
 // Prevents multiple instances in development (hot reload)
 
-const PRISMA_CLIENT_CONTRACT = `${MOAGENT_SCHEMA_CONTRACT_VERSION}:access-quota-management-v3:governed-knowledge-growth-v1`;
+const PRISMA_CLIENT_CONTRACT = `${PI_AGENT_SCHEMA_CONTRACT_VERSION}:access-quota-management-v3:governed-knowledge-growth-v1`;
 const globalForPrisma = global as unknown as {
   prisma?: PrismaClient;
   prismaClientContract?: string;

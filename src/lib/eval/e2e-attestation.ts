@@ -1,4 +1,4 @@
-import { MOAGENT_FRAMEWORK_VERSION } from '@/lib/agent/framework-identity';
+import { PI_AGENT_FRAMEWORK_VERSION } from '@/lib/agent/framework-identity';
 import { LOCAL_QWEN_MODEL_ID } from '@/lib/constants/models';
 
 export interface E2eAgentExpectedRuntime {
@@ -103,20 +103,20 @@ export interface AgentExecutionResultLike {
   } | null;
 }
 
-export interface MoAgentE2eQualityThresholds {
+export interface PiAgentE2eQualityThresholds {
   maxTurnsPerCase: number;
   maxCacheMissInputTokensPerCase: number;
   maxUnexpectedToolFailures: number;
 }
 
-export const DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS = Object.freeze({
+export const DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS = Object.freeze({
   // One custom root run plus at most three failure-scoped repair runs.
   // PhaseGraph caps each physical model run at three turns; the corresponding
   // cache-miss ceilings are 24k for custom and 20k for every repair.
   maxTurnsPerCase: 12,
   maxCacheMissInputTokensPerCase: 84_000,
   maxUnexpectedToolFailures: 0,
-}) satisfies MoAgentE2eQualityThresholds;
+}) satisfies PiAgentE2eQualityThresholds;
 
 const nonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
@@ -316,7 +316,7 @@ export function isE2eAgentExecutionAttested(
   return Boolean(
     result.agentExecuted === true &&
     execution?.executed === true &&
-    execution.cli === 'moagent' &&
+    execution.cli === 'pi' &&
     execution.provider === expectedRuntime.provider &&
     execution.model === expectedRuntime.model &&
     nonEmptyString(execution.requestId) &&
@@ -335,8 +335,8 @@ export function isE2eAgentExecutionAttested(
     execution.acceptedReceiptVerdict === 'accepted' &&
     nonEmptyString(execution.acceptedSourceRunId) &&
     nonEmptyString(execution.acceptedSourceRequestId) &&
-    execution.acceptedCandidateSource === 'moagent_submit_result' &&
-    execution.frameworkVersion === MOAGENT_FRAMEWORK_VERSION &&
+    execution.acceptedCandidateSource === 'pi_agent_submit_result' &&
+    execution.frameworkVersion === PI_AGENT_FRAMEWORK_VERSION &&
     nonEmptyString(execution.buildRevision) &&
     nonEmptyString(execution.gitRevision) &&
     validExecutionWindow(execution.startedAt, execution.completedAt) &&
@@ -359,7 +359,7 @@ export function summarizeE2eAgentExecution(
   };
 }
 
-export function summarizeMoAgentE2eQuality(results: AgentExecutionResultLike[]) {
+export function summarizePiAgentE2eQuality(results: AgentExecutionResultLike[]) {
   const measured = results.filter(executionMetricsPresent);
   const missingMetricsCaseIds = results
     .filter((result) => !executionMetricsPresent(result))
@@ -416,11 +416,11 @@ export function summarizeMoAgentE2eQuality(results: AgentExecutionResultLike[]) 
   };
 }
 
-export function evaluateMoAgentE2eQuality(
+export function evaluatePiAgentE2eQuality(
   results: AgentExecutionResultLike[],
-  thresholds: MoAgentE2eQualityThresholds,
+  thresholds: PiAgentE2eQualityThresholds,
 ) {
-  const summary = summarizeMoAgentE2eQuality(results);
+  const summary = summarizePiAgentE2eQuality(results);
   const problems: string[] = [];
   if (summary.missingMetricsCaseIds.length > 0) {
     problems.push(

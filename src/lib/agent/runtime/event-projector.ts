@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 
-import { createMoAgentOperationId } from '../core/operation-id';
+import { createPiAgentOperationId } from '../core/operation-id';
 import type {
-  MoAgentEvent,
-  MoAgentTokenUsage,
-  MoAgentToolCall,
-  MoAgentToolEffect,
-  MoAgentToolIdempotency,
-  MoAgentToolResult,
+  PiAgentEvent,
+  PiAgentTokenUsage,
+  PiAgentToolCall,
+  PiAgentToolEffect,
+  PiAgentToolIdempotency,
+  PiAgentToolResult,
 } from '../types';
 import { clonePublicRuntimeJson } from './policy';
 import type { RuntimeJsonObject } from './types';
@@ -192,14 +192,14 @@ function safeOperationId(event: {
   runId: string;
   turn: number;
   operationId: string;
-  toolCall: Pick<MoAgentToolCall, 'id' | 'name'>;
+  toolCall: Pick<PiAgentToolCall, 'id' | 'name'>;
 }): string {
   return FRAMEWORK_OPERATION_ID_PATTERN.test(event.operationId)
     ? event.operationId
-    : createMoAgentOperationId(event.runId, event.turn, event.toolCall);
+    : createPiAgentOperationId(event.runId, event.turn, event.toolCall);
 }
 
-function auditToolIdentity(toolCall: MoAgentToolCall): RuntimeJsonObject {
+function auditToolIdentity(toolCall: PiAgentToolCall): RuntimeJsonObject {
   return {
     id: auditUtf8(toolCall.id),
     name: auditUtf8(toolCall.name),
@@ -261,7 +261,7 @@ function auditToolTarget(argumentsJson: string): RuntimeJsonObject | null {
   return null;
 }
 
-function projectUsage(usage: MoAgentTokenUsage): RuntimeJsonObject {
+function projectUsage(usage: PiAgentTokenUsage): RuntimeJsonObject {
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
@@ -285,9 +285,9 @@ function projectToolBase(event: {
   runId: string;
   turn: number;
   operationId: string;
-  effect: MoAgentToolEffect;
-  idempotency: MoAgentToolIdempotency;
-  toolCall: MoAgentToolCall;
+  effect: PiAgentToolEffect;
+  idempotency: PiAgentToolIdempotency;
+  toolCall: PiAgentToolCall;
 }): RuntimeJsonObject {
   const target = auditToolTarget(event.toolCall.arguments);
   return {
@@ -304,7 +304,7 @@ function projectToolBase(event: {
 }
 
 function projectSuccessResult(
-  result: Extract<MoAgentToolResult, { ok: true }>
+  result: Extract<PiAgentToolResult, { ok: true }>
 ): RuntimeJsonObject {
   return {
     ok: true,
@@ -324,13 +324,13 @@ function safeProgressFingerprint(value: string): string {
 
 function safeProgressFingerprints(values: readonly string[]): string[] {
   if (!Array.isArray(values)) {
-    throw new Error('MoAgent progress fingerprints must be an array.');
+    throw new Error('PI Agent progress fingerprints must be an array.');
   }
   return [...new Set(values.map(safeProgressFingerprint))].sort();
 }
 
 function projectFailureResult(
-  result: Extract<MoAgentToolResult, { ok: false }>
+  result: Extract<PiAgentToolResult, { ok: false }>
 ): RuntimeJsonObject {
   return {
     ok: false,
@@ -345,7 +345,7 @@ function projectFailureResult(
 }
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled MoAgent event type: ${String((value as { type?: unknown }).type)}`);
+  throw new Error(`Unhandled PI Agent event type: ${String((value as { type?: unknown }).type)}`);
 }
 
 /**
@@ -353,7 +353,7 @@ function assertNever(value: never): never {
  * event ledger. High-volume deltas are intentionally omitted; final text and
  * unrestricted tool values are represented by audit digests only.
  */
-export function projectMoAgentEvent(event: MoAgentEvent): RuntimeJsonObject | null {
+export function projectPiAgentEvent(event: PiAgentEvent): RuntimeJsonObject | null {
   let projected: RuntimeJsonObject;
 
   switch (event.type) {
@@ -588,5 +588,5 @@ export function projectMoAgentEvent(event: MoAgentEvent): RuntimeJsonObject | nu
       return assertNever(event);
   }
 
-  return clonePublicRuntimeJson(projected, `MoAgent ${event.type} durable projection`);
+  return clonePublicRuntimeJson(projected, `PI Agent ${event.type} durable projection`);
 }

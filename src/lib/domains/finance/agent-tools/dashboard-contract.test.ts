@@ -3,14 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
-  MoAgentTool,
-  MoAgentToolContext,
-  MoAgentToolResult,
+  PiAgentTool,
+  PiAgentToolContext,
+  PiAgentToolResult,
 } from "@/lib/agent/types";
 import { createInspectDashboardContractTool } from "./dashboard-contract";
-import { createFinanceMoAgentTools as createMoAgentTools } from "./factory";
+import { createFinancePiAgentTools as createPiAgentTools } from "./factory";
 
-const context: MoAgentToolContext = {
+const context: PiAgentToolContext = {
   runId: "run-dashboard-contract",
   turn: 1,
   toolCallId: "call-dashboard-contract",
@@ -19,9 +19,9 @@ const context: MoAgentToolContext = {
 };
 
 async function invoke(
-  tool: MoAgentTool,
+  tool: PiAgentTool,
   input: unknown = {},
-): Promise<MoAgentToolResult> {
+): Promise<PiAgentToolResult> {
   const parsed = tool.parseInput ? tool.parseInput(input) : input;
   return tool.execute(parsed, context);
 }
@@ -36,9 +36,9 @@ describe("inspect_dashboard_contract tool", () => {
   let outside: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "moagent-contract-"));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), "pi-agent-contract-"));
     outside = await fs.mkdtemp(
-      path.join(os.tmpdir(), "moagent-contract-outside-"),
+      path.join(os.tmpdir(), "pi-agent-contract-outside-"),
     );
   });
 
@@ -418,7 +418,7 @@ describe("inspect_dashboard_contract tool", () => {
 
   it("is installed by default in both generation and repair registries", () => {
     for (const profile of ["generation", "repair"] as const) {
-      const tools = createMoAgentTools({
+      const tools = createPiAgentTools({
         workspaceRoot: workspace,
         profile,
         ...(profile === "repair" ? { profileAllowedWriteGlobs: [] } : {}),

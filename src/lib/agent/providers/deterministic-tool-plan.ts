@@ -1,22 +1,22 @@
 import type {
-  MoAgentMessage,
-  MoAgentModelEvent,
-  MoAgentModelProvider,
-  MoAgentModelRequest,
+  PiAgentMessage,
+  PiAgentModelEvent,
+  PiAgentModelProvider,
+  PiAgentModelRequest,
 } from '../types';
 
-export interface MoAgentDeterministicToolStep {
+export interface PiAgentDeterministicToolStep {
   name: string;
   arguments: Readonly<Record<string, unknown>>;
 }
 
-export interface MoAgentDeterministicToolPlanOptions {
+export interface PiAgentDeterministicToolPlanOptions {
   name?: string;
-  steps: readonly MoAgentDeterministicToolStep[];
+  steps: readonly PiAgentDeterministicToolStep[];
 }
 
 function latestToolOutcome(
-  messages: readonly MoAgentMessage[],
+  messages: readonly PiAgentMessage[],
   expectedToolName: string,
   expectedToolCallId: string,
 ): boolean | null {
@@ -38,30 +38,30 @@ function latestToolOutcome(
 
 /**
  * Provider-compatible executor for trusted, precompiled tool plans. It lets the
- * ordinary MoAgent ledger, fencing, event and terminal gates remain in force
+ * ordinary PI Agent ledger, fencing, event and terminal gates remain in force
  * while making no network/model request and reporting exactly zero tokens.
  */
-export class MoAgentDeterministicToolPlanProvider implements MoAgentModelProvider {
+export class PiAgentDeterministicToolPlanProvider implements PiAgentModelProvider {
   readonly name: string;
-  private readonly steps: readonly MoAgentDeterministicToolStep[];
+  private readonly steps: readonly PiAgentDeterministicToolStep[];
   private cursor = 0;
   private issuedStep = false;
 
-  constructor(options: MoAgentDeterministicToolPlanOptions) {
+  constructor(options: PiAgentDeterministicToolPlanOptions) {
     if (options.steps.length === 0) {
-      throw new Error('A deterministic MoAgent tool plan requires at least one step.');
+      throw new Error('A deterministic PI Agent tool plan requires at least one step.');
     }
     if (options.steps.some((step) => !step.name.trim())) {
-      throw new Error('Deterministic MoAgent tool steps require a non-empty tool name.');
+      throw new Error('Deterministic PI Agent tool steps require a non-empty tool name.');
     }
-    this.name = options.name ?? 'moagent-deterministic';
+    this.name = options.name ?? 'pi-agent-deterministic';
     this.steps = Object.freeze(options.steps.map((step) => Object.freeze({
       name: step.name,
       arguments: Object.freeze(structuredClone(step.arguments)),
     })));
   }
 
-  async *complete(request: MoAgentModelRequest): AsyncIterable<MoAgentModelEvent> {
+  async *complete(request: PiAgentModelRequest): AsyncIterable<PiAgentModelEvent> {
     if (request.signal?.aborted) {
       throw request.signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
     }
@@ -112,7 +112,7 @@ export class MoAgentDeterministicToolPlanProvider implements MoAgentModelProvide
     }
 
     if (!request.tools?.some((tool) => tool.name === step.name)) {
-      throw new Error(`Deterministic MoAgent step requires unavailable tool: ${step.name}`);
+      throw new Error(`Deterministic PI Agent step requires unavailable tool: ${step.name}`);
     }
 
     const stepNumber = this.cursor + 1;

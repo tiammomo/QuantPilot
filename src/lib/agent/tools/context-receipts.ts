@@ -1,10 +1,10 @@
 import type {
-  MoAgentTool,
-  MoAgentToolContextReceipt,
-  MoAgentToolResult,
+  PiAgentTool,
+  PiAgentToolContextReceipt,
+  PiAgentToolResult,
 } from '@/lib/agent/types';
 
-type ContextReceiptProjector = NonNullable<MoAgentTool['projectContextReceipt']>;
+type ContextReceiptProjector = NonNullable<PiAgentTool['projectContextReceipt']>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -21,15 +21,15 @@ function numberField(value: unknown, key: string): number | undefined {
     : undefined;
 }
 
-function resultData(result: MoAgentToolResult): unknown {
+function resultData(result: PiAgentToolResult): unknown {
   return result.ok ? result.data : undefined;
 }
 
 function pathReceipt(
   input: unknown,
-  result: MoAgentToolResult,
+  result: PiAgentToolResult,
   options: { digestKey?: string } = {},
-): MoAgentToolContextReceipt {
+): PiAgentToolContextReceipt {
   const data = resultData(result);
   const path = stringField(data, 'path') ?? stringField(input, 'path');
   const digestKey = options.digestKey ?? 'sha256';
@@ -44,8 +44,8 @@ function pathReceipt(
 
 function submittedArtifactReceipt(
   input: unknown,
-  result: MoAgentToolResult,
-): MoAgentToolContextReceipt {
+  result: PiAgentToolResult,
+): PiAgentToolContextReceipt {
   const data = resultData(result);
   const verified = isRecord(data) && Array.isArray(data.verifiedArtifacts)
     ? data.verifiedArtifacts

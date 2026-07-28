@@ -5,16 +5,16 @@ import {
   LOCAL_OPENAI_BASE_URL,
   LOCAL_QWEN_MODEL_ID,
   MODELPORT_DEEPSEEK_MODEL_ID,
-  MOAGENT_DEFAULT_MODEL,
-  normalizeMoAgentModelId,
-  type MoAgentModelId,
+  PI_AGENT_DEFAULT_MODEL,
+  normalizePiAgentModelId,
+  type PiAgentModelId,
 } from '@/lib/constants/models';
 
 export interface ProjectLlmConfig {
   schemaVersion: 1;
   profileId: string;
   provider: 'deepseek' | 'openai';
-  model: MoAgentModelId;
+  model: PiAgentModelId;
   baseUrl: typeof DEEPSEEK_OFFICIAL_BASE_URL | typeof LOCAL_OPENAI_BASE_URL;
   credentialEnv: 'DEEPSEEK_API_KEY' | 'MODELPORT_API_KEY';
   agent: {
@@ -84,10 +84,10 @@ function configuredProfile(requestedModel?: string | null): JsonRecord {
   const root = asRecord(llmConfigFile);
   const configuredDefault = typeof root?.defaultProfileId === 'string'
     ? root.defaultProfileId
-    : MOAGENT_DEFAULT_MODEL;
+    : PI_AGENT_DEFAULT_MODEL;
   const profileId = requestedModel
-    ? normalizeMoAgentModelId(requestedModel)
-    : normalizeMoAgentModelId(configuredDefault);
+    ? normalizePiAgentModelId(requestedModel)
+    : normalizePiAgentModelId(configuredDefault);
   const profiles = asRecord(root?.profiles);
   const profile = asRecord(profiles?.[profileId]);
   if (!profile) throw new Error(`LLM profile is missing: ${profileId}`);
@@ -118,7 +118,7 @@ export function getProjectLlmConfig(requestedModel?: string | null): ProjectLlmC
     schemaVersion: 1,
     profileId: String(profile.profileId),
     provider: profile.provider as ProjectLlmConfig['provider'],
-    model: profile.model as MoAgentModelId,
+    model: profile.model as PiAgentModelId,
     baseUrl: profile.baseUrl as ProjectLlmConfig['baseUrl'],
     credentialEnv: profile.credentialEnv as ProjectLlmConfig['credentialEnv'],
     agent: {

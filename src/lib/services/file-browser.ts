@@ -5,8 +5,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 import {
-  MoAgentWorkspaceResourceLockError,
-  withMoAgentWorkspaceResourceLock,
+  PiAgentWorkspaceResourceLockError,
+  withPiAgentWorkspaceResourceLock,
 } from '@/lib/agent/runtime/workspace-resource-lock';
 import { getProjectById } from '@/lib/services/project';
 import type { ProjectFileEntry } from '@/types/backend';
@@ -350,7 +350,7 @@ export async function writeProjectFileContent(
   }
 
   try {
-    await withMoAgentWorkspaceResourceLock(repoRoot, async () => {
+    await withPiAgentWorkspaceResourceLock(repoRoot, async () => {
       const normalizedPath = normalizeRelativePath(filePath);
       assertProjectFilePathAllowed(normalizedPath);
       const absolutePath = await resolveSafePath(
@@ -373,7 +373,7 @@ export async function writeProjectFileContent(
   } catch (error) {
     if (error instanceof FileBrowserError) throw error;
     if (
-      error instanceof MoAgentWorkspaceResourceLockError &&
+      error instanceof PiAgentWorkspaceResourceLockError &&
       error.code === 'WORKSPACE_RESOURCE_LOCKED'
     ) {
       throw new FileBrowserError('Project files are busy; retry after generation finishes', 409);

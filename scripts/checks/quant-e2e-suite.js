@@ -240,7 +240,7 @@ function loadQuantE2eSuite(options = {}) {
   }
 
   if (problems.length > 0) {
-    const error = new Error(`MoAgent E2E suite 无效：\n- ${problems.join('\n- ')}`);
+    const error = new Error(`PI Agent E2E suite 无效：\n- ${problems.join('\n- ')}`);
     error.problems = problems;
     throw error;
   }
@@ -335,14 +335,14 @@ function attestProductControlEvidence(evidence, options) {
     if (
       result?.agentExecuted !== true ||
       execution?.executed !== true ||
-      execution?.cli !== 'moagent' ||
-      execution?.provider !== 'moagent-trusted-renderer' ||
-      execution?.model !== 'moagent-deterministic-renderer-v1' ||
+      execution?.cli !== 'pi' ||
+      execution?.provider !== 'pi-agent-trusted-renderer' ||
+      execution?.model !== 'pi-agent-deterministic-renderer-v1' ||
       result?.requestId !== execution?.requestId ||
       execution?.turns !== 2 ||
       !validTimeWindow(execution?.startedAt, execution?.completedAt)
     ) {
-      problems.push(`${caseId} 没有证明 deterministic_standard MoAgent 执行。`);
+      problems.push(`${caseId} 没有证明 deterministic_standard PI Agent 执行。`);
     }
     if (
       execution?.frameworkVersion !== options.frameworkVersion ||
@@ -355,7 +355,7 @@ function attestProductControlEvidence(evidence, options) {
       execution?.missionStatus !== 'completed' ||
       execution?.acceptedReceiptType !== 'acceptance' ||
       execution?.acceptedReceiptVerdict !== 'accepted' ||
-      execution?.acceptedCandidateSource !== 'moagent_submit_result' ||
+      execution?.acceptedCandidateSource !== 'pi_agent_submit_result' ||
       acceptance?.status !== 'completed' ||
       acceptance?.missionId !== execution?.missionId ||
       acceptance?.generationId !== execution?.generationId ||
@@ -374,8 +374,8 @@ function attestProductControlEvidence(evidence, options) {
       execution.runIds.length !== 1 ||
       execution.runIds[0] !== acceptedRun?.id ||
       acceptedRun?.status !== 'candidate_complete' ||
-      acceptedRun?.provider !== 'moagent-trusted-renderer' ||
-      acceptedRun?.model !== 'moagent-deterministic-renderer-v1' ||
+      acceptedRun?.provider !== 'pi-agent-trusted-renderer' ||
+      acceptedRun?.model !== 'pi-agent-deterministic-renderer-v1' ||
       acceptedRun?.requestId !== execution?.acceptedSourceRequestId ||
       acceptedRun?.frameworkVersion !== options.frameworkVersion ||
       acceptedRun?.buildRevision !== options.buildRevision ||

@@ -1,11 +1,11 @@
 import type {
-  MoAgentFinishReason,
-  MoAgentMessage,
-  MoAgentModelEvent,
-  MoAgentModelProvider,
-  MoAgentModelRequest,
-  MoAgentTokenUsage,
-  MoAgentToolChoice,
+  PiAgentFinishReason,
+  PiAgentMessage,
+  PiAgentModelEvent,
+  PiAgentModelProvider,
+  PiAgentModelRequest,
+  PiAgentTokenUsage,
+  PiAgentToolChoice,
 } from '../types';
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
@@ -178,7 +178,7 @@ async function abortableSleep(delayMs: number, signal?: AbortSignal): Promise<vo
 }
 
 function serializeMessage(
-  message: MoAgentMessage,
+  message: PiAgentMessage,
   includeReasoningContent: boolean,
 ): Record<string, unknown> {
   switch (message.role) {
@@ -214,7 +214,7 @@ function serializeMessage(
   }
 }
 
-function serializeToolChoice(choice: MoAgentToolChoice): unknown {
+function serializeToolChoice(choice: PiAgentToolChoice): unknown {
   return typeof choice === 'string'
     ? choice
     : {
@@ -245,7 +245,7 @@ function parseRetryAfter(value: string | null, now = Date.now()): number | undef
   return Number.isFinite(timestamp) ? Math.max(0, timestamp - now) : undefined;
 }
 
-function normalizeFinishReason(rawReason: string): MoAgentFinishReason {
+function normalizeFinishReason(rawReason: string): PiAgentFinishReason {
   switch (rawReason) {
     case 'stop':
       return 'stop';
@@ -263,7 +263,7 @@ function normalizeFinishReason(rawReason: string): MoAgentFinishReason {
   }
 }
 
-function parseUsage(value: unknown): MoAgentTokenUsage | undefined {
+function parseUsage(value: unknown): PiAgentTokenUsage | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -457,7 +457,7 @@ async function readBoundedText(
   );
 }
 
-export class DeepSeekProvider implements MoAgentModelProvider {
+export class DeepSeekProvider implements PiAgentModelProvider {
   readonly name = 'deepseek';
 
   private readonly apiKey: string;
@@ -561,7 +561,7 @@ export class DeepSeekProvider implements MoAgentModelProvider {
     return Math.round(ceiling * (0.5 + random * 0.5));
   }
 
-  async *complete(request: MoAgentModelRequest): AsyncGenerator<MoAgentModelEvent> {
+  async *complete(request: PiAgentModelRequest): AsyncGenerator<PiAgentModelEvent> {
     if (request.signal?.aborted) {
       throw request.signal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
     }

@@ -5,14 +5,14 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { hashMoAgentProvenance } from '@/lib/services/moagent-provenance';
-import { compileMoAgentMissionSpec } from './compiler';
+import { hashPiAgentProvenance } from '@/lib/services/pi-agent-provenance';
+import { compilePiAgentMissionSpec } from './compiler';
 import { createTestMissionDefinition } from './test-support';
 import {
-  MoAgentEvidenceVerificationError,
-  verifyMoAgentMissionEvidence,
+  PiAgentEvidenceVerificationError,
+  verifyPiAgentMissionEvidence,
 } from './evidence-verifier';
-import type { MoAgentMissionSpec } from './types';
+import type { PiAgentMissionSpec } from './types';
 
 const CREATED_AT = '2026-07-15T04:00:00.000Z';
 const READY_AT = new Date('2026-07-15T04:05:00.000Z');
@@ -26,8 +26,8 @@ type ValidationCheck = {
   summary: string;
 };
 
-function missionSpec(): MoAgentMissionSpec {
-  return compileMoAgentMissionSpec({
+function missionSpec(): PiAgentMissionSpec {
+  return compilePiAgentMissionSpec({
     projectId: 'project-evidence',
     requestId: 'request-evidence',
     objective: '生成通过独立证据验收的看板',
@@ -48,7 +48,7 @@ function missionSpec(): MoAgentMissionSpec {
   });
 }
 
-function passedChecks(spec: MoAgentMissionSpec): ValidationCheck[] {
+function passedChecks(spec: PiAgentMissionSpec): ValidationCheck[] {
   return spec.requiredValidationCheckIds.map((id) => ({
     id,
     name: id,
@@ -58,7 +58,7 @@ function passedChecks(spec: MoAgentMissionSpec): ValidationCheck[] {
 }
 
 function validationReport(
-  spec: MoAgentMissionSpec,
+  spec: PiAgentMissionSpec,
   overrides: Partial<Record<string, unknown>> = {},
 ) {
   return {
@@ -85,12 +85,12 @@ async function writeFile(root: string, relativePath: string, value: unknown) {
 }
 
 async function createWorkspace(input: {
-  spec?: MoAgentMissionSpec;
+  spec?: PiAgentMissionSpec;
   report?: Record<string, unknown>;
   omitted?: readonly string[];
 } = {}) {
   const spec = input.spec ?? missionSpec();
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-evidence-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-evidence-'));
   temporaryDirectories.push(root);
   const omitted = new Set(input.omitted ?? []);
   for (const artifact of spec.artifacts) {
@@ -109,8 +109,8 @@ async function createWorkspace(input: {
   return { root, spec };
 }
 
-function specHash(spec: MoAgentMissionSpec) {
-  return `sha256:${hashMoAgentProvenance(spec)}`;
+function specHash(spec: PiAgentMissionSpec) {
+  return `sha256:${hashPiAgentProvenance(spec)}`;
 }
 
 function readyFetch() {
@@ -126,12 +126,12 @@ function sha256FileContent(value: string): string {
 
 async function verify(input: {
   root: string;
-  spec: MoAgentMissionSpec;
+  spec: PiAgentMissionSpec;
   preview?: { url: string; port: number };
   fetchImpl?: typeof fetch;
   missionSpecSha256?: string;
 }) {
-  return verifyMoAgentMissionEvidence({
+  return verifyPiAgentMissionEvidence({
     missionId: 'mission-evidence',
     generationId: 'generation-evidence',
     candidateVersion: 1,
@@ -149,7 +149,7 @@ afterEach(async () => {
     fs.rm(directory, { recursive: true, force: true })));
 });
 
-describe('MoAgent EvidenceVerifier', () => {
+describe('PI Agent EvidenceVerifier', () => {
   it('accepts a complete current-run receipt and excludes mutable control artifacts', async () => {
     const fixture = await createWorkspace();
 
@@ -419,7 +419,7 @@ describe('MoAgent EvidenceVerifier', () => {
 
   it('fails closed when an acceptance-surface symlink escapes the workspace', async () => {
     const fixture = await createWorkspace();
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-evidence-outside-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-evidence-outside-'));
     temporaryDirectories.push(outside);
     await writeFile(outside, 'secret.ts', 'export const secret = true;\n');
     await fs.mkdir(path.join(fixture.root, 'components'), { recursive: true });
@@ -429,7 +429,7 @@ describe('MoAgent EvidenceVerifier', () => {
     );
 
     await expect(verify(fixture)).rejects.toEqual(
-      expect.objectContaining<Partial<MoAgentEvidenceVerificationError>>({
+      expect.objectContaining<Partial<PiAgentEvidenceVerificationError>>({
         code: 'ARTIFACT_SYMLINK_ESCAPE',
       }),
     );
@@ -442,7 +442,7 @@ describe('MoAgent EvidenceVerifier', () => {
     await fs.writeFile(oversizedPath, Buffer.alloc(16 * 1024 * 1024 + 1));
 
     await expect(verify(fixture)).rejects.toEqual(
-      expect.objectContaining<Partial<MoAgentEvidenceVerificationError>>({
+      expect.objectContaining<Partial<PiAgentEvidenceVerificationError>>({
         code: 'EVIDENCE_ARTIFACT_TOO_LARGE',
       }),
     );
@@ -486,7 +486,7 @@ describe('MoAgent EvidenceVerifier', () => {
     await expect(verify({
       ...fixture,
       missionSpecSha256: `sha256:${'0'.repeat(64)}`,
-    })).rejects.toEqual(expect.objectContaining<Partial<MoAgentEvidenceVerificationError>>({
+    })).rejects.toEqual(expect.objectContaining<Partial<PiAgentEvidenceVerificationError>>({
       code: 'MISSION_SPEC_HASH_MISMATCH',
     }));
   });

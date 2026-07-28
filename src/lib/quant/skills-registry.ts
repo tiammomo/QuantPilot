@@ -30,7 +30,7 @@ export interface QuantSkillsRegistry {
   coreSkills: QuantCoreSkill[];
 }
 
-const REGISTRY_PATH = path.join(process.cwd(), '.moagent', 'skills.registry.json');
+const REGISTRY_PATH = path.join(process.cwd(), '.pi', 'skills.registry.json');
 
 const FALLBACK_CORE_SKILLS: QuantCoreSkill[] = [
   {
@@ -96,7 +96,7 @@ const FALLBACK_REGISTRY: QuantSkillsRegistry = {
   policy: {
     targetCoreSkillCount: 11,
     packageFormat: 'tgz',
-    packageDir: '.moagent/skill-packages',
+    packageDir: '.pi/skill-packages',
     description: 'Fallback QuantPilot skills registry.',
   },
   coreSkills: FALLBACK_CORE_SKILLS,
@@ -151,7 +151,7 @@ export function getDefaultQuantSkillIds(registry: QuantSkillsRegistry): string[]
 }
 
 export function getQuantSkillPackagePath(registry: QuantSkillsRegistry, skillId: string): string {
-  const packageDir = registry.policy.packageDir ?? '.moagent/skill-packages';
+  const packageDir = registry.policy.packageDir ?? '.pi/skill-packages';
   return path.join(process.cwd(), packageDir, `${skillId}.tgz`);
 }
 

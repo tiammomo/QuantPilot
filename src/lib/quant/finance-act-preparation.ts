@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { collectMoAgentTurnMetrics } from "@/lib/services/moagent-turn-metrics";
+import { collectPiAgentTurnMetrics } from "@/lib/services/pi-agent-turn-metrics";
 import { createMessage } from "@/lib/services/message";
 import { serializeMessage } from "@/lib/serializers/chat";
 import { streamManager } from "@/lib/services/stream";
@@ -30,14 +30,14 @@ import {
 } from "@/lib/quant/generation-state";
 import { runQuantGenerationStage } from "@/lib/quant/generation-queue";
 import {
-  createQuantMoAgentMission,
-  markQuantMoAgentMissionNode,
-  type MoAgentMissionContext,
-} from "@/lib/services/moagent-mission-control";
+  createQuantPiAgentMission,
+  markQuantPiAgentMissionNode,
+  type PiAgentMissionContext,
+} from "@/lib/services/pi-agent-mission-control";
 import {
-  failMoAgentMission,
-  MoAgentMissionStateError,
-} from "@/lib/services/moagent-mission-store";
+  failPiAgentMission,
+  PiAgentMissionStateError,
+} from "@/lib/services/pi-agent-mission-store";
 import {
   prepareGovernedKnowledge,
   writeGovernedKnowledgeEvidence,
@@ -76,7 +76,7 @@ export interface FinanceActPreparationInput {
 
 export interface FinanceActPreparationResult {
   response: NextResponse | null;
-  missionContext: MoAgentMissionContext | null;
+  missionContext: PiAgentMissionContext | null;
   usePrefetchedSelectionDashboard: boolean;
   governedKnowledgePreparation: GovernedKnowledgePreparation | null;
   governedKnowledgeTaskCategory: string;
@@ -106,7 +106,7 @@ export async function prepareFinanceActGeneration(
     publishWorkspaceProgress,
   } = input;
   let usePrefetchedSelectionDashboard = false;
-  let missionContext: MoAgentMissionContext | null = null;
+  let missionContext: PiAgentMissionContext | null = null;
   const projectIntegrationScope = getProjectIntegrationScope(project_id);
   let governedKnowledgePreparation: GovernedKnowledgePreparation | null = null;
   let governedKnowledgeTaskCategory = "quant-research";
@@ -383,7 +383,7 @@ export async function prepareFinanceActGeneration(
           const clarificationContent = buildQuantClarificationMessage(
             runPlan.clarification,
           );
-          const turnMetrics = await collectMoAgentTurnMetrics({
+          const turnMetrics = await collectPiAgentTurnMetrics({
             projectId: project_id,
             requestId,
             relatedRequestIds: relatedAgentRequestIds,
@@ -481,7 +481,7 @@ export async function prepareFinanceActGeneration(
           },
         });
 
-        missionContext = await createQuantMoAgentMission({
+        missionContext = await createQuantPiAgentMission({
           projectId: project_id,
           projectPath,
           requestId,
@@ -507,7 +507,7 @@ export async function prepareFinanceActGeneration(
             missionSpecSha256: missionContext.specHash,
           },
         });
-        missionContext = await markQuantMoAgentMissionNode({
+        missionContext = await markQuantPiAgentMissionNode({
           mission: missionContext,
           nodeKey: "planning",
           status: "passed",
@@ -563,7 +563,7 @@ export async function prepareFinanceActGeneration(
           status: "running",
           summary: "开始预取真实数据。",
         });
-        missionContext = await markQuantMoAgentMissionNode({
+        missionContext = await markQuantPiAgentMissionNode({
           mission: missionContext,
           nodeKey: "data_prefetch",
           status: "running",
@@ -613,7 +613,7 @@ export async function prepareFinanceActGeneration(
           }
           throw new QuantPreparationError(
             "QUANT_ARTIFACT_PREPARATION_FAILED",
-            `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 MoAgent。${
+            `平台数据准备未完成，拒绝启动只具备 UI 创作权限的 PI Agent。${
               missingPreparedArtifacts.length
                 ? ` 缺少：${missingPreparedArtifacts.join("、")}。`
                 : ""
@@ -645,12 +645,12 @@ export async function prepareFinanceActGeneration(
               usePrefetchedSelectionDashboard || undefined,
           },
         });
-        missionContext = await markQuantMoAgentMissionNode({
+        missionContext = await markQuantPiAgentMissionNode({
           mission: missionContext,
           nodeKey: "data_prefetch",
           status: prefetch.skipped ? "skipped" : "passed",
         });
-        missionContext = await markQuantMoAgentMissionNode({
+        missionContext = await markQuantPiAgentMissionNode({
           mission: missionContext,
           nodeKey: "workspace_generation",
           status: "running",
@@ -894,10 +894,10 @@ export async function prepareFinanceActGeneration(
           ),
         );
         const missionProjectBusy =
-          error instanceof MoAgentMissionStateError &&
+          error instanceof PiAgentMissionStateError &&
           error.code === "MISSION_PROJECT_BUSY";
         if (missionContext) {
-          await failMoAgentMission({
+          await failPiAgentMission({
             missionId: missionContext.id,
             projectId: missionContext.projectId,
             requestId: missionContext.requestId,

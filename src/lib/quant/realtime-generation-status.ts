@@ -5,7 +5,7 @@ export function shouldRealtimeAssistantUpdateStopWaiting(params: {
   isFinal?: boolean;
   metadata?: Record<string, unknown> | null;
 }): boolean {
-  // Hidden MoAgent turns include the submitted candidate summary. They are
+  // Hidden PI Agent turns include the submitted candidate summary. They are
   // physical-run projections, not a user-facing Mission completion message.
   if (
     params.metadata?.hidden_from_ui === true ||

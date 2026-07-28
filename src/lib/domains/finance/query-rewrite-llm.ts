@@ -8,13 +8,13 @@ import {
   OpenAICompatibleProviderError,
 } from '@/lib/agent/providers/openai-compatible';
 import type {
-  MoAgentModelProvider,
-  MoAgentTokenUsage,
+  PiAgentModelProvider,
+  PiAgentTokenUsage,
 } from '@/lib/agent/types';
 import {
   LOCAL_QWEN_MODEL_ID,
-  MOAGENT_DEFAULT_MODEL,
-  normalizeMoAgentModelId,
+  PI_AGENT_DEFAULT_MODEL,
+  normalizePiAgentModelId,
 } from '@/lib/constants/models';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
@@ -327,14 +327,14 @@ function semanticPrompt(input: QuantQuerySemanticRewriteInput): string {
 
 export async function rewriteQuantQuerySemanticsWithProvider(params: {
   input: QuantQuerySemanticRewriteInput;
-  provider: MoAgentModelProvider;
+  provider: PiAgentModelProvider;
   model?: string;
   repairInstruction?: string;
 }): Promise<QuantQuerySemanticRewriteOutcome> {
-  const model = normalizeMoAgentModelId(params.model ?? params.input.requestedModel);
+  const model = normalizePiAgentModelId(params.model ?? params.input.requestedModel);
   let toolName = '';
   let toolArguments = '';
-  let usage: MoAgentTokenUsage | undefined;
+  let usage: PiAgentTokenUsage | undefined;
 
   for await (const event of params.provider.complete({
     model,
@@ -430,7 +430,7 @@ export async function rewriteQuantQuerySemanticsWithProvider(params: {
 export async function rewriteQuantQuerySemanticsWithConfiguredProvider(
   input: QuantQuerySemanticRewriteInput,
 ): Promise<QuantQuerySemanticRewriteOutcome> {
-  const model = normalizeMoAgentModelId(input.requestedModel ?? MOAGENT_DEFAULT_MODEL);
+  const model = normalizePiAgentModelId(input.requestedModel ?? PI_AGENT_DEFAULT_MODEL);
   const llmConfig = getProjectLlmConfig(model);
   if (!llmConfig.queryRewrite.enabled) {
     return {

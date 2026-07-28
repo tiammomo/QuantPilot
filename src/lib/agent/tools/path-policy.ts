@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { MoAgentToolError } from './errors';
+import { PiAgentToolError } from './errors';
 
 const PLATFORM_OWNED_DIRECTORIES = new Set(['.data-agent']);
 const FORBIDDEN_DIRECTORY_SEGMENTS = new Set([
   '.git',
-  '.moagent-mutation-journal',
-  '.moagent-workspace.lock',
+  '.pi-mutation-journal',
+  '.pi-workspace.lock',
   '.next',
   '.data-agent',
   'node_modules',
@@ -25,8 +25,8 @@ const SENSITIVE_READ_DIRECTORY_SEGMENTS = new Set([
   '.azure',
   '.git',
   '.gnupg',
-  '.moagent-mutation-journal',
-  '.moagent-workspace.lock',
+  '.pi-mutation-journal',
+  '.pi-workspace.lock',
   '.ssh',
 ]);
 const SENSITIVE_READ_FILE_NAMES = new Set([
@@ -77,7 +77,7 @@ export const DEFAULT_ALLOWED_WRITE_GLOBS = [
   'public/**',
 ] as const;
 
-export interface MoAgentWorkspacePolicyOptions {
+export interface PiAgentWorkspacePolicyOptions {
   workspaceRoot: string;
   allowedWriteGlobs?: readonly string[];
   /** Defaults true. Repair scopes can remove the normal source-write surface. */
@@ -105,7 +105,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
 }
 
-/** Supports the profile glob subset MoAgent needs: `*`, `?`, and `**`. */
+/** Supports the profile glob subset PI Agent needs: `*`, `?`, and `**`. */
 export function matchesWorkspaceGlob(relativePath: string, glob: string): boolean {
   const normalizedPath = relativePath.replaceAll('\\', '/').replace(/^\.\//, '');
   const normalizedGlob = glob.replaceAll('\\', '/').replace(/^\.\//, '');
@@ -133,28 +133,28 @@ export function matchesWorkspaceGlob(relativePath: string, glob: string): boolea
 
 function normalizeRequestedPath(requestedPath: string, allowRoot: boolean): string {
   if (typeof requestedPath !== 'string' || requestedPath.length === 0) {
-    throw new MoAgentToolError('INVALID_PATH', 'A non-empty workspace-relative path is required.');
+    throw new PiAgentToolError('INVALID_PATH', 'A non-empty workspace-relative path is required.');
   }
   if (requestedPath.includes('\0') || /[\r\n]/.test(requestedPath)) {
-    throw new MoAgentToolError('INVALID_PATH', 'Workspace paths cannot contain control characters.');
+    throw new PiAgentToolError('INVALID_PATH', 'Workspace paths cannot contain control characters.');
   }
   const virtualRootMatch = requestedPath.match(/^\/([^/]+)(?:\/|$)/);
   const normalizedRequest = virtualRootMatch && VIRTUAL_WORKSPACE_ROOTS.has(virtualRootMatch[1])
     ? requestedPath.slice(1)
     : requestedPath;
   if (path.isAbsolute(normalizedRequest) || path.win32.isAbsolute(normalizedRequest)) {
-    throw new MoAgentToolError('ABSOLUTE_PATH_DENIED', 'MoAgent tools accept workspace-relative paths only.');
+    throw new PiAgentToolError('ABSOLUTE_PATH_DENIED', 'PI Agent tools accept workspace-relative paths only.');
   }
   if (normalizedRequest.includes('\\')) {
-    throw new MoAgentToolError('INVALID_PATH', 'Use forward slashes in MoAgent workspace paths.');
+    throw new PiAgentToolError('INVALID_PATH', 'Use forward slashes in PI Agent workspace paths.');
   }
 
   const normalized = path.posix.normalize(normalizedRequest.replace(/^\.\//, ''));
   if (normalized === '..' || normalized.startsWith('../')) {
-    throw new MoAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
+    throw new PiAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
   }
   if (!allowRoot && (normalized === '.' || normalized === '')) {
-    throw new MoAgentToolError('INVALID_PATH', 'A file path is required.');
+    throw new PiAgentToolError('INVALID_PATH', 'A file path is required.');
   }
   return normalized;
 }
@@ -172,7 +172,7 @@ async function nearestExistingAncestor(candidate: string): Promise<{
       if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
       const parent = path.dirname(current);
       if (parent === current) {
-        throw new MoAgentToolError('PATH_RESOLUTION_FAILED', `Cannot resolve an existing ancestor for ${candidate}.`);
+        throw new PiAgentToolError('PATH_RESOLUTION_FAILED', `Cannot resolve an existing ancestor for ${candidate}.`);
       }
       current = parent;
     }
@@ -197,7 +197,7 @@ function assertNotSensitiveReadPath(relativePath: string): void {
     /\.(?:key|p12|pfx|pem)$/i.test(basename) ||
     /(?:^|[-_.])(?:private[-_.]?key|service[-_.]?account|secrets?)(?:[-_.]|$)/i.test(basename)
   ) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'SENSITIVE_READ_PATH_DENIED',
       `Reading sensitive workspace path ${relativePath} is not permitted.`,
     );
@@ -208,19 +208,19 @@ function assertNotSensitiveWritePath(relativePath: string): void {
   const segments = relativePath.split('/').filter(Boolean);
   const basename = segments.at(-1)?.toLowerCase() ?? '';
   if (isPlatformOwned(relativePath)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'PLATFORM_PATH_READ_ONLY',
-      'Data Agent control directories are platform-owned and permanently read-only to MoAgent.',
+      'Data Agent control directories are platform-owned and permanently read-only to PI Agent.',
     );
   }
   if (segments.some((segment) => FORBIDDEN_DIRECTORY_SEGMENTS.has(segment.toLowerCase()))) {
-    throw new MoAgentToolError('SENSITIVE_PATH_DENIED', `Writing to ${relativePath} is not permitted.`);
+    throw new PiAgentToolError('SENSITIVE_PATH_DENIED', `Writing to ${relativePath} is not permitted.`);
   }
   if (FORBIDDEN_FILE_NAMES.has(basename) || basename === '.env' || basename.startsWith('.env.')) {
-    throw new MoAgentToolError('SENSITIVE_PATH_DENIED', `Writing to ${relativePath} is not permitted.`);
+    throw new PiAgentToolError('SENSITIVE_PATH_DENIED', `Writing to ${relativePath} is not permitted.`);
   }
   if (EXECUTABLE_CONFIG_PATTERN.test(basename)) {
-    throw new MoAgentToolError('EXECUTABLE_CONFIG_DENIED', `MoAgent cannot modify executable build configuration: ${relativePath}.`);
+    throw new PiAgentToolError('EXECUTABLE_CONFIG_DENIED', `PI Agent cannot modify executable build configuration: ${relativePath}.`);
   }
 }
 
@@ -250,15 +250,15 @@ async function assertNoSymlinkComponents(workspaceRoot: string, absolutePath: st
     });
     if (!stat) return;
     if (stat.isSymbolicLink()) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'SYMLINK_WRITE_DENIED',
-        `MoAgent will not write through a symbolic link component: ${toPosix(relative)}.`,
+        `PI Agent will not write through a symbolic link component: ${toPosix(relative)}.`,
       );
     }
   }
 }
 
-export class MoAgentWorkspacePolicy {
+export class PiAgentWorkspacePolicy {
   readonly workspaceRoot: string;
   readonly allowedWriteGlobs: readonly string[];
   readonly includeDefaultWriteGlobs: boolean;
@@ -273,20 +273,20 @@ export class MoAgentWorkspacePolicy {
     this.includeDefaultWriteGlobs = includeDefaultWriteGlobs;
   }
 
-  static async create(options: MoAgentWorkspacePolicyOptions): Promise<MoAgentWorkspacePolicy> {
+  static async create(options: PiAgentWorkspacePolicyOptions): Promise<PiAgentWorkspacePolicy> {
     const absoluteRoot = path.resolve(options.workspaceRoot);
     const canonicalRoot = await fs.realpath(absoluteRoot).catch((error: NodeJS.ErrnoException) => {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_WORKSPACE',
-        `MoAgent workspace must be an existing directory: ${absoluteRoot}.`,
+        `PI Agent workspace must be an existing directory: ${absoluteRoot}.`,
         { cause: error.message },
       );
     });
     const stat = await fs.stat(canonicalRoot);
     if (!stat.isDirectory()) {
-      throw new MoAgentToolError('INVALID_WORKSPACE', `MoAgent workspace is not a directory: ${absoluteRoot}.`);
+      throw new PiAgentToolError('INVALID_WORKSPACE', `PI Agent workspace is not a directory: ${absoluteRoot}.`);
     }
-    return new MoAgentWorkspacePolicy(
+    return new PiAgentWorkspacePolicy(
       canonicalRoot,
       options.allowedWriteGlobs ?? [],
       options.includeDefaultWriteGlobs !== false,
@@ -297,7 +297,7 @@ export class MoAgentWorkspacePolicy {
     const relativePath = normalizeRequestedPath(requestedPath, options.allowRoot ?? false);
     const absolutePath = path.resolve(this.workspaceRoot, relativePath);
     if (!isWithin(this.workspaceRoot, absolutePath)) {
-      throw new MoAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
+      throw new PiAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
     }
 
     let canonicalPath: string;
@@ -305,12 +305,12 @@ export class MoAgentWorkspacePolicy {
       canonicalPath = await fs.realpath(absolutePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new MoAgentToolError('PATH_NOT_FOUND', `Workspace path does not exist: ${relativePath}.`);
+        throw new PiAgentToolError('PATH_NOT_FOUND', `Workspace path does not exist: ${relativePath}.`);
       }
       throw error;
     }
     if (!isWithin(this.workspaceRoot, canonicalPath)) {
-      throw new MoAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
+      throw new PiAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
     }
     const canonicalRelativePath = toPosix(path.relative(this.workspaceRoot, canonicalPath)) || '.';
     assertNotSensitiveReadPath(relativePath);
@@ -328,18 +328,18 @@ export class MoAgentWorkspacePolicy {
     const relativePath = normalizeRequestedPath(requestedPath, false);
     const absolutePath = path.resolve(this.workspaceRoot, relativePath);
     if (!isWithin(this.workspaceRoot, absolutePath)) {
-      throw new MoAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
+      throw new PiAgentToolError('PATH_TRAVERSAL_DENIED', 'Path traversal outside the workspace is denied.');
     }
 
     assertNotSensitiveWritePath(relativePath);
     const { ancestor, canonicalAncestor } = await nearestExistingAncestor(absolutePath);
     if (!isWithin(this.workspaceRoot, canonicalAncestor)) {
-      throw new MoAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
+      throw new PiAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
     }
     const unresolvedSuffix = path.relative(ancestor, absolutePath);
     const canonicalPath = path.resolve(canonicalAncestor, unresolvedSuffix);
     if (!isWithin(this.workspaceRoot, canonicalPath)) {
-      throw new MoAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
+      throw new PiAgentToolError('SYMLINK_ESCAPE_DENIED', `Workspace path resolves outside the workspace: ${relativePath}.`);
     }
     const canonicalRelativePath = toPosix(path.relative(this.workspaceRoot, canonicalPath));
     assertNotSensitiveWritePath(canonicalRelativePath);
@@ -350,13 +350,13 @@ export class MoAgentWorkspacePolicy {
       const targetStat = await fs.lstat(absolutePath);
       exists = true;
       if (targetStat.isSymbolicLink()) {
-        throw new MoAgentToolError(
+        throw new PiAgentToolError(
           'SYMLINK_WRITE_DENIED',
-          `MoAgent will not replace or write through a symbolic link: ${relativePath}.`,
+          `PI Agent will not replace or write through a symbolic link: ${relativePath}.`,
         );
       }
       if (targetStat.isDirectory()) {
-        throw new MoAgentToolError('NOT_A_FILE', `Expected a file path, received a directory: ${relativePath}.`);
+        throw new PiAgentToolError('NOT_A_FILE', `Expected a file path, received a directory: ${relativePath}.`);
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -370,9 +370,9 @@ export class MoAgentWorkspacePolicy {
       (this.includeDefaultWriteGlobs && isDefaultWritablePath(canonicalRelativePath)) ||
       extraAllowsCanonical;
     if (!lexicalAllowed || !canonicalAllowed) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'WRITE_PATH_DENIED',
-        `MoAgent profile does not allow writing to ${relativePath}.`,
+        `PI Agent profile does not allow writing to ${relativePath}.`,
         {
           allowedWriteGlobs: [
             ...(this.includeDefaultWriteGlobs ? DEFAULT_ALLOWED_WRITE_GLOBS : []),

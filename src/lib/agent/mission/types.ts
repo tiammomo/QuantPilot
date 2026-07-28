@@ -1,4 +1,4 @@
-export const MOAGENT_MISSION_STATUSES = [
+export const PI_AGENT_MISSION_STATUSES = [
   'running',
   'candidate_complete',
   'verifying',
@@ -9,9 +9,9 @@ export const MOAGENT_MISSION_STATUSES = [
   'cancelled',
 ] as const;
 
-export type MoAgentMissionStatus = (typeof MOAGENT_MISSION_STATUSES)[number];
+export type PiAgentMissionStatus = (typeof PI_AGENT_MISSION_STATUSES)[number];
 
-export const MOAGENT_MISSION_NODE_KEYS = [
+export const PI_AGENT_MISSION_NODE_KEYS = [
   'planning',
   'data_prefetch',
   'workspace_generation',
@@ -20,9 +20,9 @@ export const MOAGENT_MISSION_NODE_KEYS = [
   'preview_readiness',
 ] as const;
 
-export type MoAgentMissionNodeKey = (typeof MOAGENT_MISSION_NODE_KEYS)[number];
+export type PiAgentMissionNodeKey = (typeof PI_AGENT_MISSION_NODE_KEYS)[number];
 
-export type MoAgentMissionNodeStatus =
+export type PiAgentMissionNodeStatus =
   | 'pending'
   | 'running'
   | 'candidate_complete'
@@ -30,24 +30,24 @@ export type MoAgentMissionNodeStatus =
   | 'failed'
   | 'skipped';
 
-export type MoAgentMissionNodeEffect =
+export type PiAgentMissionNodeEffect =
   | 'pure'
   | 'read'
   | 'workspace_write'
   | 'platform_write'
   | 'verification';
 
-export type MoAgentArtifactRole = 'subject' | 'evidence' | 'control';
-export type MoAgentArtifactMutability = 'frozen' | 'derived' | 'mutable';
+export type PiAgentArtifactRole = 'subject' | 'evidence' | 'control';
+export type PiAgentArtifactMutability = 'frozen' | 'derived' | 'mutable';
 
-export interface MoAgentArtifactRequirement {
+export interface PiAgentArtifactRequirement {
   path: string;
-  role: MoAgentArtifactRole;
-  mutability: MoAgentArtifactMutability;
+  role: PiAgentArtifactRole;
+  mutability: PiAgentArtifactMutability;
   required: boolean;
 }
 
-export interface MoAgentAcceptancePredicate {
+export interface PiAgentAcceptancePredicate {
   id: string;
   kind:
     | 'candidate_submission'
@@ -59,7 +59,7 @@ export interface MoAgentAcceptancePredicate {
   parameters?: Record<string, string | number | boolean | string[]>;
 }
 
-export interface MoAgentMissionNodeBudget {
+export interface PiAgentMissionNodeBudget {
   maxAttempts: number;
   maxToolCalls: number;
   maxInputTokens: number;
@@ -67,36 +67,36 @@ export interface MoAgentMissionNodeBudget {
   timeoutMs: number;
 }
 
-export interface MoAgentMissionNodeSpec {
-  key: MoAgentMissionNodeKey;
+export interface PiAgentMissionNodeSpec {
+  key: PiAgentMissionNodeKey;
   type: 'planner' | 'data' | 'writer' | 'validator' | 'verifier' | 'preview';
-  effect: MoAgentMissionNodeEffect;
-  dependencies: MoAgentMissionNodeKey[];
+  effect: PiAgentMissionNodeEffect;
+  dependencies: PiAgentMissionNodeKey[];
   allowedTools: string[];
   requiredSkillSections: string[];
   inputArtifacts: string[];
   outputArtifacts: string[];
-  budget: MoAgentMissionNodeBudget;
+  budget: PiAgentMissionNodeBudget;
   acceptancePredicates: string[];
 }
 
 /**
- * Trusted product/domain projection used to compile a MissionSpec. MoAgent
+ * Trusted product/domain projection used to compile a MissionSpec. PI Agent
  * owns lifecycle semantics, while applications own artifacts, validation
  * checks, node tools and delivery acceptance rules.
  */
-export interface MoAgentMissionDefinition {
+export interface PiAgentMissionDefinition {
   id: string;
   version: string;
   validationReportPath: string;
-  artifacts: MoAgentArtifactRequirement[];
+  artifacts: PiAgentArtifactRequirement[];
   requiredValidationCheckIds: string[];
   allowedValidationWarnings: string[];
-  nodes: MoAgentMissionNodeSpec[];
-  acceptancePredicates: MoAgentAcceptancePredicate[];
+  nodes: PiAgentMissionNodeSpec[];
+  acceptancePredicates: PiAgentAcceptancePredicate[];
 }
 
-export interface MoAgentMissionCompositionRef {
+export interface PiAgentMissionCompositionRef {
   profileId: string;
   profileVersion: string;
   domainPacks: Array<{ id: string; version: string }>;
@@ -105,37 +105,37 @@ export interface MoAgentMissionCompositionRef {
   compositionSha256: string;
 }
 
-export interface MoAgentExpectedEntityRef {
+export interface PiAgentExpectedEntityRef {
   entityType: string;
   canonicalId: string;
 }
 
-export interface MoAgentMissionSpec {
+export interface PiAgentMissionSpec {
   schemaVersion: 1;
-  framework: 'MoAgent';
+  framework: 'PI Agent';
   projectId: string;
   requestId: string;
   objectiveSha256: string;
-  composition: MoAgentMissionCompositionRef;
+  composition: PiAgentMissionCompositionRef;
   capabilityId: string;
   runPlanId: string;
   validationReportPath: string;
-  expectedEntities: MoAgentExpectedEntityRef[];
-  artifacts: MoAgentArtifactRequirement[];
+  expectedEntities: PiAgentExpectedEntityRef[];
+  artifacts: PiAgentArtifactRequirement[];
   requiredValidationCheckIds: string[];
   allowedValidationWarnings: string[];
   maxRepairAttempts: number;
-  nodes: MoAgentMissionNodeSpec[];
-  acceptancePredicates: MoAgentAcceptancePredicate[];
+  nodes: PiAgentMissionNodeSpec[];
+  acceptancePredicates: PiAgentAcceptancePredicate[];
   createdAt: string;
 }
 
-export interface MoAgentMissionHandle {
+export interface PiAgentMissionHandle {
   id: string;
   generationId: string;
   projectId: string;
   requestId: string;
-  status: MoAgentMissionStatus;
+  status: PiAgentMissionStatus;
   version: number;
   candidateVersion: number;
   specHash: string;
@@ -143,29 +143,29 @@ export interface MoAgentMissionHandle {
 }
 
 /** Capability required for every write performed by a verification owner. */
-export interface MoAgentMissionVerificationFence {
+export interface PiAgentMissionVerificationFence {
   leaseOwner: string;
   fencingToken: number;
 }
 
 /** Durable claim returned after a candidate's verification lease is acquired. */
-export interface MoAgentMissionVerificationClaim
-  extends MoAgentMissionVerificationFence {
-  mission: MoAgentMissionHandle;
+export interface PiAgentMissionVerificationClaim
+  extends PiAgentMissionVerificationFence {
+  mission: PiAgentMissionHandle;
   leaseExpiresAt: string;
 }
 
-export type MoAgentCandidateSource =
-  | 'moagent_submit_result'
+export type PiAgentCandidateSource =
+  | 'pi_agent_submit_result'
   | 'platform_prefetch'
   | 'workspace_recovery'
   | 'platform_repair'
   | 'platform_template_recovery';
 
 /** Safe candidate projection returned by an execution stage. */
-export interface MoAgentCandidateSubmission {
+export interface PiAgentCandidateSubmission {
   schemaVersion: 1;
-  source: MoAgentCandidateSource;
+  source: PiAgentCandidateSource;
   sourceRunId: string | null;
   sourceRequestId: string;
   workspaceSha256: string;
@@ -175,7 +175,7 @@ export interface MoAgentCandidateSubmission {
   submittedAt: string;
 }
 
-export type MoAgentEvidenceVerdict =
+export type PiAgentEvidenceVerdict =
   | 'candidate_complete'
   | 'accepted'
   | 'repair_required'
@@ -184,24 +184,24 @@ export type MoAgentEvidenceVerdict =
   | 'rejected'
   | 'cancelled';
 
-export interface MoAgentEvidenceReceiptHandle {
+export interface PiAgentEvidenceReceiptHandle {
   id: string;
   missionId: string;
   generationId: string;
   candidateVersion: number;
   receiptType: 'candidate' | 'validation' | 'acceptance';
-  verdict: MoAgentEvidenceVerdict;
+  verdict: PiAgentEvidenceVerdict;
   subjectHash: string;
   receiptHash: string;
   createdAt: string;
 }
 
-export interface MoAgentAcceptedMissionSnapshot {
+export interface PiAgentAcceptedMissionSnapshot {
   missionId: string;
   generationId: string;
   projectId: string;
   requestId: string;
-  missionStatus: MoAgentMissionStatus;
+  missionStatus: PiAgentMissionStatus;
   candidateVersion: number;
   acceptedReceiptId: string | null;
   acceptedReceiptHash: string | null;

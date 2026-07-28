@@ -3,9 +3,10 @@ import path from 'path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/client';
 import {
-  MOAGENT_DEFAULT_MODEL,
-  normalizeMoAgentModelId,
+  PI_AGENT_DEFAULT_MODEL,
+  normalizePiAgentModelId,
 } from '@/lib/constants/models';
+import { PRODUCT_CLI_ID } from '@/lib/constants/cli';
 
 const DATA_DIR = process.env.SETTINGS_DIR || path.join(process.cwd(), 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'global-settings.json');
@@ -14,15 +15,15 @@ const GLOBAL_SETTINGS_KEY = 'global';
 export type CLISettings = Record<string, Record<string, unknown>>;
 
 export interface GlobalSettings {
-  default_cli: 'moagent';
+  default_cli: typeof PRODUCT_CLI_ID;
   cli_settings: CLISettings;
 }
 
 const DEFAULT_SETTINGS: GlobalSettings = {
-  default_cli: 'moagent',
+  default_cli: PRODUCT_CLI_ID,
   cli_settings: {
-    moagent: {
-      model: MOAGENT_DEFAULT_MODEL,
+    [PRODUCT_CLI_ID]: {
+      model: PI_AGENT_DEFAULT_MODEL,
     },
   },
 };
@@ -36,17 +37,17 @@ function record(value: unknown): Record<string, unknown> | null {
 function configuredModel(value?: unknown): string {
   const root = record(value);
   const cliSettings = record(root?.cli_settings ?? root?.cliSettings);
-  const moagent = record(cliSettings?.moagent);
-  return normalizeMoAgentModelId(
-    typeof moagent?.model === 'string' ? moagent.model : MOAGENT_DEFAULT_MODEL,
+  const provider = record(cliSettings?.[PRODUCT_CLI_ID]);
+  return normalizePiAgentModelId(
+    typeof provider?.model === 'string' ? provider.model : PI_AGENT_DEFAULT_MODEL,
   );
 }
 
 function singleProviderSettings(value?: unknown): GlobalSettings {
   return {
-    default_cli: 'moagent',
+    default_cli: PRODUCT_CLI_ID,
     cli_settings: {
-      moagent: {
+      [PRODUCT_CLI_ID]: {
         model: configuredModel(value),
       },
     },

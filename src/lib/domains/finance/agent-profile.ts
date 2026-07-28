@@ -1,4 +1,4 @@
-import type { MoAgentSkillCapabilityDescriptor } from '@/lib/agent/skills';
+import type { PiAgentSkillCapabilityDescriptor } from '@/lib/agent/skills';
 import type {
   DataAgentCapabilityDescriptor,
   DataAgentDomainPack,
@@ -119,7 +119,7 @@ export function resolveQuantPilotDataAgentProfile(
 
 export function getFinanceSkillCapabilityDescriptor(
   capabilityId?: string | null,
-): MoAgentSkillCapabilityDescriptor {
+): PiAgentSkillCapabilityDescriptor {
   const capability = getQuantCapability(capabilityId);
   return {
     id: capability.id,

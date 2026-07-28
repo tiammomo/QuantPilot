@@ -3,23 +3,23 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY = '.moagent-workspace.lock';
+export const PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY = '.pi-workspace.lock';
 const OWNER_FILE = 'owner.json';
 const RECOVERY_CLAIM_FILE = '.recovery-claim.json';
 const DEFAULT_WAIT_TIMEOUT_MS = 5_000;
 const DEFAULT_RETRY_INTERVAL_MS = 50;
 
-export class MoAgentWorkspaceResourceLockError extends Error {
+export class PiAgentWorkspaceResourceLockError extends Error {
   constructor(
     readonly code: 'WORKSPACE_RESOURCE_LOCKED' | 'WORKSPACE_RESOURCE_LOCK_LOST',
     message: string
   ) {
     super(message);
-    this.name = 'MoAgentWorkspaceResourceLockError';
+    this.name = 'PiAgentWorkspaceResourceLockError';
   }
 }
 
-export interface MoAgentWorkspaceResourceLockOptions {
+export interface PiAgentWorkspaceResourceLockOptions {
   signal?: AbortSignal;
   waitTimeoutMs?: number;
   retryIntervalMs?: number;
@@ -249,7 +249,7 @@ async function quarantineDeadLocalOwner(
   lockPath: string,
   workspaceRoot: string,
   hostname: string,
-  testHooks: MoAgentWorkspaceResourceLockOptions['recoveryTestHooks'],
+  testHooks: PiAgentWorkspaceResourceLockOptions['recoveryTestHooks'],
 ): Promise<boolean> {
   const observed = await observeOwner(lockPath);
   if (
@@ -326,7 +326,7 @@ async function quarantineDeadLocalOwner(
     quarantinedClaim.targetDevice !== observed.device.toString() ||
     quarantinedClaim.targetInode !== observed.inode.toString()
   ) {
-    throw new MoAgentWorkspaceResourceLockError(
+    throw new PiAgentWorkspaceResourceLockError(
       'WORKSPACE_RESOURCE_LOCK_LOST',
       'Workspace stale-lock quarantine identity changed; manual reconciliation is required.'
     );
@@ -342,10 +342,10 @@ async function quarantineDeadLocalOwner(
  * explicitly quarantine a schema-v2 same-host owner whose PID is provably
  * dead; remote, live, corrupt, or otherwise ambiguous locks remain fail-closed.
  */
-export async function withMoAgentWorkspaceResourceLock<T>(
+export async function withPiAgentWorkspaceResourceLock<T>(
   workspaceRoot: string,
   operation: () => Promise<T>,
-  options: MoAgentWorkspaceResourceLockOptions = {}
+  options: PiAgentWorkspaceResourceLockOptions = {}
 ): Promise<T> {
   const waitTimeoutMs = positiveInteger(
     options.waitTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS,
@@ -362,8 +362,8 @@ export async function withMoAgentWorkspaceResourceLock<T>(
   );
   const hostname = boundedOwnerValue(os.hostname(), 'workspace resource lock hostname', 256);
   const instanceId = boundedOwnerValue(
-    process.env.MOAGENT_INSTANCE_ID?.trim() || `${hostname}:${process.pid}`,
-    'MOAGENT_INSTANCE_ID',
+    process.env.PI_AGENT_INSTANCE_ID?.trim() || `${hostname}:${process.pid}`,
+    'PI_AGENT_INSTANCE_ID',
     256
   );
   const metadata = options.metadata
@@ -374,9 +374,9 @@ export async function withMoAgentWorkspaceResourceLock<T>(
     : {};
   const canonicalRoot = await fs.realpath(path.resolve(workspaceRoot));
   if (!(await fs.stat(canonicalRoot)).isDirectory()) {
-    throw new Error('MoAgent workspace resource lock root must be a directory.');
+    throw new Error('PI Agent workspace resource lock root must be a directory.');
   }
-  const lockPath = path.join(canonicalRoot, MOAGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
+  const lockPath = path.join(canonicalRoot, PI_AGENT_WORKSPACE_RESOURCE_LOCK_DIRECTORY);
   const deadline = now() + waitTimeoutMs;
   let acquired = false;
   let ownerWritten = false;
@@ -400,7 +400,7 @@ export async function withMoAgentWorkspaceResourceLock<T>(
         continue;
       }
       if (now() >= deadline) {
-        throw new MoAgentWorkspaceResourceLockError(
+        throw new PiAgentWorkspaceResourceLockError(
           'WORKSPACE_RESOURCE_LOCKED',
           'Workspace physical mutation lock is held or requires manual reconciliation.'
         );
@@ -431,7 +431,7 @@ export async function withMoAgentWorkspaceResourceLock<T>(
     } else if (await readOwnerId(lockPath) === ownerId) {
       await fs.rm(lockPath, { recursive: true, force: true });
     } else {
-      throw new MoAgentWorkspaceResourceLockError(
+      throw new PiAgentWorkspaceResourceLockError(
         'WORKSPACE_RESOURCE_LOCK_LOST',
         'Workspace resource lock ownership changed while the operation was running.'
       );

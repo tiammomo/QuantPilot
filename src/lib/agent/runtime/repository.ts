@@ -23,7 +23,7 @@ import type {
 } from './types';
 
 /**
- * Storage boundary for restart-safe MoAgent execution.
+ * Storage boundary for restart-safe PI Agent execution.
  *
  * Every mutating operation after creation is either fenced or idempotently
  * keyed. Callers must carry the returned `version` forward; a stale worker is

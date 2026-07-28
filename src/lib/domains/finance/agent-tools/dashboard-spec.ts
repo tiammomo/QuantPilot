@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentTool } from '@/lib/agent/types';
 import { assessQuantDatasetIdentity } from '../data-identity';
 import {
   baseDashboardCssTemplate,
@@ -15,12 +15,12 @@ import {
   stockSelectionPageTemplate,
 } from '@/lib/utils/scaffold-dashboard-templates';
 
-import { MoAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
-import type { MoAgentFileToolOptions } from '@/lib/agent/tools/filesystem';
-import { writeMoAgentWorkspaceBatch } from '@/lib/agent/tools/filesystem';
+import { PiAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
+import type { PiAgentFileToolOptions } from '@/lib/agent/tools/filesystem';
+import { writePiAgentWorkspaceBatch } from '@/lib/agent/tools/filesystem';
 import { inputRecord, optionalString } from '@/lib/agent/tools/input';
-import { MoAgentWorkspacePolicy } from '@/lib/agent/tools/path-policy';
-import { DEFAULT_TOOL_TIMEOUT_MS, executeMoAgentTool } from '@/lib/agent/tools/runtime';
+import { PiAgentWorkspacePolicy } from '@/lib/agent/tools/path-policy';
+import { DEFAULT_TOOL_TIMEOUT_MS, executePiAgentTool } from '@/lib/agent/tools/runtime';
 
 const RUN_PLAN_PATH = '.data-agent/finance-run-plan.json';
 const FINAL_DATA_PATH = 'data_file/final/dashboard-data.json';
@@ -94,8 +94,8 @@ export interface DashboardSpecReadinessAssessment {
   spec: CompiledDashboardSpec | null;
 }
 
-export interface MoAgentDashboardSpecToolOptions extends Pick<
-  MoAgentFileToolOptions,
+export interface PiAgentDashboardSpecToolOptions extends Pick<
+  PiAgentFileToolOptions,
   | 'workspaceRoot'
   | 'allowedWriteGlobs'
   | 'includeDefaultWriteGlobs'
@@ -143,13 +143,13 @@ interface ContractComponents {
 
 function contractComponents(value: unknown, label: string): ContractComponents {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INCOMPLETE',
       `${label} must declare at least one dashboard component.`,
     );
   }
   if (value.length > 64) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INVALID',
       `${label} exceeds the 64-component contract limit.`,
     );
@@ -159,14 +159,14 @@ function contractComponents(value: unknown, label: string): ContractComponents {
   for (const item of value) {
     const component = contractString(item);
     if (!component) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'DASHBOARD_SPEC_CONTRACT_INVALID',
         `${label} contains an invalid dashboard component.`,
       );
     }
     const key = normalizedComponent(component);
     if (normalized.has(key)) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'DASHBOARD_SPEC_CONTRACT_INVALID',
         `${label} contains duplicate dashboard components after normalization.`,
         { component },
@@ -753,7 +753,7 @@ export function isDashboardSpecCapabilitySupported(
 }
 
 async function readContractRecord(
-  policy: MoAgentWorkspacePolicy,
+  policy: PiAgentWorkspacePolicy,
   relativePath: string,
   signal: AbortSignal,
 ): Promise<JsonRecord> {
@@ -761,13 +761,13 @@ async function readContractRecord(
   const resolved = await policy.resolveReadPath(relativePath);
   const stat = await fs.stat(resolved.canonicalPath);
   if (!stat.isFile()) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INVALID',
       `Dashboard contract artifact is not a file: ${resolved.relativePath}.`,
     );
   }
   if (stat.size > MAX_CONTRACT_BYTES) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_TOO_LARGE',
       `Dashboard contract artifact exceeds ${MAX_CONTRACT_BYTES} bytes: ${resolved.relativePath}.`,
     );
@@ -777,13 +777,13 @@ async function readContractRecord(
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INVALID',
       `Dashboard contract artifact is not valid JSON: ${resolved.relativePath}.`,
     );
   }
   if (!isRecord(parsed)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INVALID',
       `Dashboard contract artifact must contain a JSON object: ${resolved.relativePath}.`,
     );
@@ -798,14 +798,14 @@ function authoritativeValue(
   required: boolean,
 ): string | null {
   if (required && (!planned || !prepared)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INCOMPLETE',
       `${label} must be declared by both the run plan and final data.`,
       { planned, prepared },
     );
   }
   if (planned && prepared && planned !== prepared) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_MISMATCH',
       `${label} differs between the run plan and final data.`,
       { planned, prepared },
@@ -820,7 +820,7 @@ function resolveDashboardCapability(
   variantId: string,
 ): SupportedDashboardCapability {
   if (!KNOWN_TEMPLATE_IDS.has(templateId)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_TEMPLATE_UNSUPPORTED',
       `No trusted QuantPilot renderer is registered for template ${templateId}.`,
       { templateId, variantId },
@@ -828,14 +828,14 @@ function resolveDashboardCapability(
   }
   const capability = CAPABILITY_BY_KEY.get(`${templateId}\u0000${variantId}`);
   if (!capability) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_VARIANT_UNSUPPORTED',
       `No trusted QuantPilot renderer capability is registered for ${templateId}/${variantId}.`,
       { templateId, variantId },
     );
   }
   if (!capability.supported) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_VARIANT_UNSUPPORTED',
       `Dashboard variant ${templateId}/${variantId} is not implemented by a trusted renderer.`,
       { templateId, variantId, reason: capability.reason },
@@ -856,7 +856,7 @@ function assertDataPrerequisites(
     }
   });
   if (missing.length === 0) return;
-  throw new MoAgentToolError(
+  throw new PiAgentToolError(
     'DASHBOARD_SPEC_DATA_PREREQUISITE_FAILED',
     `Final dashboard data cannot satisfy ${capability.templateId}/${capability.variantId}.`,
     {
@@ -874,7 +874,7 @@ function compileDashboardSpec(
   assertion: ApplyDashboardSpecInput,
 ): CompiledDashboardSpec {
   if (contractString(runPlan.status) !== 'planned') {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_PLAN_NOT_READY',
       'The authoritative run plan must have status=planned before dashboard compilation.',
       { status: runPlan.status ?? null },
@@ -883,13 +883,13 @@ function compileDashboardSpec(
   const planVisualization = nestedRecord(runPlan, 'visualization');
   const finalVisualization = nestedRecord(finalData, 'visualization');
   if (!planVisualization || planVisualization.required !== true) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_VISUALIZATION_NOT_REQUIRED',
       'The authoritative run plan must explicitly declare visualization.required=true.',
     );
   }
   if (!finalVisualization) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INCOMPLETE',
       'Final dashboard data must contain a visualization contract.',
     );
@@ -907,19 +907,19 @@ function compileDashboardSpec(
     true,
   );
   if (!templateId || !variantId) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INCOMPLETE',
       'templateId and variantId are required to compile a dashboard.',
     );
   }
   if (assertion.templateId && assertion.templateId !== templateId) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_ASSERTION_FAILED',
       `Requested templateId ${assertion.templateId} does not match authoritative ${templateId}.`,
     );
   }
   if (assertion.variantId && assertion.variantId !== variantId) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_ASSERTION_FAILED',
       `Requested variantId ${assertion.variantId} does not match authoritative ${variantId ?? '(missing)'}.`,
     );
@@ -927,7 +927,7 @@ function compileDashboardSpec(
   const capability = resolveDashboardCapability(templateId, variantId);
   const datasetIdentity = assessQuantDatasetIdentity(runPlan, finalData);
   if (!datasetIdentity.ready) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_DATA_IDENTITY_MISMATCH',
       'Final dashboard data is not bound to the authoritative run and symbol universe.',
       { reasons: datasetIdentity.reasons },
@@ -942,7 +942,7 @@ function compileDashboardSpec(
     'final.visualization.required_components',
   );
   if (!componentsMatch(plannedComponents.normalized, preparedComponents.normalized)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_COMPONENTS_MISMATCH',
       'Dashboard components differ between the run plan and final data.',
       {
@@ -956,7 +956,7 @@ function compileDashboardSpec(
     'renderer.requiredComponents',
   );
   if (!componentsMatch(preparedComponents.normalized, supportedComponents.normalized)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_COMPONENT_UNSUPPORTED',
       `The trusted renderer does not exactly implement the authoritative component contract for ${templateId}/${variantId}.`,
       {
@@ -967,13 +967,13 @@ function compileDashboardSpec(
   }
   const missingComponents = finalVisualization.missing_components;
   if (missingComponents !== undefined && !Array.isArray(missingComponents)) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_CONTRACT_INVALID',
       'final.visualization.missing_components must be an array when declared.',
     );
   }
   if (Array.isArray(missingComponents) && missingComponents.length > 0) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'DASHBOARD_SPEC_COMPONENT_UNSUPPORTED',
       'Final dashboard data declares unresolved visualization components.',
       { missingComponents: missingComponents.slice(0, 64) },
@@ -1005,7 +1005,7 @@ export function assessDashboardSpecReadiness(
       spec: compileDashboardSpec(runPlan, finalData, {}),
     };
   } catch (error) {
-    if (error instanceof MoAgentToolError) {
+    if (error instanceof PiAgentToolError) {
       const details = isRecord(error.details) ? error.details : {};
       const detailReasons = Array.isArray(details.reasons)
         ? details.reasons.filter((item): item is string => typeof item === 'string')
@@ -1069,10 +1069,10 @@ function parseInput(value: unknown): ApplyDashboardSpecInput {
 }
 
 export function createApplyDashboardSpecTool(
-  options: MoAgentDashboardSpecToolOptions,
-): MoAgentTool<ApplyDashboardSpecInput, ApplyDashboardSpecOutput> {
-  let policyPromise: Promise<MoAgentWorkspacePolicy> | undefined;
-  const policy = () => policyPromise ??= MoAgentWorkspacePolicy.create({
+  options: PiAgentDashboardSpecToolOptions,
+): PiAgentTool<ApplyDashboardSpecInput, ApplyDashboardSpecOutput> {
+  let policyPromise: Promise<PiAgentWorkspacePolicy> | undefined;
+  const policy = () => policyPromise ??= PiAgentWorkspacePolicy.create({
     workspaceRoot: options.workspaceRoot,
     allowedWriteGlobs: options.allowedWriteGlobs,
     includeDefaultWriteGlobs: options.includeDefaultWriteGlobs,
@@ -1097,7 +1097,7 @@ export function createApplyDashboardSpecTool(
       additionalProperties: false,
     },
     parseInput,
-    execute: (input, context) => executeMoAgentTool(
+    execute: (input, context) => executePiAgentTool(
       context.signal,
       options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       async (signal) => {
@@ -1108,7 +1108,7 @@ export function createApplyDashboardSpecTool(
         ]);
         const spec = compileDashboardSpec(runPlan, finalData, input);
         const rendered = renderDashboard(spec);
-        const writeResult = await writeMoAgentWorkspaceBatch({
+        const writeResult = await writePiAgentWorkspaceBatch({
           policy: workspacePolicy,
           files: [
             { relativePath: PAGE_PATH, content: Buffer.from(rendered.page, 'utf8') },

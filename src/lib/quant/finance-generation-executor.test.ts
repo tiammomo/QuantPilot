@@ -6,14 +6,14 @@ import {
   parseFinanceGenerationEnvelope,
 } from "./finance-generation-executor";
 import type { QuantRunPlan } from "@/lib/domains/finance/workspace";
-import type { MoAgentMissionSpec } from "@/lib/agent/mission";
+import type { PiAgentMissionSpec } from "@/lib/agent/mission";
 
 function validEnvelope() {
   return createFinanceGenerationEnvelope({
     effectiveInstruction: "分析测试标的并生成工作区。",
     userVisibleInstructionForRepair: "分析测试标的。",
     selectedModel: "local_qwen:qwen3.5-9b-q5km",
-    cliPreference: "moagent",
+    cliPreference: "pi",
     isInitialPrompt: true,
     conversationId: null,
     actorUserId: "user-1",
@@ -52,7 +52,7 @@ function validExecutionBindings() {
   } as QuantRunPlan;
   const missionSpec = {
     schemaVersion: 1,
-    framework: "MoAgent",
+    framework: "PI Agent",
     projectId: envelope.scope.projectId,
     requestId: envelope.scope.requestId,
     runPlanId: runPlan.runId,
@@ -65,13 +65,14 @@ function validExecutionBindings() {
       deliveryPackVersion: envelope.composition.deliveryPack.version,
       compositionSha256: envelope.composition.sha256,
     },
-  } as MoAgentMissionSpec;
+  } as PiAgentMissionSpec;
   return { envelope, runPlan, missionSpec };
 }
 
 describe("finance generation envelope", () => {
   it("keeps the prepared memory and knowledge snapshot in the durable input", () => {
     const parsed = parseFinanceGenerationEnvelope(validEnvelope());
+    expect(parsed.cliPreference).toBe("pi");
     expect(parsed.personalizationRecall.status).toBe("empty");
     expect(parsed.governedKnowledgePreparation.status).toBe("empty");
   });

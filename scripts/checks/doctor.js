@@ -108,13 +108,13 @@ function componentMode(component) {
   return component.required ? 'required' : 'optional';
 }
 
-function hasMoAgentRuntime() {
+function hasPiAgentRuntime() {
   return [
-    'src/lib/agent/core/run-engine.ts',
+    'src/lib/agent/pi/run-engine.ts',
     'src/lib/agent/providers/deepseek.ts',
     'src/lib/agent/providers/openai-compatible.ts',
     'src/lib/agent/tools/index.ts',
-    'src/lib/services/cli/moagent.ts',
+    'src/lib/services/cli/pi-agent.ts',
   ].every((file) => fs.existsSync(path.join(ROOT, file)));
 }
 
@@ -313,13 +313,13 @@ async function main() {
     ]
   );
 
-  const bundledAgentRuntime = hasMoAgentRuntime();
+  const upstreamAgentRuntime = hasPiAgentRuntime();
   addCheck(
     'Agent 执行引擎',
-    bundledAgentRuntime ? 'ok' : 'fail',
-    bundledAgentRuntime ? 'MoAgent 自研执行内核已就绪。' : 'MoAgent 自研执行内核缺失。',
+    upstreamAgentRuntime ? 'ok' : 'fail',
+    upstreamAgentRuntime ? '开源 PI Agent 执行内核已就绪。' : '开源 PI Agent 执行内核缺失。',
     [
-      bundledAgentRuntime ? null : '运行 npm install 重新安装依赖。',
+      upstreamAgentRuntime ? null : '运行 npm install 重新安装依赖。',
     ]
   );
 

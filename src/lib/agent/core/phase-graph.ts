@@ -1,31 +1,31 @@
-export type MoAgentExecutionProfile = 'generation' | 'repair';
+export type PiAgentExecutionProfile = 'generation' | 'repair';
 
-export type MoAgentPreparedExecutionIntent = 'standard' | 'custom' | null;
+export type PiAgentPreparedExecutionIntent = 'standard' | 'custom' | null;
 
-export type MoAgentExecutionLane =
+export type PiAgentExecutionLane =
   | 'deterministic_standard'
   | 'model_custom'
   | 'model_repair'
   | 'model_data_preparation';
 
-export type MoAgentExecutionPhase =
+export type PiAgentExecutionPhase =
   | 'deterministic-prepare'
   | 'inspect-edit-submit'
   | 'failure-scoped-repair'
   | 'data-prepare-edit-submit';
 
-export interface MoAgentPhaseGraphInput {
-  profile: MoAgentExecutionProfile;
+export interface PiAgentPhaseGraphInput {
+  profile: PiAgentExecutionProfile;
   platformPrepared: boolean;
-  preparedIntent: MoAgentPreparedExecutionIntent;
+  preparedIntent: PiAgentPreparedExecutionIntent;
   hasAttachments: boolean;
   dashboardSpecReady: boolean;
 }
 
-export interface MoAgentPhaseGraph {
+export interface PiAgentPhaseGraph {
   schemaVersion: 1;
-  lane: MoAgentExecutionLane;
-  phase: MoAgentExecutionPhase;
+  lane: PiAgentExecutionLane;
+  phase: PiAgentExecutionPhase;
   providerMode: 'deterministic' | 'model';
   reasoningEffort: 'low' | 'medium' | 'high';
   budgets: {
@@ -60,12 +60,12 @@ const INVARIANTS = Object.freeze({
 });
 
 function graph(
-  lane: MoAgentExecutionLane,
-  phase: MoAgentExecutionPhase,
-  providerMode: MoAgentPhaseGraph['providerMode'],
-  reasoningEffort: MoAgentPhaseGraph['reasoningEffort'],
-  budgets: MoAgentPhaseGraph['budgets'],
-): MoAgentPhaseGraph {
+  lane: PiAgentExecutionLane,
+  phase: PiAgentExecutionPhase,
+  providerMode: PiAgentPhaseGraph['providerMode'],
+  reasoningEffort: PiAgentPhaseGraph['reasoningEffort'],
+  budgets: PiAgentPhaseGraph['budgets'],
+): PiAgentPhaseGraph {
   return Object.freeze({
     schemaVersion: 1 as const,
     lane,
@@ -82,9 +82,9 @@ function graph(
  * The graph is deliberately deterministic: trusted platform preparation and
  * validation decide the lane, never model-authored text.
  */
-export function createMoAgentPhaseGraph(
-  input: MoAgentPhaseGraphInput,
-): MoAgentPhaseGraph {
+export function createPiAgentPhaseGraph(
+  input: PiAgentPhaseGraphInput,
+): PiAgentPhaseGraph {
   if (input.profile === 'repair') {
     return graph(
       'model_repair',
@@ -137,7 +137,10 @@ export function createMoAgentPhaseGraph(
       'model',
       'medium',
       {
-        maxTurns: 6,
+        // Three bounded reads, two edits and submit_result fill six turns when
+        // a provider emits one tool call per turn. Reserve two more turns for
+        // one schema-correction cycle without widening the tool surface.
+        maxTurns: 8,
         maxToolCalls: 12,
         maxOutputTokens: 8_000,
         maxCacheMissInputTokens: 24_000,

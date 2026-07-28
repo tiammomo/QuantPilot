@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { MoAgentToolContext } from '@/lib/agent/types';
+import type { PiAgentToolContext } from '@/lib/agent/types';
 import { serializeQuantVisualizationTemplate } from '../visualization-templates';
 
-import { MoAgentToolError } from '@/lib/agent/tools/errors';
+import { PiAgentToolError } from '@/lib/agent/tools/errors';
 import {
   __dashboardSpecTesting,
   createApplyDashboardSpecTool,
@@ -379,14 +379,14 @@ function singleStockFundamentalData(): JsonRecord {
   };
 }
 
-function capturedToolError(operation: () => unknown): MoAgentToolError {
+function capturedToolError(operation: () => unknown): PiAgentToolError {
   try {
     operation();
   } catch (error) {
-    expect(error).toBeInstanceOf(MoAgentToolError);
-    return error as MoAgentToolError;
+    expect(error).toBeInstanceOf(PiAgentToolError);
+    return error as PiAgentToolError;
   }
-  throw new Error('Expected operation to throw MoAgentToolError.');
+  throw new Error('Expected operation to throw PiAgentToolError.');
 }
 
 describe('apply_dashboard_spec tool', () => {
@@ -395,8 +395,8 @@ describe('apply_dashboard_spec tool', () => {
   let commitCount: number;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-dashboard-spec-'));
-    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-dashboard-outside-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-dashboard-spec-'));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-dashboard-outside-'));
     commitCount = 0;
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'app', 'page.tsx'), 'export default function Page(){return null}\n');
@@ -418,7 +418,7 @@ describe('apply_dashboard_spec tool', () => {
     ]);
   });
 
-  function context(withFence = true): MoAgentToolContext {
+  function context(withFence = true): PiAgentToolContext {
     return {
       runId: 'run-dashboard-spec',
       turn: 1,

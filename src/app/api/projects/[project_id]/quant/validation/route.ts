@@ -10,21 +10,21 @@ import {
 } from "@/lib/quant/generation-state";
 import { startPersistentValidatedPreview } from "@/lib/quant/generation-preview";
 import { runQuantGenerationStage } from "@/lib/quant/generation-queue";
-import { MoAgentGenerationLeaseError } from "@/lib/services/moagent-generation-lease-store";
+import { PiAgentGenerationLeaseError } from "@/lib/services/pi-agent-generation-lease-store";
 import { streamManager } from "@/lib/services/stream";
 import {
   capturePlatformMissionCandidate,
-  claimQuantMoAgentMissionVerification,
-  sealQuantMoAgentMissionCandidate,
-  verifyAndRecordQuantMoAgentMission,
-  type MoAgentMissionContext,
-} from "@/lib/services/moagent-mission-control";
+  claimQuantPiAgentMissionVerification,
+  sealQuantPiAgentMissionCandidate,
+  verifyAndRecordQuantPiAgentMission,
+  type PiAgentMissionContext,
+} from "@/lib/services/pi-agent-mission-control";
 import {
-  markMoAgentMissionRepairing,
-  MoAgentMissionStateError,
-  readMoAgentAcceptedMissionSnapshot,
-  readMoAgentMission,
-} from "@/lib/services/moagent-mission-store";
+  markPiAgentMissionRepairing,
+  PiAgentMissionStateError,
+  readPiAgentAcceptedMissionSnapshot,
+  readPiAgentMission,
+} from "@/lib/services/pi-agent-mission-store";
 import {
   assertUserRequestProjectBinding,
   UserRequestProjectMismatchError,
@@ -61,16 +61,16 @@ async function stopProvisionalPreview(projectId: string) {
 }
 
 function missionContext(
-  mission: NonNullable<Awaited<ReturnType<typeof readMoAgentMission>>>,
+  mission: NonNullable<Awaited<ReturnType<typeof readPiAgentMission>>>,
   projectPath: string,
-): MoAgentMissionContext {
+): PiAgentMissionContext {
   return { ...mission, projectPath };
 }
 
-async function terminalMissionResponse(mission: MoAgentMissionContext) {
+async function terminalMissionResponse(mission: PiAgentMissionContext) {
   const completed = mission.status === "completed";
   const acceptance = completed
-    ? await readMoAgentAcceptedMissionSnapshot(
+    ? await readPiAgentAcceptedMissionSnapshot(
         mission.projectId,
         mission.requestId,
       )
@@ -101,7 +101,7 @@ async function terminalMissionResponse(mission: MoAgentMissionContext) {
   );
 }
 
-function busyMissionResponse(mission: MoAgentMissionContext) {
+function busyMissionResponse(mission: PiAgentMissionContext) {
   return NextResponse.json(
     {
       success: false,
@@ -122,7 +122,7 @@ function busyMissionResponse(mission: MoAgentMissionContext) {
 }
 
 function committedAcceptance(
-  evidence: Awaited<ReturnType<typeof verifyAndRecordQuantMoAgentMission>>,
+  evidence: Awaited<ReturnType<typeof verifyAndRecordQuantPiAgentMission>>,
 ): boolean {
   return (
     evidence.decision.verdict === "accepted" &&
@@ -134,7 +134,7 @@ function committedAcceptance(
 }
 
 function acceptanceProjection(
-  evidence: Awaited<ReturnType<typeof verifyAndRecordQuantMoAgentMission>>,
+  evidence: Awaited<ReturnType<typeof verifyAndRecordQuantPiAgentMission>>,
   satisfied: boolean,
 ) {
   return {
@@ -176,7 +176,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       readQuantGenerationState(projectPath),
     ]);
     const acceptance = generationState?.requestId
-      ? await readMoAgentAcceptedMissionSnapshot(
+      ? await readPiAgentAcceptedMissionSnapshot(
           project_id,
           generationState.requestId,
         )
@@ -204,7 +204,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
   const verificationSessionHolder: {
-    current: MoAgentMissionContext["verificationSession"] | null;
+    current: PiAgentMissionContext["verificationSession"] | null;
   } = { current: null };
   try {
     const { project_id } = await params;
@@ -292,7 +292,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const missionLookupRequestId =
           requestedRequestId ?? generationState?.requestId;
         const durableMission = missionLookupRequestId
-          ? await readMoAgentMission(project_id, missionLookupRequestId)
+          ? await readPiAgentMission(project_id, missionLookupRequestId)
           : null;
 
         const requestId = durableMission?.requestId ?? requestedRequestId;
@@ -313,14 +313,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         }
 
         if (activeMission?.status === "verifying") {
-          // beginMoAgentMissionVerification uses the database clock: a live
+          // beginPiAgentMissionVerification uses the database clock: a live
           // owner still raises MISSION_VERIFICATION_BUSY, while an expired or
           // legacy ownerless claim is fenced and taken over. Return the claim
           // to candidate_complete before preparing and sealing a fresh subject
           // hash, so recovery never validates a workspace that changed after
           // the original candidate receipt.
           activeMission =
-            await claimQuantMoAgentMissionVerification(activeMission);
+            await claimQuantPiAgentMissionVerification(activeMission);
           verificationSessionHolder.current =
             activeMission.verificationSession ?? null;
           if (!verificationSessionHolder.current) {
@@ -330,7 +330,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           }
           await verificationSessionHolder.current.dispose();
           verificationSessionHolder.current = null;
-          const releasedMission = await readMoAgentMission(
+          const releasedMission = await readPiAgentMission(
             activeMission.projectId,
             activeMission.requestId,
           );
@@ -348,7 +348,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const quantValidation = await loadQuantValidation();
         let candidateReceipt:
           | Awaited<
-              ReturnType<typeof sealQuantMoAgentMissionCandidate>
+              ReturnType<typeof sealQuantPiAgentMissionCandidate>
             >["receipt"]
           | null = null;
         if (
@@ -363,7 +363,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           });
           if (activeMission.status === "repair_required") {
             activeMission = missionContext(
-              await markMoAgentMissionRepairing({
+              await markPiAgentMissionRepairing({
                 missionId: activeMission.id,
                 projectId: activeMission.projectId,
                 requestId: activeMission.requestId,
@@ -376,13 +376,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             source: "workspace_recovery",
             summary: "手动验证前，平台基于可信准备后的当前工作区封存恢复候选。",
           });
-          const sealed = await sealQuantMoAgentMissionCandidate({
+          const sealed = await sealQuantPiAgentMissionCandidate({
             mission: activeMission,
             candidate,
           });
           activeMission = sealed.mission;
           activeMission =
-            await claimQuantMoAgentMissionVerification(activeMission);
+            await claimQuantPiAgentMissionVerification(activeMission);
           verificationSessionHolder.current =
             activeMission.verificationSession ?? null;
           if (!verificationSessionHolder.current) {
@@ -559,10 +559,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
 
         let evidence: Awaited<
-          ReturnType<typeof verifyAndRecordQuantMoAgentMission>
+          ReturnType<typeof verifyAndRecordQuantPiAgentMission>
         >;
         try {
-          evidence = await verifyAndRecordQuantMoAgentMission({
+          evidence = await verifyAndRecordQuantPiAgentMission({
             mission: activeMission,
             preview: provisionalPreview
               ? { url: provisionalPreview.url, port: provisionalPreview.port }
@@ -686,7 +686,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    if (error instanceof MoAgentGenerationLeaseError) {
+    if (error instanceof PiAgentGenerationLeaseError) {
       return NextResponse.json(
         {
           success: false,
@@ -699,7 +699,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         { status: 409 },
       );
     }
-    if (error instanceof MoAgentMissionStateError) {
+    if (error instanceof PiAgentMissionStateError) {
       return NextResponse.json(
         {
           success: false,

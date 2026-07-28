@@ -35,7 +35,7 @@ describe('chat act request contract', () => {
   it.each([
     { instruction: 'x', request_id: 'old' },
     { instruction: 'x', selected_model: 'old' },
-    { instruction: 'x', cliPreference: 'moagent' },
+    { instruction: 'x', cliPreference: 'pi' },
     { instruction: 'x', quantCapabilityId: 'old' },
     { instruction: 'x', quantCapabilitySource: 'manual' },
     { instruction: 'x', images: [{ path: '/tmp/portfolio.png' }] },

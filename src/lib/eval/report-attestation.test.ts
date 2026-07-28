@@ -16,7 +16,7 @@ const options: EvalReportAttestationOptions = {
   expectedDataSnapshots: [],
   expectedDatasetVisibility: 'public',
   expectedResultQuestions: {},
-  frameworkVersion: 'moagent:1.13.0',
+  frameworkVersion: 'pi-agent:0.82.1',
   buildRevision: 'build-current',
   gitRevision: GIT,
   qualityThresholds: {
@@ -39,10 +39,10 @@ function baseReport(mode: 'contract' | 'e2e') {
     failedCount: 0,
     metadata: {
       runtime: {
-        cli: 'moagent',
+        cli: 'pi',
         provider: mode === 'e2e' ? 'openai' : null,
         model: mode === 'e2e' ? 'local_qwen:qwen3.5-9b-q5km' : null,
-        frameworkVersion: 'moagent:1.13.0',
+        frameworkVersion: 'pi-agent:0.82.1',
         buildRevision: 'build-current',
         agentExecuted: false,
         executedCaseCount: 0,
@@ -68,7 +68,7 @@ function baseReport(mode: 'contract' | 'e2e') {
       },
       provenance: {
         gitRevision: GIT,
-        frameworkVersion: 'moagent:1.13.0',
+        frameworkVersion: 'pi-agent:0.82.1',
         buildRevision: 'build-current',
         casesSha256: 'cases-hash',
         promptsSha256: 'prompts-hash',
@@ -171,11 +171,11 @@ function execution(id: string) {
       acceptedReceiptVerdict: 'accepted',
       acceptedSourceRunId: runId,
       acceptedSourceRequestId: requestId,
-      acceptedCandidateSource: 'moagent_submit_result',
+      acceptedCandidateSource: 'pi_agent_submit_result',
     },
     agentExecution: {
       executed: true,
-      cli: 'moagent',
+      cli: 'pi',
       provider: 'openai',
       model: 'local_qwen:qwen3.5-9b-q5km',
       requestId,
@@ -187,7 +187,7 @@ function execution(id: string) {
         status: 'candidate_complete',
         provider: 'openai',
         model: 'local_qwen:qwen3.5-9b-q5km',
-        frameworkVersion: 'moagent:1.13.0',
+        frameworkVersion: 'pi-agent:0.82.1',
         buildRevision: 'build-current',
         startedAt: '2026-07-15T00:00:00.000Z',
         completedAt: '2026-07-15T00:01:00.000Z',
@@ -205,8 +205,8 @@ function execution(id: string) {
       acceptedReceiptVerdict: 'accepted',
       acceptedSourceRunId: runId,
       acceptedSourceRequestId: requestId,
-      acceptedCandidateSource: 'moagent_submit_result',
-      frameworkVersion: 'moagent:1.13.0',
+      acceptedCandidateSource: 'pi_agent_submit_result',
+      frameworkVersion: 'pi-agent:0.82.1',
       buildRevision: 'build-current',
       gitRevision: GIT,
       startedAt: '2026-07-15T00:00:00.000Z',
@@ -354,7 +354,7 @@ describe('eval report attestation', () => {
   });
 
   it.each([
-    'unversioned:moagent:1.13.0',
+    'unversioned:pi-agent:0.82.1',
     `${'a'.repeat(40)}-dirty.unavailable`,
   ])('rejects E2E evidence from a non-attestable build revision: %s', (buildRevision) => {
     const report = baseReport('e2e');

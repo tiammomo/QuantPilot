@@ -1,21 +1,21 @@
-import type { MoAgentCandidateSubmission } from '@/lib/agent/mission';
-import { refreshMoAgentCandidateWorkspace } from '@/lib/services/moagent-candidate';
+import type { PiAgentCandidateSubmission } from '@/lib/agent/mission';
+import { refreshPiAgentCandidateWorkspace } from '@/lib/services/pi-agent-candidate';
 import {
   capturePlatformMissionCandidate,
-  claimQuantMoAgentMissionVerification,
-  markQuantMoAgentMissionNode,
-  refreshMoAgentMissionContext,
-  sealQuantMoAgentMissionCandidate,
-  verifyAndRecordQuantMoAgentMission,
-  type MoAgentMissionContext,
-} from '@/lib/services/moagent-mission-control';
+  claimQuantPiAgentMissionVerification,
+  markQuantPiAgentMissionNode,
+  refreshPiAgentMissionContext,
+  sealQuantPiAgentMissionCandidate,
+  verifyAndRecordQuantPiAgentMission,
+  type PiAgentMissionContext,
+} from '@/lib/services/pi-agent-mission-control';
 import {
-  cancelMoAgentMission,
-  failMoAgentMission,
-  markMoAgentMissionRepairing,
-  MoAgentMissionStateError,
-  readMoAgentAcceptedMissionSnapshot,
-} from '@/lib/services/moagent-mission-store';
+  cancelPiAgentMission,
+  failPiAgentMission,
+  markPiAgentMissionRepairing,
+  PiAgentMissionStateError,
+  readPiAgentAcceptedMissionSnapshot,
+} from '@/lib/services/pi-agent-mission-store';
 import {
   startPersistentValidatedPreview,
   type ValidatedGenerationPreview,
@@ -43,8 +43,8 @@ import {
   markUserRequestAsProcessing,
   upsertUserRequest,
 } from '@/lib/services/user-requests';
-import { classifyMoAgentExecutionError } from '@/lib/services/moagent-execution-error';
-import { collectMoAgentTurnMetrics } from '@/lib/services/moagent-turn-metrics';
+import { classifyPiAgentExecutionError } from '@/lib/services/pi-agent-execution-error';
+import { collectPiAgentTurnMetrics } from '@/lib/services/pi-agent-turn-metrics';
 import { createMessage } from '@/lib/services/message';
 import { streamManager } from '@/lib/services/stream';
 import { serializeMessage } from '@/lib/serializers/chat';
@@ -66,7 +66,7 @@ class ValidatedPreviewStartError extends Error {
 }
 
 export function runValidationAfterExecution(params: {
-  execution: Promise<MoAgentCandidateSubmission>;
+  execution: Promise<PiAgentCandidateSubmission>;
   repairExecutor: (
     projectId: string,
     projectPath: string,
@@ -74,8 +74,8 @@ export function runValidationAfterExecution(params: {
     model: string,
     requestId?: string,
     parentRequestId?: string,
-  ) => Promise<MoAgentCandidateSubmission>;
-  mission: MoAgentMissionContext;
+  ) => Promise<PiAgentCandidateSubmission>;
+  mission: PiAgentMissionContext;
   projectId: string;
   projectPath: string;
   instruction: string;
@@ -94,7 +94,7 @@ export function runValidationAfterExecution(params: {
   let activeRepairRequestId: string | null = null;
   let activeMission = params.mission;
   let activeVerificationSession: NonNullable<
-    MoAgentMissionContext["verificationSession"]
+    PiAgentMissionContext["verificationSession"]
   > | null = null;
 
   const disposeVerificationSession = async (): Promise<void> => {
@@ -113,7 +113,7 @@ export function runValidationAfterExecution(params: {
   const cancelMission = async (message: string) => {
     await disposeVerificationSession();
     activeMission = {
-      ...(await cancelMoAgentMission({
+      ...(await cancelPiAgentMission({
         missionId: activeMission.id,
         projectId: activeMission.projectId,
         requestId: activeMission.requestId,
@@ -127,7 +127,7 @@ export function runValidationAfterExecution(params: {
   const failMission = async (code: string, message: string) => {
     await disposeVerificationSession();
     activeMission = {
-      ...(await failMoAgentMission({
+      ...(await failPiAgentMission({
         missionId: activeMission.id,
         projectId: activeMission.projectId,
         requestId: activeMission.requestId,
@@ -141,7 +141,7 @@ export function runValidationAfterExecution(params: {
   };
   const beginRepair = async () => {
     activeMission = {
-      ...(await markMoAgentMissionRepairing({
+      ...(await markPiAgentMissionRepairing({
         missionId: activeMission.id,
         projectId: activeMission.projectId,
         requestId: activeMission.requestId,
@@ -150,9 +150,9 @@ export function runValidationAfterExecution(params: {
     };
   };
   const recoverCommittedAcceptanceProjection = async (): Promise<boolean> => {
-    activeMission = await refreshMoAgentMissionContext(activeMission);
+    activeMission = await refreshPiAgentMissionContext(activeMission);
     if (activeMission.status !== "completed") return false;
-    const accepted = await readMoAgentAcceptedMissionSnapshot(
+    const accepted = await readPiAgentAcceptedMissionSnapshot(
       activeMission.projectId,
       activeMission.requestId,
     );
@@ -218,13 +218,13 @@ export function runValidationAfterExecution(params: {
     });
     return true;
   };
-  const sealCandidate = async (candidate: MoAgentCandidateSubmission) => {
-    const sealed = await sealQuantMoAgentMissionCandidate({
+  const sealCandidate = async (candidate: PiAgentCandidateSubmission) => {
+    const sealed = await sealQuantPiAgentMissionCandidate({
       mission: activeMission,
       candidate,
     });
     activeMission = sealed.mission;
-    activeMission = await claimQuantMoAgentMissionVerification(activeMission);
+    activeMission = await claimQuantPiAgentMissionVerification(activeMission);
     if (!activeMission.verificationSession) {
       throw new Error(
         "Mission verification claim did not return a live lease session.",
@@ -279,11 +279,11 @@ export function runValidationAfterExecution(params: {
       },
     });
     let verified: Awaited<
-      ReturnType<typeof verifyAndRecordQuantMoAgentMission>
+      ReturnType<typeof verifyAndRecordQuantPiAgentMission>
     >;
     const verificationSession = activeVerificationSession;
     try {
-      verified = await verifyAndRecordQuantMoAgentMission({
+      verified = await verifyAndRecordQuantPiAgentMission({
         mission: activeMission,
         preview: preview
           ? { url: preview.url, port: preview.port }
@@ -328,7 +328,7 @@ export function runValidationAfterExecution(params: {
   };
 
   const validateAndRepair = async (
-    candidate: MoAgentCandidateSubmission | null,
+    candidate: PiAgentCandidateSubmission | null,
     executionError?: unknown,
   ) => {
     if (await isUserRequestCancelled(params.projectId, params.requestId)) {
@@ -358,7 +358,7 @@ export function runValidationAfterExecution(params: {
     }
 
     const classifiedExecutionError = executionError
-      ? classifyMoAgentExecutionError(executionError)
+      ? classifyPiAgentExecutionError(executionError)
       : null;
     const executionFailureMessage =
       classifiedExecutionError?.message ??
@@ -445,7 +445,7 @@ export function runValidationAfterExecution(params: {
     });
     if (candidate) {
       await sealCandidate(
-        await refreshMoAgentCandidateWorkspace({
+        await refreshPiAgentCandidateWorkspace({
           workspaceRoot: params.projectPath,
           candidate,
         }),
@@ -892,7 +892,7 @@ export function runValidationAfterExecution(params: {
       }
 
       let repairExecutionFailed = false;
-      let repairCandidate: MoAgentCandidateSubmission | null = null;
+      let repairCandidate: PiAgentCandidateSubmission | null = null;
       try {
         const recordedAttempt = await incrementQuantGenerationRepairAttempt({
           projectPath: params.projectPath,
@@ -998,7 +998,7 @@ export function runValidationAfterExecution(params: {
       });
       if (repairCandidate) {
         await sealCandidate(
-          await refreshMoAgentCandidateWorkspace({
+          await refreshPiAgentCandidateWorkspace({
             workspaceRoot: params.projectPath,
             candidate: repairCandidate,
           }),
@@ -1357,7 +1357,7 @@ export function runValidationAfterExecution(params: {
   };
 
   return (async () => {
-    let executionCandidate: MoAgentCandidateSubmission | null = null;
+    let executionCandidate: PiAgentCandidateSubmission | null = null;
     let executionError: unknown;
     try {
       executionCandidate = await params.execution;
@@ -1383,7 +1383,7 @@ export function runValidationAfterExecution(params: {
       const previewFailure =
         validationError instanceof ValidatedPreviewStartError;
       if (
-        validationError instanceof MoAgentMissionStateError &&
+        validationError instanceof PiAgentMissionStateError &&
         validationError.code === "MISSION_VERIFICATION_LEASE_LOST"
       ) {
         await disposeVerificationSession().catch(() => undefined);

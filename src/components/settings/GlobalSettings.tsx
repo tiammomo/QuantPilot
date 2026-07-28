@@ -4,8 +4,12 @@ import { AnimatePresence } from "framer-motion";
 import { MotionDiv } from "@/lib/motion";
 import { FaCog } from "react-icons/fa";
 import ServiceConnectionModal from "@/components/modals/ServiceConnectionModal";
-import { useGlobalSettings } from "@/contexts/GlobalSettingsContext";
+import {
+  normalizeGlobalAISettings,
+  useGlobalSettings,
+} from "@/contexts/GlobalSettingsContext";
 import { getModelDefinitionsForCli, normalizeModelId } from "@/lib/constants/models";
+import { PRODUCT_CLI_ID } from "@/lib/constants/cli";
 import { fetchCliStatusSnapshot, createCliStatusFallback } from "@/hooks/useCLI";
 import type { CLIStatus } from "@/types/cli";
 
@@ -28,16 +32,16 @@ interface GlobalSettingsProps {
 
 const CLI_OPTIONS: CLIOption[] = [
   {
-    id: "moagent",
-    name: "MoAgent",
+    id: PRODUCT_CLI_ID,
+    name: "PI Agent",
     icon: "",
-    description: "QuantPilot 自研 Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型",
+    description: "基于开源 PI Agent 框架，支持 DeepSeek 与本地 OpenAI-compatible 模型",
     color: "from-blue-600 to-indigo-600",
     brandColor: "#2563EB",
-    downloadUrl: "https://api-docs.deepseek.com/guides/coding_agents",
+    downloadUrl: "https://github.com/earendil-works/pi",
     installCommand: "npm install",
     enabled: true,
-    models: getModelDefinitionsForCli("moagent").map(({ id, name, description, provider, runtime, external }) => ({
+    models: getModelDefinitionsForCli(PRODUCT_CLI_ID).map(({ id, name, description, provider, runtime, external }) => ({
       id, name, description, provider, runtime, external,
     })),
   },
@@ -148,14 +152,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
       const response = await fetch(`${API_BASE}/api/settings/global`);
       if (response.ok) {
         const settings = await response.json();
-        if (settings?.cli_settings) {
-          for (const [cli, config] of Object.entries(settings.cli_settings)) {
-            if (config && typeof config === "object" && "model" in config) {
-              (config as any).model = normalizeModelId(cli, (config as any).model as string);
-            }
-          }
-        }
-        setGlobalSettings(settings);
+        setGlobalSettings(normalizeGlobalAISettings(settings));
       }
     } catch (error) {
       console.error("Failed to load global settings:", error);
@@ -231,7 +228,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
 
   // Derived data
   const defaultCli = CLI_OPTIONS.find((c) => c.id === globalSettings.default_cli);
-  const defaultCliSettings = defaultCli ? globalSettings.cli_settings.moagent : {};
+  const defaultCliSettings = defaultCli ? globalSettings.cli_settings.pi : {};
   const defaultModel = defaultCli?.models.find((m) => m.id === defaultCliSettings.model);
   const installedAgentCount = CLI_OPTIONS.filter((c) => c.enabled !== false && cliStatus[c.id]?.installed).length;
   const configuredServiceCount = Object.values(tokens).filter(Boolean).length;
@@ -327,12 +324,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
                 onSelectModel={(modelId) => {
                   setGlobalSettings((current) => ({
                     ...current,
-                    default_cli: "moagent",
+                    default_cli: PRODUCT_CLI_ID,
                     cli_settings: {
                       ...current.cli_settings,
-                      moagent: {
-                        ...current.cli_settings.moagent,
-                        model: normalizeModelId("moagent", modelId),
+                      pi: {
+                        ...current.cli_settings.pi,
+                        model: normalizeModelId(PRODUCT_CLI_ID, modelId),
                       },
                     },
                   }));

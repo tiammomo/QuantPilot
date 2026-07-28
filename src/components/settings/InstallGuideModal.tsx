@@ -28,9 +28,9 @@ function InstallGuideModal({ onClose, onRefreshStatus, onCopyToast }: InstallGui
         <div className="border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">M</span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">P</span>
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">MoAgent 修复指引</h3>
+                <h3 className="text-lg font-semibold text-slate-950">PI Agent 修复指引</h3>
                 <p className="mt-1 text-sm text-slate-600">默认通过 ModelPort 使用 Qwen 与 DeepSeek，官方直连保持可选。</p>
               </div>
             </div>

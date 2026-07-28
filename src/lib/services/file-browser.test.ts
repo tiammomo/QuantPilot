@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
+import { withPiAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
 
 const mocks = vi.hoisted(() => ({
   getProjectById: vi.fn(),
@@ -38,18 +38,18 @@ describe('file browser workspace mutation coordination', () => {
     await fs.rm(workspace, { recursive: true, force: true });
   });
 
-  it('waits for the shared MoAgent workspace lock before saving a UI edit', async () => {
+  it('waits for the shared PI Agent workspace lock before saving a UI edit', async () => {
     let release!: () => void;
     let entered!: () => void;
     const lockEntered = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const held = withMoAgentWorkspaceResourceLock(workspace, async () => {
+    const held = withPiAgentWorkspaceResourceLock(workspace, async () => {
       entered();
       await new Promise<void>((resolve) => {
         release = resolve;
       });
-    }, { ownerId: 'test-moagent-writer' });
+    }, { ownerId: 'test-pi-agent-writer' });
     await lockEntered;
 
     let saveCompleted = false;

@@ -138,7 +138,7 @@ async function commandOutput(command: string, args: string[], timeout = 1800): P
   }
 }
 
-async function hasMoAgentRuntime(): Promise<boolean> {
+async function hasPiAgentRuntime(): Promise<boolean> {
   // This module is part of the same compiled server graph as the agent runtime.
   // Checking source-tree files breaks in a valid standalone deployment and can
   // also make output tracing copy the repository into the release artifact.
@@ -785,7 +785,7 @@ export async function getOpsPlatformDashboard(params: {
     params.workspaceHealth ?? getWorkspaceHealthDashboard(),
     getStrategyDashboardData(),
     commandOutput('npm', ['--version']),
-    hasMoAgentRuntime(),
+    hasPiAgentRuntime(),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
     getAgentWorkerRuntimeDashboard(),
@@ -820,10 +820,10 @@ export async function getOpsPlatformDashboard(params: {
     {
       id: 'node-runtime',
       label: 'Node.js 运行时',
-      status: isVersionAtLeast(nodeVersion, '20.19.0') ? 'ok' : 'failed',
+      status: isVersionAtLeast(nodeVersion, '22.19.0') ? 'ok' : 'failed',
       summary: `v${nodeVersion}`,
-      detail: '项目要求 Node.js >= 20.19.0。',
-      actions: isVersionAtLeast(nodeVersion, '20.19.0') ? [] : ['升级本地 Node.js 版本。'],
+      detail: '项目要求 Node.js >= 22.19.0。',
+      actions: isVersionAtLeast(nodeVersion, '22.19.0') ? [] : ['升级本地 Node.js 版本。'],
     },
     {
       id: 'npm-cli',
@@ -834,7 +834,7 @@ export async function getOpsPlatformDashboard(params: {
     },
     {
       id: 'agent-cli',
-      label: 'MoAgent',
+      label: 'PI Agent',
       status: agentRuntimeInstalled && (
         process.env.MODELPORT_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim()
       ) ? 'ok' : 'failed',
@@ -873,7 +873,7 @@ export async function getOpsPlatformDashboard(params: {
           : null,
         agentWorkers.summary.configurationConsistent
           ? null
-          : '统一所有 Worker 的 MOAGENT_WORKER_GLOBAL_CONCURRENCY 后重启。',
+          : '统一所有 Worker 的 PI_AGENT_WORKER_GLOBAL_CONCURRENCY 后重启。',
         agentWorkers.summary.expiredSlots > 0
           ? '检查 Worker 心跳、generation job dispatch lease 与数据库时钟。'
           : null,

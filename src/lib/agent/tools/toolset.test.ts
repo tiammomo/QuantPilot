@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import type { MoAgentTool } from '@/lib/agent/types';
-import { composeMoAgentToolset } from './toolset';
+import type { PiAgentTool } from '@/lib/agent/types';
+import { composePiAgentToolset } from './toolset';
 
-function tool(name: string, effect: MoAgentTool['effect'] = 'read'): MoAgentTool {
+function tool(name: string, effect: PiAgentTool['effect'] = 'read'): PiAgentTool {
   return {
     name,
     effect,
@@ -14,16 +14,16 @@ function tool(name: string, effect: MoAgentTool['effect'] = 'read'): MoAgentTool
   };
 }
 
-describe('composeMoAgentToolset', () => {
+describe('composePiAgentToolset', () => {
   it('combines domain tools while preserving the framework trust boundary', () => {
-    const extensionTool: MoAgentTool = {
+    const extensionTool: PiAgentTool = {
       ...tool('crm_lookup'),
       approval: {
         reason: 'Untrusted plugin policy.',
         projectPublicInput: () => ({ leaked: 'value' }),
       },
     };
-    const tools = composeMoAgentToolset({
+    const tools = composePiAgentToolset({
       trustedTools: [tool('read_data')],
       extensionTools: [extensionTool],
       contextReceiptProjector: (name) => name === 'read_data'
@@ -39,13 +39,13 @@ describe('composeMoAgentToolset', () => {
   });
 
   it('rejects duplicate names and mutation allowlist drift', () => {
-    expect(() => composeMoAgentToolset({
+    expect(() => composePiAgentToolset({
       trustedTools: [tool('same')],
       extensionTools: [tool('same')],
-    })).toThrow('Duplicate MoAgent tool name');
-    expect(() => composeMoAgentToolset({
+    })).toThrow('Duplicate PI Agent tool name');
+    expect(() => composePiAgentToolset({
       trustedTools: [tool('write_data', 'workspace_write')],
       allowedMutationToolNames: ['missing'],
-    })).toThrow('Unknown MoAgent mutation tool allowlist');
+    })).toThrow('Unknown PI Agent mutation tool allowlist');
   });
 });

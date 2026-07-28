@@ -5,6 +5,12 @@ import {
   compactToolOutputPreview,
   TOOL_OUTPUT_PREVIEW_LIMIT,
 } from '@/lib/utils/tool-output';
+import { normalizeProductCliId } from '@/lib/constants/cli';
+
+function serializeCliSource(value?: string | null): string | null {
+  if (!value) return null;
+  return normalizeProductCliId(value) ?? value;
+}
 
 function parseMetadata(metadataJson?: string | null): MessageMetadata | null {
   if (!metadataJson) {
@@ -78,7 +84,7 @@ export function serializeMessage(
     metadata,
     parentMessageId: message.parentMessageId ?? null,
     conversationId: message.conversationId ?? null,
-    cliSource: message.cliSource ?? null,
+    cliSource: serializeCliSource(message.cliSource),
     requestId: message.requestId ?? undefined,
     createdAt: message.createdAt.toISOString(),
     updatedAt: message.updatedAt.toISOString(),
@@ -107,7 +113,7 @@ export function createRealtimeMessage(
     metadata: payload.metadata ?? null,
     parentMessageId: payload.parentMessageId ?? null,
     conversationId: payload.conversationId ?? null,
-    cliSource: payload.cliSource ?? null,
+    cliSource: serializeCliSource(payload.cliSource),
     requestId: payload.requestId ?? undefined,
     createdAt,
     updatedAt,

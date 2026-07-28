@@ -6,11 +6,11 @@ import { authErrorResponse } from '@/lib/auth/http';
 import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   deriveQuantGenerationTerminalSnapshot,
-  requiresMoAgentMissionAcceptance,
+  requiresPiAgentMissionAcceptance,
 } from '@/lib/quant/generation-terminal';
 import { readQuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantValidationReport } from '@/lib/quant/validation';
-import { readMoAgentAcceptedMissionSnapshot } from '@/lib/services/moagent-mission-store';
+import { readPiAgentAcceptedMissionSnapshot } from '@/lib/services/pi-agent-mission-store';
 import { getProjectById } from '@/lib/services/project';
 
 interface RouteContext {
@@ -51,8 +51,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
       project.previewPort,
     );
     const acceptedMission =
-      generation?.requestId && requiresMoAgentMissionAcceptance(generation)
-        ? await readMoAgentAcceptedMissionSnapshot(
+      generation?.requestId && requiresPiAgentMissionAcceptance(generation)
+        ? await readPiAgentAcceptedMissionSnapshot(
             project_id,
             generation.requestId,
           )

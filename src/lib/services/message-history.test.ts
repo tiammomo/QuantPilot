@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isRuntimeOnlyChatProjection } from './message';
 
-describe('MoAgent conversation history projection filter', () => {
+describe('PI Agent conversation history projection filter', () => {
   it('drops intermediate and hidden platform/model narration', () => {
     expect(isRuntimeOnlyChatProjection({
       role: 'assistant',
@@ -9,7 +9,7 @@ describe('MoAgent conversation history projection filter', () => {
     })).toBe(true);
     expect(isRuntimeOnlyChatProjection({
       role: 'assistant',
-      metadataJson: JSON.stringify({ isMoAgentIntermediateTurn: true }),
+      metadataJson: JSON.stringify({ isPiAgentIntermediateTurn: true }),
     })).toBe(true);
     expect(isRuntimeOnlyChatProjection({
       role: 'assistant',
@@ -22,7 +22,7 @@ describe('MoAgent conversation history projection filter', () => {
       role: 'assistant',
       metadataJson: JSON.stringify({
         isWorkspaceProgress: true,
-        isMoAgentFinal: true,
+        isPiAgentFinal: true,
         progressStep: 5,
       }),
     })).toBe(false);

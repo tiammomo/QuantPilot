@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  evaluateMoAgentE2eQuality,
+  evaluatePiAgentE2eQuality,
   isE2eAgentExecutionAttested,
   summarizeE2eAgentExecution,
-  summarizeMoAgentE2eQuality,
+  summarizePiAgentE2eQuality,
 } from './e2e-attestation';
 
 const executed = {
@@ -29,11 +29,11 @@ const executed = {
     acceptedReceiptVerdict: 'accepted',
     acceptedSourceRunId: 'run-generated-dashboard',
     acceptedSourceRequestId: 'parent-request',
-    acceptedCandidateSource: 'moagent_submit_result',
+    acceptedCandidateSource: 'pi_agent_submit_result',
   },
   agentExecution: {
     executed: true,
-    cli: 'moagent',
+    cli: 'pi',
     provider: 'openai',
     model: 'local_qwen:qwen3.5-9b-q5km',
     requestId: 'parent-request',
@@ -45,7 +45,7 @@ const executed = {
       status: 'candidate_complete',
       provider: 'openai',
       model: 'local_qwen:qwen3.5-9b-q5km',
-      frameworkVersion: 'moagent:1.13.0',
+      frameworkVersion: 'pi-agent:0.82.1',
       buildRevision: 'build-a',
       startedAt: '2026-07-14T00:00:00.000Z',
       completedAt: '2026-07-14T00:01:00.000Z',
@@ -78,8 +78,8 @@ const executed = {
     acceptedReceiptVerdict: 'accepted',
     acceptedSourceRunId: 'run-generated-dashboard',
     acceptedSourceRequestId: 'parent-request',
-    acceptedCandidateSource: 'moagent_submit_result',
-    frameworkVersion: 'moagent:1.13.0',
+    acceptedCandidateSource: 'pi_agent_submit_result',
+    frameworkVersion: 'pi-agent:0.82.1',
     buildRevision: 'build-a',
     gitRevision: 'a'.repeat(40),
     startedAt: '2026-07-14T00:00:00.000Z',
@@ -141,7 +141,7 @@ describe('E2E Agent execution attestation', () => {
     })).toBe(false);
     expect(isE2eAgentExecutionAttested({
       ...executed,
-      agentExecution: { ...executed.agentExecution, frameworkVersion: 'moagent:1.6.0' },
+      agentExecution: { ...executed.agentExecution, frameworkVersion: 'pi-agent:0.81.0' },
     })).toBe(false);
     expect(isE2eAgentExecutionAttested({
       ...executed,
@@ -206,7 +206,7 @@ describe('E2E Agent execution attestation', () => {
         },
       },
     })).toBe(false);
-    expect(summarizeMoAgentE2eQuality([{
+    expect(summarizePiAgentE2eQuality([{
       ...executed,
       id: 'missing-cache-truth',
       agentExecution: {
@@ -351,7 +351,7 @@ describe('E2E Agent execution attestation', () => {
       },
     };
 
-    expect(summarizeMoAgentE2eQuality([executed, expensive])).toMatchObject({
+    expect(summarizePiAgentE2eQuality([executed, expensive])).toMatchObject({
       caseCount: 2,
       measuredCaseCount: 2,
       turns: { total: 24, average: 12, max: { id: 'expensive-dashboard', value: 18 } },
@@ -366,7 +366,7 @@ describe('E2E Agent execution attestation', () => {
       },
     });
 
-    const gate = evaluateMoAgentE2eQuality([executed, expensive], {
+    const gate = evaluatePiAgentE2eQuality([executed, expensive], {
       maxTurnsPerCase: 16,
       maxCacheMissInputTokensPerCase: 180_000,
       maxUnexpectedToolFailures: 0,

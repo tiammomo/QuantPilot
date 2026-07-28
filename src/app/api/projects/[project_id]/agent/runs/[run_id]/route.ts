@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import { readMoAgentRunTimeline } from '@/lib/services/moagent-tool-approval-store';
+import { readPiAgentRunTimeline } from '@/lib/services/pi-agent-tool-approval-store';
 
 interface RouteContext {
   params: Promise<{ project_id: string; run_id: string }>;
@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       projectId: project_id,
     });
     const url = new URL(request.url);
-    const data = await readMoAgentRunTimeline({
+    const data = await readPiAgentRunTimeline({
       projectId: project_id,
       runId: run_id,
       afterSequence: nonNegativeInteger(url.searchParams.get('afterSequence'), 0),
@@ -39,7 +39,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     return NextResponse.json({ success: true, data });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    console.error('[API] Failed to read MoAgent run timeline:', error);
+    console.error('[API] Failed to read PI Agent run timeline:', error);
     return NextResponse.json(
       { success: false, error: 'FAILED_TO_READ_AGENT_RUN' },
       { status: 500 },

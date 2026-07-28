@@ -1,4 +1,4 @@
-export interface ParsedMoAgentToolArguments {
+export interface ParsedPiAgentToolArguments {
   value: unknown;
   normalized: string;
   repaired: boolean;
@@ -93,7 +93,7 @@ function boundedObjectSlice(value: string): string | null {
  * illegal control characters inside strings, remove trailing commas, or drop
  * prose surrounding one complete JSON object.
  */
-export function parseMoAgentToolArguments(raw: string): ParsedMoAgentToolArguments {
+export function parsePiAgentToolArguments(raw: string): ParsedPiAgentToolArguments {
   const initial = raw.trim() || '{}';
   const candidates: string[] = [initial];
   const unfenced = unwrapJsonFence(initial);

@@ -15,10 +15,10 @@ import { getProjectById } from '@/lib/services/project';
 import { markQuantGenerationQueueCancelled } from '@/lib/quant/generation-queue';
 import { cancelQuantGenerationRun } from '@/lib/quant/generation-state';
 import {
-  cancelActiveMoAgentMissions,
-  cancelMoAgentMission,
-  readMoAgentMission,
-} from '@/lib/services/moagent-mission-store';
+  cancelActivePiAgentMissions,
+  cancelPiAgentMission,
+  readPiAgentMission,
+} from '@/lib/services/pi-agent-mission-store';
 import path from 'path';
 
 interface RouteContext {
@@ -67,9 +67,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     let cancelledMissions = 0;
     if (requestId) {
       await markUserRequestAsCancelled(project_id, requestId, reason);
-      const mission = await readMoAgentMission(project_id, requestId);
+      const mission = await readPiAgentMission(project_id, requestId);
       if (mission) {
-        const cancelled = await cancelMoAgentMission({
+        const cancelled = await cancelPiAgentMission({
           missionId: mission.id,
           projectId: project_id,
           requestId,
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
     } else {
       await markActiveUserRequestsAsCancelled(project_id, reason);
-      cancelledMissions = await cancelActiveMoAgentMissions({
+      cancelledMissions = await cancelActivePiAgentMissions({
         projectId: project_id,
         message: reason,
       });

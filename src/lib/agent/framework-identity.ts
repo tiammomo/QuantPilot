@@ -3,8 +3,12 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
-export const MOAGENT_VERSION = '1.13.0' as const;
-export const MOAGENT_FRAMEWORK_VERSION = `moagent:${MOAGENT_VERSION}` as const;
+import {
+  PI_AGENT_FRAMEWORK_VERSION,
+  PI_AGENT_VERSION,
+} from './pi/identity';
+
+export { PI_AGENT_FRAMEWORK_VERSION, PI_AGENT_VERSION } from './pi/identity';
 
 const REVISION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/+~-]{0,191}$/;
 const GIT_REVISION_PATTERN = /^[a-f0-9]{7,64}$/i;
@@ -12,8 +16,8 @@ const MAX_GIT_PATH_LIST_BYTES = 2 * 1024 * 1024;
 const MAX_TRACKED_DIFF_BYTES = 8 * 1024 * 1024;
 const MAX_UNTRACKED_CONTENT_BYTES = 8 * 1024 * 1024;
 
-export interface MoAgentBuildIdentity {
-  frameworkVersion: typeof MOAGENT_FRAMEWORK_VERSION;
+export interface PiAgentBuildIdentity {
+  frameworkVersion: typeof PI_AGENT_FRAMEWORK_VERSION;
   buildRevision: string;
   gitRevision: string | null;
 }
@@ -176,11 +180,11 @@ function readWorkspaceFingerprint(): string | null {
   }
 }
 
-export function resolveMoAgentBuildIdentity(options: {
+export function resolvePiAgentBuildIdentity(options: {
   environment?: NodeJS.ProcessEnv;
   readGitRevision?: () => string | null;
   readWorkspaceFingerprint?: () => string | null;
-} = {}): MoAgentBuildIdentity {
+} = {}): PiAgentBuildIdentity {
   const environment = options.environment ?? process.env;
   const deploymentGitRevision = [
     environment.VERCEL_GIT_COMMIT_SHA,
@@ -190,7 +194,9 @@ export function resolveMoAgentBuildIdentity(options: {
   ].map(normalizedGitRevision).find(Boolean) ?? null;
   const repositoryGitRevision = deploymentGitRevision ??
     normalizedGitRevision((options.readGitRevision ?? readRepositoryRevision)());
-  const explicitBuildRevision = normalizedRevision(environment.MOAGENT_BUILD_REVISION);
+  const explicitBuildRevision = normalizedRevision(
+    environment.PI_AGENT_BUILD_REVISION,
+  );
   const workspaceFingerprint = explicitBuildRevision
     ? null
     : normalizedRevision(
@@ -201,14 +207,14 @@ export function resolveMoAgentBuildIdentity(options: {
     : repositoryGitRevision;
 
   return Object.freeze({
-    frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
+    frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
     buildRevision: explicitBuildRevision ?? inferredBuildRevision ??
-      `unversioned:${MOAGENT_FRAMEWORK_VERSION}`,
+      `unversioned:${PI_AGENT_FRAMEWORK_VERSION}`,
     gitRevision: repositoryGitRevision,
   });
 }
 
 /** Immutable process/build identity shared by runtime provenance and eval reports. */
-export const MOAGENT_BUILD_IDENTITY = resolveMoAgentBuildIdentity();
-export const MOAGENT_BUILD_REVISION = MOAGENT_BUILD_IDENTITY.buildRevision;
-export const MOAGENT_GIT_REVISION = MOAGENT_BUILD_IDENTITY.gitRevision;
+export const PI_AGENT_BUILD_IDENTITY = resolvePiAgentBuildIdentity();
+export const PI_AGENT_BUILD_REVISION = PI_AGENT_BUILD_IDENTITY.buildRevision;
+export const PI_AGENT_GIT_REVISION = PI_AGENT_BUILD_IDENTITY.gitRevision;

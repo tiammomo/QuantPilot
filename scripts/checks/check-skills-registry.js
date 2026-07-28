@@ -5,11 +5,11 @@ const yaml = require('js-yaml');
 const tar = require('tar');
 
 const root = process.cwd();
-const registryPath = path.join(root, '.moagent', 'skills.registry.json');
-const skillsDir = path.join(root, '.moagent', 'skills');
-const changelogPath = path.join(root, '.moagent', 'skills.changelog.json');
-const lockPath = path.join(root, '.moagent', 'skills.lock.json');
-const capsuleRegistryPath = path.join(root, 'config', 'moagent-skill-capsules.json');
+const registryPath = path.join(root, '.pi', 'skills.registry.json');
+const skillsDir = path.join(root, '.pi', 'skills');
+const changelogPath = path.join(root, '.pi', 'skills.changelog.json');
+const lockPath = path.join(root, '.pi', 'skills.lock.json');
+const capsuleRegistryPath = path.join(root, 'config', 'pi-agent-skill-capsules.json');
 
 function fail(message) {
   console.error(`[skills-registry] ${message}`);
@@ -17,7 +17,7 @@ function fail(message) {
 }
 
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-const configuredPackageDir = registry.policy?.packageDir || '.moagent/skill-packages';
+const configuredPackageDir = registry.policy?.packageDir || '.pi/skill-packages';
 if (
   typeof configuredPackageDir !== 'string' ||
   !configuredPackageDir ||
@@ -391,7 +391,7 @@ const validCapsulePhases = new Set([
 ]);
 const forbiddenCapsuleInstructions = [
   /mcp__/i,
-  /\.moagent\/skills\//i,
+  /\.pi\/skills\//i,
   /\bcurl\b/i,
   /\bbash\b/i,
   /\bpython3?\b/i,
@@ -413,7 +413,7 @@ function validateCapsuleRegistry(coreSkillIds) {
   const capsules = parseJsonFile(capsuleRegistryPath);
   if (!capsules || capsules.schemaVersion !== 1 || !capsules.skills ||
     typeof capsules.skills !== 'object' || Array.isArray(capsules.skills)) {
-    fail('config/moagent-skill-capsules.json must use schemaVersion 1 and contain skills');
+    fail('config/pi-agent-skill-capsules.json must use schemaVersion 1 and contain skills');
   }
   const responseContract = capsules.workspaceResponseContract;
   if (!responseContract || responseContract.schemaVersion !== 1 ||
@@ -443,7 +443,7 @@ function validateCapsuleRegistry(coreSkillIds) {
   for (const skillId of coreSkillIds) {
     const capsule = capsules.skills[skillId];
     if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) {
-      fail(`missing MoAgent runtime capsule for core skill: ${skillId}`);
+      fail(`missing PI Agent runtime capsule for core skill: ${skillId}`);
     }
     if (!Number.isSafeInteger(capsule.priority) || capsule.priority < 1) {
       fail(`runtime capsule ${skillId} priority must be a positive integer`);
@@ -468,7 +468,7 @@ function validateCapsuleRegistry(coreSkillIds) {
 
     const serialized = JSON.stringify(capsule);
     if (forbiddenCapsuleInstructions.some((pattern) => pattern.test(serialized))) {
-      fail(`runtime capsule ${skillId} contains instructions incompatible with MoAgent typed tools`);
+      fail(`runtime capsule ${skillId} contains instructions incompatible with PI Agent typed tools`);
     }
 
     const resourceIds = new Set();

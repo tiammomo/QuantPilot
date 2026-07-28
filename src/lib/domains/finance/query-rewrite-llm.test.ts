@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MoAgentModelProvider, MoAgentModelRequest } from '@/lib/agent/types';
+import type { PiAgentModelProvider, PiAgentModelRequest } from '@/lib/agent/types';
 import type { QuantQuerySemanticRewriteInput } from './query-rewrite';
 import { rewriteQuantQuerySemanticsWithProvider } from './query-rewrite-llm';
 
@@ -15,7 +15,7 @@ function input(): QuantQuerySemanticRewriteInput {
 
 describe('query rewrite LLM adapter', () => {
   it('requires a schema-bound tool call and returns validated semantics', async () => {
-    const complete = vi.fn(async function* (_request: MoAgentModelRequest) {
+    const complete = vi.fn(async function* (_request: PiAgentModelRequest) {
       const payload = JSON.stringify({
         targetCandidates: ['北方稀土', '宁德时代'],
         timeRange: { label: '去年下半年', value: null, unit: 'date_range', evidence: '去年下半年' },
@@ -44,7 +44,7 @@ describe('query rewrite LLM adapter', () => {
       };
       yield { type: 'finish' as const, reason: 'tool_calls' as const };
     });
-    const provider: MoAgentModelProvider = { name: 'fake-provider', complete };
+    const provider: PiAgentModelProvider = { name: 'fake-provider', complete };
 
     const result = await rewriteQuantQuerySemanticsWithProvider({
       input: input(),
@@ -85,7 +85,7 @@ describe('query rewrite LLM adapter', () => {
   });
 
   it('normalizes local-model null sentinels without weakening other schema checks', async () => {
-    const provider: MoAgentModelProvider = {
+    const provider: PiAgentModelProvider = {
       name: 'fake-provider',
       async *complete() {
         yield {
@@ -121,7 +121,7 @@ describe('query rewrite LLM adapter', () => {
   });
 
   it('normalizes empty optional evidence emitted by a local model to JSON null', async () => {
-    const provider: MoAgentModelProvider = {
+    const provider: PiAgentModelProvider = {
       name: 'fake-provider',
       async *complete() {
         yield {
@@ -153,7 +153,7 @@ describe('query rewrite LLM adapter', () => {
   });
 
   it('rejects malformed or out-of-schema tool arguments', async () => {
-    const provider: MoAgentModelProvider = {
+    const provider: PiAgentModelProvider = {
       name: 'fake-provider',
       async *complete() {
         yield {
@@ -178,7 +178,7 @@ describe('query rewrite LLM adapter', () => {
   });
 
   it('adds bounded schema feedback to a repair attempt without replaying invalid payloads', async () => {
-    const complete = vi.fn(async function* (_request: MoAgentModelRequest) {
+    const complete = vi.fn(async function* (_request: PiAgentModelRequest) {
       yield {
         type: 'tool_call_delta' as const,
         index: 0,
@@ -196,7 +196,7 @@ describe('query rewrite LLM adapter', () => {
       };
       yield { type: 'finish' as const, reason: 'tool_calls' as const };
     });
-    const provider: MoAgentModelProvider = { name: 'fake-provider', complete };
+    const provider: PiAgentModelProvider = { name: 'fake-provider', complete };
 
     await expect(rewriteQuantQuerySemanticsWithProvider({
       input: input(),

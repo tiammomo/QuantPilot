@@ -1,6 +1,6 @@
 import type {
-  MoAgentJsonArtifactConfiguration,
-  MoAgentJsonArtifactIdentityResult,
+  PiAgentJsonArtifactConfiguration,
+  PiAgentJsonArtifactIdentityResult,
 } from '@/lib/agent/tools';
 
 function normalizedSymbol(value: unknown): string | null {
@@ -40,7 +40,7 @@ function financeArtifactSymbols(value: unknown): Set<string> {
 function validateSymbolIdentity(
   root: unknown,
   requestedIdentity: string,
-): MoAgentJsonArtifactIdentityResult {
+): PiAgentJsonArtifactIdentityResult {
   const availableIdentities = [...financeArtifactSymbols(root)].sort();
   return {
     matches: availableIdentities.includes(requestedIdentity),
@@ -48,7 +48,7 @@ function validateSymbolIdentity(
   };
 }
 
-export const FINANCE_JSON_ARTIFACT_CONFIGURATION: MoAgentJsonArtifactConfiguration = {
+export const FINANCE_JSON_ARTIFACT_CONFIGURATION: PiAgentJsonArtifactConfiguration = {
   paths: {
     final_dashboard: 'data_file/final/dashboard-data.json',
     sources_evidence: 'evidence/sources.json',

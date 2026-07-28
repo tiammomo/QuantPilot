@@ -23,7 +23,8 @@ import {
 import type { QuantEvalFlowSimulation } from '@/lib/eval';
 import type { EvalEvaluatorId, QuantEvalExecutionMode } from '@/lib/eval';
 import { cn } from '@/lib/utils';
-import { MOAGENT_DEFAULT_MODEL } from '@/lib/constants/models';
+import { PI_AGENT_DEFAULT_MODEL } from '@/lib/constants/models';
+import { PRODUCT_CLI_ID } from '@/lib/constants/cli';
 
 export type { EvalEvaluatorId } from '@/lib/eval';
 
@@ -52,8 +53,8 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     description: '围绕产物结构、数据证据、事实 oracle、安全边界和事件链路做硬性规则判断。',
     modeLabel: '规则优先',
     strategyLabel: '快速、稳定、适合批量回归',
-    cli: 'moagent',
-    model: MOAGENT_DEFAULT_MODEL,
+    cli: PRODUCT_CLI_ID,
+    model: PI_AGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'contract',
@@ -67,8 +68,8 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     description: '在确定性硬门后调用版本化语义审阅，检查任务理解、业务完整性、事实依据、风险和行动建议。',
     modeLabel: 'Agent 复核',
     strategyLabel: '适合复杂 Query 和主观质量判断',
-    cli: 'moagent',
-    model: MOAGENT_DEFAULT_MODEL,
+    cli: PRODUCT_CLI_ID,
+    model: PI_AGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'e2e',
@@ -82,8 +83,8 @@ export const EVAL_EVALUATOR_OPTIONS: EvalEvaluatorOption[] = [
     description: '关注桌面/移动截图、图表、关键文本、水平溢出、资源加载和可访问名称。',
     modeLabel: '视觉合同',
     strategyLabel: '适合看板类项目和截图用例',
-    cli: 'moagent',
-    model: MOAGENT_DEFAULT_MODEL,
+    cli: PRODUCT_CLI_ID,
+    model: PI_AGENT_DEFAULT_MODEL,
     defaultConcurrency: 1,
     maxConcurrency: 2,
     executionMode: 'contract',

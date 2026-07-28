@@ -224,7 +224,7 @@ export default function ToolApprovalPanel({
         )}
       </div>
       <p className="mt-1 text-xs text-slate-600">
-        MoAgent 已暂停执行。确认前不会产生对应的写入副作用。
+        PI Agent 已暂停执行。确认前不会产生对应的写入副作用。
       </p>
 
       <div className="mt-3 space-y-3">

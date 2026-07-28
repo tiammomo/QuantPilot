@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { MoAgentTool, MoAgentToolContext, MoAgentToolResult } from '@/lib/agent/types';
+import type { PiAgentTool, PiAgentToolContext, PiAgentToolResult } from '@/lib/agent/types';
 import {
   createApplyPatchTool,
   createEditFileTool,
@@ -11,11 +11,11 @@ import {
   createReadFileTool,
   createSearchFilesTool,
   createWriteFileTool,
-  writeMoAgentWorkspaceBatch,
+  writePiAgentWorkspaceBatch,
 } from './filesystem';
-import { MoAgentWorkspacePolicy } from './path-policy';
+import { PiAgentWorkspacePolicy } from './path-policy';
 
-const context: MoAgentToolContext = {
+const context: PiAgentToolContext = {
   runId: 'test-run',
   turn: 1,
   toolCallId: 'test-call',
@@ -26,7 +26,7 @@ const context: MoAgentToolContext = {
 
 let invocationSequence = 0;
 
-async function invoke(tool: MoAgentTool, input: unknown): Promise<MoAgentToolResult> {
+async function invoke(tool: PiAgentTool, input: unknown): Promise<PiAgentToolResult> {
   const parsed = tool.parseInput ? tool.parseInput(input) : input;
   invocationSequence += 1;
   return tool.execute(parsed, {
@@ -35,13 +35,13 @@ async function invoke(tool: MoAgentTool, input: unknown): Promise<MoAgentToolRes
   });
 }
 
-describe('MoAgent typed filesystem tools', () => {
+describe('PI Agent typed filesystem tools', () => {
   let workspace: string;
   let outside: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-workspace-'));
-    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-outside-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-workspace-'));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-outside-'));
     await fs.mkdir(path.join(workspace, 'app'), { recursive: true });
     await fs.mkdir(path.join(workspace, '.data-agent'), { recursive: true });
     await fs.writeFile(path.join(workspace, 'app', 'page.tsx'), [
@@ -139,41 +139,41 @@ describe('MoAgent typed filesystem tools', () => {
   });
 
   it('hides and protects the internal workspace resource lock', async () => {
-    const lockDirectory = path.join(workspace, '.moagent-workspace.lock');
+    const lockDirectory = path.join(workspace, '.pi-workspace.lock');
     await fs.mkdir(lockDirectory);
     await fs.writeFile(path.join(lockDirectory, 'owner.json'), '{"pid":123}\n');
-    const policy = await MoAgentWorkspacePolicy.create({
+    const policy = await PiAgentWorkspacePolicy.create({
       workspaceRoot: workspace,
       allowedWriteGlobs: ['**'],
     });
 
-    await expect(policy.resolveReadPath('.moagent-workspace.lock/owner.json'))
+    await expect(policy.resolveReadPath('.pi-workspace.lock/owner.json'))
       .rejects.toMatchObject({ code: 'SENSITIVE_READ_PATH_DENIED' });
-    await expect(policy.resolveWritePath('.moagent-workspace.lock/owner.json'))
+    await expect(policy.resolveWritePath('.pi-workspace.lock/owner.json'))
       .rejects.toMatchObject({ code: 'SENSITIVE_PATH_DENIED' });
 
     const listed = await invoke(createListFilesTool({ workspaceRoot: workspace }), { path: '.' });
     expect(listed).toMatchObject({ ok: true });
-    if (listed.ok) expect(listed.content).not.toContain('.moagent-workspace.lock');
+    if (listed.ok) expect(listed.content).not.toContain('.pi-workspace.lock');
   });
 
   it('hides and protects durable workspace mutation journals', async () => {
-    const journalDirectory = path.join(workspace, '.moagent-mutation-journal');
+    const journalDirectory = path.join(workspace, '.pi-mutation-journal');
     await fs.mkdir(journalDirectory);
     await fs.writeFile(path.join(journalDirectory, 'manifest.json'), '{"private":true}\n');
-    const policy = await MoAgentWorkspacePolicy.create({
+    const policy = await PiAgentWorkspacePolicy.create({
       workspaceRoot: workspace,
       allowedWriteGlobs: ['**'],
     });
 
-    await expect(policy.resolveReadPath('.moagent-mutation-journal/manifest.json'))
+    await expect(policy.resolveReadPath('.pi-mutation-journal/manifest.json'))
       .rejects.toMatchObject({ code: 'SENSITIVE_READ_PATH_DENIED' });
-    await expect(policy.resolveWritePath('.moagent-mutation-journal/manifest.json'))
+    await expect(policy.resolveWritePath('.pi-mutation-journal/manifest.json'))
       .rejects.toMatchObject({ code: 'SENSITIVE_PATH_DENIED' });
 
     const listed = await invoke(createListFilesTool({ workspaceRoot: workspace }), { path: '.' });
     expect(listed).toMatchObject({ ok: true });
-    if (listed.ok) expect(listed.content).not.toContain('.moagent-mutation-journal');
+    if (listed.ok) expect(listed.content).not.toContain('.pi-mutation-journal');
   });
 
   it('rejects read and write escapes through symbolic links', async () => {
@@ -328,9 +328,9 @@ describe('MoAgent typed filesystem tools', () => {
   });
 
   it('rejects duplicate canonical targets in one fenced batch before commit', async () => {
-    const policy = await MoAgentWorkspacePolicy.create({ workspaceRoot: workspace });
+    const policy = await PiAgentWorkspacePolicy.create({ workspaceRoot: workspace });
     let commits = 0;
-    await expect(writeMoAgentWorkspaceBatch({
+    await expect(writePiAgentWorkspaceBatch({
       policy,
       files: [
         { relativePath: 'app/batch.ts', content: Buffer.from('export const one = 1;\n') },
@@ -351,9 +351,9 @@ describe('MoAgent typed filesystem tools', () => {
   });
 
   it('revalidates every batch target before the first rename', async () => {
-    const policy = await MoAgentWorkspacePolicy.create({ workspaceRoot: workspace });
+    const policy = await PiAgentWorkspacePolicy.create({ workspaceRoot: workspace });
     const pagePath = path.join(workspace, 'app', 'page.tsx');
-    await expect(writeMoAgentWorkspaceBatch({
+    await expect(writePiAgentWorkspaceBatch({
       policy,
       files: [
         { relativePath: 'app/page.tsx', content: Buffer.from('export default function Updated(){return null}\n') },
@@ -373,7 +373,7 @@ describe('MoAgent typed filesystem tools', () => {
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('truncates model-visible output with an explicit MoAgent marker', async () => {
+  it('truncates model-visible output with an explicit PI Agent marker', async () => {
     await fs.writeFile(path.join(workspace, 'app', 'large.ts'), `HEAD${'x'.repeat(2_000)}TAIL`);
     const result = await invoke(createReadFileTool({
       workspaceRoot: workspace,
@@ -382,7 +382,7 @@ describe('MoAgent typed filesystem tools', () => {
     expect(result).toMatchObject({ ok: true, data: { truncated: true } });
     if (result.ok) {
       expect(result.content?.length).toBeLessThanOrEqual(200);
-      expect(result.content).toContain('MoAgent output truncated');
+      expect(result.content).toContain('PI Agent output truncated');
       expect(result.content).toContain('HEAD');
       expect(result.content).toContain('TAIL');
     }

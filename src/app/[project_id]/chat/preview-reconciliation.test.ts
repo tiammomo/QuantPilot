@@ -83,10 +83,10 @@ describe('planPreviewReconciliation', () => {
     ).toEqual({ action: 'wait' });
   });
 
-  it('allows the same one-shot recovery for a legacy pre-Mission run', () => {
+  it('does not recover a preview without a current request identity', () => {
     expect(
       planPreviewReconciliation({
-        projectId: 'project-legacy',
+        projectId: 'project-1',
         snapshot: snapshot({
           requestId: null,
           missionAcceptanceRequired: false,
@@ -96,10 +96,7 @@ describe('planPreviewReconciliation', () => {
         currentPreviewUrl: null,
         attemptedRecoveryKey: null,
       }),
-    ).toEqual({
-      action: 'start_once',
-      attemptKey: 'project-legacy:legacy',
-    });
+    ).toEqual({ action: 'wait' });
   });
 
   it('adopts a ready URL without starting and becomes a no-op once adopted', () => {

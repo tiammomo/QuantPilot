@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import { DeepSeekProvider } from '@/lib/agent/providers/deepseek';
 import { OpenAICompatibleProvider } from '@/lib/agent/providers/openai-compatible';
-import type { MoAgentTokenUsage } from '@/lib/agent/types';
-import { MOAGENT_DEFAULT_MODEL } from '@/lib/constants/models';
+import type { PiAgentTokenUsage } from '@/lib/agent/types';
+import { PI_AGENT_DEFAULT_MODEL } from '@/lib/constants/models';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import type {
   EvalSemanticReview,
@@ -41,10 +41,10 @@ function stripMarkdownFence(value: string): string {
 
 export function parseAgentSemanticReview(
   value: string,
-  usage: MoAgentTokenUsage | null = null,
+  usage: PiAgentTokenUsage | null = null,
   reviewer: { provider: 'deepseek' | 'openai'; model: string } = {
     provider: 'openai',
-    model: MOAGENT_DEFAULT_MODEL,
+    model: PI_AGENT_DEFAULT_MODEL,
   },
 ): EvalSemanticReview {
   const parsed = record(JSON.parse(stripMarkdownFence(value)));
@@ -110,7 +110,7 @@ export async function reviewAgentWorkspace(input: {
   apiKey?: string;
   model?: string;
 }): Promise<EvalSemanticReview> {
-  const llmConfig = getProjectLlmConfig(input.model ?? MOAGENT_DEFAULT_MODEL);
+  const llmConfig = getProjectLlmConfig(input.model ?? PI_AGENT_DEFAULT_MODEL);
   const apiKey = input.apiKey?.trim() || process.env[llmConfig.credentialEnv]?.trim();
   if (!apiKey) throw new Error(`Agent 语义审阅需要 ${llmConfig.credentialEnv}。`);
 
@@ -157,7 +157,7 @@ export async function reviewAgentWorkspace(input: {
     ']}. 每项 score 为 0-100 整数。',
   ].join('\n');
   let text = '';
-  let usage: MoAgentTokenUsage | null = null;
+  let usage: PiAgentTokenUsage | null = null;
   for await (const event of provider.complete({
     model: llmConfig.model,
     messages: [

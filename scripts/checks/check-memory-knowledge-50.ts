@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { OpenAICompatibleProvider } from '../../src/lib/agent/providers/openai-compatible';
-import type { MoAgentMessage, MoAgentModelEvent, MoAgentTokenUsage } from '../../src/lib/agent/types';
+import type { PiAgentMessage, PiAgentModelEvent, PiAgentTokenUsage } from '../../src/lib/agent/types';
 import { getProjectLlmConfig } from '../../src/lib/config/llm';
 import { LOCAL_QWEN_MODEL_ID } from '../../src/lib/constants/models';
 import { prisma } from '../../src/lib/db/client';
@@ -29,7 +29,7 @@ import {
   setPersonalMemoryEnabled,
 } from '../../src/lib/platform/memory/service';
 import type { PersonalizationCapsule } from '../../src/lib/platform/memory/types';
-import { buildQuantPilotUserPrompt } from '../../src/lib/services/moagent-prompts';
+import { buildQuantPilotUserPrompt } from '../../src/lib/services/pi-agent-prompts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -56,7 +56,7 @@ interface CollectedTurn {
   text: string;
   toolArguments: string;
   toolName: string;
-  usage: MoAgentTokenUsage | null;
+  usage: PiAgentTokenUsage | null;
 }
 
 interface CaseResult {
@@ -164,7 +164,7 @@ async function verifyKnowledgeWithBackoff(
   }
 }
 
-async function collectTurn(events: AsyncIterable<MoAgentModelEvent>): Promise<CollectedTurn> {
+async function collectTurn(events: AsyncIterable<PiAgentModelEvent>): Promise<CollectedTurn> {
   const turn: CollectedTurn = {
     finishReason: null,
     responseModel: '',
@@ -218,7 +218,7 @@ async function modelTurn(input: {
     initialDashboardContract: null,
     requireDashboardContract: false,
   });
-  const messages: MoAgentMessage[] = [
+  const messages: PiAgentMessage[] = [
     {
       role: 'system',
       content: [

@@ -2,7 +2,7 @@
  * Shared CLI Types
  */
 
-export type CLIType = 'moagent';
+export type CLIType = 'pi';
 
 export type CLIStatus = 'available' | 'unavailable' | 'checking';
 

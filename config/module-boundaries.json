@@ -115,7 +115,7 @@
     {
       "id": "agent-runtime",
       "name": "Agent 运行时",
-      "summary": "MoAgent 自研运行内核、多 Provider 模型接入、类型化工具、流式消息和技能编译。",
+      "summary": "开源 PI Agent 运行内核、多 Provider 适配、类型化工具、流式消息和技能编译。",
       "owner": "agent-platform",
       "paths": [
         "src/lib/services/agent-runtime.ts",
@@ -123,17 +123,17 @@
         "src/lib/services/stream.ts",
         "src/lib/services/user-requests.ts",
         "src/lib/agent/**",
-        "src/lib/services/moagent-candidate.ts",
-        "src/lib/services/moagent-checkpoint*.ts",
-        "src/lib/services/moagent-execution-error*.ts",
-        "src/lib/services/moagent-generation-*.ts",
-        "src/lib/services/moagent-worker-*.ts",
-        "src/lib/services/moagent-mission-store*.ts",
-        "src/lib/services/moagent-mission-verification-session*.ts",
-        "src/lib/services/moagent-provenance*.ts",
-        "src/lib/services/moagent-recovery*.ts",
-        "src/lib/services/moagent-run-store*.ts",
-        "src/lib/services/moagent-turn-metrics*.ts"
+        "src/lib/services/pi-agent-candidate.ts",
+        "src/lib/services/pi-agent-checkpoint*.ts",
+        "src/lib/services/pi-agent-execution-error*.ts",
+        "src/lib/services/pi-agent-generation-*.ts",
+        "src/lib/services/pi-agent-worker-*.ts",
+        "src/lib/services/pi-agent-mission-store*.ts",
+        "src/lib/services/pi-agent-mission-verification-session*.ts",
+        "src/lib/services/pi-agent-provenance*.ts",
+        "src/lib/services/pi-agent-recovery*.ts",
+        "src/lib/services/pi-agent-run-store*.ts",
+        "src/lib/services/pi-agent-turn-metrics*.ts"
       ],
       "dependsOn": [
         "shared-kernel",
@@ -196,8 +196,8 @@
         "src/lib/services/preview.ts",
         "src/lib/services/service-integration.ts",
         "src/lib/services/vercel.ts",
-        "src/lib/services/moagent-mission-control.ts",
-        "src/lib/services/moagent-prompts*.ts",
+        "src/lib/services/pi-agent-mission-control.ts",
+        "src/lib/services/pi-agent-prompts*.ts",
         "src/lib/services/cli/**",
         "src/app/api/quant/**",
         "src/app/api/chat/**",
@@ -224,7 +224,7 @@
       "publicSurface": [
         "@/lib/domains/finance",
         "@/lib/services/project",
-        "@/lib/services/cli/moagent",
+        "@/lib/services/cli/pi-agent",
         "@/lib/quant/research-reports",
         "@/lib/quant/strategies",
         "@/lib/domains/finance",
@@ -340,17 +340,17 @@
       {
         "from": "src/lib/agent/**",
         "to": "src/lib/quant/**",
-        "reason": "MoAgent Framework 不能依赖金融应用核心。"
+        "reason": "PI Agent Framework 不能依赖金融应用核心。"
       },
       {
         "from": "src/lib/agent/**",
         "to": "src/lib/domains/**",
-        "reason": "MoAgent Framework 不能依赖业务 Domain Pack。"
+        "reason": "PI Agent Framework 不能依赖业务 Domain Pack。"
       },
       {
         "from": "src/lib/agent/**",
         "to": "src/lib/data-agent/**",
-        "reason": "MoAgent Framework 是 Data Agent 的下层运行时，不能反向依赖。"
+        "reason": "PI Agent Framework 是 Data Agent 的下层运行时，不能反向依赖。"
       },
       {
         "from": "src/lib/data-agent/**",
@@ -424,12 +424,12 @@
       {
         "path": "src/lib/agent/tools/structured-read.ts",
         "pattern": "finance-query|finance-run|dashboard-data|final_dashboard|requestedSymbol|ARTIFACT_SYMBOL",
-        "reason": "MoAgent 结构化读取内核必须由 Domain Pack 注入业务 artifact、alias 与 identity 规则。"
+        "reason": "PI Agent 结构化读取内核必须由 Domain Pack 注入业务 artifact、alias 与 identity 规则。"
       },
       {
         "path": "src/lib/agent/skills/compiler.ts",
         "pattern": "QuantPilotImage|mcp__MiniMax__understand_image",
-        "reason": "MoAgent Skill 编译器不保留具体产品或 Provider 的旧工具别名兼容。"
+        "reason": "PI Agent Skill 编译器不保留具体产品或 Provider 的旧工具别名兼容。"
       }
     ],
     "largeFileBudgets": [
@@ -470,10 +470,10 @@
         "nextAction": "保持状态控制器、结构化消息协议、工具视图和 Markdown renderer 分离；禁止恢复纯文本工具占位符推断。"
       },
       {
-        "path": "src/lib/agent/core/run-engine.ts",
-        "maxLines": 2790,
+        "path": "src/lib/agent/pi/run-engine.ts",
+        "maxLines": 2100,
         "targetLines": 1600,
-        "nextAction": "按 planning、tool loop、context checkpoint、verification 和 terminalization 拆分；core 只维护状态机。"
+        "nextAction": "保持上游 PI loop 单一入口，并按 adapter、tool governance、event projection 和 terminalization 拆分宿主逻辑。"
       },
       {
         "path": "src/lib/quant/validation.ts",

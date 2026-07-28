@@ -2,13 +2,13 @@ const MAX_INSTRUCTION_BYTES = 256 * 1024;
 const MAX_REQUEST_ID_CHARS = 128;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
-export interface MoAgentIngressInput {
+export interface PiAgentIngressInput {
   instruction: string;
   displayInstruction?: string | null;
   requestId: string;
 }
 
-export type MoAgentIngressDecision =
+export type PiAgentIngressDecision =
   | { ok: true }
   | { ok: false; status: 400 | 413; error: string };
 
@@ -21,9 +21,9 @@ function utf8ByteLength(value: string): number {
  * message persistence; the Provider performs a second limit after the complete
  * model request has been assembled.
  */
-export function validateMoAgentIngressInput(
-  input: MoAgentIngressInput
-): MoAgentIngressDecision {
+export function validatePiAgentIngressInput(
+  input: PiAgentIngressInput
+): PiAgentIngressDecision {
   if (
     utf8ByteLength(input.instruction) > MAX_INSTRUCTION_BYTES ||
     (input.displayInstruction !== null &&
@@ -41,7 +41,7 @@ export function validateMoAgentIngressInput(
   return { ok: true };
 }
 
-export const MOAGENT_INGRESS_LIMITS = Object.freeze({
+export const PI_AGENT_INGRESS_LIMITS = Object.freeze({
   maxInstructionBytes: MAX_INSTRUCTION_BYTES,
   maxRequestIdChars: MAX_REQUEST_ID_CHARS,
 });

@@ -1,11 +1,15 @@
 "use client";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { getDefaultModelForCli } from '@/lib/constants/models';
+import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/models';
+import {
+  PRODUCT_CLI_ID,
+  normalizeProductCliIdOrDefault,
+} from '@/lib/constants/cli';
 
 export type GlobalAISettings = {
-  default_cli: string;
+  default_cli: typeof PRODUCT_CLI_ID;
   cli_settings: {
-    moagent: {
+    pi: {
       model?: string;
     };
   };
@@ -18,11 +22,33 @@ type GlobalSettingsCtx = {
 };
 
 const defaultSettings: GlobalAISettings = {
-  default_cli: 'moagent',
+  default_cli: PRODUCT_CLI_ID,
   cli_settings: {
-    moagent: { model: getDefaultModelForCli('moagent') },
+    pi: { model: getDefaultModelForCli(PRODUCT_CLI_ID) },
   },
 };
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+export function normalizeGlobalAISettings(value: unknown): GlobalAISettings {
+  const root = objectRecord(value);
+  const cliSettings = objectRecord(root?.cli_settings ?? root?.cliSettings);
+  const piSettings = objectRecord(cliSettings?.pi);
+  const model = typeof piSettings?.model === 'string'
+    ? normalizeModelId(PRODUCT_CLI_ID, piSettings.model)
+    : getDefaultModelForCli(PRODUCT_CLI_ID);
+
+  return {
+    default_cli: normalizeProductCliIdOrDefault(root?.default_cli ?? root?.defaultCli),
+    cli_settings: {
+      pi: { model },
+    },
+  };
+}
 
 const Ctx = createContext<GlobalSettingsCtx | null>(null);
 
@@ -41,7 +67,7 @@ export default function GlobalSettingsProvider({ children }: { children: React.R
       const res = await fetch(`${API_BASE}/api/settings/global`);
       if (res.ok) {
         const s = await res.json();
-        setSettings(s);
+        setSettings(normalizeGlobalAISettings(s));
       }
     } catch (e) {
       console.warn('Failed to refresh global settings', e);

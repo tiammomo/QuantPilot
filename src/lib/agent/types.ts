@@ -1,5 +1,5 @@
 /**
- * Provider-neutral contracts for the MoAgent runtime.
+ * Provider-neutral contracts for the PI Agent runtime.
  *
  * Provider-specific wire formats belong in provider adapters. The run engine,
  * tools, and product code should only exchange the types in this module.
@@ -10,24 +10,24 @@ export type Awaitable<T> = T | Promise<T>;
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export interface MoAgentToolCall {
+export interface PiAgentToolCall {
   id: string;
   name: string;
   /** The model-produced JSON string. Parsing is deliberately owned by the engine. */
   arguments: string;
 }
 
-export interface MoAgentSystemMessage {
+export interface PiAgentSystemMessage {
   role: 'system';
   content: string;
 }
 
-export interface MoAgentUserMessage {
+export interface PiAgentUserMessage {
   role: 'user';
   content: string;
 }
 
-export interface MoAgentAssistantMessage {
+export interface PiAgentAssistantMessage {
   role: 'assistant';
   content: string | null;
   /**
@@ -35,29 +35,29 @@ export interface MoAgentAssistantMessage {
    * replayed. Product surfaces should treat this field as private runtime data.
    */
   reasoningContent?: string;
-  toolCalls?: MoAgentToolCall[];
+  toolCalls?: PiAgentToolCall[];
 }
 
-export interface MoAgentToolMessage {
+export interface PiAgentToolMessage {
   role: 'tool';
   toolCallId: string;
   content: string;
   name?: string;
 }
 
-export type MoAgentMessage =
-  | MoAgentSystemMessage
-  | MoAgentUserMessage
-  | MoAgentAssistantMessage
-  | MoAgentToolMessage;
+export type PiAgentMessage =
+  | PiAgentSystemMessage
+  | PiAgentUserMessage
+  | PiAgentAssistantMessage
+  | PiAgentToolMessage;
 
-export interface MoAgentToolDefinition {
+export interface PiAgentToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
-export interface MoAgentTokenUsage {
+export interface PiAgentTokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -68,7 +68,7 @@ export interface MoAgentTokenUsage {
   usageSource?: 'estimated' | 'cache_estimated' | 'mixed';
 }
 
-export type MoAgentFinishReason =
+export type PiAgentFinishReason =
   | 'stop'
   | 'tool_calls'
   | 'length'
@@ -76,26 +76,26 @@ export type MoAgentFinishReason =
   | 'resource_exhausted'
   | 'other';
 
-export type MoAgentToolChoice = 'auto' | 'none' | 'required' | { name: string };
+export type PiAgentToolChoice = 'auto' | 'none' | 'required' | { name: string };
 
-export interface MoAgentReasoningOptions {
+export interface PiAgentReasoningOptions {
   enabled: boolean;
   effort?: 'low' | 'medium' | 'high' | 'max';
 }
 
-export interface MoAgentModelRequest {
+export interface PiAgentModelRequest {
   model: string;
-  messages: readonly MoAgentMessage[];
-  tools?: readonly MoAgentToolDefinition[];
-  toolChoice?: MoAgentToolChoice;
+  messages: readonly PiAgentMessage[];
+  tools?: readonly PiAgentToolDefinition[];
+  toolChoice?: PiAgentToolChoice;
   maxTokens?: number;
   temperature?: number;
-  reasoning?: MoAgentReasoningOptions;
+  reasoning?: PiAgentReasoningOptions;
   signal?: AbortSignal;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
-export type MoAgentModelEvent =
+export type PiAgentModelEvent =
   | {
       /** A retryable transport failure occurred before any response stream started. */
       type: 'provider_retry';
@@ -127,20 +127,20 @@ export type MoAgentModelEvent =
     }
   | {
       type: 'usage';
-      usage: MoAgentTokenUsage;
+      usage: PiAgentTokenUsage;
     }
   | {
       type: 'finish';
-      reason: MoAgentFinishReason;
+      reason: PiAgentFinishReason;
       rawReason?: string;
     };
 
-export interface MoAgentModelProvider {
+export interface PiAgentModelProvider {
   readonly name: string;
-  complete(request: MoAgentModelRequest): AsyncIterable<MoAgentModelEvent>;
+  complete(request: PiAgentModelRequest): AsyncIterable<PiAgentModelEvent>;
 }
 
-export interface MoAgentToolContext {
+export interface PiAgentToolContext {
   runId: string;
   turn: number;
   toolCallId: string;
@@ -155,9 +155,9 @@ export interface MoAgentToolContext {
   commitWorkspaceMutation?<T>(commit: () => Promise<T>): Promise<T>;
 }
 
-export type MoAgentToolEffect = 'pure' | 'read' | 'workspace_write' | 'external_write';
+export type PiAgentToolEffect = 'pure' | 'read' | 'workspace_write' | 'external_write';
 
-export type MoAgentToolIdempotency =
+export type PiAgentToolIdempotency =
   | 'intrinsic'
   | 'operation_key'
   | 'reconcile_required';
@@ -166,61 +166,61 @@ export type MoAgentToolIdempotency =
  * A read observation can be reused only while the workspace generation is
  * unchanged. Network/live-data readers deliberately leave this unset.
  */
-export type MoAgentObservationCachePolicy = 'workspace_generation';
+export type PiAgentObservationCachePolicy = 'workspace_generation';
 
-export const MOAGENT_TOOL_APPROVAL_DECISIONS = [
+export const PI_AGENT_TOOL_APPROVAL_DECISIONS = [
   'approve',
   'edit',
   'reject',
 ] as const;
 
-export type MoAgentToolApprovalDecision =
-  (typeof MOAGENT_TOOL_APPROVAL_DECISIONS)[number];
+export type PiAgentToolApprovalDecision =
+  (typeof PI_AGENT_TOOL_APPROVAL_DECISIONS)[number];
 
 /**
  * Explicit, application-owned human-approval policy for a mutating tool.
  *
  * `projectPublicInput` is a security boundary: it must return only bounded,
  * non-secret JSON suitable for durable events and an approval UI. Extension
- * tools cannot provide this projector through createMoAgentTools.
+ * tools cannot provide this projector through createPiAgentTools.
  */
-export interface MoAgentToolApprovalPolicy<TInput = unknown> {
+export interface PiAgentToolApprovalPolicy<TInput = unknown> {
   reason: string;
-  allowedDecisions?: readonly MoAgentToolApprovalDecision[];
+  allowedDecisions?: readonly PiAgentToolApprovalDecision[];
   timeoutMs?: number;
   projectPublicInput(input: TInput): { [key: string]: JsonValue };
 }
 
-export interface MoAgentToolApprovalRequest {
+export interface PiAgentToolApprovalRequest {
   approvalId: string;
   runId: string;
   turn: number;
   toolCallId: string;
   toolName: string;
-  effect: Extract<MoAgentToolEffect, 'workspace_write' | 'external_write'>;
-  idempotency: MoAgentToolIdempotency;
+  effect: Extract<PiAgentToolEffect, 'workspace_write' | 'external_write'>;
+  idempotency: PiAgentToolIdempotency;
   inputSha256: string;
   publicInput: { [key: string]: JsonValue };
   reason: string;
-  allowedDecisions: readonly MoAgentToolApprovalDecision[];
+  allowedDecisions: readonly PiAgentToolApprovalDecision[];
   requestedAt: number;
   expiresAt: number;
 }
 
-export interface MoAgentToolApprovalResolution {
-  decision: MoAgentToolApprovalDecision;
+export interface PiAgentToolApprovalResolution {
+  decision: PiAgentToolApprovalDecision;
   /** Required only for `edit`; it is revalidated by the original tool parser. */
   editedInput?: { [key: string]: JsonValue };
   /** Public, bounded actor identifier or the framework value `expired`. */
   resolvedBy?: string;
 }
 
-export type MoAgentToolApprovalHandler = (
-  request: MoAgentToolApprovalRequest,
+export type PiAgentToolApprovalHandler = (
+  request: PiAgentToolApprovalRequest,
   context: { signal: AbortSignal }
-) => Awaitable<MoAgentToolApprovalResolution>;
+) => Awaitable<PiAgentToolApprovalResolution>;
 
-export interface MoAgentToolFailure {
+export interface PiAgentToolFailure {
   code: string;
   message: string;
   details?: unknown;
@@ -232,13 +232,13 @@ export interface MoAgentToolFailure {
  * result: contents, summaries, queries, and arbitrary result fields are never
  * eligible for trusted context.
  */
-export interface MoAgentToolContextReceipt {
+export interface PiAgentToolContextReceipt {
   targetReferences: readonly string[];
   artifactSha256?: string;
   bytes?: number;
 }
 
-export type MoAgentToolResult<T = unknown> =
+export type PiAgentToolResult<T = unknown> =
   | {
       ok: true;
       data: T;
@@ -248,59 +248,59 @@ export type MoAgentToolResult<T = unknown> =
     }
   | {
       ok: false;
-      error: MoAgentToolFailure;
+      error: PiAgentToolFailure;
       content?: string;
       metadata?: Record<string, unknown>;
     };
 
-export interface MoAgentTool<TInput = unknown, TOutput = unknown> {
+export interface PiAgentTool<TInput = unknown, TOutput = unknown> {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
   /** Defaults conservatively to external_write when omitted. */
-  effect?: MoAgentToolEffect;
+  effect?: PiAgentToolEffect;
   /** Defaults to reconcile_required for mutating/unknown tools. */
-  idempotency?: MoAgentToolIdempotency;
+  idempotency?: PiAgentToolIdempotency;
   /** Optional deterministic same-run read de-duplication policy. */
-  observationCache?: MoAgentObservationCachePolicy;
+  observationCache?: PiAgentObservationCachePolicy;
   /**
    * Optional HITL gate for this mutating tool. The engine rejects approval
    * policies on pure/read tools and requires an approval handler at startup.
    */
-  approval?: MoAgentToolApprovalPolicy<TInput>;
+  approval?: PiAgentToolApprovalPolicy<TInput>;
   /**
    * Framework-owned, per-tool projector for bounded context receipts.
-   * Additional tools have this capability stripped by createMoAgentTools.
+   * Additional tools have this capability stripped by createPiAgentTools.
    */
   projectContextReceipt?(
     input: TInput,
-    result: MoAgentToolResult<TOutput>
-  ): MoAgentToolContextReceipt | null;
+    result: PiAgentToolResult<TOutput>
+  ): PiAgentToolContextReceipt | null;
   /** A successful call ends the run without another model request. */
   terminal?: boolean;
   /** Optional runtime validation/coercion after the engine parses JSON. */
   parseInput?: (value: unknown) => TInput;
   execute(
     input: TInput,
-    context: MoAgentToolContext
-  ): Awaitable<MoAgentToolResult<TOutput>>;
+    context: PiAgentToolContext
+  ): Awaitable<PiAgentToolResult<TOutput>>;
 }
 
-export interface MoAgentRunLimits {
+export interface PiAgentRunLimits {
   maxTurns: number;
   /** Cumulative output-token budget across all model turns. */
   maxTokens: number;
   timeoutMs: number;
 }
 
-export interface MoAgentRunRequest {
-  messages: readonly MoAgentMessage[];
+export interface PiAgentRunRequest {
+  messages: readonly PiAgentMessage[];
   runId?: string;
   signal?: AbortSignal;
   maxTurns?: number;
   maxTokens?: number;
   timeoutMs?: number;
-  reasoning?: MoAgentReasoningOptions;
+  reasoning?: PiAgentReasoningOptions;
   temperature?: number;
   metadata?: Readonly<Record<string, unknown>>;
   commitWorkspaceMutation?<T>(
@@ -309,7 +309,7 @@ export interface MoAgentRunRequest {
   ): Promise<T>;
 }
 
-export type MoAgentRunStatus =
+export type PiAgentRunStatus =
   | 'completed'
   | 'stopped'
   | 'max_turns'
@@ -318,24 +318,24 @@ export type MoAgentRunStatus =
   | 'cancelled'
   | 'failed';
 
-export interface MoAgentRunError {
+export interface PiAgentRunError {
   code: string;
   message: string;
   cause?: unknown;
 }
 
-export interface MoAgentRunResult {
+export interface PiAgentRunResult {
   runId: string;
-  status: MoAgentRunStatus;
-  messages: MoAgentMessage[];
+  status: PiAgentRunStatus;
+  messages: PiAgentMessage[];
   output: string;
   turns: number;
-  usage: MoAgentTokenUsage;
+  usage: PiAgentTokenUsage;
   startedAt: number;
   finishedAt: number;
-  terminalToolCall?: MoAgentToolCall;
-  terminalResult?: MoAgentToolResult;
-  error?: MoAgentRunError;
+  terminalToolCall?: PiAgentToolCall;
+  terminalResult?: PiAgentToolResult;
+  error?: PiAgentRunError;
 }
 
 /**
@@ -343,13 +343,13 @@ export interface MoAgentRunResult {
  * deliberately remains separate because it can contain system prompts, raw
  * tool data, provider causes, and reasoning needed only by the active loop.
  */
-export interface MoAgentRunEventResult {
-  status: MoAgentRunStatus;
+export interface PiAgentRunEventResult {
+  status: PiAgentRunStatus;
   turns: number;
-  usage: MoAgentTokenUsage;
+  usage: PiAgentTokenUsage;
   startedAt: number;
   finishedAt: number;
-  error?: Pick<MoAgentRunError, 'code' | 'message'>;
+  error?: Pick<PiAgentRunError, 'code' | 'message'>;
 }
 
 /**
@@ -357,7 +357,7 @@ export interface MoAgentRunEventResult {
  * end-of-turn boundary. Fingerprints are framework-generated content hashes;
  * prompts, tool output and reasoning never belong in this state.
  */
-export interface MoAgentProgressOracleEventState {
+export interface PiAgentProgressOracleEventState {
   version: number;
   turnsObserved: number;
   consecutiveNoProgressTurns: number;
@@ -368,7 +368,7 @@ export interface MoAgentProgressOracleEventState {
   seenToolObservationFingerprints: readonly string[];
 }
 
-export interface MoAgentProgressOracleEventDecision {
+export interface PiAgentProgressOracleEventDecision {
   progressed: boolean;
   stalled: boolean;
   consecutiveNoProgressTurns: number;
@@ -377,7 +377,7 @@ export interface MoAgentProgressOracleEventDecision {
 }
 
 /** Deterministic control-plane reasons for asking a long-running agent to converge. */
-export type MoAgentConvergenceReason =
+export type PiAgentConvergenceReason =
   | 'repeated_read_observation'
   | 'progress_stalled'
   | 'exploration_read_loop'
@@ -385,7 +385,7 @@ export type MoAgentConvergenceReason =
   | 'tool_limit'
   | 'turn_limit';
 
-export type MoAgentPromptPrefixChange =
+export type PiAgentPromptPrefixChange =
   | 'first_request'
   | 'append_only'
   | 'request_local_suffix_rotated'
@@ -394,13 +394,13 @@ export type MoAgentPromptPrefixChange =
   | 'history_prefix_changed';
 
 /** Public assistant projection. Hidden reasoning never crosses the event boundary. */
-export interface MoAgentAssistantEventMessage {
+export interface PiAgentAssistantEventMessage {
   role: 'assistant';
   content: string | null;
-  toolCalls?: MoAgentToolCall[];
+  toolCalls?: PiAgentToolCall[];
 }
 
-interface MoAgentEventBase {
+interface PiAgentEventBase {
   runId: string;
   /** Monotonic within one run; use this instead of wall-clock time for ordering. */
   sequence: number;
@@ -409,21 +409,21 @@ interface MoAgentEventBase {
   timestamp: number;
 }
 
-interface MoAgentTurnEventBase extends MoAgentEventBase {
+interface PiAgentTurnEventBase extends PiAgentEventBase {
   turn: number;
 }
 
-export type MoAgentEvent =
-  | (MoAgentEventBase & {
+export type PiAgentEvent =
+  | (PiAgentEventBase & {
       type: 'run_started';
       model: string;
       provider: string;
-      limits: MoAgentRunLimits;
+      limits: PiAgentRunLimits;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'turn_started';
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'provider_retry';
       attempt: number;
       maxAttempts: number;
@@ -431,33 +431,33 @@ export type MoAgentEvent =
       code: string;
       status?: number;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'model_started';
       responseId: string;
       model: string;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'text_delta';
       delta: string;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_call_delta';
       index: number;
       id?: string;
       nameDelta?: string;
       argumentsDelta?: string;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'usage';
-      usage: MoAgentTokenUsage;
-      totalUsage: MoAgentTokenUsage;
+      usage: PiAgentTokenUsage;
+      totalUsage: PiAgentTokenUsage;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'assistant_message';
-      message: MoAgentAssistantEventMessage;
-      finishReason: MoAgentFinishReason;
+      message: PiAgentAssistantEventMessage;
+      finishReason: PiAgentFinishReason;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'context_compacted';
       originalInputTokens: number;
       preparedInputTokens: number;
@@ -487,7 +487,7 @@ export type MoAgentEvent =
         replacedPreviousCapsule: boolean;
       };
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'prompt_prepared';
       /** Hashes are over canonical internal JSON; no prompt content is exposed. */
       systemSha256: string;
@@ -498,15 +498,15 @@ export type MoAgentEvent =
       requestUtf8Bytes: number;
       longestCommonPrefixMessages: number;
       longestCommonPrefixUtf8Bytes: number;
-      change: MoAgentPromptPrefixChange;
+      change: PiAgentPromptPrefixChange;
       toolSetChanged: boolean;
       compactionApplied: boolean;
       requestLocalControlSuffix: boolean;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'convergence_prompt';
       /** All active reasons, in deterministic priority order. */
-      reasons: MoAgentConvergenceReason[];
+      reasons: PiAgentConvergenceReason[];
       /** Provider turns left, including the turn receiving the prompt. */
       remainingTurns: number;
       /** Registered tool calls left before the hard run-level protocol limit. */
@@ -514,64 +514,64 @@ export type MoAgentEvent =
       successfulWorkspaceWrites: number;
       consecutiveReadOnlyTurns: number;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       /** Safe turn boundary emitted only after every tool outcome is durable. */
       type: 'progress_evaluated';
-      progressOracle: MoAgentProgressOracleEventState;
-      decision: MoAgentProgressOracleEventDecision;
+      progressOracle: PiAgentProgressOracleEventState;
+      decision: PiAgentProgressOracleEventDecision;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_approval_requested';
-      request: MoAgentToolApprovalRequest;
+      request: PiAgentToolApprovalRequest;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_approval_resolved';
       approvalId: string;
       toolCallId: string;
       toolName: string;
-      decision: MoAgentToolApprovalDecision;
+      decision: PiAgentToolApprovalDecision;
       inputSha256: string;
       /** Hash after an approved edit; never the edited payload itself. */
       effectiveInputSha256: string;
       resolvedBy?: string;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_started';
-      toolCall: MoAgentToolCall;
+      toolCall: PiAgentToolCall;
       operationId: string;
-      effect: MoAgentToolEffect;
-      idempotency: MoAgentToolIdempotency;
+      effect: PiAgentToolEffect;
+      idempotency: PiAgentToolIdempotency;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_completed';
-      toolCall: MoAgentToolCall;
+      toolCall: PiAgentToolCall;
       operationId: string;
-      effect: MoAgentToolEffect;
-      idempotency: MoAgentToolIdempotency;
-      result: Extract<MoAgentToolResult, { ok: true }>;
+      effect: PiAgentToolEffect;
+      idempotency: PiAgentToolIdempotency;
+      result: Extract<PiAgentToolResult, { ok: true }>;
       terminal: boolean;
       durationMs: number;
     })
-  | (MoAgentTurnEventBase & {
+  | (PiAgentTurnEventBase & {
       type: 'tool_failed';
-      toolCall: MoAgentToolCall;
+      toolCall: PiAgentToolCall;
       operationId: string;
-      effect: MoAgentToolEffect;
-      idempotency: MoAgentToolIdempotency;
-      result: Extract<MoAgentToolResult, { ok: false }>;
+      effect: PiAgentToolEffect;
+      idempotency: PiAgentToolIdempotency;
+      result: Extract<PiAgentToolResult, { ok: false }>;
       durationMs: number;
     })
-  | (MoAgentEventBase & {
+  | (PiAgentEventBase & {
       type: 'run_finished';
-      result: MoAgentRunEventResult;
+      result: PiAgentRunEventResult;
     });
 
-export type MoAgentEventHandler = (event: MoAgentEvent) => Awaitable<void>;
+export type PiAgentEventHandler = (event: PiAgentEvent) => Awaitable<void>;
 
-export interface MoAgentRunEventHandlers {
+export interface PiAgentRunEventHandlers {
   /** Ordered, critical sink. Failure stops the run before the next action. */
-  durableSink?: MoAgentEventHandler;
+  durableSink?: PiAgentEventHandler;
   /** Best-effort projections such as UI streaming and chat messages. */
-  observers?: readonly MoAgentEventHandler[];
-  onObserverError?: (error: unknown, event: MoAgentEvent) => Awaitable<void>;
+  observers?: readonly PiAgentEventHandler[];
+  onObserverError?: (error: unknown, event: PiAgentEvent) => Awaitable<void>;
 }

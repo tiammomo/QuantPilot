@@ -45,7 +45,7 @@ function plan(overrides: Partial<QuantRunPlan> = {}): QuantRunPlan {
 describe('workspace response protocol', () => {
   it('stays synchronized with the shared Skills presentation contract', async () => {
     const registry = JSON.parse(await fs.readFile(
-      path.join(process.cwd(), 'config', 'moagent-skill-capsules.json'),
+      path.join(process.cwd(), 'config', 'pi-agent-skill-capsules.json'),
       'utf8',
     )) as { workspaceResponseContract?: { owner?: string; stageLabels?: string[] } };
 

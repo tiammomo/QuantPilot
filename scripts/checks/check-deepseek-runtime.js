@@ -21,26 +21,26 @@ function readEnvValue(key) {
   return '';
 }
 
-function moAgentRuntimeExists() {
+function piAgentRuntimeExists() {
   return [
-    'src/lib/agent/core/run-engine.ts',
+    'src/lib/agent/pi/run-engine.ts',
     'src/lib/agent/providers/deepseek.ts',
     'src/lib/agent/providers/openai-compatible.ts',
     'src/lib/agent/tools/index.ts',
-    'src/lib/services/cli/moagent.ts',
+    'src/lib/services/cli/pi-agent.ts',
   ].every((file) => fs.existsSync(path.join(process.cwd(), file)));
 }
 
-console.log('\n🔍 MoAgent · 模型 Provider 配置检查\n');
+console.log('\n🔍 PI Agent · 模型 Provider 配置检查\n');
 console.log('默认模型：local_qwen:qwen3.5-9b-q5km');
 console.log('日常 DeepSeek：deepseek:deepseek-v4-flash（ModelPort）');
 console.log('可选直连：deepseek-v4-flash（官方 API）');
 
-if (!moAgentRuntimeExists()) {
-  console.error('❌ MoAgent 自研执行内核不完整。');
+if (!piAgentRuntimeExists()) {
+  console.error('❌ PI Agent 上游执行内核或 QuantPilot 适配层不完整。');
   process.exit(1);
 }
-console.log('✅ MoAgent 核心、Provider、Tools 与产品接入层已就绪');
+console.log('✅ PI Agent 核心、Provider、Tools 与产品接入层已就绪');
 
 const deepSeekConfigured = Boolean(readEnvValue('DEEPSEEK_API_KEY'));
 const modelPortConfigured = Boolean(readEnvValue('MODELPORT_API_KEY'));

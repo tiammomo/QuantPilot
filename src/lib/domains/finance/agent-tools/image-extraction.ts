@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { MoAgentTool } from '@/lib/agent/types';
-import { MoAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
+import type { PiAgentTool } from '@/lib/agent/types';
+import { PiAgentToolError, throwIfAborted } from '@/lib/agent/tools/errors';
 import { inputRecord, optionalString } from '@/lib/agent/tools/input';
-import { MoAgentWorkspacePolicy } from '@/lib/agent/tools/path-policy';
+import { PiAgentWorkspacePolicy } from '@/lib/agent/tools/path-policy';
 import {
   DEFAULT_TOOL_OUTPUT_CHARS,
   DEFAULT_TOOL_TIMEOUT_MS,
-  executeMoAgentTool,
+  executePiAgentTool,
 } from '@/lib/agent/tools/runtime';
 
 export const PORTFOLIO_SCREENSHOT_FIELDS = [
@@ -39,7 +39,7 @@ export interface ImageExtractionInput {
   prompt?: string;
 }
 
-export interface MoAgentImageExtractionToolOptions {
+export interface PiAgentImageExtractionToolOptions {
   workspaceRoot: string;
   timeoutMs?: number;
   maxImageBytes?: number;
@@ -73,7 +73,7 @@ export interface InspectedImage {
 
 export interface NoAttachmentsPayload {
   schemaVersion: 1;
-  runtime: 'MoAgent';
+  runtime: 'PI Agent';
   tool: 'image-extraction';
   status: 'no_attachments';
   message: string;
@@ -81,7 +81,7 @@ export interface NoAttachmentsPayload {
 
 export interface ImageMetadataPayload {
   schemaVersion: 1;
-  runtime: 'MoAgent';
+  runtime: 'PI Agent';
   tool: 'image-extraction';
   status: 'metadata_ready';
   createdAt: string;
@@ -120,7 +120,7 @@ function parseImageExtractionInput(value: unknown): ImageExtractionInput {
   const allowed = new Set(['attachmentContextPath', 'imagePath', 'prompt']);
   const unknownKey = Object.keys(record).find((key) => !allowed.has(key));
   if (unknownKey) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', `Unknown image-extraction input field: ${unknownKey}.`);
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', `Unknown image-extraction input field: ${unknownKey}.`);
   }
   const attachmentContextPath = record.attachmentContextPath === undefined
     ? undefined
@@ -212,27 +212,27 @@ function readImageSize(buffer: Buffer, mimeType: string): { width: number | null
 
 function pathForPolicy(inputPath: string): string {
   if (inputPath.length > 2_048) {
-    throw new MoAgentToolError('INVALID_PATH', 'Image paths cannot exceed 2048 characters.');
+    throw new PiAgentToolError('INVALID_PATH', 'Image paths cannot exceed 2048 characters.');
   }
   if (inputPath.includes('\0') || /[\r\n]/.test(inputPath)) {
-    throw new MoAgentToolError('INVALID_PATH', 'Image paths cannot contain control characters.');
+    throw new PiAgentToolError('INVALID_PATH', 'Image paths cannot contain control characters.');
   }
   if (!path.isAbsolute(inputPath) && !path.win32.isAbsolute(inputPath)) return inputPath;
-  throw new MoAgentToolError(
+  throw new PiAgentToolError(
     'ABSOLUTE_PATH_DENIED',
-    'MoAgent image tool inputs must use workspace-relative paths.',
+    'PI Agent image tool inputs must use workspace-relative paths.',
   );
 }
 
 async function readAttachmentContext(
-  policy: MoAgentWorkspacePolicy,
+  policy: PiAgentWorkspacePolicy,
   contextPath: string,
 ): Promise<{ contextPath: string; attachments: AttachmentRecord[] }> {
   const resolved = await policy.resolveReadPath(pathForPolicy(contextPath));
   const stat = await fs.stat(resolved.canonicalPath);
-  if (!stat.isFile()) throw new MoAgentToolError('NOT_A_FILE', `Attachment context is not a file: ${contextPath}.`);
+  if (!stat.isFile()) throw new PiAgentToolError('NOT_A_FILE', `Attachment context is not a file: ${contextPath}.`);
   if (stat.size > MAX_ATTACHMENT_CONTEXT_BYTES) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'ATTACHMENT_CONTEXT_TOO_LARGE',
       `Attachment context exceeds ${MAX_ATTACHMENT_CONTEXT_BYTES} bytes.`,
     );
@@ -241,23 +241,23 @@ async function readAttachmentContext(
   try {
     parsed = JSON.parse(await fs.readFile(resolved.canonicalPath, 'utf8')) as unknown;
   } catch (error) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_ATTACHMENT_CONTEXT',
       `Attachment context is not valid JSON: ${contextPath}.`,
       { cause: error instanceof Error ? error.message : String(error) },
     );
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new MoAgentToolError('INVALID_ATTACHMENT_CONTEXT', 'Attachment context must be a JSON object.');
+    throw new PiAgentToolError('INVALID_ATTACHMENT_CONTEXT', 'Attachment context must be a JSON object.');
   }
   const attachments = (parsed as { attachments?: unknown }).attachments;
   if (attachments !== undefined && !Array.isArray(attachments)) {
-    throw new MoAgentToolError('INVALID_ATTACHMENT_CONTEXT', 'attachments must be an array.');
+    throw new PiAgentToolError('INVALID_ATTACHMENT_CONTEXT', 'attachments must be an array.');
   }
   if ((attachments ?? []).some(
     (attachment) => !attachment || typeof attachment !== 'object' || Array.isArray(attachment),
   )) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_ATTACHMENT_CONTEXT',
       'Every attachments entry must be a JSON object.',
     );
@@ -269,7 +269,7 @@ async function readAttachmentContext(
 }
 
 async function inspectImage(params: {
-  policy: MoAgentWorkspacePolicy;
+  policy: PiAgentWorkspacePolicy;
   attachment: AttachmentRecord;
   index: number;
   maxImageBytes: number;
@@ -278,7 +278,7 @@ async function inspectImage(params: {
   throwIfAborted(params.signal);
   const sourcePath = params.attachment.path;
   if (typeof sourcePath !== 'string' || !sourcePath) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_ATTACHMENT',
       `Attachment ${params.attachment.name ?? params.index + 1} is missing workspace-relative path.`,
     );
@@ -286,9 +286,9 @@ async function inspectImage(params: {
   const requestedPath = pathForPolicy(sourcePath);
   const resolved = await params.policy.resolveReadPath(requestedPath);
   const stat = await fs.stat(resolved.canonicalPath);
-  if (!stat.isFile()) throw new MoAgentToolError('NOT_A_FILE', `Image attachment is not a file: ${sourcePath}.`);
+  if (!stat.isFile()) throw new PiAgentToolError('NOT_A_FILE', `Image attachment is not a file: ${sourcePath}.`);
   if (stat.size > params.maxImageBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'IMAGE_TOO_LARGE',
       `Image ${params.attachment.name ?? resolved.relativePath} exceeds ${params.maxImageBytes} bytes.`,
       { size: stat.size, maxImageBytes: params.maxImageBytes },
@@ -296,7 +296,7 @@ async function inspectImage(params: {
   }
   const buffer = await fs.readFile(resolved.canonicalPath);
   if (buffer.length > params.maxImageBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'IMAGE_TOO_LARGE',
       `Image ${params.attachment.name ?? resolved.relativePath} exceeds ${params.maxImageBytes} bytes.`,
       { size: buffer.length, maxImageBytes: params.maxImageBytes },
@@ -305,7 +305,7 @@ async function inspectImage(params: {
   throwIfAborted(params.signal);
   const mimeType = inferMimeType(buffer);
   if (!mimeType) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'UNSUPPORTED_IMAGE',
       `Attachment is not a supported PNG, JPEG, GIF, or WebP image: ${resolved.relativePath}.`,
     );
@@ -314,7 +314,7 @@ async function inspectImage(params: {
   const boundedString = (value: unknown, label: string, maxLength: number): string | null => {
     if (value === undefined || value === null) return null;
     if (typeof value !== 'string' || value.length > maxLength) {
-      throw new MoAgentToolError(
+      throw new PiAgentToolError(
         'INVALID_ATTACHMENT',
         `${label} must be a string of at most ${maxLength} characters.`,
       );
@@ -345,7 +345,7 @@ function metadataPayload(params: {
 }): ImageMetadataPayload {
   return {
     schemaVersion: 1,
-    runtime: 'MoAgent',
+    runtime: 'PI Agent',
     tool: 'image-extraction',
     status: 'metadata_ready',
     createdAt: params.createdAt.toISOString(),
@@ -355,7 +355,7 @@ function metadataPayload(params: {
     visualRecognition: {
       status: 'manual_confirmation_required',
       reason:
-        'MoAgent 已确认图片文件、路径、格式、尺寸和哈希。当前未启用视觉模型或第三方 OCR，无法确认的截图字段必须交由用户确认。',
+        'PI Agent 已确认图片文件、路径、格式、尺寸和哈希。当前未启用视觉模型或第三方 OCR，无法确认的截图字段必须交由用户确认。',
       fallbackRule:
         '所有无法可靠读取的截图字段必须保留 null，并在 evidence/data_quality.json 中列出需要用户确认的字段。',
     },
@@ -386,22 +386,22 @@ function metadataPayload(params: {
 
 export async function extractUploadedImageMetadata(
   input: ImageExtractionInput,
-  options: MoAgentImageExtractionToolOptions,
+  options: PiAgentImageExtractionToolOptions,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<ImageExtractionPayload> {
   const maxImageBytes = options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
   const maxAttachments = options.maxAttachments ?? DEFAULT_MAX_ATTACHMENTS;
   const maxOutputChars = options.maxOutputChars ?? DEFAULT_TOOL_OUTPUT_CHARS;
   if (!Number.isSafeInteger(maxImageBytes) || maxImageBytes <= 0) {
-    throw new MoAgentToolError('INVALID_LIMIT', 'maxImageBytes must be a positive integer.');
+    throw new PiAgentToolError('INVALID_LIMIT', 'maxImageBytes must be a positive integer.');
   }
   if (!Number.isSafeInteger(maxAttachments) || maxAttachments <= 0 || maxAttachments > 100) {
-    throw new MoAgentToolError('INVALID_LIMIT', 'maxAttachments must be an integer between 1 and 100.');
+    throw new PiAgentToolError('INVALID_LIMIT', 'maxAttachments must be an integer between 1 and 100.');
   }
   if (!Number.isSafeInteger(maxOutputChars) || maxOutputChars < 1_024) {
-    throw new MoAgentToolError('INVALID_LIMIT', 'maxOutputChars must be an integer of at least 1024.');
+    throw new PiAgentToolError('INVALID_LIMIT', 'maxOutputChars must be an integer of at least 1024.');
   }
-  const policy = await MoAgentWorkspacePolicy.create({ workspaceRoot: options.workspaceRoot });
+  const policy = await PiAgentWorkspacePolicy.create({ workspaceRoot: options.workspaceRoot });
   throwIfAborted(signal);
   const requestedContextPath = input.attachmentContextPath ?? DEFAULT_ATTACHMENT_CONTEXT;
   let contextPath = requestedContextPath;
@@ -416,7 +416,7 @@ export async function extractUploadedImageMetadata(
     attachments = context.attachments;
   }
   if (attachments.length > maxAttachments) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'TOO_MANY_ATTACHMENTS',
       `Image extraction accepts at most ${maxAttachments} attachments.`,
       { count: attachments.length, maxAttachments },
@@ -425,7 +425,7 @@ export async function extractUploadedImageMetadata(
   if (attachments.length === 0) {
     const payload: NoAttachmentsPayload = {
       schemaVersion: 1,
-      runtime: 'MoAgent',
+      runtime: 'PI Agent',
       tool: 'image-extraction',
       status: 'no_attachments',
       message: `未找到上传图片附件，请确认 ${contextPath} 是否包含 attachments。`,
@@ -450,9 +450,9 @@ export async function extractUploadedImageMetadata(
   });
   const payloadCharacters = JSON.stringify(payload).length;
   if (payloadCharacters > maxOutputChars) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'TOOL_OUTPUT_TOO_LARGE',
-      `Image metadata output exceeds the MoAgent ${maxOutputChars}-character limit.`,
+      `Image metadata output exceeds the PI Agent ${maxOutputChars}-character limit.`,
       { payloadCharacters, maxOutputChars, imageCount: images.length },
     );
   }
@@ -461,12 +461,12 @@ export async function extractUploadedImageMetadata(
 
 /** Native replacement for the former image MCP bridge. */
 export function createImageExtractionTool(
-  options: MoAgentImageExtractionToolOptions,
-): MoAgentTool<ImageExtractionInput, ImageExtractionPayload> {
+  options: PiAgentImageExtractionToolOptions,
+): PiAgentTool<ImageExtractionInput, ImageExtractionPayload> {
   return {
     name: 'quant_extract_uploaded_image',
     description:
-      'Read QuantPilot uploaded-image attachments, verify the files inside the MoAgent workspace, and return the portfolio screenshot metadata/extraction contract. This tool performs no OCR and never invents uncertain fields.',
+      'Read QuantPilot uploaded-image attachments, verify the files inside the PI Agent workspace, and return the portfolio screenshot metadata/extraction contract. This tool performs no OCR and never invents uncertain fields.',
     effect: 'read',
     idempotency: 'intrinsic',
     inputSchema: {
@@ -488,20 +488,20 @@ export function createImageExtractionTool(
       additionalProperties: false,
     },
     parseInput: parseImageExtractionInput,
-    execute: (input, context) => executeMoAgentTool(
+    execute: (input, context) => executePiAgentTool(
       context.signal,
       options.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       async (signal) => {
         const data = await extractUploadedImageMetadata(input, options, signal);
         const content = data.status === 'metadata_ready'
-          ? `MoAgent verified ${data.images.length} uploaded image(s). OCR is disabled; uncertain portfolio fields require manual confirmation.`
+          ? `PI Agent verified ${data.images.length} uploaded image(s). OCR is disabled; uncertain portfolio fields require manual confirmation.`
           : data.message;
         return {
           ok: true,
           data,
           content,
           metadata: {
-            runtime: 'MoAgent',
+            runtime: 'PI Agent',
             status: data.status,
             imageCount: data.status === 'metadata_ready' ? data.images.length : 0,
           },

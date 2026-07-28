@@ -20,8 +20,8 @@ vi.mock('@/lib/quant/validation', () => ({
   readQuantValidationReport: mocks.readValidation,
 }));
 
-vi.mock('@/lib/services/moagent-mission-store', () => ({
-  readMoAgentAcceptedMissionSnapshot: mocks.readAcceptedMission,
+vi.mock('@/lib/services/pi-agent-mission-store', () => ({
+  readPiAgentAcceptedMissionSnapshot: mocks.readAcceptedMission,
 }));
 
 vi.mock('@/lib/services/preview', () => ({
@@ -32,7 +32,7 @@ import { GET } from './route';
 
 const context = { params: Promise.resolve({ project_id: 'project-1' }) };
 
-function generation(cliPreference: string | null = 'moagent') {
+function generation(cliPreference: string | null = 'pi') {
   return {
     schemaVersion: 1 as const,
     projectId: 'project-1',
@@ -102,7 +102,7 @@ describe('generation status acceptance gate', () => {
     });
   });
 
-  it('fails closed when the current MoAgent request has no accepted receipt', async () => {
+  it('fails closed when the current PI Agent request has no accepted receipt', async () => {
     mocks.readAcceptedMission.mockResolvedValue(null);
 
     const response = await GET(
@@ -151,8 +151,9 @@ describe('generation status acceptance gate', () => {
     });
   });
 
-  it('does not require Mission storage for a legacy non-MoAgent generation', async () => {
-    mocks.readGeneration.mockResolvedValue(generation('legacy'));
+  it('fails closed and queries Mission storage for noncanonical persisted identity', async () => {
+    mocks.readGeneration.mockResolvedValue(generation('unsupported'));
+    mocks.readAcceptedMission.mockResolvedValue(null);
 
     const response = await GET(
       new Request('http://localhost') as never,
@@ -161,11 +162,15 @@ describe('generation status acceptance gate', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mocks.readAcceptedMission).not.toHaveBeenCalled();
+    expect(mocks.readAcceptedMission).toHaveBeenCalledWith(
+      'project-1',
+      'request-1',
+    );
     expect(body.data).toMatchObject({
-      status: 'ready',
-      missionAcceptanceRequired: false,
-      missionAcceptanceSatisfied: true,
+      status: 'preview_pending',
+      missionAcceptanceRequired: true,
+      missionAcceptanceSatisfied: false,
+      previewUrl: null,
     });
   });
 

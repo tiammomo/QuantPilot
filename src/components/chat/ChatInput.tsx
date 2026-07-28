@@ -13,6 +13,10 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  PRODUCT_CLI_ID,
+  normalizeProductCliIdOrDefault,
+} from '@/lib/constants/cli';
 import PersonalMemoryComposer from './PersonalMemoryComposer';
 import {
   buildQuickQuestions,
@@ -78,7 +82,7 @@ export default function ChatInput({
   onModeChange,
   projectId,
   projectName = '',
-  preferredCli = 'moagent',
+  preferredCli: preferredCliInput = PRODUCT_CLI_ID,
   selectedModel = '',
   modelOptions = [],
   onModelChange,
@@ -92,6 +96,7 @@ export default function ChatInput({
   queuedMessages = [],
   onRemoveQueuedMessage,
 }: ChatInputProps) {
+  const preferredCli = normalizeProductCliIdOrDefault(preferredCliInput);
   const [message, setMessage] = useState('');
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [isUploading, setIsUploading] = useState(false);

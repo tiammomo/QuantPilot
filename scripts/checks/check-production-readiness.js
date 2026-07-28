@@ -82,22 +82,22 @@ if (value('NODE_ENV') !== 'production') {
 if (value('QUANTPILOT_AUTH_MODE') !== 'local') {
   errors.push('QUANTPILOT_AUTH_MODE 必须设置为 local。');
 }
-if (value('MOAGENT_DISPATCH_MODE') !== 'worker') {
-  errors.push('MOAGENT_DISPATCH_MODE 必须设置为 worker，并部署独立 generation worker。');
+if (value('PI_AGENT_DISPATCH_MODE') !== 'worker') {
+  errors.push('PI_AGENT_DISPATCH_MODE 必须设置为 worker，并部署独立 generation worker。');
 }
-const workerConcurrency = Number(value('MOAGENT_WORKER_CONCURRENCY'));
-const globalWorkerConcurrency = Number(value('MOAGENT_WORKER_GLOBAL_CONCURRENCY'));
-const workerSlotTtlMs = Number(value('MOAGENT_WORKER_SLOT_LEASE_TTL_MS'));
-const workerSlotHeartbeatMs = Number(value('MOAGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS'));
+const workerConcurrency = Number(value('PI_AGENT_WORKER_CONCURRENCY'));
+const globalWorkerConcurrency = Number(value('PI_AGENT_WORKER_GLOBAL_CONCURRENCY'));
+const workerSlotTtlMs = Number(value('PI_AGENT_WORKER_SLOT_LEASE_TTL_MS'));
+const workerSlotHeartbeatMs = Number(value('PI_AGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS'));
 if (!Number.isSafeInteger(workerConcurrency) || workerConcurrency < 1 || workerConcurrency > 16) {
-  errors.push('MOAGENT_WORKER_CONCURRENCY 必须是 1..16 的整数。');
+  errors.push('PI_AGENT_WORKER_CONCURRENCY 必须是 1..16 的整数。');
 }
 if (
   !Number.isSafeInteger(globalWorkerConcurrency) ||
   globalWorkerConcurrency < 1 ||
   globalWorkerConcurrency > 256
 ) {
-  errors.push('MOAGENT_WORKER_GLOBAL_CONCURRENCY 必须是 1..256 的整数。');
+  errors.push('PI_AGENT_WORKER_GLOBAL_CONCURRENCY 必须是 1..256 的整数。');
 }
 if (
   Number.isSafeInteger(workerConcurrency) &&
@@ -111,7 +111,7 @@ if (
   workerSlotTtlMs < 1000 ||
   workerSlotTtlMs > 86_400_000
 ) {
-  errors.push('MOAGENT_WORKER_SLOT_LEASE_TTL_MS 必须是 1000..86400000 的整数。');
+  errors.push('PI_AGENT_WORKER_SLOT_LEASE_TTL_MS 必须是 1000..86400000 的整数。');
 }
 if (
   !Number.isSafeInteger(workerSlotHeartbeatMs) ||
@@ -169,9 +169,9 @@ requireValue(
   'PROJECTS_DIR 必须是非占位的绝对持久化目录，且不能是文件系统根目录。',
 );
 requireValue(
-  'MOAGENT_WORKSPACE_NAMESPACE',
+  'PI_AGENT_WORKSPACE_NAMESPACE',
   (configured) => /^[a-z0-9][a-z0-9._-]{1,127}$/i.test(configured) && !PLACEHOLDER_PATTERN.test(configured),
-  'MOAGENT_WORKSPACE_NAMESPACE 必须是部署集群内稳定且非占位的工作空间命名空间。',
+  'PI_AGENT_WORKSPACE_NAMESPACE 必须是部署集群内稳定且非占位的工作空间命名空间。',
 );
 
 const modelPortEnabled = flag('QUANTPILOT_MODELPORT_ENABLED', true);

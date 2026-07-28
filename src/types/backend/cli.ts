@@ -2,7 +2,7 @@
  * AI CLI-related types
  */
 
-export type CLIType = 'moagent';
+export type CLIType = 'pi';
 
 export interface CLIModel {
   id: string;
@@ -46,14 +46,14 @@ export interface GlobalSettings {
   };
 }
 
-export interface MoAgentSession {
+export interface PiAgentSession {
   id: string;
   projectPath: string;
   model: string;
   createdAt: Date;
 }
 
-export interface MoAgentResponse {
+export interface PiAgentResponse {
   role: 'assistant';
   content: string;
   thinking?: string;

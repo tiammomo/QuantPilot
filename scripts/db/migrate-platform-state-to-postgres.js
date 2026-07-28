@@ -216,7 +216,7 @@ async function migrateEvalQueue() {
     if (!item?.id) continue;
     const data = {
       status: item.status || 'failed',
-      cli: 'moagent',
+      cli: 'pi',
       model: 'local_qwen:qwen3.5-9b-q5km',
       reasoningEffort: '',
       selectedCases: Array.isArray(item.selectedCases) ? item.selectedCases : [],
@@ -280,7 +280,7 @@ async function migrateEvalSchedule() {
   const data = {
     enabled: Boolean(schedule.enabled),
     intervalHours: Number(schedule.intervalHours || 24),
-    cli: 'moagent',
+    cli: 'pi',
     model: 'local_qwen:qwen3.5-9b-q5km',
     reasoningEffort: '',
     selectedCases: Array.isArray(schedule.selectedCases) ? schedule.selectedCases : [],

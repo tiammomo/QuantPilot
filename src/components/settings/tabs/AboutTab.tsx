@@ -23,7 +23,7 @@ function AboutTab() {
       <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6">
         <div className="text-center">
           <p className="mx-auto max-w-2xl text-base leading-relaxed text-slate-700">
-            QuantPilot 是面向量化研发的 AI 工作台，通过 MoAgent 与 ModelPort 使用本地 Qwen、
+            QuantPilot 是面向量化研发的 AI 工作台，通过开源 PI Agent 与 ModelPort 使用本地 Qwen、
             托管 DeepSeek 及可选官方直连，并串联 GitHub、Supabase 与 Vercel 等工程化服务。
           </p>
         </div>

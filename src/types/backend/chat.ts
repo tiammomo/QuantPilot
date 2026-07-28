@@ -1,4 +1,4 @@
-import type { MoAgentTurnMetrics } from '@/lib/chat/turn-metrics';
+import type { PiAgentTurnMetrics } from '@/lib/chat/turn-metrics';
 
 /**
  * Chat-related types
@@ -9,7 +9,7 @@ export interface MessageMetadata {
   summary?: string;
   description?: string;
   filePath?: string;
-  turnMetrics?: MoAgentTurnMetrics;
+  turnMetrics?: PiAgentTurnMetrics;
   [key: string]: unknown;
 }
 

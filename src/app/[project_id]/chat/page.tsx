@@ -1063,7 +1063,7 @@ const persistProjectPreferences = useCallback(
       ) {
         previewUrlRef.current = null;
         setPreviewUrl(null);
-        setPreviewInitializationMessage('正在等待 MoAgent 证据验收，暂不展示预览。');
+        setPreviewInitializationMessage('正在等待 PI Agent 证据验收，暂不展示预览。');
         return false;
       }
       if (terminalSnapshot.validationStatus !== 'passed') {
@@ -1177,7 +1177,7 @@ const persistProjectPreferences = useCallback(
         setIsRunning(true);
         setAgentWorkComplete(false);
         setQuantValidationState('running');
-        setQuantValidationMessage('自动检查已完成，正在等待 MoAgent 证据验收。');
+        setQuantValidationMessage('自动检查已完成，正在等待 PI Agent 证据验收。');
         setPreviewInitializationMessage('证据验收通过后才会展示最终看板。');
         return;
       }
@@ -1965,7 +1965,7 @@ const persistProjectPreferences = useCallback(
       setUsingGlobalDefaults(followGlobal);
       setProjectDescription(project.description || '');
       // Project.previewUrl and a passing validation report may describe a
-      // provisional MoAgent preview. Only the Mission-aware generation/status
+      // provisional PI Agent preview. Only the Mission-aware generation/status
       // reconciliation below is allowed to expose or recover it.
 
       if (project.initial_prompt) {

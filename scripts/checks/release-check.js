@@ -23,7 +23,7 @@ if (includeE2eEvidence) {
     : 'MODELPORT_API_KEY';
   if (!String(process.env[credentialName] || '').trim()) {
     console.error(
-      `[release] ${credentialName} is required for ${evidenceModel} release evidence; refusing to skip live MoAgent E2E.`,
+      `[release] ${credentialName} is required for ${evidenceModel} release evidence; refusing to skip live PI Agent E2E.`,
     );
     process.exit(1);
   }
@@ -31,6 +31,7 @@ if (includeE2eEvidence) {
 
 const checks = [
   ['AI provider boundary', 'npm', ['run', 'check:ai-provider-boundary'], ROOT],
+  ['PI Agent Worker runtime', 'npm', ['run', 'check:pi-agent-worker-runtime'], ROOT],
   ['Documentation links', 'npm', ['run', 'check:docs'], ROOT],
   ['Skills registry', 'npm', ['run', 'check:skills'], ROOT],
   ['Generated artifact policy', 'npm', ['run', 'check:generated-artifacts'], ROOT],
@@ -89,7 +90,7 @@ if (generateContractEvidence) {
 if (includeE2eEvidence) {
   checks.push(
     [
-      'MoAgent repair/cancellation/crash release controls',
+      'PI Agent repair/cancellation/crash release controls',
       'node',
       ['scripts/checks/check-quant-e2e-suite.js', '--run-runtime-controls'],
       ROOT,

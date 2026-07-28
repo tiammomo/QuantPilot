@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { compileMoAgentMissionSpec } from './compiler';
+import { compilePiAgentMissionSpec } from './compiler';
 import { createTestMissionDefinition } from './test-support';
 
 const CREATED_AT = '2026-07-15T04:00:00.000Z';
 
-type CompileOverrides = Partial<Parameters<typeof compileMoAgentMissionSpec>[0]> & {
+type CompileOverrides = Partial<Parameters<typeof compilePiAgentMissionSpec>[0]> & {
   expectedArtifacts?: readonly string[];
 };
 
@@ -20,7 +20,7 @@ function compile(overrides: CompileOverrides = {}) {
     definition,
     ...rest
   } = overrides;
-  return compileMoAgentMissionSpec({
+  return compilePiAgentMissionSpec({
     projectId: 'project-mission',
     requestId: 'request-mission',
     objective: '生成可验证的量化看板',
@@ -48,7 +48,7 @@ function compile(overrides: CompileOverrides = {}) {
   });
 }
 
-describe('MoAgent Mission compiler', () => {
+describe('PI Agent Mission compiler', () => {
   it('compiles deterministically after normalizing unordered and duplicate inputs', () => {
     const first = compile({
       entities: [

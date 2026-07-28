@@ -1,30 +1,30 @@
 import { createHash } from 'node:crypto';
 
 import type {
-  MoAgentAssistantMessage,
-  MoAgentMessage,
-  MoAgentToolDefinition,
-  MoAgentToolMessage,
+  PiAgentAssistantMessage,
+  PiAgentMessage,
+  PiAgentToolDefinition,
+  PiAgentToolMessage,
 } from '../types';
 import {
   assertTrustedContextCapsule,
   isTrustedContextCapsuleMessage,
-  MoAgentContextCapsuleError,
-  MoAgentContextCapsuleSession,
-  type MoAgentTrustedContextCapsuleCheckpoint,
-  type MoAgentTrustedContextCapsuleTelemetry,
+  PiAgentContextCapsuleError,
+  PiAgentContextCapsuleSession,
+  type PiAgentTrustedContextCapsuleCheckpoint,
+  type PiAgentTrustedContextCapsuleTelemetry,
 } from './trusted-context-capsule';
 
 const SUMMARY_VERSION = 1 as const;
 const TOOL_RESULT_PREVIEW_MAX_BYTES = 512;
 const TOKEN_ESTIMATE_SAFETY_FACTOR = 1.1;
 
-export type MoAgentTokenEstimator = (
-  messages: readonly MoAgentMessage[],
-  tools: readonly MoAgentToolDefinition[]
+export type PiAgentTokenEstimator = (
+  messages: readonly PiAgentMessage[],
+  tools: readonly PiAgentToolDefinition[]
 ) => number;
 
-export interface MoAgentContextManagerOptions {
+export interface PiAgentContextManagerOptions {
   /** Total input and output context capacity advertised by the model. */
   contextWindowTokens: number;
   /** Capacity kept unavailable to input so the model can finish its response. */
@@ -36,12 +36,12 @@ export interface MoAgentContextManagerOptions {
    * conservative multilingual heuristic when the provider tokenizer is not
    * available.
    */
-  tokenEstimator?: MoAgentTokenEstimator;
+  tokenEstimator?: PiAgentTokenEstimator;
   /** Hard UTF-8 budget for the deterministic, framework-owned phase capsule. */
   contextCapsuleMaxUtf8Bytes?: number;
 }
 
-export interface MoAgentContextEstimate {
+export interface PiAgentContextEstimate {
   contextWindowTokens: number;
   reservedOutputTokens: number;
   maxInputTokens: number;
@@ -50,12 +50,12 @@ export interface MoAgentContextEstimate {
   preparedInputTokens: number;
 }
 
-export interface MoAgentRemovedReasoningMetadata {
+export interface PiAgentRemovedReasoningMetadata {
   messageIndex: number;
   originalUtf8Bytes: number;
 }
 
-export interface MoAgentSummarizedToolResultMetadata {
+export interface PiAgentSummarizedToolResultMetadata {
   messageIndex: number;
   toolCallId: string;
   sha256: string;
@@ -64,52 +64,52 @@ export interface MoAgentSummarizedToolResultMetadata {
   retainedPreviewUtf8Bytes: number;
 }
 
-export interface MoAgentDroppedContextGroupMetadata {
+export interface PiAgentDroppedContextGroupMetadata {
   kind: 'message' | 'tool_call_cluster';
   messageIndexes: number[];
-  roles: MoAgentMessage['role'][];
+  roles: PiAgentMessage['role'][];
 }
 
-export interface MoAgentContextCompactionMetadata {
+export interface PiAgentContextCompactionMetadata {
   applied: boolean;
-  removedReasoning: MoAgentRemovedReasoningMetadata[];
-  summarizedToolResults: MoAgentSummarizedToolResultMetadata[];
-  droppedGroups: MoAgentDroppedContextGroupMetadata[];
+  removedReasoning: PiAgentRemovedReasoningMetadata[];
+  summarizedToolResults: PiAgentSummarizedToolResultMetadata[];
+  droppedGroups: PiAgentDroppedContextGroupMetadata[];
   protectedContext: {
     systemMessageIndexes: number[];
     latestUserMessageIndex?: number;
     activeToolClusterMessageIndexes: number[];
   };
-  contextCapsule?: MoAgentTrustedContextCapsuleTelemetry;
+  contextCapsule?: PiAgentTrustedContextCapsuleTelemetry;
 }
 
-export interface MoAgentContextPreparationOptions {
-  contextCapsule?: MoAgentTrustedContextCapsuleCheckpoint | null;
+export interface PiAgentContextPreparationOptions {
+  contextCapsule?: PiAgentTrustedContextCapsuleCheckpoint | null;
   /**
    * Exact framework-owned suffix messages for this provider request. They are
    * included in token accounting and never persisted in canonical history.
    */
-  requestLocalMessages?: readonly MoAgentMessage[];
+  requestLocalMessages?: readonly PiAgentMessage[];
   /** Suppress the capsule's legacy standalone suffix when it is already wrapped. */
   emitContextCapsuleRequestLocalMessage?: boolean;
   /** Optional per-turn tightening of the manager's configured input budget. */
   inputBudgetTokens?: number;
 }
 
-export interface MoAgentPreparedContext {
+export interface PiAgentPreparedContext {
   /**
    * Canonical history that may be retained by the run engine. Framework-owned
    * request-local controls deliberately stay outside this array so changing a
    * checkpoint never mutates the provider's stable system prefix.
    */
-  messages: MoAgentMessage[];
+  messages: PiAgentMessage[];
   /** Framework-generated suffixes to append only to the current provider request. */
-  requestLocalMessages: MoAgentMessage[];
-  estimate: MoAgentContextEstimate;
-  compaction: MoAgentContextCompactionMetadata;
+  requestLocalMessages: PiAgentMessage[];
+  estimate: PiAgentContextEstimate;
+  compaction: PiAgentContextCompactionMetadata;
 }
 
-export type MoAgentContextErrorCode =
+export type PiAgentContextErrorCode =
   | 'CONTEXT_BUDGET_EXCEEDED'
   | 'CONTEXT_CAPSULE_BUDGET_EXCEEDED'
   | 'INVALID_CONTEXT_CONFIGURATION'
@@ -117,17 +117,17 @@ export type MoAgentContextErrorCode =
   | 'INVALID_CONTEXT_HISTORY'
   | 'TOKEN_ESTIMATION_FAILED';
 
-export class MoAgentContextError extends Error {
-  readonly code: MoAgentContextErrorCode;
+export class PiAgentContextError extends Error {
+  readonly code: PiAgentContextErrorCode;
   readonly details: Readonly<Record<string, unknown>>;
 
   constructor(
-    code: MoAgentContextErrorCode,
+    code: PiAgentContextErrorCode,
     message: string,
     details: Readonly<Record<string, unknown>> = {}
   ) {
     super(message);
-    this.name = 'MoAgentContextError';
+    this.name = 'PiAgentContextError';
     this.code = code;
     this.details = details;
   }
@@ -135,7 +135,7 @@ export class MoAgentContextError extends Error {
 
 interface ContextEntry {
   originalIndex: number;
-  message: MoAgentMessage;
+  message: PiAgentMessage;
 }
 
 interface ContextGroup {
@@ -146,10 +146,10 @@ interface ContextGroup {
 }
 
 interface ToolResultSummaryPayload {
-  $moagent: {
+  $piAgent: {
     kind: 'tool_result_truncation';
     version: typeof SUMMARY_VERSION;
-    generatedBy: 'MoAgentContextManager';
+    generatedBy: 'PiAgentContextManager';
     toolCallId: string;
     toolName?: string;
     digest: {
@@ -168,7 +168,7 @@ function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function cloneMessage(message: MoAgentMessage): MoAgentMessage {
+function cloneMessage(message: PiAgentMessage): PiAgentMessage {
   switch (message.role) {
     case 'system':
       return { role: 'system', content: message.content };
@@ -195,7 +195,7 @@ function cloneMessage(message: MoAgentMessage): MoAgentMessage {
   }
 }
 
-function cloneMessages(messages: readonly MoAgentMessage[]): MoAgentMessage[] {
+function cloneMessages(messages: readonly PiAgentMessage[]): PiAgentMessage[] {
   return messages.map(cloneMessage);
 }
 
@@ -250,7 +250,7 @@ function estimatedSerializedTokens(value: string): number {
  * high-entropy runs, JSON framing, and provider-side message/tool envelopes
  * without treating each UTF-8 byte as a complete token.
  */
-export const conservativeMoAgentTokenEstimator: MoAgentTokenEstimator = (messages, tools) => {
+export const conservativePiAgentTokenEstimator: PiAgentTokenEstimator = (messages, tools) => {
   const serialized = JSON.stringify({ messages, tools });
   const toolCallCount = messages.reduce(
     (count, message) => count + (message.role === 'assistant' ? (message.toolCalls?.length ?? 0) : 0),
@@ -269,14 +269,14 @@ export const conservativeMoAgentTokenEstimator: MoAgentTokenEstimator = (message
 
 function requireInteger(
   name: keyof Pick<
-    MoAgentContextManagerOptions,
+    PiAgentContextManagerOptions,
     'contextWindowTokens' | 'reservedOutputTokens' | 'maxInputTokens'
   >,
   value: number,
   minimum: number
 ): void {
   if (!Number.isSafeInteger(value) || value < minimum) {
-    throw new MoAgentContextError(
+    throw new PiAgentContextError(
       'INVALID_CONTEXT_CONFIGURATION',
       `${name} must be a safe integer greater than or equal to ${minimum}`,
       { field: name, value, minimum }
@@ -284,13 +284,13 @@ function requireInteger(
   }
 }
 
-function buildGroups(messages: readonly MoAgentMessage[]): ContextGroup[] {
+function buildGroups(messages: readonly PiAgentMessage[]): ContextGroup[] {
   const groups: ContextGroup[] = [];
 
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
     if (message.role === 'tool') {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'INVALID_CONTEXT_HISTORY',
         `Tool result at message ${index} is not adjacent to an assistant tool-call message`,
         { messageIndex: index, toolCallId: message.toolCallId, reason: 'orphan_tool_result' }
@@ -310,7 +310,7 @@ function buildGroups(messages: readonly MoAgentMessage[]): ContextGroup[] {
     const callIds = new Set<string>();
     for (const toolCall of message.toolCalls) {
       if (!toolCall.id || callIds.has(toolCall.id)) {
-        throw new MoAgentContextError(
+        throw new PiAgentContextError(
           'INVALID_CONTEXT_HISTORY',
           `Assistant tool-call cluster at message ${index} contains an empty or duplicate call ID`,
           { messageIndex: index, toolCallId: toolCall.id, reason: 'invalid_tool_call_id' }
@@ -323,9 +323,9 @@ function buildGroups(messages: readonly MoAgentMessage[]): ContextGroup[] {
     const resultIds = new Set<string>();
     while (index + 1 < messages.length && messages[index + 1].role === 'tool') {
       index += 1;
-      const toolMessage = messages[index] as MoAgentToolMessage;
+      const toolMessage = messages[index] as PiAgentToolMessage;
       if (!callIds.has(toolMessage.toolCallId) || resultIds.has(toolMessage.toolCallId)) {
-        throw new MoAgentContextError(
+        throw new PiAgentContextError(
           'INVALID_CONTEXT_HISTORY',
           `Tool result at message ${index} does not uniquely match the preceding assistant cluster`,
           {
@@ -343,7 +343,7 @@ function buildGroups(messages: readonly MoAgentMessage[]): ContextGroup[] {
 
     const missingResultIds = [...callIds].filter((callId) => !resultIds.has(callId));
     if (missingResultIds.length > 0) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'INVALID_CONTEXT_HISTORY',
         `Assistant tool-call cluster at message ${entries[0].originalIndex} is missing tool results`,
         {
@@ -365,7 +365,7 @@ function buildGroups(messages: readonly MoAgentMessage[]): ContextGroup[] {
   return groups;
 }
 
-function flattenGroups(groups: readonly ContextGroup[]): MoAgentMessage[] {
+function flattenGroups(groups: readonly ContextGroup[]): PiAgentMessage[] {
   return groups.flatMap((group) => group.entries.map((entry) => entry.message));
 }
 
@@ -388,28 +388,28 @@ function isToolResultSummary(content: string): boolean {
   try {
     const candidate = JSON.parse(content) as Partial<ToolResultSummaryPayload>;
     return (
-      candidate.$moagent?.kind === 'tool_result_truncation' &&
-      candidate.$moagent.version === SUMMARY_VERSION &&
-      candidate.$moagent.generatedBy === 'MoAgentContextManager'
+      candidate.$piAgent?.kind === 'tool_result_truncation' &&
+      candidate.$piAgent.version === SUMMARY_VERSION &&
+      candidate.$piAgent.generatedBy === 'PiAgentContextManager'
     );
   } catch {
     return false;
   }
 }
 
-function summarizeToolResult(message: MoAgentToolMessage): {
-  message: MoAgentToolMessage;
-  metadata: Omit<MoAgentSummarizedToolResultMetadata, 'messageIndex'>;
+function summarizeToolResult(message: PiAgentToolMessage): {
+  message: PiAgentToolMessage;
+  metadata: Omit<PiAgentSummarizedToolResultMetadata, 'messageIndex'>;
 } {
   const originalUtf8Bytes = utf8Bytes(message.content);
   const preview = truncateUtf8(message.content, TOOL_RESULT_PREVIEW_MAX_BYTES);
   const retainedPreviewUtf8Bytes = utf8Bytes(preview);
   const sha256 = createHash('sha256').update(message.content, 'utf8').digest('hex');
   const payload: ToolResultSummaryPayload = {
-    $moagent: {
+    $piAgent: {
       kind: 'tool_result_truncation',
       version: SUMMARY_VERSION,
-      generatedBy: 'MoAgentContextManager',
+      generatedBy: 'PiAgentContextManager',
       toolCallId: message.toolCallId,
       ...(message.name !== undefined ? { toolName: message.name } : {}),
       digest: { algorithm: 'SHA-256', hex: sha256 },
@@ -454,18 +454,18 @@ function toolCallIds(group: ContextGroup): string[] {
 
 function applyTrustedContextCapsule(
   groups: ContextGroup[],
-  checkpoint: MoAgentTrustedContextCapsuleCheckpoint,
+  checkpoint: PiAgentTrustedContextCapsuleCheckpoint,
 ): {
   groups: ContextGroup[];
-  requestLocalMessage: MoAgentMessage;
-  telemetry?: MoAgentTrustedContextCapsuleTelemetry;
+  requestLocalMessage: PiAgentMessage;
+  telemetry?: PiAgentTrustedContextCapsuleTelemetry;
   replacedGroups: ContextGroup[];
 } {
   try {
     assertTrustedContextCapsule(checkpoint);
   } catch (error) {
-    if (error instanceof MoAgentContextCapsuleError) {
-      throw new MoAgentContextError(error.code, error.message, error.details);
+    if (error instanceof PiAgentContextCapsuleError) {
+      throw new PiAgentContextError(error.code, error.message, error.details);
     }
     throw error;
   }
@@ -502,12 +502,12 @@ function applyTrustedContextCapsule(
   };
 }
 
-export class MoAgentContextManager {
-  private readonly options: Readonly<MoAgentContextManagerOptions>;
-  private readonly tokenEstimator: MoAgentTokenEstimator;
+export class PiAgentContextManager {
+  private readonly options: Readonly<PiAgentContextManagerOptions>;
+  private readonly tokenEstimator: PiAgentTokenEstimator;
   private readonly inputBudgetTokens: number;
 
-  constructor(options: MoAgentContextManagerOptions) {
+  constructor(options: PiAgentContextManagerOptions) {
     requireInteger('contextWindowTokens', options.contextWindowTokens, 1);
     requireInteger('reservedOutputTokens', options.reservedOutputTokens, 0);
     requireInteger('maxInputTokens', options.maxInputTokens, 1);
@@ -516,7 +516,7 @@ export class MoAgentContextManager {
       (!Number.isSafeInteger(options.contextCapsuleMaxUtf8Bytes) ||
         options.contextCapsuleMaxUtf8Bytes < 256)
     ) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'INVALID_CONTEXT_CONFIGURATION',
         'contextCapsuleMaxUtf8Bytes must be a safe integer greater than or equal to 256',
         {
@@ -527,7 +527,7 @@ export class MoAgentContextManager {
       );
     }
     if (options.reservedOutputTokens >= options.contextWindowTokens) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'INVALID_CONTEXT_CONFIGURATION',
         'reservedOutputTokens must be smaller than contextWindowTokens',
         {
@@ -538,29 +538,29 @@ export class MoAgentContextManager {
     }
 
     this.options = { ...options };
-    this.tokenEstimator = options.tokenEstimator ?? conservativeMoAgentTokenEstimator;
+    this.tokenEstimator = options.tokenEstimator ?? conservativePiAgentTokenEstimator;
     this.inputBudgetTokens = Math.min(
       options.maxInputTokens,
       options.contextWindowTokens - options.reservedOutputTokens
     );
   }
 
-  createCapsuleSession(): MoAgentContextCapsuleSession {
-    return new MoAgentContextCapsuleSession({
+  createCapsuleSession(): PiAgentContextCapsuleSession {
+    return new PiAgentContextCapsuleSession({
       maxUtf8Bytes: this.options.contextCapsuleMaxUtf8Bytes,
     });
   }
 
   prepare(
-    messages: readonly MoAgentMessage[],
-    tools: readonly MoAgentToolDefinition[] = [],
-    preparation: MoAgentContextPreparationOptions = {},
-  ): MoAgentPreparedContext {
+    messages: readonly PiAgentMessage[],
+    tools: readonly PiAgentToolDefinition[] = [],
+    preparation: PiAgentContextPreparationOptions = {},
+  ): PiAgentPreparedContext {
     if (
       preparation.inputBudgetTokens !== undefined &&
       (!Number.isSafeInteger(preparation.inputBudgetTokens) || preparation.inputBudgetTokens <= 0)
     ) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'INVALID_CONTEXT_CONFIGURATION',
         'inputBudgetTokens must be a positive safe integer when provided',
         { field: 'inputBudgetTokens', value: preparation.inputBudgetTokens },
@@ -572,7 +572,7 @@ export class MoAgentContextManager {
     );
     let groups = buildGroups(messages);
     const requestLocalMessages = cloneMessages(preparation.requestLocalMessages ?? []);
-    let contextCapsuleTelemetry: MoAgentTrustedContextCapsuleTelemetry | undefined;
+    let contextCapsuleTelemetry: PiAgentTrustedContextCapsuleTelemetry | undefined;
     const capsuleReplacedGroups: ContextGroup[] = [];
     if (preparation.contextCapsule) {
       const applied = applyTrustedContextCapsule(groups, preparation.contextCapsule);
@@ -612,9 +612,9 @@ export class MoAgentContextManager {
 
     const activeToolClusterMessageIndexes = activeToolGroup ? originalIndexes(activeToolGroup) : [];
     let preparedInputTokens = originalInputTokens;
-    const removedReasoning: MoAgentRemovedReasoningMetadata[] = [];
-    const summarizedToolResults: MoAgentSummarizedToolResultMetadata[] = [];
-    const droppedGroups: MoAgentDroppedContextGroupMetadata[] = capsuleReplacedGroups.map(
+    const removedReasoning: PiAgentRemovedReasoningMetadata[] = [];
+    const summarizedToolResults: PiAgentSummarizedToolResultMetadata[] = [];
+    const droppedGroups: PiAgentDroppedContextGroupMetadata[] = capsuleReplacedGroups.map(
       (group) => ({
         kind: group.kind,
         messageIndexes: originalIndexes(group),
@@ -635,7 +635,7 @@ export class MoAgentContextManager {
           }
           const originalUtf8Bytes = utf8Bytes(entry.message.reasoningContent);
           const { reasoningContent: _removed, ...withoutReasoning } = entry.message;
-          entry.message = withoutReasoning as MoAgentAssistantMessage;
+          entry.message = withoutReasoning as PiAgentAssistantMessage;
           removedReasoning.push({ messageIndex: entry.originalIndex, originalUtf8Bytes });
           preparedInputTokens = estimateGroups(groups);
           if (preparedInputTokens <= inputBudgetTokens) break reasoning;
@@ -703,7 +703,7 @@ export class MoAgentContextManager {
       // single active fan-out from making all prior compaction ineffective.
       const activeResults = activeToolGroup.entries
         .filter(
-          (entry): entry is ContextEntry & { message: MoAgentToolMessage } =>
+          (entry): entry is ContextEntry & { message: PiAgentToolMessage } =>
             entry.message.role === 'tool' &&
             !isToolResultSummary(entry.message.content)
         )
@@ -732,7 +732,7 @@ export class MoAgentContextManager {
       [...preparedMessages, ...requestLocalMessages],
       tools,
     );
-    const compaction: MoAgentContextCompactionMetadata = {
+    const compaction: PiAgentContextCompactionMetadata = {
       applied:
         contextCapsuleTelemetry?.applied === true ||
         removedReasoning.length > 0 ||
@@ -748,7 +748,7 @@ export class MoAgentContextManager {
       },
       ...(contextCapsuleTelemetry ? { contextCapsule: contextCapsuleTelemetry } : {}),
     };
-    const estimate: MoAgentContextEstimate = {
+    const estimate: PiAgentContextEstimate = {
       contextWindowTokens: this.options.contextWindowTokens,
       reservedOutputTokens: this.options.reservedOutputTokens,
       maxInputTokens: this.options.maxInputTokens,
@@ -761,7 +761,7 @@ export class MoAgentContextManager {
       const protectedMessages = groups
         .filter((group) => group.protected)
         .flatMap((group) => group.entries.map((entry) => entry.message));
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'CONTEXT_BUDGET_EXCEEDED',
         `Prepared context requires ${preparedInputTokens} estimated tokens but the input budget is ${inputBudgetTokens}`,
         {
@@ -785,23 +785,23 @@ export class MoAgentContextManager {
   }
 
   private estimate(
-    messages: readonly MoAgentMessage[],
-    tools: readonly MoAgentToolDefinition[]
+    messages: readonly PiAgentMessage[],
+    tools: readonly PiAgentToolDefinition[]
   ): number {
     let estimate: number;
     try {
       estimate = this.tokenEstimator(messages, tools);
     } catch (error) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'TOKEN_ESTIMATION_FAILED',
-        'MoAgent context token estimator failed',
+        'PI Agent context token estimator failed',
         { cause: error instanceof Error ? error.message : String(error) }
       );
     }
     if (!Number.isFinite(estimate) || estimate < 0) {
-      throw new MoAgentContextError(
+      throw new PiAgentContextError(
         'TOKEN_ESTIMATION_FAILED',
-        'MoAgent context token estimator must return a finite non-negative number',
+        'PI Agent context token estimator must return a finite non-negative number',
         { estimate }
       );
     }

@@ -38,9 +38,9 @@ export function isRuntimeOnlyChatProjection(
     if (
       metadata.hidden_from_ui === true ||
       metadata.isMissionIntermediate === true ||
-      metadata.isMoAgentIntermediateTurn === true
+      metadata.isPiAgentIntermediateTurn === true
     ) return true;
-    return metadata.isWorkspaceProgress === true && metadata.isMoAgentFinal !== true;
+    return metadata.isWorkspaceProgress === true && metadata.isPiAgentFinal !== true;
   } catch {
     return false;
   }
@@ -65,7 +65,7 @@ export async function getMessagesByProjectId(
 }
 
 /**
- * Return a bounded, chronological chat window for MoAgent context rebuilds.
+ * Return a bounded, chronological chat window for PI Agent context rebuilds.
  * Tool payloads and internal reasoning are deliberately excluded here; exact
  * tool-call state only lives inside the active run.
  */

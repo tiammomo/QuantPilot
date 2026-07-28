@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MoAgentModelEvent } from '../types';
+import type { PiAgentModelEvent } from '../types';
 import {
   OpenAICompatibleProvider,
   OpenAICompatibleProviderError,
 } from './openai-compatible';
 
-async function collect(iterable: AsyncIterable<MoAgentModelEvent>) {
-  const events: MoAgentModelEvent[] = [];
+async function collect(iterable: AsyncIterable<PiAgentModelEvent>) {
+  const events: PiAgentModelEvent[] = [];
   for await (const event of iterable) events.push(event);
   return events;
 }

@@ -1,7 +1,7 @@
 # QuantPilot Prisma migration adoption
 
 The migration history starts with the application schema at Git revision
-`c641c00`, followed by additive MoAgent runtime/evidence migrations, user and
+`c641c00`, followed by additive Agent runtime/evidence migrations, user and
 project authentication, capability authorization, idempotent usage quota
 metering, governed Memory/Knowledge usage, durable generation dispatch, Data
 Agent composition locking, global Worker capacity and Worker process registry.
@@ -101,9 +101,9 @@ authentication records it expires abandoned active quota reservations and
 returns their quantities from `usage_buckets.reserved`; it does not delete the
 `usage_events` ledger.
 
-## Existing pre-MoAgent database
+## Existing pre-PI Agent database
 
-This path is only for a database already managed by the pre-MoAgent schema at
+This path is only for a database already managed by the pre-PI Agent schema at
 revision `c641c00`, with the regular QuantPilot tables present and none of the
 eight `agent_*` runtime or Mission tables present.
 
@@ -159,8 +159,8 @@ roll-forward migration first.
 ## Database already synchronized with `prisma db push`
 
 If all eight `agent_*` tables already exist because the current schema was
-previously pushed, run the read-only MoAgent schema readiness check from
-`src/lib/db/moagent-schema-readiness.ts`. Only when contract
+previously pushed, run the read-only PI Agent schema readiness check from
+`src/lib/db/pi-agent-schema-readiness.ts`. Only when contract
 `20260715000500_add_moagent_build_revision` returns `ready: true`, record all
 five migrations as already applied:
 
@@ -199,11 +199,11 @@ migration from the actual catalog state.
 
 ## Application readiness gate
 
-`assertMoAgentSchemaReady(prisma)` performs only PostgreSQL catalog `SELECT`
+`assertPiAgentSchemaReady(prisma)` performs only PostgreSQL catalog `SELECT`
 queries. It verifies every runtime and Mission column's type/nullability plus
 the semantic indexes, uniqueness guarantees, foreign-key actions, and
 constraint validity. This includes the Mission-to-request binding, materialized
 node ownership, immutable evidence ownership, accepted-receipt link, and the
 unique active Mission slot per project. The
-application should refuse new MoAgent runs when it throws
-`MOAGENT_SCHEMA_NOT_READY`; schema repair remains an explicit deployment step.
+application should refuse new PI Agent runs when it throws
+`PI_AGENT_SCHEMA_NOT_READY`; schema repair remains an explicit deployment step.

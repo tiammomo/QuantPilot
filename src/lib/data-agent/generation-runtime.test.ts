@@ -49,7 +49,7 @@ describe("Data Agent generation runtime", () => {
       projectId: "project-1",
       requestId: "request-1",
       selectedModel: null,
-      cliPreference: "moagent",
+      cliPreference: "pi",
       executionEnvelope: envelope,
     });
     expect(execute).toHaveBeenCalledOnce();
@@ -65,7 +65,7 @@ describe("Data Agent generation runtime", () => {
         projectId: "project-1",
         requestId: "request-1",
         selectedModel: null,
-        cliPreference: "moagent",
+        cliPreference: "pi",
         executionEnvelope: envelope,
       }),
     ).rejects.toThrow("No generation handler is registered");

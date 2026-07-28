@@ -10,7 +10,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-eval
   interopDefault: true,
 });
 const {
-  DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS,
+  DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS,
 } = jiti('../../src/lib/eval/e2e-attestation.ts');
 const { attestEvalReport } = jiti('../../src/lib/eval/report-attestation.ts');
 const { compareEvalReports } = jiti('../../src/lib/eval/regression.ts');
@@ -18,8 +18,8 @@ const { buildEvalQualitySummary, resultScore } = jiti('../../src/lib/eval/scorin
 const { evalSnapshotPayloadSha256 } = jiti('../../src/lib/eval/snapshot-contract.ts');
 const { normalizedPromptHash } = jiti('../../src/lib/eval/dataset-contract.ts');
 const {
-  MOAGENT_BUILD_IDENTITY,
-  MOAGENT_FRAMEWORK_VERSION,
+  PI_AGENT_BUILD_IDENTITY,
+  PI_AGENT_FRAMEWORK_VERSION,
 } = jiti('../../src/lib/agent/framework-identity.ts');
 const {
   getDefaultModelForCli,
@@ -60,21 +60,21 @@ function parseArgs(argv) {
     mode: process.env.QUANTPILOT_EVAL_MODE || 'contract',
     datasetVisibility: process.env.QUANTPILOT_EVAL_DATASET_VISIBILITY || 'public',
     casesFile: process.env.QUANTPILOT_EVAL_CASES_PATH || null,
-    model: process.env.QUANTPILOT_EVAL_MODEL || getDefaultModelForCli('moagent'),
+    model: process.env.QUANTPILOT_EVAL_MODEL || getDefaultModelForCli('pi'),
     maxAgeHours: Number.parseInt(process.env.QUANTPILOT_EVAL_MAX_AGE_HOURS || '168', 10),
     maxTurnsPerCase: Number.parseInt(
-      process.env.MOAGENT_E2E_MAX_TURNS_PER_CASE ||
-      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase),
+      process.env.PI_AGENT_E2E_MAX_TURNS_PER_CASE ||
+      String(DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase),
       10,
     ),
     maxCacheMissInputTokensPerCase: Number.parseInt(
-      process.env.MOAGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE ||
-      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase),
+      process.env.PI_AGENT_E2E_MAX_CACHE_MISS_INPUT_TOKENS_PER_CASE ||
+      String(DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase),
       10,
     ),
     maxUnexpectedToolFailures: Number.parseInt(
-      process.env.MOAGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES ||
-      String(DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures),
+      process.env.PI_AGENT_E2E_MAX_UNEXPECTED_TOOL_FAILURES ||
+      String(DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures),
       10,
     ),
   };
@@ -289,10 +289,10 @@ function parseArgs(argv) {
   }
   args.casesFile = path.resolve(args.casesFile || CASES_PATH);
   const requestedModel = args.model.trim().toLowerCase();
-  const modelDefinition = getModelDefinitionsForCli('moagent').find((definition) =>
+  const modelDefinition = getModelDefinitionsForCli('pi').find((definition) =>
     definition.id.toLowerCase() === requestedModel ||
     definition.aliases.some((alias) => alias.toLowerCase() === requestedModel));
-  if (!modelDefinition) throw new Error(`评测门收到未注册的 MoAgent 模型：${args.model || '(empty)'}`);
+  if (!modelDefinition) throw new Error(`评测门收到未注册的 PI Agent 模型：${args.model || '(empty)'}`);
   args.model = modelDefinition.id;
   for (const [label, value] of [
     ['maxTurnsPerCase', args.maxTurnsPerCase],
@@ -321,17 +321,17 @@ function parseArgs(argv) {
     [
       'maxTurnsPerCase',
       args.maxTurnsPerCase,
-      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase,
+      DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxTurnsPerCase,
     ],
     [
       'maxCacheMissInputTokensPerCase',
       args.maxCacheMissInputTokensPerCase,
-      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase,
+      DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxCacheMissInputTokensPerCase,
     ],
     [
       'maxUnexpectedToolFailures',
       args.maxUnexpectedToolFailures,
-      DEFAULT_MOAGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures,
+      DEFAULT_PI_AGENT_E2E_QUALITY_THRESHOLDS.maxUnexpectedToolFailures,
     ],
   ]) {
     if (value > releaseMaximum) {
@@ -477,7 +477,7 @@ function main() {
     expectedSnapshotManifestSha256: evalSnapshotPayloadSha256(snapshotManifest),
     expectedDataSnapshots,
     expectedDatasetVisibility: args.datasetVisibility,
-    expectedRuntimeProvider: getModelDefinitionsForCli('moagent')
+    expectedRuntimeProvider: getModelDefinitionsForCli('pi')
       .find((definition) => definition.id === args.model).provider,
     expectedRuntimeModel: args.model,
     expectedResultQuestions: Object.fromEntries(cases.map((testCase) => [
@@ -486,9 +486,9 @@ function main() {
         ? testCase.question
         : `[redacted:${normalizedPromptHash(testCase.question || '')}]`,
     ])),
-    frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-    buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-    gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+    frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+    buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+    gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
     qualityThresholds: {
       maxTurnsPerCase: args.maxTurnsPerCase,
       maxCacheMissInputTokensPerCase: args.maxCacheMissInputTokensPerCase,
@@ -501,9 +501,9 @@ function main() {
       report?.metadata?.releaseControls,
       {
         suite: e2eSuite,
-        frameworkVersion: MOAGENT_FRAMEWORK_VERSION,
-        buildRevision: MOAGENT_BUILD_IDENTITY.buildRevision,
-        gitRevision: MOAGENT_BUILD_IDENTITY.gitRevision,
+        frameworkVersion: PI_AGENT_FRAMEWORK_VERSION,
+        buildRevision: PI_AGENT_BUILD_IDENTITY.buildRevision,
+        gitRevision: PI_AGENT_BUILD_IDENTITY.gitRevision,
       },
     );
     problems.push(...productControlAttestation.problems);

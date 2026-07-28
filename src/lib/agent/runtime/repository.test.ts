@@ -25,12 +25,12 @@ function fixture() {
 
 function runInput(overrides: Partial<CreateAgentRunInput> = {}): CreateAgentRunInput {
   return {
-    id: 'moagent_test-run',
+    id: 'pi_agent_test-run',
     projectId: 'project_test',
     workspaceKey: 'sha256:workspace-key',
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
-    frameworkVersion: 'moagent:1.0.0',
+    frameworkVersion: 'pi-agent:1.0.0',
     buildRevision: 'test:repository',
     profileHash: 'sha256:profile',
     promptHash: 'sha256:prompt',
@@ -64,7 +64,7 @@ describe('InMemoryAgentRuntimeRepository', () => {
     const run = await repository.createRun(runInput());
 
     expect(run).toMatchObject({
-      id: 'moagent_test-run',
+      id: 'pi_agent_test-run',
       runInstanceId: '00000000-0000-4000-8000-000000000001',
       projectId: 'project_test',
       requestId: null,
@@ -92,12 +92,12 @@ describe('InMemoryAgentRuntimeRepository', () => {
     );
 
     await expectCode(
-      clock.repository.createRun(runInput({ id: 'moagent_parallel-run' })),
+      clock.repository.createRun(runInput({ id: 'pi_agent_parallel-run' })),
       'WORKSPACE_BUSY'
     );
     await expectCode(
       clock.repository.createRun(runInput({
-        id: 'moagent_alias-project',
+        id: 'pi_agent_alias-project',
         projectId: 'project_alias',
       })),
       'WORKSPACE_BINDING_CONFLICT'
@@ -105,7 +105,7 @@ describe('InMemoryAgentRuntimeRepository', () => {
 
     clock.advance(2_000);
     const replacement = await clock.repository.createRun(runInput({
-      id: 'moagent_replacement',
+      id: 'pi_agent_replacement',
       leaseExpiresAt: new Date(clock.now().getTime() + 60_000),
     }));
     expect(replacement.workspaceFencingToken).toBe(2);
@@ -467,7 +467,7 @@ describe('InMemoryAgentRuntimeRepository', () => {
     clock.advance(2_000);
     await expectCode(
       clock.repository.createRun(runInput({
-        id: 'moagent_takeover-during-commit',
+        id: 'pi_agent_takeover-during-commit',
         leaseExpiresAt: new Date(clock.now().getTime() + 60_000),
       })),
       'WORKSPACE_BUSY'
@@ -603,7 +603,7 @@ describe('InMemoryAgentRuntimeRepository', () => {
     await expectCode(
       clock.repository.createRun(
         runInput({
-          id: 'moagent_replanned-attempt',
+          id: 'pi_agent_replanned-attempt',
           leaseExpiresAt: new Date(clock.now().getTime() + 60_000),
         })
       ),

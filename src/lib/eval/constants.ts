@@ -1,7 +1,7 @@
 import type { QuantEvalRuntimeOption } from './types';
 import {
   LOCAL_QWEN_MODEL_ID,
-  MOAGENT_MODEL_DEFINITIONS,
+  PI_AGENT_MODEL_DEFINITIONS,
 } from '@/lib/constants/models';
 
 export const DEFAULT_EVALUATOR_ID = 'rule-strict';
@@ -10,11 +10,11 @@ export const MAX_EVAL_CONCURRENCY = 16;
 
 export const EVAL_RUNTIME_OPTIONS: QuantEvalRuntimeOption[] = [
   {
-    cli: 'moagent',
-    label: 'MoAgent',
+    cli: 'pi',
+    label: 'PI Agent',
     defaultModel: LOCAL_QWEN_MODEL_ID,
     supportsReasoningEffort: false,
-    models: MOAGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
+    models: PI_AGENT_MODEL_DEFINITIONS.map(({ id, name, description }) => ({ id, name, description })),
   },
 ];
 

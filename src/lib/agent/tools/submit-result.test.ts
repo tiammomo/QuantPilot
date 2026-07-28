@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { MoAgentToolContext } from '@/lib/agent/types';
+import type { PiAgentToolContext } from '@/lib/agent/types';
 import { createSubmitResultTool } from './submit-result';
 
-const context: MoAgentToolContext = {
+const context: PiAgentToolContext = {
   runId: 'run-submit-result',
   turn: 1,
   toolCallId: 'call-submit-result',
@@ -19,7 +19,7 @@ describe('submit_result candidate semantics', () => {
   let workspace: string;
 
   beforeEach(async () => {
-    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moagent-submit-'));
+    workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-agent-submit-'));
   });
 
   afterEach(async () => {

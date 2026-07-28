@@ -150,10 +150,10 @@ export interface SkillSourceDirectory {
 }
 
 const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-const SKILLS_DIR = path.join(ROOT, '.moagent', 'skills');
-const REGISTRY_PATH = path.join(ROOT, '.moagent', 'skills.registry.json');
-const CHANGELOG_PATH = path.join(ROOT, '.moagent', 'skills.changelog.json');
-const LOCK_PATH = path.join(ROOT, '.moagent', 'skills.lock.json');
+const SKILLS_DIR = path.join(ROOT, '.pi', 'skills');
+const REGISTRY_PATH = path.join(ROOT, '.pi', 'skills.registry.json');
+const CHANGELOG_PATH = path.join(ROOT, '.pi', 'skills.changelog.json');
+const LOCK_PATH = path.join(ROOT, '.pi', 'skills.lock.json');
 
 async function readJson(filePath: string): Promise<JsonRecord> {
   const content = await fs.readFile(/* turbopackIgnore: true */ filePath, 'utf8');
@@ -358,13 +358,13 @@ function normalizeSkillScope(value: RegistrySkill['scope']): SkillScope {
 function resolvePackageDirectory(policy: JsonRecord): string {
   const configured = typeof policy.packageDir === 'string'
     ? policy.packageDir.replaceAll('\\', '/')
-    : '.moagent/skill-packages';
+    : '.pi/skill-packages';
   if (
     !configured ||
     path.isAbsolute(configured) ||
     configured.split('/').includes('..')
   ) {
-    return path.join(ROOT, '.moagent', 'skill-packages');
+    return path.join(ROOT, '.pi', 'skill-packages');
   }
   return path.resolve(/* turbopackIgnore: true */ ROOT, configured);
 }

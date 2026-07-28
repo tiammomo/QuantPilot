@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MoAgentModelEvent, MoAgentModelRequest } from '../types';
+import type { PiAgentModelEvent, PiAgentModelRequest } from '../types';
 import { DeepSeekProvider, DeepSeekProviderError } from './deepseek';
 
 function sseResponse(chunks: unknown[], options?: { splitEvery?: number }): Response {
@@ -19,15 +19,15 @@ function sseResponse(chunks: unknown[], options?: { splitEvery?: number }): Resp
   );
 }
 
-async function collect(iterable: AsyncIterable<MoAgentModelEvent>): Promise<MoAgentModelEvent[]> {
-  const events: MoAgentModelEvent[] = [];
+async function collect(iterable: AsyncIterable<PiAgentModelEvent>): Promise<PiAgentModelEvent[]> {
+  const events: PiAgentModelEvent[] = [];
   for await (const event of iterable) {
     events.push(event);
   }
   return events;
 }
 
-function request(overrides: Partial<MoAgentModelRequest> = {}): MoAgentModelRequest {
+function request(overrides: Partial<PiAgentModelRequest> = {}): PiAgentModelRequest {
   return {
     model: 'deepseek-v4-flash',
     messages: [{ role: 'user', content: 'Build it' }],

@@ -70,29 +70,29 @@ function makeJob(input: {
   };
 }
 
-vi.mock("@/lib/services/moagent-generation-lease-session", () => ({
-  withMoAgentGenerationLease: mocks.withGenerationLease,
+vi.mock("@/lib/services/pi-agent-generation-lease-session", () => ({
+  withPiAgentGenerationLease: mocks.withGenerationLease,
 }));
 
-vi.mock("@/lib/services/moagent-generation-dispatch-store", () => {
+vi.mock("@/lib/services/pi-agent-generation-dispatch-store", () => {
   class DispatchError extends Error {
     constructor(
       readonly code: string,
       message: string,
     ) {
       super(message);
-      this.name = "MoAgentGenerationDispatchError";
+      this.name = "PiAgentGenerationDispatchError";
     }
   }
   return {
-    MoAgentGenerationDispatchError: DispatchError,
-    listMoAgentGenerationJobs: vi.fn(async (projectId: string) =>
+    PiAgentGenerationDispatchError: DispatchError,
+    listPiAgentGenerationJobs: vi.fn(async (projectId: string) =>
       [...mocks.jobs.values()].filter((job) => job.projectId === projectId),
     ),
-    listPendingMoAgentGenerationOutboxEvents: vi.fn(async () => []),
-    markMoAgentGenerationOutboxEventsPublished: vi.fn(async () => 0),
-    reconcileExpiredMoAgentGenerationJobs: vi.fn(async () => []),
-    finishMoAgentGenerationJob: mocks.finishJob.mockImplementation(
+    listPendingPiAgentGenerationOutboxEvents: vi.fn(async () => []),
+    markPiAgentGenerationOutboxEventsPublished: vi.fn(async () => 0),
+    reconcileExpiredPiAgentGenerationJobs: vi.fn(async () => []),
+    finishPiAgentGenerationJob: mocks.finishJob.mockImplementation(
       async (input: {
         projectId: string;
         requestId: string;
@@ -114,7 +114,7 @@ vi.mock("@/lib/services/moagent-generation-dispatch-store", () => {
         return next;
       },
     ),
-    cancelMoAgentGenerationJob: mocks.cancelJob.mockImplementation(
+    cancelPiAgentGenerationJob: mocks.cancelJob.mockImplementation(
       async (input: {
         projectId: string;
         requestId: string;
@@ -135,11 +135,11 @@ vi.mock("@/lib/services/moagent-generation-dispatch-store", () => {
   };
 });
 
-vi.mock("@/lib/services/moagent-generation-dispatch-session", async () => {
+vi.mock("@/lib/services/pi-agent-generation-dispatch-session", async () => {
   const store =
-    await import("@/lib/services/moagent-generation-dispatch-store");
+    await import("@/lib/services/pi-agent-generation-dispatch-store");
   return {
-    MoAgentGenerationDispatchSession: {
+    PiAgentGenerationDispatchSession: {
       enqueueAndClaim: vi.fn(
         async (input: {
           projectId: string;
@@ -148,7 +148,7 @@ vi.mock("@/lib/services/moagent-generation-dispatch-session", async () => {
         }) => {
           const key = jobKey(input.projectId, input.requestId);
           if (mocks.cancelled.has(key)) {
-            throw new store.MoAgentGenerationDispatchError(
+            throw new store.PiAgentGenerationDispatchError(
               "GENERATION_DISPATCH_CANCELLED",
               "test cancellation",
             );
@@ -188,8 +188,8 @@ vi.mock("@/lib/services/moagent-generation-dispatch-session", async () => {
         },
       ),
     },
-    currentMoAgentGenerationDispatchFence: () => mocks.currentSession?.fence,
-    currentMoAgentGenerationDispatchSession: () => mocks.currentSession,
+    currentPiAgentGenerationDispatchFence: () => mocks.currentSession?.fence,
+    currentPiAgentGenerationDispatchSession: () => mocks.currentSession,
   };
 });
 

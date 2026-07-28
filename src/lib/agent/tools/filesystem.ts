@@ -1,21 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import type { MoAgentTool } from '@/lib/agent/types';
+import type { PiAgentTool } from '@/lib/agent/types';
 import {
-  commitMoAgentWorkspaceMutationJournal,
-  MoAgentWorkspaceMutationRecoveryConflictError,
-  prepareMoAgentWorkspaceMutationJournal,
-  rollbackMoAgentWorkspaceMutationJournal,
+  commitPiAgentWorkspaceMutationJournal,
+  PiAgentWorkspaceMutationRecoveryConflictError,
+  preparePiAgentWorkspaceMutationJournal,
+  rollbackPiAgentWorkspaceMutationJournal,
 } from '@/lib/agent/runtime/workspace-mutation-journal';
-import { withMoAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
-import { MoAgentToolError, throwIfAborted } from './errors';
+import { withPiAgentWorkspaceResourceLock } from '@/lib/agent/runtime/workspace-resource-lock';
+import { PiAgentToolError, throwIfAborted } from './errors';
 import { inputRecord, optionalBoolean, optionalInteger, optionalString, requiredString } from './input';
-import { matchesWorkspaceGlob, MoAgentWorkspacePolicy } from './path-policy';
+import { matchesWorkspaceGlob, PiAgentWorkspacePolicy } from './path-policy';
 import {
   DEFAULT_TOOL_OUTPUT_CHARS,
   DEFAULT_TOOL_TIMEOUT_MS,
-  executeMoAgentTool,
+  executePiAgentTool,
   truncateToolOutput,
 } from './runtime';
 
@@ -25,13 +25,13 @@ const DEFAULT_MAX_LIST_ENTRIES = 300;
 const DEFAULT_MAX_SEARCH_RESULTS = 100;
 const IGNORED_SEARCH_DIRECTORIES = new Set([
   '.git',
-  '.moagent-mutation-journal',
-  '.moagent-workspace.lock',
+  '.pi-mutation-journal',
+  '.pi-workspace.lock',
   '.next',
   'node_modules',
 ]);
 
-export interface MoAgentFileToolOptions {
+export interface PiAgentFileToolOptions {
   workspaceRoot: string;
   allowedWriteGlobs?: readonly string[];
   includeDefaultWriteGlobs?: boolean;
@@ -45,7 +45,7 @@ export interface MoAgentFileToolOptions {
 }
 
 interface FileToolRuntime {
-  policy(): Promise<MoAgentWorkspacePolicy>;
+  policy(): Promise<PiAgentWorkspacePolicy>;
   timeoutMs: number;
   maxOutputChars: number;
   maxFileBytes: number;
@@ -54,10 +54,10 @@ interface FileToolRuntime {
   structuredJsonReadGlobs: readonly string[];
 }
 
-function createRuntime(options: MoAgentFileToolOptions): FileToolRuntime {
-  let policyPromise: Promise<MoAgentWorkspacePolicy> | undefined;
+function createRuntime(options: PiAgentFileToolOptions): FileToolRuntime {
+  let policyPromise: Promise<PiAgentWorkspacePolicy> | undefined;
   return {
-    policy: () => policyPromise ??= MoAgentWorkspacePolicy.create({
+    policy: () => policyPromise ??= PiAgentWorkspacePolicy.create({
       workspaceRoot: options.workspaceRoot,
       allowedWriteGlobs: options.allowedWriteGlobs,
       includeDefaultWriteGlobs: options.includeDefaultWriteGlobs,
@@ -73,13 +73,13 @@ function createRuntime(options: MoAgentFileToolOptions): FileToolRuntime {
 
 function assertPlainText(buffer: Buffer, relativePath: string): string {
   if (buffer.includes(0)) {
-    throw new MoAgentToolError('BINARY_FILE_DENIED', `Cannot read binary file as text: ${relativePath}.`);
+    throw new PiAgentToolError('BINARY_FILE_DENIED', `Cannot read binary file as text: ${relativePath}.`);
   }
   return buffer.toString('utf8');
 }
 
 async function readTextFile(
-  policy: MoAgentWorkspacePolicy,
+  policy: PiAgentWorkspacePolicy,
   relativePath: string,
   maxBytes: number,
   signal: AbortSignal,
@@ -94,12 +94,12 @@ async function readTextFile(
   const resolved = await policy.resolveReadPath(relativePath);
   const stat = await fs.stat(resolved.canonicalPath);
   if (!stat.isFile()) {
-    throw new MoAgentToolError('NOT_A_FILE', `Expected a file: ${resolved.relativePath}.`);
+    throw new PiAgentToolError('NOT_A_FILE', `Expected a file: ${resolved.relativePath}.`);
   }
   if (stat.size > maxBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'FILE_TOO_LARGE',
-      `File is ${stat.size} bytes; MoAgent file tools allow at most ${maxBytes} bytes.`,
+      `File is ${stat.size} bytes; PI Agent file tools allow at most ${maxBytes} bytes.`,
     );
   }
   const buffer = await fs.readFile(resolved.canonicalPath, { signal });
@@ -135,7 +135,7 @@ function assertRawJsonReadAllowed(
     matchesWorkspaceGlob(relativePath, glob) || matchesWorkspaceGlob(canonicalRelativePath, glob)
   );
   if (!explicitlyStructured && content.length <= runtime.maxOutputChars) return;
-  throw new MoAgentToolError(
+  throw new PiAgentToolError(
     'STRUCTURED_JSON_QUERY_REQUIRED',
     `Use one query_json call with all required paths in its pointers array for ${relativePath}; raw JSON reads are disabled to prevent sequential scans and context inflation.`,
     {
@@ -172,7 +172,7 @@ async function sha256File(filePath: string, signal: AbortSignal): Promise<string
 }
 
 async function collectEntries(params: {
-  policy: MoAgentWorkspacePolicy;
+  policy: PiAgentWorkspacePolicy;
   startPath: string;
   recursive: boolean;
   maxDepth: number;
@@ -228,11 +228,11 @@ async function collectEntries(params: {
       try {
         resolved = await params.policy.resolveReadPath(relativePath);
       } catch (error) {
-        if (entry.isSymbolicLink() && error instanceof MoAgentToolError && error.code === 'SYMLINK_ESCAPE_DENIED') {
+        if (entry.isSymbolicLink() && error instanceof PiAgentToolError && error.code === 'SYMLINK_ESCAPE_DENIED') {
           skippedUnsafeLinks += 1;
           continue;
         }
-        if (error instanceof MoAgentToolError && error.code === 'SENSITIVE_READ_PATH_DENIED') {
+        if (error instanceof PiAgentToolError && error.code === 'SENSITIVE_READ_PATH_DENIED') {
           skippedSensitivePaths += 1;
           continue;
         }
@@ -261,7 +261,7 @@ async function collectEntries(params: {
 }
 
 interface AtomicWriteParams {
-  policy: MoAgentWorkspacePolicy;
+  policy: PiAgentWorkspacePolicy;
   relativePath: string;
   content: Buffer;
   maxBytes: number;
@@ -280,15 +280,15 @@ interface AtomicWriteResult {
   afterSha256: string;
 }
 
-export interface MoAgentWorkspaceBatchWriteFile {
+export interface PiAgentWorkspaceBatchWriteFile {
   relativePath: string;
   content: Buffer;
   expectedBeforeSha256?: string | null;
 }
 
-export interface MoAgentWorkspaceBatchWriteOptions {
-  policy: MoAgentWorkspacePolicy;
-  files: readonly MoAgentWorkspaceBatchWriteFile[];
+export interface PiAgentWorkspaceBatchWriteOptions {
+  policy: PiAgentWorkspacePolicy;
+  files: readonly PiAgentWorkspaceBatchWriteFile[];
   maxBytesPerFile: number;
   maxTotalBytes: number;
   signal: AbortSignal;
@@ -297,7 +297,7 @@ export interface MoAgentWorkspaceBatchWriteOptions {
   commitWorkspaceMutation?: <T>(commit: () => Promise<T>) => Promise<T>;
 }
 
-export interface MoAgentWorkspaceBatchWriteResult {
+export interface PiAgentWorkspaceBatchWriteResult {
   files: AtomicWriteResult[];
   totalBytes: number;
 }
@@ -305,18 +305,18 @@ export interface MoAgentWorkspaceBatchWriteResult {
 async function atomicWrite(params: AtomicWriteParams): Promise<AtomicWriteResult> {
   throwIfAborted(params.signal);
   if (!params.commitWorkspaceMutation) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'WORKSPACE_COMMIT_FENCE_REQUIRED',
       'Workspace writes require a durable mutation commit fence.',
     );
   }
   if (params.content.byteLength > params.maxBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'WRITE_TOO_LARGE',
-      `Write is ${params.content.byteLength} bytes; MoAgent allows at most ${params.maxBytes} bytes.`,
+      `Write is ${params.content.byteLength} bytes; PI Agent allows at most ${params.maxBytes} bytes.`,
     );
   }
-  const result = await writeMoAgentWorkspaceBatch({
+  const result = await writePiAgentWorkspaceBatch({
     policy: params.policy,
     files: [{
       relativePath: params.relativePath,
@@ -343,25 +343,25 @@ async function atomicWrite(params: AtomicWriteParams): Promise<AtomicWriteResult
  * before the first rename. A durable, framework-owned pre-image journal makes
  * a crash during the rename sequence deterministically recoverable.
  */
-export async function writeMoAgentWorkspaceBatch(
-  options: MoAgentWorkspaceBatchWriteOptions,
-): Promise<MoAgentWorkspaceBatchWriteResult> {
+export async function writePiAgentWorkspaceBatch(
+  options: PiAgentWorkspaceBatchWriteOptions,
+): Promise<PiAgentWorkspaceBatchWriteResult> {
   throwIfAborted(options.signal);
   if (!options.commitWorkspaceMutation) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'WORKSPACE_COMMIT_FENCE_REQUIRED',
       'Workspace writes require a durable mutation commit fence.',
     );
   }
   if (options.files.length === 0 || options.files.length > 8) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_BATCH_WRITE',
       'A workspace batch write must contain between 1 and 8 files.',
     );
   }
   if (!Number.isSafeInteger(options.maxBytesPerFile) || options.maxBytesPerFile <= 0 ||
       !Number.isSafeInteger(options.maxTotalBytes) || options.maxTotalBytes <= 0) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'INVALID_BATCH_WRITE_LIMIT',
       'Workspace batch write limits must be positive safe integers.',
     );
@@ -369,31 +369,31 @@ export async function writeMoAgentWorkspaceBatch(
   const totalBytes = options.files.reduce((total, file) => total + file.content.byteLength, 0);
   const oversized = options.files.find((file) => file.content.byteLength > options.maxBytesPerFile);
   if (oversized) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'WRITE_TOO_LARGE',
       `${oversized.relativePath} is ${oversized.content.byteLength} bytes; the per-file limit is ${options.maxBytesPerFile} bytes.`,
     );
   }
   if (!Number.isSafeInteger(totalBytes) || totalBytes > options.maxTotalBytes) {
-    throw new MoAgentToolError(
+    throw new PiAgentToolError(
       'WRITE_TOO_LARGE',
       `Workspace batch is ${totalBytes} bytes; the total limit is ${options.maxTotalBytes} bytes.`,
     );
   }
 
-  return withMoAgentWorkspaceResourceLock(
+  return withPiAgentWorkspaceResourceLock(
     options.policy.workspaceRoot,
     async () => {
       type StagedFile = {
-        requested: MoAgentWorkspaceBatchWriteFile;
-        resolved: Awaited<ReturnType<MoAgentWorkspacePolicy['resolveWritePath']>>;
+        requested: PiAgentWorkspaceBatchWriteFile;
+        resolved: Awaited<ReturnType<PiAgentWorkspacePolicy['resolveWritePath']>>;
         mode: number;
         beforeSha256: string | null;
         afterSha256: string;
       };
       const staged: StagedFile[] = [];
       const canonicalTargets = new Set<string>();
-      let journal: Awaited<ReturnType<typeof prepareMoAgentWorkspaceMutationJournal>> | undefined;
+      let journal: Awaited<ReturnType<typeof preparePiAgentWorkspaceMutationJournal>> | undefined;
       try {
         for (const requested of options.files) {
           throwIfAborted(options.signal);
@@ -401,7 +401,7 @@ export async function writeMoAgentWorkspaceBatch(
           await fs.mkdir(path.dirname(firstResolution.canonicalPath), { recursive: true });
           const resolved = await options.policy.resolveWritePath(requested.relativePath);
           if (canonicalTargets.has(resolved.canonicalPath)) {
-            throw new MoAgentToolError(
+            throw new PiAgentToolError(
               'DUPLICATE_BATCH_TARGET',
               `A workspace batch cannot target the same canonical file twice: ${resolved.relativePath}.`,
             );
@@ -415,9 +415,9 @@ export async function writeMoAgentWorkspaceBatch(
             requested.expectedBeforeSha256 !== undefined &&
             requested.expectedBeforeSha256 !== beforeSha256
           ) {
-            throw new MoAgentToolError(
+            throw new PiAgentToolError(
               'WORKSPACE_WRITE_CONFLICT',
-              `The target changed before MoAgent could stage it: ${resolved.relativePath}.`,
+              `The target changed before PI Agent could stage it: ${resolved.relativePath}.`,
             );
           }
           staged.push({
@@ -431,7 +431,7 @@ export async function writeMoAgentWorkspaceBatch(
 
         throwIfAborted(options.signal);
         try {
-          journal = await prepareMoAgentWorkspaceMutationJournal({
+          journal = await preparePiAgentWorkspaceMutationJournal({
             workspaceRoot: options.policy.workspaceRoot,
             runId: options.lockIdentity.runId,
             operationId: options.lockIdentity.operationId,
@@ -445,15 +445,15 @@ export async function writeMoAgentWorkspaceBatch(
             })),
           });
         } catch (error) {
-          if (error instanceof MoAgentWorkspaceMutationRecoveryConflictError) {
-            throw new MoAgentToolError(
+          if (error instanceof PiAgentWorkspaceMutationRecoveryConflictError) {
+            throw new PiAgentToolError(
               'WORKSPACE_WRITE_CONFLICT',
               `The target changed before its durable workspace journal was prepared: ${error.target}.`,
             );
           }
-          throw new MoAgentToolError(
+          throw new PiAgentToolError(
             'WORKSPACE_JOURNAL_PREPARE_FAILED',
-            'MoAgent could not durably prepare the workspace mutation journal.',
+            'PI Agent could not durably prepare the workspace mutation journal.',
           );
         }
         throwIfAborted(options.signal);
@@ -467,7 +467,7 @@ export async function writeMoAgentWorkspaceBatch(
               finalResolution.canonicalPath !== file.resolved.canonicalPath ||
               finalResolution.exists !== file.resolved.exists
             ) {
-              throw new MoAgentToolError(
+              throw new PiAgentToolError(
                 'WORKSPACE_WRITE_CONFLICT',
                 `The target identity changed before commit: ${file.resolved.relativePath}.`,
               );
@@ -476,7 +476,7 @@ export async function writeMoAgentWorkspaceBatch(
               finalResolution.exists &&
               await sha256File(finalResolution.canonicalPath, options.signal) !== file.beforeSha256
             ) {
-              throw new MoAgentToolError(
+              throw new PiAgentToolError(
                 'WORKSPACE_WRITE_CONFLICT',
                 `The target content changed before commit: ${file.resolved.relativePath}.`,
               );
@@ -485,7 +485,7 @@ export async function writeMoAgentWorkspaceBatch(
           // After durable authorization, do not turn a cooperative abort into
           // a partial batch. The sequence either finishes or remains covered
           // by the durable journal for startup recovery.
-          await commitMoAgentWorkspaceMutationJournal(journal!);
+          await commitPiAgentWorkspaceMutationJournal(journal!);
         });
       } catch (error) {
         if (journal) {
@@ -493,9 +493,9 @@ export async function writeMoAgentWorkspaceBatch(
           // crash recovery. Keep the rolled-back receipt until the durable
           // tool ledger has reached a terminal state.
           const physicalCommitStarted = journal.manifest.state !== 'prepared';
-          await rollbackMoAgentWorkspaceMutationJournal(journal);
+          await rollbackPiAgentWorkspaceMutationJournal(journal);
           if (!physicalCommitStarted) throw error;
-          throw new MoAgentToolError(
+          throw new PiAgentToolError(
             'WORKSPACE_MUTATION_ROLLED_BACK',
             'The workspace mutation failed and its durable journal was fully rolled back.',
           );
@@ -546,11 +546,11 @@ function parseListFilesInput(value: unknown): ListFilesInput {
   };
 }
 
-export function createListFilesTool(options: MoAgentFileToolOptions): MoAgentTool<ListFilesInput> {
+export function createListFilesTool(options: PiAgentFileToolOptions): PiAgentTool<ListFilesInput> {
   const runtime = createRuntime(options);
   return {
     name: 'list_files',
-    description: 'List files in the MoAgent workspace. Paths must be relative; host filesystem access is unavailable.',
+    description: 'List files in the managed project workspace. Paths must be relative; host filesystem access is unavailable.',
     effect: 'read',
     idempotency: 'intrinsic',
     observationCache: 'workspace_generation',
@@ -565,7 +565,7 @@ export function createListFilesTool(options: MoAgentFileToolOptions): MoAgentToo
       additionalProperties: false,
     },
     parseInput: parseListFilesInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const result = await collectEntries({
         policy: await runtime.policy(),
         startPath: input.path,
@@ -598,11 +598,11 @@ function parseReadFileInput(value: unknown): ReadFileInput {
   return { path: requiredString(inputRecord(value), 'path', { maxLength: 1_024 }) };
 }
 
-export function createReadFileTool(options: MoAgentFileToolOptions): MoAgentTool<ReadFileInput> {
+export function createReadFileTool(options: PiAgentFileToolOptions): PiAgentTool<ReadFileInput> {
   const runtime = createRuntime(options);
   return {
     name: 'read_file',
-    description: 'Read a UTF-8 text file inside the MoAgent workspace. Use one batched query_json call for final/evidence JSON; raw reads of structured or large valid JSON are rejected.',
+    description: 'Read a UTF-8 text file inside the managed project workspace. Use one batched query_json call for final/evidence JSON; raw reads of structured or large valid JSON are rejected.',
     effect: 'read',
     idempotency: 'intrinsic',
     observationCache: 'workspace_generation',
@@ -613,7 +613,7 @@ export function createReadFileTool(options: MoAgentFileToolOptions): MoAgentTool
       additionalProperties: false,
     },
     parseInput: parseReadFileInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const file = await readTextFile(await runtime.policy(), input.path, runtime.maxFileBytes, signal);
       assertRawJsonReadAllowed(
         runtime,
@@ -643,12 +643,12 @@ function parseReadFileRangeInput(value: unknown): ReadFileRangeInput {
   const startLine = optionalInteger(record, 'startLine', 1, { min: 1, max: 1_000_000 });
   const endLine = optionalInteger(record, 'endLine', startLine + 199, { min: startLine, max: 1_000_000 });
   if (endLine - startLine + 1 > 500) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', 'read_file_range accepts at most 500 lines per call.');
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', 'read_file_range accepts at most 500 lines per call.');
   }
   return { path: requiredString(record, 'path', { maxLength: 1_024 }), startLine, endLine };
 }
 
-export function createReadFileRangeTool(options: MoAgentFileToolOptions): MoAgentTool<ReadFileRangeInput> {
+export function createReadFileRangeTool(options: PiAgentFileToolOptions): PiAgentTool<ReadFileRangeInput> {
   const runtime = createRuntime(options);
   return {
     name: 'read_file_range',
@@ -667,7 +667,7 @@ export function createReadFileRangeTool(options: MoAgentFileToolOptions): MoAgen
       additionalProperties: false,
     },
     parseInput: parseReadFileRangeInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const file = await readTextFile(await runtime.policy(), input.path, runtime.maxFileBytes, signal);
       assertRawJsonReadAllowed(
         runtime,
@@ -716,7 +716,7 @@ function parseSearchFilesInput(value: unknown): SearchFilesInput {
   };
 }
 
-export function createSearchFilesTool(options: MoAgentFileToolOptions): MoAgentTool<SearchFilesInput> {
+export function createSearchFilesTool(options: PiAgentFileToolOptions): PiAgentTool<SearchFilesInput> {
   const runtime = createRuntime(options);
   return {
     name: 'search_files',
@@ -737,7 +737,7 @@ export function createSearchFilesTool(options: MoAgentFileToolOptions): MoAgentT
       additionalProperties: false,
     },
     parseInput: parseSearchFilesInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const policy = await runtime.policy();
       const listing = await collectEntries({
         policy,
@@ -763,7 +763,7 @@ export function createSearchFilesTool(options: MoAgentFileToolOptions): MoAgentT
         try {
           file = await readTextFile(policy, entry.path, runtime.maxFileBytes, signal);
         } catch (error) {
-          if (error instanceof MoAgentToolError && error.code === 'BINARY_FILE_DENIED') continue;
+          if (error instanceof PiAgentToolError && error.code === 'BINARY_FILE_DENIED') continue;
           throw error;
         }
         const lines = file.content.split(/\r?\n/);
@@ -804,7 +804,7 @@ function parseWriteFileInput(value: unknown): WriteFileInput {
   const record = inputRecord(value);
   const encoding = optionalString(record, 'encoding', 'utf8');
   if (encoding !== 'utf8' && encoding !== 'base64') {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', 'encoding must be utf8 or base64.');
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', 'encoding must be utf8 or base64.');
   }
   return {
     path: requiredString(record, 'path', { maxLength: 1_024 }),
@@ -813,7 +813,7 @@ function parseWriteFileInput(value: unknown): WriteFileInput {
   };
 }
 
-export function createWriteFileTool(options: MoAgentFileToolOptions): MoAgentTool<WriteFileInput> {
+export function createWriteFileTool(options: PiAgentFileToolOptions): PiAgentTool<WriteFileInput> {
   const runtime = createRuntime(options);
   return {
     name: 'write_file',
@@ -831,7 +831,7 @@ export function createWriteFileTool(options: MoAgentFileToolOptions): MoAgentToo
       additionalProperties: false,
     },
     parseInput: parseWriteFileInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const content = Buffer.from(input.content, input.encoding);
       const result = await atomicWrite({
         policy: await runtime.policy(),
@@ -863,15 +863,15 @@ function parseEditFileInput(value: unknown): EditFileInput {
 function replaceUnique(content: string, oldText: string, newText: string, pathLabel: string): string {
   const first = content.indexOf(oldText);
   if (first < 0) {
-    throw new MoAgentToolError('EDIT_MATCH_NOT_FOUND', `oldText was not found in ${pathLabel}.`);
+    throw new PiAgentToolError('EDIT_MATCH_NOT_FOUND', `oldText was not found in ${pathLabel}.`);
   }
   if (content.indexOf(oldText, first + 1) >= 0) {
-    throw new MoAgentToolError('EDIT_MATCH_AMBIGUOUS', `oldText occurs more than once in ${pathLabel}; provide a unique match.`);
+    throw new PiAgentToolError('EDIT_MATCH_AMBIGUOUS', `oldText occurs more than once in ${pathLabel}; provide a unique match.`);
   }
   return `${content.slice(0, first)}${newText}${content.slice(first + oldText.length)}`;
 }
 
-export function createEditFileTool(options: MoAgentFileToolOptions): MoAgentTool<EditFileInput> {
+export function createEditFileTool(options: PiAgentFileToolOptions): PiAgentTool<EditFileInput> {
   const runtime = createRuntime(options);
   return {
     name: 'edit_file',
@@ -885,7 +885,7 @@ export function createEditFileTool(options: MoAgentFileToolOptions): MoAgentTool
       additionalProperties: false,
     },
     parseInput: parseEditFileInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const policy = await runtime.policy();
       await policy.resolveWritePath(input.path);
       const file = await readTextFile(policy, input.path, runtime.maxFileBytes, signal);
@@ -914,7 +914,7 @@ interface ApplyPatchInput {
 function parseApplyPatchInput(value: unknown): ApplyPatchInput {
   const record = inputRecord(value);
   if (!Array.isArray(record.edits) || record.edits.length === 0 || record.edits.length > 50) {
-    throw new MoAgentToolError('INVALID_TOOL_INPUT', 'edits must contain between 1 and 50 replacements.');
+    throw new PiAgentToolError('INVALID_TOOL_INPUT', 'edits must contain between 1 and 50 replacements.');
   }
   const edits = record.edits.map((rawEdit, index) => {
     const edit = inputRecord(rawEdit);
@@ -924,8 +924,8 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
         newText: requiredString(edit, 'newText', { allowEmpty: true }),
       };
     } catch (error) {
-      if (error instanceof MoAgentToolError) {
-        throw new MoAgentToolError(error.code, `Invalid edit at index ${index}: ${error.message}`);
+      if (error instanceof PiAgentToolError) {
+        throw new PiAgentToolError(error.code, `Invalid edit at index ${index}: ${error.message}`);
       }
       throw error;
     }
@@ -933,7 +933,7 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
   return { path: requiredString(record, 'path', { maxLength: 1_024 }), edits };
 }
 
-export function createApplyPatchTool(options: MoAgentFileToolOptions): MoAgentTool<ApplyPatchInput> {
+export function createApplyPatchTool(options: PiAgentFileToolOptions): PiAgentTool<ApplyPatchInput> {
   const runtime = createRuntime(options);
   return {
     name: 'apply_patch',
@@ -960,7 +960,7 @@ export function createApplyPatchTool(options: MoAgentFileToolOptions): MoAgentTo
       additionalProperties: false,
     },
     parseInput: parseApplyPatchInput,
-    execute: (input, context) => executeMoAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
+    execute: (input, context) => executePiAgentTool(context.signal, runtime.timeoutMs, async (signal) => {
       const policy = await runtime.policy();
       await policy.resolveWritePath(input.path);
       const file = await readTextFile(policy, input.path, runtime.maxFileBytes, signal);
@@ -989,7 +989,7 @@ export function createApplyPatchTool(options: MoAgentFileToolOptions): MoAgentTo
   };
 }
 
-export function createMoAgentFileTools(options: MoAgentFileToolOptions): MoAgentTool[] {
+export function createPiAgentFileTools(options: PiAgentFileToolOptions): PiAgentTool[] {
   return [
     createListFilesTool(options),
     createReadFileTool(options),
