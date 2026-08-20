@@ -95,6 +95,35 @@ export async function getRecentChatMessagesByProjectId(
 }
 
 /**
+ * Return a bounded conversation-local window for read-only dashboard Q&A.
+ * Runtime progress messages stay excluded so they cannot crowd out the
+ * user's actual follow-up context.
+ */
+export async function getRecentChatMessagesByConversation(
+  projectId: string,
+  conversationId: string | null | undefined,
+  limit: number = 12,
+): Promise<Message[]> {
+  const safeLimit = Math.min(30, Math.max(1, Math.floor(limit)));
+  const messages = await prisma.message.findMany({
+    where: {
+      projectId,
+      messageType: 'chat',
+      role: { in: ['user', 'assistant'] },
+      ...(conversationId ? { conversationId } : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: Math.min(150, safeLimit * 8),
+  });
+
+  return messages
+    .map(mapPrismaMessage)
+    .filter((message) => !isRuntimeOnlyChatProjection(message))
+    .slice(0, safeLimit)
+    .reverse();
+}
+
+/**
  * 按游标增量获取项目消息，用于实时通道断线后的轻量补漏。
  */
 export async function getMessagesByProjectIdAfter(

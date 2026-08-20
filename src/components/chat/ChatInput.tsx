@@ -78,7 +78,7 @@ export default function ChatInput({
   onSendMessage,
   disabled = false,
   placeholder = QUESTION_COMPOSER_COPY.defaultPlaceholder,
-  mode = 'act',
+  mode = 'chat',
   onModeChange,
   projectId,
   projectName = '',

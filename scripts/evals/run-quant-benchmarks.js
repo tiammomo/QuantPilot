@@ -2072,6 +2072,7 @@ async function runLiveProductE2eCase(testCase, options) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        mode: 'act',
         instruction: testCase.question,
         displayInstruction: testCase.question,
         requestId,

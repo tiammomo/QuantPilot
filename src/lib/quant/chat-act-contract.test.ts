@@ -9,6 +9,7 @@ import {
 describe('chat act request contract', () => {
   it('accepts the single current camelCase contract', () => {
     expect(parseChatActRequest({
+      mode: 'act',
       instruction: '分析宁德时代',
       displayInstruction: '分析宁德时代',
       requestId: 'request-1',
@@ -27,26 +28,31 @@ describe('chat act request contract', () => {
   });
 
   it('supports an image-only request after the upload step', () => {
-    const parsed = parseChatActRequest({ images: [{ path: 'assets/portfolio.png' }] });
+    const parsed = parseChatActRequest({
+      mode: 'act',
+      images: [{ path: 'assets/portfolio.png' }],
+    });
     expect(parsed.instruction).toBe('');
     expect(parsed.images).toHaveLength(1);
   });
 
   it.each([
+    { instruction: 'x' },
     { instruction: 'x', request_id: 'old' },
-    { instruction: 'x', selected_model: 'old' },
-    { instruction: 'x', cliPreference: 'pi' },
-    { instruction: 'x', quantCapabilityId: 'old' },
-    { instruction: 'x', quantCapabilitySource: 'manual' },
-    { instruction: 'x', images: [{ path: '/tmp/portfolio.png' }] },
-    { instruction: 'x', images: [{ path: 'assets/../portfolio.png' }] },
-    { instruction: 'x', images: [{ path: 'assets/portfolio.png', base64_data: 'abc' }] },
+    { mode: 'act', instruction: 'x', selected_model: 'old' },
+    { mode: 'act', instruction: 'x', cliPreference: 'pi' },
+    { mode: 'act', instruction: 'x', quantCapabilityId: 'old' },
+    { mode: 'act', instruction: 'x', quantCapabilitySource: 'manual' },
+    { mode: 'act', instruction: 'x', images: [{ path: '/tmp/portfolio.png' }] },
+    { mode: 'act', instruction: 'x', images: [{ path: 'assets/../portfolio.png' }] },
+    { mode: 'act', instruction: 'x', images: [{ path: 'assets/portfolio.png', base64_data: 'abc' }] },
   ])('rejects obsolete or unsafe input %#', (input) => {
     expect(() => parseChatActRequest(input)).toThrow(ChatActContractError);
   });
 
   it('bounds attachment fan-out', () => {
     expect(() => parseChatActRequest({
+      mode: 'act',
       images: Array.from(
         { length: MAX_CHAT_ACT_IMAGE_ATTACHMENTS + 1 },
         (_, index) => ({ path: `assets/${index}.png` }),

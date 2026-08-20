@@ -84,6 +84,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       method: 'POST',
       headers: actHeaders,
       body: JSON.stringify({
+        mode: 'act',
         instruction,
         displayInstruction: instruction,
         images: [],

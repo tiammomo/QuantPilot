@@ -28,13 +28,12 @@ export const QUESTION_COMPOSER_COPY = {
   advancedSettingsDescription: '执行引擎与模型设置',
 } as const;
 
-const CHAT_ONLY_EXECUTION_CONSTRAINT = "Do not modify code or generate a dashboard. Only answer the user's request with evidence.";
-
 export function buildQuestionInstruction(question: string, mode: QuestionMode): string {
   const visibleQuestion = question.trim();
-  return mode === 'chat'
-    ? `${visibleQuestion}\n\n${CHAT_ONLY_EXECUTION_CONSTRAINT}`
-    : visibleQuestion;
+  // Execution mode is an application-owned request field. It must never be
+  // hidden inside user text and delegated to prompt adherence.
+  void mode;
+  return visibleQuestion;
 }
 
 export function questionOutputLabel(mode: QuestionMode): string {

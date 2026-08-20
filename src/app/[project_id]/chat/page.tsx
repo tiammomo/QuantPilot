@@ -298,7 +298,7 @@ export default function ChatPage() {
   // Track active optimistic messages by requestId
   const optimisticMessagesRef = useRef<Map<string, any>>(new Map());
   const [mode, setMode] = useState<'act' | 'chat'>(() =>
-    searchParams?.get('mode') === 'chat' ? 'chat' : 'act'
+    searchParams?.get('mode') === 'act' ? 'act' : 'chat'
   );
   const [isRunning, setIsRunning] = useState(false);
   const [isPausingAgent, setIsPausingAgent] = useState(false);
@@ -502,6 +502,7 @@ export default function ChatPage() {
       setInitialPromptSent(true);
 
       const requestBody = {
+        mode: 'act' as const,
         instruction: initialPrompt.trim(),
         displayInstruction: initialPrompt.trim(),
         images: [],
@@ -2176,6 +2177,7 @@ const persistProjectPreferences = useCallback(
     let finalMessage = visibleMessage;
     const imagesToUse: RunActImage[] = externalImages || uploadedImages;
     const effectiveMode = modeOverride ?? mode;
+    const isChatOnly = effectiveMode === 'chat';
 
     if (!finalMessage.trim() && imagesToUse.length === 0) {
       alert('Please enter a task description or upload an image.');
@@ -2201,12 +2203,16 @@ const persistProjectPreferences = useCallback(
 
     setIsRunning(true);
     setAgentWorkComplete(false);
-    previewAutoRecoverySuppressedRef.current = false;
-    previewAutoRecoveryAttemptRef.current = null;
-    previewTerminalFailureRef.current = false;
-    previewUrlRef.current = null;
-    setPreviewUrl(null);
-    setPreviewInitializationMessage('正在准备数据和可视化看板，验证通过后自动展示...');
+    if (isChatOnly) {
+      setPreviewInitializationMessage('正在基于当前已验收看板回答，不会修改或重新生成看板...');
+    } else {
+      previewAutoRecoverySuppressedRef.current = false;
+      previewAutoRecoveryAttemptRef.current = null;
+      previewTerminalFailureRef.current = false;
+      previewUrlRef.current = null;
+      setPreviewUrl(null);
+      setPreviewInitializationMessage('正在准备数据和可视化看板，验证通过后自动展示...');
+    }
     const requestId = crypto.randomUUID();
     let tempUserMessageId: string | null = null;
     let requestAccepted = false;
@@ -2306,6 +2312,7 @@ const persistProjectPreferences = useCallback(
       }
 
       const requestBody = {
+        mode: effectiveMode,
         instruction: finalMessage,
         displayInstruction: visibleMessage,
         images: processedImages.map((image) => ({ name: image.name, path: image.path })),
@@ -2445,8 +2452,21 @@ const persistProjectPreferences = useCallback(
 
       createRequest(resolvedRequestId, userMessageId, finalMessage, effectiveMode);
 
+      if (isChatOnly) {
+        if (result?.userMessage && stableMessageHandlers.current) stableMessageHandlers.current.add(result.userMessage);
+        if (result?.assistantMessage && stableMessageHandlers.current) {
+          stableMessageHandlers.current.add(result.assistantMessage);
+        }
+        completeRequest(resolvedRequestId, true);
+        setIsRunning(false);
+        setAgentWorkComplete(true);
+        setPreviewInitializationMessage('问答完成，当前看板保持不变。');
+      } else {
+        setMode('chat');
+      }
+
       // Refresh data after completion
-      await loadTree('.');
+      if (!isChatOnly) await loadTree('.');
 
       // Reset prompt and uploaded images
       setPrompt('');

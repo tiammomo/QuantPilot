@@ -542,6 +542,7 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: outputMode,
           instruction,
           displayInstruction: visibleInstruction,
           images: imageData,
@@ -567,7 +568,7 @@ export default function HomePage() {
       const params = new URLSearchParams();
       if (selectedAssistant) params.set("cli", selectedAssistant);
       if (selectedModel) params.set("model", selectedModel);
-      params.set("mode", outputMode);
+      params.set("mode", "chat");
       router.push(
         `/${createdProjectId}/chat${params.toString() ? "?" + params.toString() : ""}`
       );

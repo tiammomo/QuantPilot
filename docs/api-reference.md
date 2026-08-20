@@ -43,7 +43,7 @@
 | --- | --- | --- | --- |
 | `/api/chat/[project_id]/messages` | `GET/POST` | 项目聊天页 | 消息读取和持久化 |
 | `/api/chat/[project_id]/stream` | `GET` | 项目聊天页 | SSE 消息流 |
-| `/api/chat/[project_id]/act` | `POST` | 项目聊天页 | 启动 Agent 执行、量化预取数、验证和修复链路 |
+| `/api/chat/[project_id]/act` | `POST` | 项目聊天页 | 按必填 `mode` 分流只读看板问答，或启动 Agent 生成、验证和修复链路 |
 | `/api/chat/[project_id]/pause` | `POST` | 项目聊天页 | 暂停当前执行 |
 | `/api/projects/[project_id]/agent/approvals` | `GET` | 项目聊天页、运行治理中心 | 按项目、run 和状态列出 bounded public tool approvals |
 | `/api/projects/[project_id]/agent/approvals/[approval_id]` | `POST` | 项目聊天页、运行治理中心 | 对 pending mutating tool 提交 `approve`、`edit` 或 `reject`；决策人只来自认证会话 |
@@ -51,7 +51,8 @@
 
 核心约束：
 
-- `act` 入口要把用户问题转换为 run plan、数据预取、生成、验证和修复事件。
+- `mode=chat` 是服务端强制的只读路径，只消费同一 `runId` 且拥有 Mission 验收凭据的当前看板，不创建 run plan、不预取数据、不修改工作区。
+- `mode=act` 才把用户问题转换为 run plan、数据预取、生成、验证和修复事件。
 - `act` 请求是严格 camelCase 合同；未知字段直接返回 `400 INVALID_ACT_REQUEST`，不再接受 snake_case、`cliPreference`、内联 base64 或宿主绝对路径。
 - 运行状态只来自 `UserRequest / AgentRun / Mission / GenerationJob`；不再提供旧 CLI Session API 或平行状态表。
 - 工具审批仅适用于受信应用显式标记的 mutating tool；原始参数不进入 API。`edit` 请求体为 `{ "decision": "edit", "editedInput": { ... } }`，批准/拒绝只传 `{ "decision": "approve|reject" }`。决策要求 `project.update`，列表与时间线要求 `project.read`。
@@ -62,6 +63,7 @@
 
 ```json
 {
+  "mode": "act",
   "instruction": "分析大位科技最近 60 个交易日，并生成看板",
   "displayInstruction": "分析大位科技最近 60 个交易日，并生成看板",
   "conversationId": "optional-conversation-id",
@@ -80,7 +82,7 @@
 }
 ```
 
-`instruction`、`displayInstruction` 和 `images` 至少有一项非空；`images` 最多 8 张。`capabilityId` 和 `capabilitySelectionSource` 是通用 Data Agent 合同，由当前 Agent Profile 解析，不携带金融前缀。图片必须先通过 `/api/assets/[project_id]/upload` 上传，随后只提交服务端返回的 `assets/<filename>` 相对路径。上传响应使用 `originalFilename`、`publicPath`、`publicUrl`，不返回重复 snake_case 字段。服务端会校验真实文件、图片签名、单图/总大小和 canonical project root，再由 Data Agent 通用层写 manifest；金融持仓字段和量化提取要求由 Finance Domain Adapter 注入。
+`mode` 必填且只能是 `chat` 或 `act`；缺失时返回 `400 INVALID_ACT_REQUEST`，避免旧客户端静默触发生成。`instruction`、`displayInstruction` 和 `images` 至少有一项非空；`images` 最多 8 张。`capabilityId` 和 `capabilitySelectionSource` 是通用 Data Agent 合同，由当前 Agent Profile 解析，不携带金融前缀。图片必须先通过 `/api/assets/[project_id]/upload` 上传，随后只提交服务端返回的 `assets/<filename>` 相对路径。上传响应使用 `originalFilename`、`publicPath`、`publicUrl`，不返回重复 snake_case 字段。服务端会校验真实文件、图片签名、单图/总大小和 canonical project root；只有 `mode=act` 才由 Data Agent 通用层写 manifest 并进入 Finance Domain Adapter 的取数与生成链路。`mode=chat` 不读取新附件内容，依赖附件的问题会提示用户显式切换到生成模式。
 
 `POST /api/chat/[project_id]/messages` 同样只接受 `content`、`role`、`messageType`、`conversationId`、`cliSource`；`DELETE` 只接受 `conversationId` 查询参数。消息、SSE 和 WebSocket 输出均使用 camelCase。客户端如果仍发送 `request_id`、`selected_model`、`quantCapabilityId`、`quantCapabilitySource`、`base64_data`、`public_url` 或 `conversation_id`，应修复调用方，而不是给服务端增加兼容分支。
 

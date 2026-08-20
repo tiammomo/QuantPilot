@@ -19,6 +19,9 @@ export const chatActImageAttachmentSchema = z.object({
 }).strict();
 
 export const chatActRequestSchema = z.object({
+  // Workspace mutation is fail-closed: every caller must explicitly choose
+  // between read-only chat and dashboard generation.
+  mode: z.enum(['act', 'chat']),
   instruction: z.string().max(200_000).default(''),
   displayInstruction: z.string().max(200_000).optional(),
   conversationId: boundedOptionalText(256),

@@ -41,6 +41,7 @@ import {
   claimUserRequest,
   upsertUserRequest,
   markUserRequestAsProcessing,
+  markUserRequestAsCompleted,
   markUserRequestAsFailed,
   UserRequestActorMismatchError,
   UserRequestAlreadyExistsError,
@@ -99,6 +100,7 @@ import { recordContextAcceptance } from "@/lib/platform/context/use-manifest";
 import { createFinanceGenerationEnvelope } from "@/lib/quant/finance-generation-executor";
 import { createApplicationGenerationRuntime } from "@/lib/quant/generation-runtime";
 import { prepareFinanceActGeneration } from "@/lib/quant/finance-act-preparation";
+import { answerDashboardQuestion } from "@/lib/quant/dashboard-chat";
 import {
   loadQuantValidation,
   resolveProjectRoot,
@@ -320,16 +322,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       throw error;
     }
 
-    const attachmentContextPath = await writeFinanceAttachmentContext({
-      projectRoot,
-      projectId: project_id,
-      requestId,
-      images: processedImages,
-    });
-    const imageAttachmentInstruction = buildFinanceAttachmentInstruction({
-      attachmentContextPath,
-      images: processedImages,
-    });
+    const attachmentContextPath = body.mode === "act"
+      ? await writeFinanceAttachmentContext({
+          projectRoot,
+          projectId: project_id,
+          requestId,
+          images: processedImages,
+        })
+      : null;
+    const imageAttachmentInstruction = attachmentContextPath
+      ? buildFinanceAttachmentInstruction({
+          attachmentContextPath,
+          images: processedImages,
+        })
+      : "";
     const finalInstruction = [
       normalizedInstruction ||
         (processedImages.length > 0 ? "请分析用户上传的图片附件。" : ""),
@@ -372,6 +378,108 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       project.selectedModel ??
       getDefaultModelForCli(cliPreference);
     const selectedModel = normalizeModelId(cliPreference, selectedModelRaw);
+
+    if (body.mode === "chat") {
+      const storedInstruction = displayInstruction || finalInstruction;
+      await upsertUserRequest({
+        id: requestId,
+        projectId: project_id,
+        actorUserId,
+        instruction: storedInstruction,
+        cliPreference,
+      });
+      const processing = await markUserRequestAsProcessing(project_id, requestId);
+      if (!processing) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Request is no longer active for this project",
+          },
+          { status: 409 },
+        );
+      }
+
+      const userMessage = await createMessage({
+        projectId: project_id,
+        role: "user",
+        messageType: "chat",
+        content: storedInstruction,
+        conversationId: conversationId ?? undefined,
+        cliSource: cliPreference,
+        requestId,
+        metadata: {
+          chatOnly: true,
+          readOnly: true,
+          executionMode: "read_only_dashboard_chat",
+          ...(processedImages.length > 0
+            ? {
+                attachments: processedImages.map((image) => ({
+                  name: image.name,
+                  url: image.url,
+                  publicUrl: image.publicUrl,
+                  path: image.path,
+                })),
+              }
+            : {}),
+        },
+      });
+      streamManager.publish(project_id, {
+        type: "message",
+        data: serializeMessage(userMessage, { requestId }),
+      });
+      await updateProjectActivity(project_id);
+
+      const answer = await answerDashboardQuestion({
+        projectId: project_id,
+        projectPath,
+        question: storedInstruction,
+        conversationId: conversationId ?? null,
+        requestId,
+        selectedModel,
+        hasAttachments: processedImages.length > 0,
+        signal: request.signal,
+      });
+      const assistantMessage = await createMessage({
+        projectId: project_id,
+        role: "assistant",
+        messageType: "chat",
+        content: answer.answer,
+        conversationId: conversationId ?? undefined,
+        cliSource: cliPreference,
+        requestId,
+        metadata: {
+          isPiAgentFinal: true,
+          chatOnly: true,
+          readOnly: true,
+          groundedOnAcceptedDashboard: Boolean(answer.acceptedRequestId),
+          acceptedDashboardRequestId: answer.acceptedRequestId,
+          executionMode: "read_only_dashboard_chat",
+          provider: answer.provider,
+          model: answer.model,
+        },
+      });
+      await markUserRequestAsCompleted(project_id, requestId);
+      const serializedAssistant = serializeMessage(assistantMessage, {
+        requestId,
+        isStreaming: false,
+        isFinal: true,
+      });
+      streamManager.publish(project_id, {
+        type: "message",
+        data: serializedAssistant,
+      });
+
+      return NextResponse.json({
+        success: true,
+        status: "chat_answered",
+        requestId,
+        userMessageId: userMessage.id,
+        conversationId: conversationId ?? null,
+        userMessage: serializeMessage(userMessage, { requestId }),
+        assistantMessage: serializedAssistant,
+        preservedDashboard: true,
+      });
+    }
 
     const capabilityId = body.capabilityId;
     const capabilitySelectionSource = body.capabilitySelectionSource;

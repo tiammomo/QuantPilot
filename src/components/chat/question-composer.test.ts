@@ -18,10 +18,8 @@ describe('question composer', () => {
     expect(buildQuickQuestions('分析大位科技最近20个交易日，生成技术面看板')[0]).toContain('当前标的');
   });
 
-  it('keeps the visible question intact while constraining chat-only execution', () => {
+  it('keeps execution mode out of the user-authored prompt', () => {
     expect(buildQuestionInstruction('  分析贵州茅台  ', 'act')).toBe('分析贵州茅台');
-    const chatInstruction = buildQuestionInstruction('分析贵州茅台', 'chat');
-    expect(chatInstruction).toContain('分析贵州茅台');
-    expect(chatInstruction).toContain('Do not modify code or generate a dashboard');
+    expect(buildQuestionInstruction('分析贵州茅台', 'chat')).toBe('分析贵州茅台');
   });
 });

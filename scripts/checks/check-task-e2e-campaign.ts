@@ -353,6 +353,7 @@ async function createOrResumeCase(input: {
     const accepted = await api(request, `/api/chat/${encodeURIComponent(projectId)}/act`, {
       method: 'POST',
       data: {
+        mode: 'act',
         instruction: item.question,
         displayInstruction: item.question,
         requestId,

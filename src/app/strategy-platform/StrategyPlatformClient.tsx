@@ -360,6 +360,7 @@ export default function StrategyPlatformClient({ initialData }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: "act",
           instruction: prompt,
           isInitialPrompt: true,
           capabilityId,
