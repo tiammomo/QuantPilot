@@ -54,6 +54,7 @@ import { OpsWorkspacesView } from "./OpsWorkspacesView";
 import { OpsTraceView } from "./OpsTraceView";
 import { OpsLogsView } from "./OpsLogsView";
 import { OpsWorkerRuntime } from "./OpsWorkerRuntime";
+import { OpsProductHealth } from "./OpsProductHealth";
 
 export type OpsView = "overview" | "services" | "workspaces" | "trace" | "logs";
 
@@ -205,6 +206,8 @@ function OverviewView({
         <OpsMetricCard icon={<GitBranch className="h-4 w-4" />} label="链路阻断" value={trace.summary.failed} helper={`${trace.summary.running} 个运行中 · 24h ${trace.summary.eventsLast24h} 个事件`} tone={trace.summary.failed ? "red" : "blue"} />
         <OpsMetricCard icon={<ScrollText className="h-4 w-4" />} label="可读日志源" value={`${readableLogs}/${ops.logSources.length}`} helper="Loki 不可用时自动使用本地文件" tone={readableLogs ? "emerald" : "red"} />
       </section>
+
+      <OpsProductHealth data={ops.productHealth} />
 
       <OpsWorkerRuntime data={ops.agentWorkers} />
 

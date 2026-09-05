@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/db/client';
+import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 
 export type AgentWorkerRuntimeStatus = 'ok' | 'warning' | 'failed' | 'unavailable';
 
@@ -128,6 +129,14 @@ export async function getAgentWorkerRuntimeDashboard(params: {
     ?? process.env.PI_AGENT_DISPATCH_MODE?.trim()
     ?? 'inline';
   const generatedAt = new Date().toISOString();
+  if (!getRuntimeDegradationConfig().components.database.enabled) {
+    return unavailableDashboard({
+      poolKey,
+      dispatchMode,
+      generatedAt,
+      error: '数据库已按降级配置停用，Worker 指标未采集。',
+    });
+  }
   try {
     const [clockRows, instances, slotRows, queueRows] = await Promise.all([
       prisma.$queryRaw<Array<{ databaseNow: Date }>>(Prisma.sql`

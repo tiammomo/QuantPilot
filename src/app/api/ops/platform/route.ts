@@ -19,13 +19,17 @@ export async function GET(request: Request) {
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   } catch (error) {
-    if (error instanceof AuthorizationError) return authErrorResponse(error);
+    if (error instanceof AuthorizationError) {
+      const response = authErrorResponse(error);
+      response.headers.set('Cache-Control', 'private, no-store');
+      return response;
+    }
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: '运行治理数据暂不可用，请稍后重试。',
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
     );
   }
 }

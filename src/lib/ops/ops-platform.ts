@@ -25,6 +25,10 @@ import {
   getAgentWorkerRuntimeDashboard,
   type AgentWorkerRuntimeDashboard,
 } from '@/lib/ops/agent-worker-observability';
+import {
+  getProductHealthDashboard,
+  type ProductHealthDashboard,
+} from '@/lib/ops/product-health';
 
 const execFileAsync = promisify(execFile);
 
@@ -103,6 +107,7 @@ export interface OpsPlatformDashboard {
   serviceDependencyEdges: ServiceDependencyEdge[];
   serviceCatalogValidation: ServiceCatalogValidation;
   agentWorkers: AgentWorkerRuntimeDashboard;
+  productHealth: ProductHealthDashboard;
   logSources: OpsLogSource[];
 }
 
@@ -778,6 +783,7 @@ export async function getOpsPlatformDashboard(params: {
     marketHealth,
     marketRegistry,
     agentWorkers,
+    productHealth,
     logSources,
   ] = await Promise.all([
     getInfrastructureHealth(),
@@ -789,6 +795,7 @@ export async function getOpsPlatformDashboard(params: {
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/health`) : disabledProbe('market API'),
     marketApi.enabled ? probeUrl(`${MARKET_API_BASE_URL}/api/v1/registry`) : disabledProbe('market API registry'),
     getAgentWorkerRuntimeDashboard(),
+    getProductHealthDashboard({ enabled: database.enabled }),
     collectLogSources(params.includeLogEntries === true),
   ]);
 
@@ -1020,6 +1027,7 @@ export async function getOpsPlatformDashboard(params: {
     serviceDependencyEdges,
     serviceCatalogValidation,
     agentWorkers,
+    productHealth,
     logSources,
   };
 }

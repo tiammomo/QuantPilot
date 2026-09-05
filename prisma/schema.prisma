@@ -244,6 +244,7 @@ model UserRequest {
   @@unique([id, projectId])
   @@index([projectId])
   @@index([status])
+  @@index([createdAt])
   @@index([actorUserId, createdAt])
   @@map("user_requests")
 }
