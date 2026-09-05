@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { inferExpectedTemplateFromTask } from './validation';
+import { inferExpectedTemplateFromTask } from "./validation/inputs";
 
 describe('validation template intent', () => {
   it('keeps strategy research on its capability template even when the query mentions candidates', () => {

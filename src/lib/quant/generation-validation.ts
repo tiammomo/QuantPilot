@@ -49,10 +49,6 @@ import { createMessage } from '@/lib/services/message';
 import { streamManager } from '@/lib/services/stream';
 import { serializeMessage } from '@/lib/serializers/chat';
 
-async function loadQuantValidation() {
-  return import('@/lib/quant/validation');
-}
-
 async function ensureQuantDashboardTemplateForAct(projectPath: string) {
   const { ensureQuantDashboardTemplate } = await import('@/lib/utils/scaffold');
   return ensureQuantDashboardTemplate(projectPath);
@@ -438,8 +434,13 @@ export function runValidationAfterExecution(params: {
     }
 
     await params.publishWorkspaceProgress({ stage: 4 });
-    const quantValidation = await loadQuantValidation();
-    await quantValidation.prepareQuantProjectForValidation({
+    const [validation, preparation, repair, recovery] = await Promise.all([
+      import('@/lib/quant/validation'),
+      import('@/lib/quant/validation/preparation'),
+      import('@/lib/quant/validation/repair'),
+      import('@/lib/quant/validation/recovery'),
+    ]);
+    await preparation.prepareQuantProjectForValidation({
       projectId: params.projectId,
       projectPath: params.projectPath,
     });
@@ -465,7 +466,7 @@ export function runValidationAfterExecution(params: {
       status: "running",
       summary: "开始自动验证生成产物。",
     });
-    const firstReport = await quantValidation.validateQuantProject({
+    const firstReport = await validation.validateQuantProject({
       projectId: params.projectId,
       projectPath: params.projectPath,
       requestId: params.requestId,
@@ -764,14 +765,14 @@ export function runValidationAfterExecution(params: {
       );
       await beginRepair();
       const platformRepair =
-        await quantValidation.repairQuantPlatformOwnedArtifacts({
+        await recovery.repairQuantPlatformOwnedArtifacts({
           projectPath: params.projectPath,
           requestId: params.requestId,
           originalInstruction: params.instruction,
           report: latestReport,
         });
       if (platformRepair.runPlanRebuilt) {
-        await quantValidation.prepareQuantProjectForValidation({
+        await preparation.prepareQuantProjectForValidation({
           projectId: params.projectId,
           projectPath: params.projectPath,
         });
@@ -779,7 +780,7 @@ export function runValidationAfterExecution(params: {
           "platform_repair",
           "平台重建只读规划产物后封存新的验证候选。",
         );
-        latestReport = await quantValidation.validateQuantProject({
+        latestReport = await validation.validateQuantProject({
           projectId: params.projectId,
           projectPath: params.projectPath,
           requestId: params.requestId,
@@ -814,7 +815,7 @@ export function runValidationAfterExecution(params: {
         await beginRepair();
       }
       const repairInstruction =
-        quantValidation.buildQuantValidationRepairInstruction(latestReport, {
+        repair.buildQuantValidationRepairInstruction(latestReport, {
           originalInstruction: params.instruction,
         });
 
@@ -992,7 +993,7 @@ export function runValidationAfterExecution(params: {
         return;
       }
 
-      await quantValidation.prepareQuantProjectForValidation({
+      await preparation.prepareQuantProjectForValidation({
         projectId: params.projectId,
         projectPath: params.projectPath,
       });
@@ -1032,7 +1033,7 @@ export function runValidationAfterExecution(params: {
         status: "running",
         summary: `开始第 ${repairAttempt}/${maxRepairAttempts} 次修复后自动验证。`,
       });
-      const finalReport = await quantValidation.validateQuantProject({
+      const finalReport = await validation.validateQuantProject({
         projectId: params.projectId,
         projectPath: params.projectPath,
         requestId: params.requestId,
@@ -1128,7 +1129,7 @@ export function runValidationAfterExecution(params: {
       });
       const earlyTemplateRecovery =
         stalledRepair &&
-        quantValidation.isQuantDashboardTemplateRecoveryEligible(latestReport);
+        recovery.isQuantDashboardTemplateRecoveryEligible(latestReport);
       if (repairAttempt < maxRepairAttempts && !earlyTemplateRecovery) {
         await markUserRequestAsFailed(
           params.projectId,
@@ -1160,7 +1161,7 @@ export function runValidationAfterExecution(params: {
 
       await beginRepair();
       const templateRecovery =
-        await quantValidation.restoreQuantDashboardTemplateAfterRepairExhaustion(
+        await recovery.restoreQuantDashboardTemplateAfterRepairExhaustion(
           {
             projectPath: params.projectPath,
             report: latestReport,
@@ -1197,7 +1198,7 @@ export function runValidationAfterExecution(params: {
           },
         });
 
-        await quantValidation.prepareQuantProjectForValidation({
+        await preparation.prepareQuantProjectForValidation({
           projectId: params.projectId,
           projectPath: params.projectPath,
         });
@@ -1207,7 +1208,7 @@ export function runValidationAfterExecution(params: {
           repairRequestId,
         );
 
-        const recoveredReport = await quantValidation.validateQuantProject({
+        const recoveredReport = await validation.validateQuantProject({
           projectId: params.projectId,
           projectPath: params.projectPath,
           requestId: params.requestId,

@@ -1,8 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { getAllProjects } from '@/lib/services/project';
+import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/domains/finance/workspace';
-import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
+import type { QuantValidationRepairPlan, QuantValidationReport } from "@/lib/quant/validation/contracts";
 import {
   DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
   DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
@@ -682,7 +683,9 @@ async function inspectWorkspace(project: Project): Promise<WorkspaceHealthItem> 
 }
 
 export async function getWorkspaceHealthDashboard(): Promise<WorkspaceHealthDashboard> {
-  const projects = await getAllProjects();
+  const projects = getRuntimeDegradationConfig().components.database.enabled
+    ? await getAllProjects()
+    : [];
   const items = await Promise.all(projects.map((project) => inspectWorkspace(project)));
   const summary = items.reduce(
     (acc, item) => {

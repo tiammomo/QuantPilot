@@ -9,7 +9,7 @@ import {
   requiresPiAgentMissionAcceptance,
 } from '@/lib/quant/generation-terminal';
 import { readQuantGenerationState } from '@/lib/quant/generation-state';
-import { readQuantValidationReport } from '@/lib/quant/validation';
+import { readQuantValidationReport } from "@/lib/quant/validation/reports";
 import { readPiAgentAcceptedMissionSnapshot } from '@/lib/services/pi-agent-mission-store';
 import { getProjectById } from '@/lib/services/project';
 

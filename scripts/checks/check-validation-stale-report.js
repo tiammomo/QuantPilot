@@ -9,7 +9,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-vali
   interopDefault: true,
 });
 
-const { readQuantValidationReport } = jiti('../../src/lib/quant/validation.ts');
+const { readQuantValidationReport } = jiti("../../src/lib/quant/validation/reports.ts");
 
 async function writeFile(filePath, content) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });

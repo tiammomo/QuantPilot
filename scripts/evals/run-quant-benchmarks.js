@@ -6,7 +6,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 const { PrismaClient } = require('@prisma/client');
 const { NextRequest } = require('next/server');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/evals/run-quant-benchmarks.js'), {
@@ -26,17 +26,14 @@ const {
   __dashboardSpecTesting,
 } = jiti('../../src/lib/domains/finance/agent-tools/dashboard-spec.ts');
 const { buildClarificationContinuation } = jiti('../../src/lib/domains/finance/intent.ts');
-const { prefetchQuantDataForRunPlan } = jiti('../../src/lib/quant/data-prefetch.ts');
+const { prefetchQuantDataForRunPlan } = jiti("../../src/lib/quant/data-prefetch.ts");
 const {
   startQuantGenerationRun,
   updateQuantGenerationStep,
 } = jiti('../../src/lib/quant/generation-state.ts');
-const {
-  buildQuantValidationRepairInstruction,
-  buildQuantValidationRepairPlan,
-  readQuantValidationReport,
-  validateQuantProject,
-} = jiti('../../src/lib/quant/validation.ts');
+const { buildQuantValidationRepairInstruction, buildQuantValidationRepairPlan } = jiti("../../src/lib/quant/validation/repair.ts");
+const { readQuantValidationReport } = jiti("../../src/lib/quant/validation/reports.ts");
+const { validateQuantProject } = jiti("../../src/lib/quant/validation.ts");
 const { previewManager } = jiti('../../src/lib/services/preview.ts');
 const { createProject } = jiti('../../src/lib/services/project.ts');
 const {
@@ -92,8 +89,7 @@ const CUSTOM_LANE_BUDGETS = createPiAgentPhaseGraph({
 
 // Keep CLI evaluation consistent with the web launcher while preserving
 // explicitly provided CI environment variables. Local overrides load first.
-dotenv.config({ path: path.resolve('.env.local') });
-dotenv.config({ path: path.resolve('.env') });
+loadProjectEnvironment();
 
 const prisma = new PrismaClient();
 const CASES_PATH = path.resolve('benchmarks/quantpilot/cases.json');
@@ -1681,7 +1677,10 @@ async function runVisualCheck({ projectId, testCase }) {
 
   try {
     preview = await previewManager.start(projectId);
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.QUANTPILOT_CHROMIUM_EXECUTABLE_PATH || undefined,
+    });
     for (const viewport of viewports) {
       const page = await browser.newPage({
         viewport: { width: viewport.width, height: viewport.height },

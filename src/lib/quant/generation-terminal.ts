@@ -1,6 +1,6 @@
 import type { PiAgentAcceptedMissionSnapshot } from '@/lib/agent/mission';
 import type { QuantGenerationRunStatus } from '@/lib/quant/generation-state';
-import type { QuantValidationReport } from '@/lib/quant/validation';
+import type { QuantValidationReport } from "@/lib/quant/validation/contracts";
 import type { PreviewInfo } from '@/lib/services/preview';
 
 export type QuantGenerationTerminalStatus =

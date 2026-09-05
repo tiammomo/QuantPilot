@@ -481,15 +481,15 @@
       },
       {
         "path": "src/lib/quant/validation.ts",
-        "maxLines": 3140,
-        "targetLines": 1600,
-        "nextAction": "按 artifact、data contract、visual、repair 和 acceptance pipeline 拆分，保留单一 validation facade。"
+        "maxLines": 300,
+        "targetLines": 300,
+        "nextAction": "入口只负责串行编排与事件；检查、报告、准备和修复由 validation/ 各模块负责。"
       },
       {
         "path": "src/lib/quant/data-prefetch.ts",
-        "maxLines": 2040,
-        "targetLines": 1200,
-        "nextAction": "将通用数据计划、金融 endpoint adapter、证据落盘和错误归一化拆开。"
+        "maxLines": 320,
+        "targetLines": 320,
+        "nextAction": "入口只负责预取流程；规划、端点、指标、图片证据和最终数据投影进入 data-prefetch/ 各模块。"
       },
       {
         "path": "services/market-data/src/quantpilot_market_data/api.py",
@@ -568,6 +568,132 @@
         "maxLines": 300,
         "targetLines": 300,
         "nextAction": "仅负责不可变财报版本与历史查询；provider 抓取和 HTTP 错误映射留在 service/router。"
+      },
+      {
+        "path": "src/lib/quant/validation/artifact-policy.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/contracts.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/dashboard-checks.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/data-checks.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/evidence-checks.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/files.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/inputs.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/preparation.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/recovery.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/repair.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/reports.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/validation/runtime-checks.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/dashboard.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/fundamentals.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/image-evidence.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/market.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/planning.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/portfolio.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/technical.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/transport.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/lib/quant/data-prefetch/values.ts",
+        "maxLines": 500,
+        "targetLines": 500,
+        "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
       }
     ]
   }

@@ -16,8 +16,8 @@ vi.mock('@/lib/quant/generation-state', () => ({
   readQuantGenerationState: mocks.readGeneration,
 }));
 
-vi.mock('@/lib/quant/validation', () => ({
-  readQuantValidationReport: mocks.readValidation,
+vi.mock("@/lib/quant/validation/reports", () => ({
+readQuantValidationReport: mocks.readValidation
 }));
 
 vi.mock('@/lib/services/pi-agent-mission-store', () => ({

@@ -1,8 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { prisma } from '@/lib/db/client';
+import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
 import { readQuantRunPlan, type QuantWorkspaceEvent } from '@/lib/domains/finance/workspace';
-import type { QuantValidationRepairPlan, QuantValidationReport } from '@/lib/quant/validation';
+import type { QuantValidationRepairPlan, QuantValidationReport } from "@/lib/quant/validation/contracts";
 import {
   DATA_AGENT_ARTIFACT_CONTRACTS_RELATIVE_PATH,
   DATA_AGENT_GENERATION_QUEUE_RELATIVE_PATH,
@@ -12,7 +13,10 @@ import {
 import { readQuantArtifactContractReport, type QuantArtifactContractReport } from '@/lib/quant/artifact-contracts';
 import { readQuantGenerationQueue, type QuantGenerationQueueState } from '@/lib/quant/generation-queue';
 import { readQuantGenerationState, type QuantGenerationState } from '@/lib/quant/generation-state';
-import { readQuantVisualValidationReport, type QuantVisualValidationReport } from '@/lib/quant/visual-validation';
+import {
+  readQuantVisualValidationReport,
+  type QuantVisualValidationReport,
+} from '@/lib/quant/visual-validation';
 import { normalizeModelId } from '@/lib/constants/models';
 
 type JsonRecord = Record<string, unknown>;
@@ -430,6 +434,7 @@ function resolveProjectPath(project: Pick<ProjectWithTraceSources, 'id' | 'repoP
 }
 
 async function loadProjectsWithTraceSources(summaryOnly = false) {
+  if (!getRuntimeDegradationConfig().components.database.enabled) return [];
   return prisma.project.findMany({
     orderBy: { lastActiveAt: 'desc' },
     include: {

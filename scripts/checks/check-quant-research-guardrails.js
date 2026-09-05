@@ -9,10 +9,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-quan
   interopDefault: true,
 });
 
-const {
-  hasExplicitTradingPlanIntent,
-  inferHistoryLimit,
-} = jiti('../../src/lib/quant/data-prefetch.ts');
+const { hasExplicitTradingPlanIntent, inferHistoryLimit } = jiti("../../src/lib/quant/data-prefetch/planning.ts");
 const { ensureQuantDashboardTemplate } = jiti('../../src/lib/utils/scaffold.ts');
 
 function assert(condition, message) {

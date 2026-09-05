@@ -3,11 +3,9 @@ import {
   readQuantGenerationState,
   updateQuantGenerationStep,
 } from '@/lib/quant/generation-state';
-import {
-  buildQuantValidationRepairInstruction,
-  repairQuantPlatformOwnedArtifacts,
-  type QuantValidationReport,
-} from '@/lib/quant/validation';
+import { buildQuantValidationRepairInstruction } from "@/lib/quant/validation/repair";
+import { repairQuantPlatformOwnedArtifacts } from "@/lib/quant/validation/recovery";
+import { type QuantValidationReport } from "@/lib/quant/validation/contracts";
 
 export interface BenchmarkRepairInvocation {
   attempt: number;

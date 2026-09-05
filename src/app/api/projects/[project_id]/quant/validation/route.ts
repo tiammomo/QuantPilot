@@ -51,10 +51,6 @@ function resolveProjectPath(
   return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
 }
 
-async function loadQuantValidation() {
-  return import("@/lib/quant/validation");
-}
-
 async function stopProvisionalPreview(projectId: string) {
   const { previewManager } = await import("@/lib/services/preview");
   return previewManager.stop(projectId);
@@ -169,10 +165,10 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     }
 
     const projectPath = resolveProjectPath(project_id, project.repoPath);
-    const quantValidation = await loadQuantValidation();
+    const reports = await import("@/lib/quant/validation/reports");
     const [report, repairPlan, generationState] = await Promise.all([
-      quantValidation.readQuantValidationReport(projectPath),
-      quantValidation.readQuantValidationRepairPlan(projectPath),
+      reports.readQuantValidationReport(projectPath),
+      reports.readQuantValidationRepairPlan(projectPath),
       readQuantGenerationState(projectPath),
     ]);
     const acceptance = generationState?.requestId
@@ -345,7 +341,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           activeMission = missionContext(releasedMission, projectPath);
         }
 
-        const quantValidation = await loadQuantValidation();
+        const [validation, preparation, reports] = await Promise.all([
+          import("@/lib/quant/validation"),
+          import("@/lib/quant/validation/preparation"),
+          import("@/lib/quant/validation/reports"),
+        ]);
         let candidateReceipt:
           | Awaited<
               ReturnType<typeof sealQuantPiAgentMissionCandidate>
@@ -357,7 +357,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             activeMission.status,
           )
         ) {
-          await quantValidation.prepareQuantProjectForValidation({
+          await preparation.prepareQuantProjectForValidation({
             projectId: project_id,
             projectPath,
           });
@@ -415,7 +415,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
               : {}),
           });
         }
-        const report = await quantValidation.validateQuantProject({
+        const report = await validation.validateQuantProject({
           projectId: project_id,
           projectPath,
           requestId,
@@ -423,7 +423,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           cliSource: "validator",
         });
         const repairPlan =
-          await quantValidation.readQuantValidationRepairPlan(projectPath);
+          await reports.readQuantValidationRepairPlan(projectPath);
         const failedChecks = report.checks.filter(
           (check) => check.status === "failed",
         );

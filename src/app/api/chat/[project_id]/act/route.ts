@@ -100,7 +100,6 @@ import { createFinanceGenerationEnvelope } from "@/lib/quant/finance-generation-
 import { createApplicationGenerationRuntime } from "@/lib/quant/generation-runtime";
 import { prepareFinanceActGeneration } from "@/lib/quant/finance-act-preparation";
 import {
-  loadQuantValidation,
   resolveProjectRoot,
 } from "@/lib/quant/chat-act-support";
 

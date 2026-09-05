@@ -8,12 +8,9 @@ import {
   QUANTPILOT_AGENT_PROFILE_ID,
 } from '@/lib/domains/finance';
 import { getProjectLlmConfig } from '@/lib/config/llm';
-import {
-  buildFundamentalMetricComparison,
-  hasExplicitTradingPlanIntent,
-  inferHistoryLimit,
-  prefetchQuantDataForRunPlan,
-} from './data-prefetch';
+import { buildFundamentalMetricComparison } from "./data-prefetch/fundamentals";
+import { hasExplicitTradingPlanIntent, inferHistoryLimit } from "./data-prefetch/planning";
+import { prefetchQuantDataForRunPlan } from "./data-prefetch";
 
 const temporaryProjects: string[] = [];
 

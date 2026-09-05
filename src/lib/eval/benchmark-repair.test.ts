@@ -7,7 +7,7 @@ import {
   startQuantGenerationRun,
   updateQuantGenerationStep,
 } from '@/lib/quant/generation-state';
-import type { QuantValidationReport } from '@/lib/quant/validation';
+import type { QuantValidationReport } from "@/lib/quant/validation/contracts";
 import { failBenchmarkGenerationRun, runBenchmarkRepairLoop } from './benchmark-repair';
 
 const temporaryProjects: string[] = [];

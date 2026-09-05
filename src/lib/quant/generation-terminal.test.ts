@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { QuantValidationCheck } from './validation';
+import type { QuantValidationCheck } from "./validation/contracts";
 import { deriveQuantGenerationTerminalSnapshot } from './generation-terminal';
 
 const validation = (runId: string | undefined, passed = true) => ({

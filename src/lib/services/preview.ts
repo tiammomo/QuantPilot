@@ -1532,7 +1532,7 @@ export class PreviewManager {
     }
 
     const projectPath = resolvePreviewProjectPath(projectId, project.repoPath);
-    const { checkQuantArtifactPolicy } = await import('@/lib/quant/validation');
+    const { checkQuantArtifactPolicy } = await import("@/lib/quant/validation/artifact-policy");
     const executionPolicy = await checkQuantArtifactPolicy(projectPath);
     if (executionPolicy.status === 'failed') {
       throw new Error(

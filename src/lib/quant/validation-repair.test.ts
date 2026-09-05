@@ -7,9 +7,9 @@ import {
   buildQuantValidationRepairInstruction,
   buildQuantValidationRepairPlan,
   quantValidationRepairWritableGlobs,
-  repairQuantPlatformOwnedArtifacts,
-  type QuantValidationReport,
-} from './validation';
+} from "./validation/repair";
+import { repairQuantPlatformOwnedArtifacts } from "./validation/recovery";
+import { type QuantValidationReport } from "./validation/contracts";
 
 const temporaryProjects: string[] = [];
 

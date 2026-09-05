@@ -77,10 +77,8 @@ import {
 import { DEFAULT_QUANT_CAPABILITY_ID } from '@/lib/domains/finance/capabilities';
 import { readQuantRunPlan } from '@/lib/domains/finance/workspace';
 import { serializeQuantVisualizationTemplate } from '@/lib/domains/finance/visualization-templates';
-import {
-  quantValidationRepairWritableGlobs,
-  readQuantValidationReport,
-} from '@/lib/quant/validation';
+import { quantValidationRepairWritableGlobs } from "@/lib/quant/validation/repair";
+import { readQuantValidationReport } from "@/lib/quant/validation/reports";
 import { validatePiAgentProjectPath } from './pi-agent-workspace';
 import type { PiAgentCandidateSubmission } from '@/lib/agent/mission';
 import { candidateFromPiAgentRun } from '@/lib/services/pi-agent-candidate';

@@ -2,11 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  assessQuantValidationReportFreshness,
-  readQuantValidationReport,
-  type QuantValidationReport,
-} from './validation';
+import { assessQuantValidationReportFreshness, readQuantValidationReport } from "./validation/reports";
+import { type QuantValidationReport } from "./validation/contracts";
 
 const temporaryProjects: string[] = [];
 

@@ -99,9 +99,11 @@ vi.mock('@/lib/domains/finance/workspace', () => ({
   readQuantRunPlan: mocks.readRunPlan,
 }));
 
-vi.mock('@/lib/quant/validation', () => ({
-  readQuantValidationReport: mocks.readValidationReport,
-  quantValidationRepairWritableGlobs: mocks.repairWritableGlobs,
+vi.mock("@/lib/quant/validation/reports", () => ({
+readQuantValidationReport: mocks.readValidationReport
+}));
+vi.mock("@/lib/quant/validation/repair", () => ({
+quantValidationRepairWritableGlobs: mocks.repairWritableGlobs
 }));
 
 vi.mock('@/lib/db/pi-agent-schema-readiness', () => ({

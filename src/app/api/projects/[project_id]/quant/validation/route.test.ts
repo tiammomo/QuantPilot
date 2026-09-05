@@ -48,11 +48,15 @@ vi.mock("@/lib/services/stream", () => ({
   streamManager: { publish: mocks.publish },
 }));
 
+vi.mock("@/lib/quant/validation/preparation", () => ({
+prepareQuantProjectForValidation: mocks.prepareValidation
+}));
 vi.mock("@/lib/quant/validation", () => ({
-  prepareQuantProjectForValidation: mocks.prepareValidation,
-  validateQuantProject: mocks.validateProject,
-  readQuantValidationReport: mocks.readReport,
-  readQuantValidationRepairPlan: mocks.readRepairPlan,
+validateQuantProject: mocks.validateProject
+}));
+vi.mock("@/lib/quant/validation/reports", () => ({
+readQuantValidationReport: mocks.readReport,
+readQuantValidationRepairPlan: mocks.readRepairPlan
 }));
 
 vi.mock("@/lib/services/pi-agent-mission-control", () => ({

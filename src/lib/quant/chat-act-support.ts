@@ -21,10 +21,6 @@ export class QuantPreparationError extends Error {
   }
 }
 
-export async function loadQuantValidation() {
-  return import("@/lib/quant/validation");
-}
-
 export async function ensureQuantDashboardTemplateForAct(projectPath: string) {
   const { ensureQuantDashboardTemplate } = await import("@/lib/utils/scaffold");
   return ensureQuantDashboardTemplate(projectPath);

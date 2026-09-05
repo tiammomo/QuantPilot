@@ -5,9 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   isQuantDashboardTemplateRecoveryEligible,
   restoreQuantDashboardTemplateAfterRepairExhaustion,
-  type QuantValidationCheck,
-  type QuantValidationReport,
-} from './validation';
+} from "./validation/recovery";
+import { type QuantValidationCheck, type QuantValidationReport } from "./validation/contracts";
 
 const temporaryProjects: string[] = [];
 

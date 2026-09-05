@@ -254,7 +254,10 @@ const queryRewriteRoute = read('src/app/api/quant/query/rewrite/route.ts');
 const queryRewriteAdapter = read('src/lib/domains/finance/query-rewrite-llm.ts');
 const queryRewriteRuntime = read('src/lib/domains/finance/query-rewrite.ts');
 const queryRewriteWorkspace = read('src/lib/domains/finance/workspace.ts');
-const queryRewritePrefetch = read('src/lib/quant/data-prefetch.ts');
+const queryRewritePrefetch = [
+  read('src/lib/quant/data-prefetch.ts'),
+  read('src/lib/quant/data-prefetch/planning.ts'),
+].join('\n');
 const chatInput = read('src/components/chat/ChatInput.tsx');
 const homePage = read('src/app/page.tsx');
 if (
