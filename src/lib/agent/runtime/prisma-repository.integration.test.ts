@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PrismaClient, type AgentMission } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { inspectPiAgentSchemaReadiness } from '@/lib/db/pi-agent-schema-readiness';
 import { PrismaAgentRuntimeRepository } from './prisma-repository';
 import { withPiAgentWorkspaceResourceLock } from './workspace-resource-lock';
 import {
@@ -131,6 +132,12 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
     } finally {
       await Promise.allSettled([clientA.$disconnect(), clientB.$disconnect()]);
     }
+  });
+
+  it('satisfies the runtime schema contract after versioned migrations', async () => {
+    const report = await inspectPiAgentSchemaReadiness(clientA);
+    expect(report.issues).toEqual([]);
+    expect(report.ready).toBe(true);
   });
 
   it('allows only one concurrent lease acquisition for the same project', async () => {

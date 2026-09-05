@@ -12,6 +12,10 @@ npm run db:init
 npm run obs:up
 ```
 
+需要 ClickHouse 和整套本地观测组件时，直接运行 `docker compose up -d`，全部组件通过本地 Docker 安装。首次拉取镜像后用 `docker compose ps` 检查状态，再执行 `npm run db:init`。命名卷保留数据，日常停止使用 `docker compose stop`。
+
+PostgreSQL 并发、审批和产品指标集成测试使用单独的空测试数据库：设置 `PI_AGENT_TEST_DATABASE_URL` 后运行 `npm run test:pi-agent:postgres`。测试入口先执行全部版本化迁移，再验证运行时数据库约束与持久化行为；行情 SQL 合同在回滚事务中创建自己的测试表，不需要运行 `db:init`。CI 使用独立的 `quantpilot_integration` 数据库，与合约评测数据隔离；不要指向日常开发或业务数据库。
+
 另开终端启动 market-data：
 
 ```bash
@@ -85,7 +89,7 @@ QUANTPILOT_MARKET_ADMIN_TOKEN=""
 | Evolvable User Memory | 可选用户偏好、上下文召回和可归因 Outcome 服务，默认 `http://127.0.0.1:38089`；独立部署、独立存储 |
 | Next.js 主前端 | 产品入口和 API 聚合层，默认 `http://localhost:3000` |
 | 对象存储 | 后续用于原始行情文件、回测产物和大报告 |
-| ClickHouse | 后续用于超大量 tick、盘口快照和研究分析面板 |
+| ClickHouse | 日线与因子分析投影、聚合筛选；PostgreSQL 保留权威行情与任务记录 |
 
 ## 服务目录和轻量发现
 
@@ -230,6 +234,23 @@ npm run db:init
 K 线、因子、信号和组合快照使用 TimescaleDB hypertable，以时间字段 `ts` 做分区。Prisma 继续管理主业务表，量化时序和策略研究数据通过 SQL 初始化和市场数据后端写入。
 
 ## 推荐组件路线
+
+### 财报历史数据库回归
+
+CI 的 Python 测试使用独立 PostgreSQL service。本地也使用一次性 Docker 容器，不向应用数据库写入测试财报：
+
+```bash
+docker run --rm -d --name quantpilot-financial-history-test \
+  --tmpfs /var/lib/postgresql -p 127.0.0.1:35434:5432 \
+  -e POSTGRES_USER=quantpilot_test -e POSTGRES_PASSWORD=quality_test_local \
+  -e POSTGRES_DB=quantpilot_financial_history_test postgres:18.4-alpine
+docker exec quantpilot-financial-history-test pg_isready -U quantpilot_test -d quantpilot_financial_history_test
+MARKET_TEST_DATABASE_URL=postgresql://quantpilot_test:quality_test_local@127.0.0.1:35434/quantpilot_financial_history_test \
+  uv run --project services/market-data pytest -q services/market-data/tests/test_financial_history_postgres.py
+docker stop quantpilot-financial-history-test
+```
+
+等待 `pg_isready` 成功后执行测试。示例凭据仅用于回环地址和临时测试库；测试必须显式传入专用 URL，且库名以 `_test` 结尾。停止命令只针对示例容器，保留应用 Compose 服务及其数据卷。
 
 当前不建议一次性引入过多组件。优先级如下：
 

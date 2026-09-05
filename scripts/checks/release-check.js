@@ -30,6 +30,7 @@ if (includeE2eEvidence) {
 }
 
 const checks = [
+  ['Dependency sources', 'npm', ['run', 'check:dependency-sources'], ROOT],
   ['AI provider boundary', 'npm', ['run', 'check:ai-provider-boundary'], ROOT],
   ['PI Agent Worker runtime', 'npm', ['run', 'check:pi-agent-worker-runtime'], ROOT],
   ['Documentation links', 'npm', ['run', 'check:docs'], ROOT],
@@ -47,7 +48,7 @@ const checks = [
   ['Evaluator mutation kill-rate', 'npm', ['run', 'check:eval-mutations'], ROOT],
   ['Judge calibration pipeline', 'npm', ['run', 'check:eval-judge-calibration'], ROOT],
   ['Frontend lint', 'npm', ['run', 'lint'], ROOT],
-  ['Frontend unit tests', 'npm', ['run', 'test:unit'], ROOT],
+  ['Frontend unit tests and coverage', 'npm', ['run', 'test:coverage'], ROOT],
   ['Frontend types', 'npm', ['run', 'type-check'], ROOT],
   ['Backend lint', 'uv', ['run', 'ruff', 'check', 'src', 'tests'], MARKET_DATA_ROOT],
   ['Backend tests', 'uv', ['run', 'pytest', '-q'], MARKET_DATA_ROOT],

@@ -2,12 +2,18 @@
 
 const { PrismaClient } = require('@prisma/client');
 const { chromium } = require('playwright');
+const { randomUUID } = require('node:crypto');
+const { loadProjectEnvironment } = require('../shared/load-env');
+
+loadProjectEnvironment();
 
 const baseUrl = process.env.BETTER_AUTH_URL || 'http://127.0.0.1:3000';
 const adminEmail = process.env.QUANTPILOT_AUTH_ADMIN_EMAIL || 'admin@quantpilot.local';
 const adminPassword = process.env.QUANTPILOT_AUTH_ADMIN_PASSWORD || 'admin';
-const memberEmail = 'authz-e2e-member@quantpilot.local';
-const projectId = 'authz-e2e-project';
+const scope = `authz-e2e-${randomUUID()}`;
+const memberEmail = `${scope}@quantpilot.local`;
+const projectId = `${scope}-member`;
+const foreignProjectId = `${scope}-admin`;
 const memberTestPassword = 'MemberVerification!2026';
 
 async function api(page, path, init = {}) {
@@ -46,11 +52,14 @@ async function changePassword(page, currentPassword, nextPassword) {
 }
 
 async function main() {
-  const startedAt = new Date();
   const prisma = new PrismaClient();
-  const browser = await chromium.launch({ headless: true });
-  let originalAdmin = null;
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.QUANTPILOT_CHROMIUM_EXECUTABLE_PATH || undefined,
+  });
   let memberId = null;
+  let adminPage = null;
+  const fixtureProjectIds = new Set();
   try {
     const admin = await prisma.authUser.findUnique({
       where: { email: adminEmail },
@@ -58,22 +67,22 @@ async function main() {
     });
     if (!admin || !admin.accounts[0]?.password) throw new Error('Local admin credential is missing.');
     if (admin.mustChangePassword) throw new Error('Local default admin unexpectedly requires a password change.');
-    originalAdmin = {
-      id: admin.id,
-      password: admin.accounts[0].password,
-      mustChangePassword: admin.mustChangePassword,
-      passwordChangedAt: admin.passwordChangedAt,
-    };
-
-    await prisma.authUser.deleteMany({ where: { email: memberEmail } });
-    const staleProject = await prisma.project.findUnique({ where: { id: projectId } });
-    if (staleProject) await prisma.project.delete({ where: { id: projectId } });
-
     const adminContext = await browser.newContext();
-    const adminPage = await adminContext.newPage();
+    adminPage = await adminContext.newPage();
     await login(adminPage, adminEmail, adminPassword);
     await adminPage.goto(`${baseUrl}/admin/users`, { waitUntil: 'networkidle' });
     await adminPage.getByRole('heading', { name: '用户管理' }).waitFor();
+
+    // Always exercise cross-project access, even in a fresh database. Never
+    // borrow a real user's project or change their membership for a smoke test.
+    fixtureProjectIds.add(foreignProjectId);
+    const foreignProjectResult = await api(adminPage, '/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ projectId: foreignProjectId, name: 'Authorization E2E Admin Project' }),
+    });
+    if (foreignProjectResult.status !== 201) {
+      throw new Error(`Admin fixture creation failed: ${foreignProjectResult.status}`);
+    }
 
     const created = await api(adminPage, '/api/admin/users', {
       method: 'POST',
@@ -96,6 +105,7 @@ async function main() {
     if (initialProjects.status !== 200 || (initialProjects.body?.data?.length ?? -1) !== 0) {
       throw new Error('Member project list was not isolated.');
     }
+    fixtureProjectIds.add(projectId);
     const createProject = await api(memberPage, '/api/projects', {
       method: 'POST',
       body: JSON.stringify({ projectId, name: 'Authorization E2E Project' }),
@@ -105,42 +115,39 @@ async function main() {
     const ownProject = await api(memberPage, `/api/projects/${projectId}`);
     if (ownProject.status !== 200) throw new Error('Project owner could not read their own project.');
 
-    const adminProjects = await api(adminPage, '/api/projects');
-    const foreignProject = adminProjects.body?.data?.find((project) => project.id !== projectId);
-    if (foreignProject) {
-      const forbiddenProject = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
-      if (forbiddenProject.status !== 404) {
-        throw new Error(`Cross-project access was not denied: ${forbiddenProject.status}`);
-      }
+    const foreignProject = foreignProjectResult.body.data;
+    const forbiddenProject = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
+    if (forbiddenProject.status !== 404) {
+      throw new Error(`Cross-project access was not denied: ${forbiddenProject.status}`);
+    }
 
-      const membershipPath = `/api/projects/${encodeURIComponent(foreignProject.id)}/members`;
-      const grantViewer = await api(adminPage, membershipPath, {
-        method: 'PUT',
-        body: JSON.stringify({ email: memberEmail, role: 'viewer' }),
-      });
-      if (grantViewer.status !== 200) {
-        throw new Error(`Grant viewer membership failed: ${grantViewer.status}`);
-      }
-      const viewerRead = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
-      if (viewerRead.status !== 200) throw new Error('Viewer could not read an assigned project.');
-      const viewerWrite = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`, {
-        method: 'PUT',
-        body: JSON.stringify({ name: foreignProject.name }),
-      });
-      if (viewerWrite.status !== 403) {
-        throw new Error(`Viewer write access was not denied: ${viewerWrite.status}`);
-      }
-      const removeViewer = await api(adminPage, membershipPath, {
-        method: 'DELETE',
-        body: JSON.stringify({ userId: memberId }),
-      });
-      if (removeViewer.status !== 200 || removeViewer.body?.data?.removedCount !== 1) {
-        throw new Error(`Remove viewer membership failed: ${removeViewer.status}`);
-      }
-      const afterMembershipRemoval = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
-      if (afterMembershipRemoval.status !== 404) {
-        throw new Error(`Removed viewer retained project access: ${afterMembershipRemoval.status}`);
-      }
+    const membershipPath = `/api/projects/${encodeURIComponent(foreignProject.id)}/members`;
+    const grantViewer = await api(adminPage, membershipPath, {
+      method: 'PUT',
+      body: JSON.stringify({ email: memberEmail, role: 'viewer' }),
+    });
+    if (grantViewer.status !== 200) {
+      throw new Error(`Grant viewer membership failed: ${grantViewer.status}`);
+    }
+    const viewerRead = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
+    if (viewerRead.status !== 200) throw new Error('Viewer could not read an assigned project.');
+    const viewerWrite = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: foreignProject.name }),
+    });
+    if (viewerWrite.status !== 403) {
+      throw new Error(`Viewer write access was not denied: ${viewerWrite.status}`);
+    }
+    const removeViewer = await api(adminPage, membershipPath, {
+      method: 'DELETE',
+      body: JSON.stringify({ userId: memberId }),
+    });
+    if (removeViewer.status !== 200 || removeViewer.body?.data?.removedCount !== 1) {
+      throw new Error(`Remove viewer membership failed: ${removeViewer.status}`);
+    }
+    const afterMembershipRemoval = await api(memberPage, `/api/projects/${encodeURIComponent(foreignProject.id)}`);
+    if (afterMembershipRemoval.status !== 404) {
+      throw new Error(`Removed viewer retained project access: ${afterMembershipRemoval.status}`);
     }
 
     const tokenAccess = await api(memberPage, '/api/tokens', {
@@ -161,38 +168,33 @@ async function main() {
       throw new Error(`Disabled member retained access: ${afterDisable.status}`);
     }
 
-    await api(adminPage, `/api/projects/${projectId}`, { method: 'DELETE' });
     await memberContext.close();
-    await adminContext.close();
     console.log('User management E2E: lifecycle, forced password change, membership roles, project isolation and revocation verified');
   } finally {
-    await prisma.authAuditEvent.deleteMany({ where: { createdAt: { gte: startedAt } } }).catch(() => undefined);
-    if (memberId) {
-      await prisma.authAuditEvent.deleteMany({
-        where: { OR: [{ actorUserId: memberId }, { targetId: memberId }, { targetId: projectId }] },
-      }).catch(() => undefined);
+    let cleanupFailed = false;
+    for (const id of fixtureProjectIds) {
+      try {
+        const result = await api(adminPage, `/api/projects/${id}`, { method: 'DELETE' });
+        if (![200, 404].includes(result.status)) throw new Error(`HTTP ${result.status}`);
+      } catch (error) {
+        cleanupFailed = true;
+        console.error(`Fixture ${id} retained for review: ${error.message}`);
+      }
     }
-    await prisma.project.deleteMany({ where: { id: projectId } }).catch(() => undefined);
-    await prisma.authUser.deleteMany({ where: { email: memberEmail } }).catch(() => undefined);
-    if (originalAdmin) {
-      await prisma.$transaction([
-        prisma.authAccount.update({
-          where: { providerId_accountId: { providerId: 'credential', accountId: originalAdmin.id } },
-          data: { password: originalAdmin.password },
-        }),
-        prisma.authUser.update({
-          where: { id: originalAdmin.id },
-          data: {
-            mustChangePassword: originalAdmin.mustChangePassword,
-            passwordChangedAt: originalAdmin.passwordChangedAt,
-          },
-        }),
-        prisma.authSession.deleteMany({ where: { userId: originalAdmin.id } }),
-      ]).catch(() => undefined);
+    try {
+      if (memberId && !cleanupFailed) {
+        await prisma.authUser.deleteMany({ where: { id: memberId, email: memberEmail } });
+      }
+      // Sign out only the browser session this run created. Audit records,
+      // concurrent administrator sessions and shared rate limits remain intact.
+      if (adminPage && !adminPage.isClosed()) {
+        await api(adminPage, '/api/auth/sign-out', { method: 'POST', body: '{}' }).catch(() => undefined);
+      }
+    } finally {
+      await browser.close();
+      await prisma.$disconnect();
     }
-    await prisma.authRateLimit.deleteMany().catch(() => undefined);
-    await browser.close();
-    await prisma.$disconnect();
+    if (cleanupFailed) process.exitCode = 1;
   }
 }
 

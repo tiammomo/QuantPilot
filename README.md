@@ -91,9 +91,14 @@ npm run dev
 | 仅启动量化后端 | `npm run dev:market` |
 | 指定主前端端口 | `npm run dev -- --port 3000` |
 | 单元与后端测试 | `npm test` |
+| 前端覆盖率门槛 | `npm run test:coverage` |
+| 依赖来源检查 | `npm run check:dependency-sources` |
+| PostgreSQL 持久化与并发测试 | 设置隔离的 `PI_AGENT_TEST_DATABASE_URL` 后运行 `npm run test:pi-agent:postgres` |
+| 产品指标桌面/移动端浏览器合同 | 构建后运行 `npm run test:e2e`，准备与证据说明见 [运行治理中心指南](docs/ops-platform-guide.md) |
 | 确定性发布质量门 | `npm run release:check` |
 | 含依赖审计与运行态诊断 | `npm run release:check:full` |
 | 数据库启动 | `npm run db:up && npm run db:init` |
+| 完整本地 Docker 基础设施 | `docker compose up -d` |
 | 数据库检查 | `npm run db:doctor` |
 | 本地单次消费 generation job | `PI_AGENT_DISPATCH_MODE=worker npm run worker:generation:once` |
 | 刷新交易日历、日线并校验覆盖 | `npm run market:maintain` |

@@ -21,6 +21,9 @@ jobs:
           node-version: '24'
           cache: npm
 
+      - name: Dependency source policy
+        run: npm run check:dependency-sources
+
       - name: Install dependencies
         run: npm ci
 
@@ -30,8 +33,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
-        run: npm run test:unit
+      - name: Unit tests and coverage gate
+        run: npm run test:coverage
 
       - name: Type check
         run: npm run type-check
@@ -84,6 +87,22 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Product outcome browser contracts
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Upload product outcome browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: product-outcome-browser-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            test-results/product-health/
+            playwright-report/
+
       - name: Standalone release build and runtime smoke
         run: |
           npm run build:standalone
@@ -93,6 +112,22 @@ jobs:
     name: Backend Market Data
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MARKET_TEST_DATABASE_URL: postgresql://quantpilot_test:quality_test_local@127.0.0.1:35434/quantpilot_financial_history_test
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: quantpilot_financial_history_test
+          POSTGRES_USER: quantpilot_test
+          POSTGRES_PASSWORD: quality_test_local
+        ports:
+          - 35434:5432
+        options: >-
+          --health-cmd "pg_isready -U quantpilot_test -d quantpilot_financial_history_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
     defaults:
       run:
         working-directory: services/market-data
@@ -288,8 +323,10 @@ jobs:
 
       - name: PiAgent PostgreSQL fencing integration
         env:
-          PI_AGENT_TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: npm run test:pi-agent:postgres
+          PI_AGENT_TEST_DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot_integration?schema=public
+        run: |
+          docker exec ${{ job.services.timescaledb.id }} psql -U quantpilot -d quantpilot -v ON_ERROR_STOP=1 -c 'CREATE DATABASE quantpilot_integration;'
+          npm run test:pi-agent:postgres
 
       - name: Enforce contract gate
         run: npm run eval:ci -- --min-pass-rate 100 --min-average-score 90 --min-first-pass-rate 100 --max-repair-rate 0 --min-stability-rate 100 --min-stability-confidence-lower 75 --max-score-standard-deviation 0

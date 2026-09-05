@@ -13,10 +13,10 @@ if (!databaseUrl) {
 
 const prismaPackage = require.resolve('prisma/package.json');
 const prismaBin = path.join(path.dirname(prismaPackage), 'build', 'index.js');
-console.log('[pi-agent-postgres] Provisioning the disposable database schema...');
+console.log('[pi-agent-postgres] Applying versioned migrations to the disposable database...');
 const provision = spawnSync(
   process.execPath,
-  [prismaBin, 'db', 'push', '--skip-generate'],
+  [prismaBin, 'migrate', 'deploy'],
   {
     cwd: process.cwd(),
     env: { ...process.env, DATABASE_URL: databaseUrl },
@@ -41,6 +41,8 @@ const vitestBin = path.join(path.dirname(vitestPackage), 'vitest.mjs');
 const testFiles = [
   'src/lib/agent/runtime/prisma-repository.integration.test.ts',
   'src/lib/services/pi-agent-tool-approval-store.integration.test.ts',
+  'src/lib/ops/product-health.integration.test.ts',
+  'src/lib/quant/market-freshness.integration.test.ts',
 ];
 const result = spawnSync(process.execPath, [vitestBin, 'run', ...testFiles], {
   cwd: process.cwd(),

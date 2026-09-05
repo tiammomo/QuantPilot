@@ -9,12 +9,15 @@
 | --- | --- | --- |
 | 用户、权限、项目和任务 | PostgreSQL `public` | 保留；只通过应用 API 删除真实项目 |
 | 行情、证券、财务和时序数据 | PostgreSQL `quant` / TimescaleDB | 保留；按数据源补数/修复，不作为测试垃圾清理 |
+| 财报历史版本 | `quant.financial_report_versions` | 只追加真实观测；修订追加新版本，禁止更新、删除或清空；保留历史查询证据 |
 | 生成 Workspace | `data/projects/<Project.id>` | 与 Project 同生命周期；创建先写 initializing 行并从隔离 staging 原子发布，删除前验证 canonical path，数据库删除成功后再清文件 |
 | 配额与用量账本 | PostgreSQL quota/usage 表 | 保留审计；项目删除后允许引用被置空，不能伪造回收额度 |
 | Memory/AKEP 使用回执 | PostgreSQL integration ledger | 按真实消费者审计保留；测试 Scope 随测试批次清理 |
 | 构建缓存和临时报告 | `.next`、`tmp`、coverage 等 | 可重建；使用 `npm run clean:local` |
 
 ## 测试隔离
+
+财报版本数据库回归只允许显式传入 `MARKET_TEST_DATABASE_URL` 且数据库名以 `_test` 结尾；使用独立本地 Docker PostgreSQL 和临时存储。未配置时跳过，不能借用应用的 `DATABASE_URL`。测试结束只销毁该测试容器，不清理真实归档记录。
 
 真实任务 E2E 的 Project ID 固定为 `project-e2e-<campaign>-<case>`，标题固定带
 `[E2E <CAMPAIGN>/<CASE>]`。`npm run check:task-e2e` 会先验证任务抽屉和报告；完整 30 题全部
@@ -30,6 +33,8 @@ npm run check:task-e2e -- --campaign=review01 --only=C01,C02 --cleanup
 ```
 
 不要把普通用户 Project 仅凭标题内容判断为测试数据；自动清理只接受严格的 campaign ID 前缀。
+
+`npm run auth:verify` 每次生成独立的 `authz-e2e-<uuid>` 用户和两个项目，在空库也会验证跨项目授权。项目清理通过应用 DELETE API 完成；清理失败时保留测试用户与项目并返回失败。认证烟测保留审计记录与共享限流记录，仅退出自己创建的管理员浏览器会话，不修改管理员密码或撤销其他会话。
 
 ## 备份与清理顺序
 

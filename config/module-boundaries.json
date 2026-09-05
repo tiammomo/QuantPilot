@@ -564,12 +564,6 @@
         "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
       },
       {
-        "path": "services/market-data/src/quantpilot_market_data/repositories/financial_history.py",
-        "maxLines": 300,
-        "targetLines": 300,
-        "nextAction": "仅负责不可变财报版本与历史查询；provider 抓取和 HTTP 错误映射留在 service/router。"
-      },
-      {
         "path": "src/lib/quant/validation/artifact-policy.ts",
         "maxLines": 500,
         "targetLines": 500,
@@ -712,6 +706,12 @@
         "maxLines": 150,
         "targetLines": 150,
         "nextAction": "保持文件树、编辑状态与 React 交互边界；文件读写竞态由独立状态单元回归。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/repositories/financial_history.py",
+        "maxLines": 300,
+        "targetLines": 300,
+        "nextAction": "仅负责不可变财报版本与历史查询；provider 抓取和 HTTP 错误映射留在 service/router。"
       }
     ]
   }

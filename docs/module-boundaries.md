@@ -38,14 +38,14 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | 文件 | 当前问题 | 目标 |
 | --- | --- | --- |
 | `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 685 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
-| `src/app/[project_id]/chat/page.tsx` | 页面仍同时管理消息、生成、预览恢复与大部分布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
+| `src/app/[project_id]/chat/page.tsx` | 文件树、独立编辑状态与 React hook 已迁出；页面仍管理消息、生成、预览恢复与布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
 | `src/lib/agent/pi/run-engine.ts` | 上游 PI loop 适配仍集中承接工具治理、事件投影与终态封存 | 保持单一 PI loop，并继续拆分 adapter、tool governance、event projection 与 terminalization |
-| `src/lib/quant/validation.ts` | artifact/data/visual/repair/acceptance 多条验证管线集中 | 拆成独立 validator，保留单一 facade |
-| `src/lib/quant/data-prefetch.ts` | 通用取数计划与金融 endpoint、证据落盘交织 | 抽离通用执行器与 Finance Data Adapter |
+| `src/lib/quant/validation.ts` | 已拆为 12 个职责模块，主入口 175 行 | 入口仅导出验证编排；准备、报告、修复等直接导入所属模块，单模块上限 500 行 |
+| `src/lib/quant/data-prefetch.ts` | 已拆为 9 个职责模块，主入口 262 行 | 保持规划、数据源、派生指标、图片证据与数据投影边界，单模块上限 500 行 |
 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | 已拆出 helpers、金融知识、股票池、K 线详情、板块资金、因子目录和基础组件视图；主 client 仍承载弹窗和部分扫描编排 | 继续拆成 dialogs、hooks、tables |
 | `src/lib/quant/strategies.ts` | 已拆出 `strategy-types`、`strategy-catalog`、`strategy-scan-repository`、`strategy-readiness` 和 `strategy-mappers`，公共入口从 1787 行降至约 1140 行 | 继续拆出 `strategy-market-client.ts` 和 `strategy-dashboard-service.ts` |
 | `src/lib/eval/runtime.ts` | cases/sets、paths、runtime-utils 和 report/database mappers 已拆出，runtime 当前约 1071 行 | 继续拆成 `src/lib/eval/runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
-| `services/market-data/.../models.py` | 所有 Pydantic contract 集中在单文件 | 按 quotes、research、ingestion、financials、analytics 分包 |
+| `services/market-data/.../contracts/` | 已按 8 个领域拆分 Pydantic contract，最大模块 346 行 | 直接导入所属合同模块；每个模块上限 400 行 |
 | `services/market-data/.../api.py` | app factory 仍混有少量业务装配 | 只保留应用创建、依赖注入和 router 注册；旧 `database.py` 已删除且门禁禁止恢复 |
 
 这些债务暂时以 `largeFileBudgets` 形式进入质量门。超过硬上限会失败，超过目标线会警告。
@@ -53,8 +53,8 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 ## 后续拆分顺序
 
 1. 继续拆 Chat Page Controller：Act route 已降为 HTTP 接纳与 dispatch，ChatLog 已拆为状态控制器、协议运行时和纯视图；页面级 generation controller、preview reconciliation 与布局仍是聊天主链最大热点。
-2. 再拆验证与取数：项目 provision 已由 `DataAgentApplicationCatalog` 和 Finance Adapter 驱动，下一步把通用数据执行器从金融 endpoint/证据落盘中抽离。
-3. 拆市场数据 contracts 与 app factory，保证每个 router/service/repository 域可以独立测试。
+2. 验证与取数已完成职责拆分；保持编排单一入口，各领域能力直接导入，继续用真实 build/修复/沙箱合同控制行为变化。
+3. 市场数据 contracts 已拆分；继续收敛 app factory，并为新增数据持久化域建立独立 Docker PostgreSQL 回归。
 4. 随后拆策略平台与 `eval-core`，并把 dashboard Delivery Pack 提取为独立注册能力。
 5. 最后把第二个真实非金融 Profile/Connector/handler 接入 Catalog，用跨领域评测证明通用边界，而不是增加示例空壳。
 

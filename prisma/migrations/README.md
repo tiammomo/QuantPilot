@@ -7,8 +7,7 @@ metering, governed Memory/Knowledge usage, durable generation dispatch, Data
 Agent composition locking, global Worker capacity and Worker process registry.
 None of these migrations contains a destructive reset.
 
-The directory contains 28 ordered migrations at this revision. The filesystem
-is the authoritative list; do not copy a shortened list into deployment
+The filesystem is the authoritative list of ordered migrations; do not copy a shortened list into deployment
 automation:
 
 ```bash
@@ -32,8 +31,10 @@ database.
 Normal application startup, `db:init`, and production releases use
 `prisma migrate deploy`. Raw `prisma db push` is not an equivalent deployment
 path: Prisma schema introspection does not preserve every checked-in CHECK
-constraint or partial unique index. The package command `npm run prisma:push`
-is retained as a compatibility alias for the versioned deploy/bootstrap chain.
+constraint or partial unique index. PostgreSQL integration tests also apply
+versioned migrations to an isolated disposable database, so they exercise the
+same database constraints as application deployments. Use `npm run prisma:deploy`
+for the versioned deploy/bootstrap chain.
 
 ## New, empty database
 

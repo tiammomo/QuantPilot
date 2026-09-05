@@ -16,6 +16,59 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 - generation 已由 PostgreSQL job/outbox 和独立 Worker 执行；评测、策略扫描和补数仍需统一暂停、恢复、失败重试与事件语义。
 - 本地 Qwen 与 DeepSeek Anthropic 上游已通过 ModelPort 的限定模型发现、鉴权、流式工具调用和续写验收；ModelPort 已为 OpenAI Chat Completions 应用本地 Qwen 默认思考策略，避免工具任务耗尽隐藏推理预算。Query Rewrite 已升级为 schema v4 LLM-first 合同，保持“大位科技”等原文实体，并在模型不可用时停止规划/预取，不再走关键词语义降级。Evolvable User Memory 已通过隔离 subject 的写入、召回、项目隔离、提示注入和 Outcome 闭环；AKEP 已通过自然语言检索、Citation、Usage 与 Feedback 幂等闭环。服务级固定 30 题体验集连续两轮 60/60 通过；任务级 campaign 进一步以 24 个 Qwen、6 个 ModelPort DeepSeek 的真实 Project 验证 `/act`、Workspace、Validation、Mission receipt、持久预览和任务抽屉，最终 30/30 READY。当前本地长期使用链路已打通；Memory 的持久治理、耐久审计、可信 JWT 和 production profile 仍是生产阻塞项。
 
+## 北极星与产品结果
+
+下一阶段围绕“可信数据 → 可复现实验 → 持续研究 → 结果复盘”推进，优先补齐量化研究闭环与数据能力。新增控制台、Provider 和微服务拆分不作为当前主线。
+
+后续优化不只看服务存活和测试通过，也看用户是否稳定获得可验收的研究交付。第一批口径已进入运行治理中心，默认观测最近 7 天；当前窗口指标与最终北极星指标必须明确区分。
+
+| 层级 | 核心指标 | 当前动作 | 下一阶段目标 |
+| --- | --- | --- | --- |
+| 产品 | 首个有效研究完成率 | 已有请求终态完成率和 Mission 验收率；验收要求匹配的 accepted receipt | 建立首次研究 cohort、观察窗口与失败分类，不能用全部请求完成率替代 |
+| 效率 | 首次有效交付耗时 | 已有全部已验收 Mission 的中位耗时、P90/P95；排除异常时间 | 增加首个研究时长、排队/阶段耗时，连续两周建立基线后再设 SLO |
+| 留存 | 7 日复用率 | 已有窗口内重复研究率与活跃项目；页面说明不等同第 7 日留存 | 增加成熟的 7/30 天 cohort、跨日复用和项目漏斗，明确时区和未成熟样本 |
+| 信任 | 证据通过率、数据新鲜度 | 已展示验收证据完整率，核对回执归属/版本/结论 | 加入验证尝试的首次通过率；对报告来源、时间、点时一致性建立证据链 |
+| 成本 | 单任务成本 | AgentRun 记录 token 用量；尚无覆盖规划、重试和修复的任务金额账单 | 以 request/run 绑定计费回执、币种、价格版本和缺失标记；未知金额不能计为零 |
+
+90 天优先级按“产品闭环 → 数据可信 → 策略可复现 → 工程效率”排序：先让产品结果可观测，再完成 point-in-time 数据和回测偏差治理，然后增加策略版本/种子/费用的可复现性，最后持续拆解高风险大文件并收紧测试门禁。
+
+### 90 天实施节奏
+
+| 阶段 | 前端与产品 | 后端与数据 | AI 与策略 | 质量、安全与运维 |
+| --- | --- | --- | --- | --- |
+| 0-30 天 | 打通服务集成反馈、错误态和无障碍；建立任务漏斗 | 拆分生命周期路由；补指标查询索引与数据降级 | 固定 Mission 验收口径；补失败分类 | 关键 API 合同测试、覆盖率基线、依赖显式化 |
+| 31-60 天 | 拆分 chat 页面 hooks/timeline/runtime controls；补关键页面 E2E | point-in-time 财报/行业映射；数据新鲜度 SLO | 回测统一费用、滑点、复权、停牌与未来函数检查 | API 耗时/错误率、分布式 trace、覆盖率增量门禁 |
+| 61-90 天 | 7/30 天 cohort、项目漏斗和个性化默认值 | 评测/扫描/补数统一 job 模型；容量与成本预算 | 策略版本、数据快照、随机种子和结果签名可复现 | SBOM/锁文件来源治理、恢复演练、SLO 告警与错误预算 |
+
+### 当前迭代与接续批次
+
+2026-09-05 这轮先收敛 P0 的产品观测基础：匹配验收回执后才统计有效交付，展示证据缺失、耗时分位数和最近 10,000 条请求的截断范围；将产品指标展示迁出主页面。补上治理 API 权限/缓存/降级合同，以及采样边界、错误回执和异常耗时回归。产品指标已建立标准 Playwright spec，覆盖桌面/移动端的刷新、降级和接口失败，并接入 CI；生成任务全链路的浏览器 spec 仍待补齐。已有 CI 覆盖率门槛为 lines 51%、functions 52%、branches 42%、statements 50%，门槛是最低基线，不能代替关键路径验收。
+
+同日工程减险批次已把 Python 数据契约拆为 8 个领域模块，迁移全部调用方并删除旧 `models.py` 门面；85 个模型 JSON Schema 与 43 个接口的 OpenAPI 合同保持一致。清理 5 个无调用方的旧组件/占位文件，统一脚本环境优先级、Compose 默认端口和 npm 锁文件来源，增加对应回归门禁。PostgreSQL 集成测试改为真实迁移建库，覆盖运行时数据库约束、并发接管、审批及产品指标持久化查询。
+
+2026-09-06 联调继续修复了行情新鲜度查询：未来日历不能覆盖历史休市日的判断，未来日期的行情不能成为当前覆盖率样本；新增 PostgreSQL 回归验证两个场景。认证烟测改为独立用户与项目，不再借用业务项目、恢复管理员密码或清空共享审计/限流记录。Prisma 间接依赖和桌面构建工具链的已知漏洞已修复，全量 npm 审计通过；验证与取数职责拆分、聊天编辑器解耦在接续批次推进。
+
+生成评测进一步发现并修复了沙箱启动问题：沙箱 PATH 只使用实际挂载的 Node 目录和系统工具，修复版本管理器软链接不可见导致的 npm 启动失败；先建立私有 `/tmp`，再挂载工作空间，支持临时目录中的工作空间。真实 namespace 回归验证 npm 可运行、宿主文件和凭据仍不可见。Linux 本机可运行 `QUANTPILOT_TEST_GENERATED_SANDBOX=1 npx vitest run src/lib/security/generated-project-sandbox.test.ts`。运行诊断的 HTTP 探测也增加了总时限，防止不可达端口或持续发送数据的响应阻塞整个 doctor。
+
+本轮验收：完整发布质量门通过，前端 1,250 项、隔离 PostgreSQL 集成 26 项、Python 114 项、桌面/移动端浏览器 4 项及认证生命周期烟测通过；16 个合约评测全部通过，平均分 92。CI 的 PostgreSQL 集成数据库已与合约评测数据库分离，真实 TimescaleDB 容器复测通过。六个基础组件通过本地 Docker 安装；默认股票池 300 个标的补数成功，最新交易日 2026-09-04 覆盖 298 个标的，达到原有 250 个门槛，并同步到 ClickHouse 分析投影。ClickHouse 空表的最新日期改为 `null`，不再显示 1970 年。此次是合约与真实基础设施验收；当前环境缺少模型凭据，未重新执行真实 LLM Mission E2E，也尚未覆盖完整历史数据与 point-in-time 研究。
+
+2026-09-06 接续批次已将 validation 拆为 12 个模块、入口收敛到 175 行；prefetch 拆为 9 个模块、入口收敛到 262 行，调用方直接导入所属能力，删除旧聚合调用。迁移核对保留 137 个函数体，相关 89 项回归通过，新增模块统一限制在 500 行以内。聊天文件树、编辑状态与 hook 已迁出，主页面减少约 570 行；修复迟到读写响应覆盖其他文件、后台刷新覆盖草稿、保存期间继续输入丢失，以及错误文本可被当成源码保存的问题。目录按展开加载，避免状态更新函数中的网络副作用与重复路径拼接；手机改为目录在上、编辑区在下，避免固定侧栏挤占编辑宽度。
+
+数据可信批次新增 `quant.financial_report_versions` 与管理员采集接口，财报/财务指标支持带时区的 `as_of`。只返回截止时点前已观测且已公告的不可变版本，保留修订与内容回退，返回内容哈希和数据版本；缺公告、未来时点、数据库故障与内容损坏均不能以最新数据补齐。真实本地 PostgreSQL 的并发、防篡改、历史隔离与修订回退回归通过；600519 的 8 期真实财报已归档，重复采集新增 0 期，固定时点财报与指标版本一致。当前只从首次观测积累，尚未覆盖历史回填、自动调度、所有研究计划参数传递、复权事件与历史行业成分。
+
+接续批次验收：完整发布质量门、前端 1,256 项测试、隔离 PostgreSQL 26 项、Python 123 项（含财报归档 PostgreSQL 回归）及桌面/移动端浏览器 8 项通过。覆盖率为语句 50.95%、分支 43.99%、函数 53.81%、行 52.61%，满足既有门槛。生产构建通过，本地 Web 与 market-data 恢复运行；金融合约评测需与最终工作树指纹一致，真实模型 Mission E2E 仍需模型凭据。
+
+接续工作按下面顺序交付，每批都以代码、合同测试和可审查证据收尾：
+
+| 批次 | 交付 | 验收 |
+| --- | --- | --- |
+| P0 产品指标闭环 | 首次研究 cohort、首次有效交付时间、成熟 7 日复用、任务账单归因 | 跨窗口历史请求、匿名用户、失败重试、币种和账单缺失都有明确口径与回归 |
+| P0 工程减险 | Python contracts、validation、prefetch 与文件编辑状态拆分已落地；继续拆聊天生成/预览状态机，关键任务入口补标准 Playwright spec | 保持现有生成/修复合同，降低模块预算；关键页面覆盖成功、失败、等待输入、移动端 |
+| P1 数据可信 | 财报观测/修订归档已落地；继续自动采集、研究计划点时参数、复权事件、退市证券、历史行业成分、lineage 与许可信息 | 任意研究时点只读取当时已知版本；freshness、coverage、跨源差异可解释 |
+| P1 实验可复现 | 版本化因子批处理、截面排名、行业中性化、IC/IR；组合回测固化数据/策略/参数版本 | 费用、滑点、停牌、涨跌停、容量、再平衡与样本外检查固定；同一快照可复跑 |
+| P1 持续研究与复盘 | 观察池、定时报告、研究假设、证据、决策日志、后续结果和归因关联 | 每条研究结论可追溯证据，并能按原始假设回看后续表现 |
+| P2 模拟组合与质量运营 | 研究用 Portfolio/Holding/Snapshot、风险暴露与归因；金融对抗回放、质量/成本/延迟 canary | 仅模拟研究；覆盖未来函数、复权错误、过期行情、幻觉引用与标的歧义 |
+
 ## 精炼优先级快照
 
 文档不需要简单“删短”，需要压入口、去重复、把路线集中维护。代码不需要为了行数硬拆，需要优先拆职责最混杂、回归风险最高的文件。
@@ -26,10 +79,10 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 文档路线 | 各专题文档里的“后续建议” | 后续事项散落，读者不知道优先级 | 集中到本文，专题文档只保留本主题强相关下一步 |
 | 生成脚手架 | `scaffold.ts`、`scaffold-base-templates.ts`、`scaffold-dashboard-templates.ts` | 基础模板和三类专用看板模板均已迁出并加入真实 Next build 门禁，writer 主文件从 5715 行降至约 685 行 | 继续拆 workspace writer、dependency planner、repair adapter，并压缩模板内部重复 helper |
 | 聊天页面 | `src/app/[project_id]/chat/page.tsx`、`src/components/chat/ChatLog.tsx` | 页面状态、消息渲染、运行时控制和附件交互耦合 | 拆 hooks、message timeline、runtime controls、files panel |
-| 验证链路 | `src/lib/quant/validation.ts` | build、HTTP、数据、证据、截图和 stale report 检查混杂 | 拆 validators、report writer、repair summary |
+| 验证链路 | `src/lib/quant/validation.ts` | 检查、报告、修复和恢复已独立，入口 175 行 | 保持直接能力导入和各模块 500 行预算 |
 | 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | response mappers 已迁出并有单测，API client、dashboard 编排和部分页面交互仍集中 | 继续拆 market client、dashboard service、hooks、dialogs |
 | 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，当前约 1071 行，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
-| 市场数据后端 | `models.py`、`api.py`、`repositories/universes.py` | contracts 和应用装配偏大，universe repository 同时处理读取、写入、清洗 | 按 contract domains、routers、membership hygiene 拆小；旧 `database.py` 门面已删除 |
+| 市场数据后端 | `contracts/`、`api.py`、`repositories/universes.py` | contracts 已拆为 8 个领域，最大 346 行；生命周期路由已迁出，universe repository 仍混合读取、写入、清洗 | 新契约模块预算 400 行；继续拆应用装配和 membership hygiene；旧 `models.py`、`database.py` 门面已删除 |
 
 ## P0：先让项目更容易被理解和发布
 
