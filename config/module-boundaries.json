@@ -393,6 +393,10 @@
       {
         "path": "services/market-data/src/quantpilot_market_data/database.py",
         "reason": "数据库连接与业务 SQL 已拆入 database_core 和 repositories。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/models.py",
+        "reason": "数据合同已迁入 contracts/ 各领域，调用方直接导入所属模块，不恢复单文件合同门面。"
       }
     ],
     "forbiddenContent": [
@@ -488,12 +492,6 @@
         "nextAction": "将通用数据计划、金融 endpoint adapter、证据落盘和错误归一化拆开。"
       },
       {
-        "path": "services/market-data/src/quantpilot_market_data/models.py",
-        "maxLines": 1625,
-        "targetLines": 900,
-        "nextAction": "按 quotes、research、ingestion、financials、analytics 分拆 Pydantic contracts，并由 models package 统一导出。"
-      },
-      {
         "path": "services/market-data/src/quantpilot_market_data/api.py",
         "maxLines": 1540,
         "targetLines": 700,
@@ -516,6 +514,60 @@
         "maxLines": 1080,
         "targetLines": 850,
         "nextAction": "已拆 cases/sets、paths、runtime-utils 和 report/database mappers；继续拆 runs / queue / repairs / scheduling，保留 src/lib/eval 作为唯一公开入口。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/analysis.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/analytics.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/common.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/foundation.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/fundamentals.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/ingestion.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/quotes.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/universes.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留所属领域的请求、响应和校验；业务取数与编排留在 services/。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/repositories/financial_history.py",
+        "maxLines": 300,
+        "targetLines": 300,
+        "nextAction": "仅负责不可变财报版本与历史查询；provider 抓取和 HTTP 错误映射留在 service/router。"
       }
     ]
   }

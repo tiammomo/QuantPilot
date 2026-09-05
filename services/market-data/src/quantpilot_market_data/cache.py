@@ -11,7 +11,7 @@ from typing import Any, Literal
 import redis.asyncio as redis
 from redis.exceptions import RedisError
 
-from quantpilot_market_data.models import FetchMetadata
+from quantpilot_market_data.contracts.common import FetchMetadata
 
 CacheStatus = Literal["hit", "miss", "disabled"]
 

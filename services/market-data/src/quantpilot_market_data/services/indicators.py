@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from quantpilot_market_data.cache import MarketDataCache
-from quantpilot_market_data.indicators import build_technical_indicators
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.quotes import (
     Adjustment,
     KlinePeriod,
     TechnicalIndicatorsResponse,
 )
+from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.providers.base import HistoricalKlineProvider
 from quantpilot_market_data.services.caching import cache_response, read_cached_response
 from quantpilot_market_data.services.kline_gateway import (

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from quantpilot_market_data.api import create_app
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.foundation import (
     TradingCalendarDay,
     TradingCalendarRefreshRequest,
     TradingCalendarRefreshResponse,

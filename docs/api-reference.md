@@ -243,9 +243,14 @@ fundamental 复用 financials；单个上游故障不会丢弃其他成功区块
 | `/api/v1/backtests/ma-crossover/{symbol}` | `GET` | 均线交叉回测 |
 | `/api/v1/backtests/strategies/{strategy_id}/{symbol}` | `GET` | 策略模板回测 |
 | `/api/v1/fundamentals/financials/{symbol}` | `GET` | 财务报表摘要 |
+| `/api/v1/fundamentals/financials/{symbol}/capture` | `POST` | 管理员采集真实财报版本，`limit` 为 1–40，绕过最新缓存 |
 | `/api/v1/indicators/fundamental/{symbol}` | `GET` | 财务衍生指标 |
 | `/api/v1/events/announcements/{symbol}` | `GET` | 公告事件 |
 | `/api/v1/events/dividends/{symbol}` | `GET` | 分红除权事件 |
+
+财报和基本面指标 GET 均支持带时区的 `as_of`，例如 `2026-09-06T00:00:00Z`。参数省略时仍查询最新数据，并明确返回 `knowledge.point_in_time=false`；传入后只读不可变版本表，返回 `knowledge.cutoff`、`data_version` 与逐条 `vintages`。无时区或未来时点返回 400，数据库不可用或内容校验失败返回 503，无历史样本返回空结果与质量提示。采集接口使用现有 `X-QuantPilot-Admin-Token` 鉴权，返回插入、重复、缺报告期和缺公告时间的计数。
+
+历史能力仅从首次观测开始，不推测首次采集之前的数据版本。时间与存储字段详见 [财报点时版本](data-dictionary.md#财报点时版本)。
 
 财务现金流字段使用稳定合同，不要求 Skills 读取 provider 私有 `raw`：
 

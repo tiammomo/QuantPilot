@@ -11,6 +11,12 @@ from quantpilot_market_data.clickhouse import (
     is_clickhouse_enabled,
     query_screener_feature_rows,
 )
+from quantpilot_market_data.contracts.analytics import (
+    AnalyticsExecutionMetadata,
+    AShareScreenerCandidate,
+    AShareScreenerResponse,
+    ScreenerMode,
+)
 from quantpilot_market_data.database_core import (
     bool_or_none,
     connect,
@@ -18,12 +24,6 @@ from quantpilot_market_data.database_core import (
     decimal_ratio,
     percent_change,
     security_sector_fields,
-)
-from quantpilot_market_data.models import (
-    AnalyticsExecutionMetadata,
-    AShareScreenerCandidate,
-    AShareScreenerResponse,
-    ScreenerMode,
 )
 from quantpilot_market_data.repositories.analytics import sync_clickhouse_daily_bars
 

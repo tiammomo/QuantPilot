@@ -56,7 +56,7 @@ flowchart LR
 | `database_core.py` | Shared Core | 数据库连接、日期规范化、Decimal/JSON 转换、证券元数据解析等无业务状态工具 |
 | `analytics/` | Analytics Adapter | ClickHouse 初始化、同步、宽表和分析查询 |
 | `cache.py` | Cache Aside | 本地 JSON 缓存和 Redis 短 TTL 缓存 |
-| `models.py` | Contract | Pydantic 请求/响应模型和共享枚举 |
+| `contracts/` | Contract | Pydantic 请求/响应模型和共享枚举 |
 
 当前 `api.py` 仍承担应用装配和少量待迁移路由；旧 `database.py` 兼容门面已经删除。后续新增能力优先落到目标目录，再由 app factory 显式注册 router。
 
@@ -95,7 +95,7 @@ TimescaleDB 是事实主库，ClickHouse 是旁路分析层。ClickHouse 不替�
 | 需求 | 优先落点 |
 | --- | --- |
 | 新行情源 | `providers/` + `provider_candidates.py` + 数据源文档 |
-| 新接口 | `routers/` 新 route + `services/` use case + `models.py` contract |
+| 新接口 | `routers/` 新 route + `services/` use case + `contracts/` contract |
 | 新数据表 | `sqls/` + `repositories/` + 数据字典 |
 | 新缓存 | service 内 cache-aside，TTL 写入 README 和 infrastructure |
 | 新 ClickHouse 分析 | `analytics/` adapter + init/sync endpoint + 降级说明 |

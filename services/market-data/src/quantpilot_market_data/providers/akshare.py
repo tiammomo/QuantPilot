@@ -8,12 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from quantpilot_market_data.models import (
-    Adjustment,
-    KlineBar,
-    KlinePeriod,
-    KlineResponse,
-)
+from quantpilot_market_data.contracts.quotes import Adjustment, KlineBar, KlinePeriod, KlineResponse
 from quantpilot_market_data.providers.base import ProviderCapability
 from quantpilot_market_data.providers.eastmoney import (
     infer_asset_type,

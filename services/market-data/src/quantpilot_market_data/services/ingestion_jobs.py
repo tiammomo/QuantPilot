@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.ingestion import (
     IngestionJobControlRequest,
     IngestionJobControlResponse,
     IngestionJobsResponse,

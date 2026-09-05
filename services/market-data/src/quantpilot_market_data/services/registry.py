@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from quantpilot_market_data.clickhouse import is_clickhouse_enabled
-from quantpilot_market_data.models import DataProviderInfo, DataRegistryResponse
+from quantpilot_market_data.contracts.foundation import DataProviderInfo, DataRegistryResponse
 
 
 @dataclass(frozen=True)

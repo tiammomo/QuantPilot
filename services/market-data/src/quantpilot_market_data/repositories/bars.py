@@ -5,6 +5,11 @@ from decimal import Decimal
 
 from psycopg.rows import dict_row
 
+from quantpilot_market_data.contracts.quotes import (
+    LocalKlineBar,
+    LocalKlineResponse,
+    LocalKlineSummary,
+)
 from quantpilot_market_data.database_core import (
     SHANGHAI_TZ,
     bool_or_none,
@@ -12,11 +17,6 @@ from quantpilot_market_data.database_core import (
     first_decimal,
     first_text,
     json_object,
-)
-from quantpilot_market_data.models import (
-    LocalKlineBar,
-    LocalKlineResponse,
-    LocalKlineSummary,
 )
 
 __all__ = [

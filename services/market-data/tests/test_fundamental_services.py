@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from quantpilot_market_data.cache import MarketDataCache
-from quantpilot_market_data.models import FinancialReportItem
+from quantpilot_market_data.contracts.fundamentals import FinancialReportItem
 from quantpilot_market_data.services.fundamentals import (
     get_financial_reports,
     get_fundamental_indicators,
@@ -56,8 +56,8 @@ def test_fundamental_cache_namespaces_invalidate_pre_contract_payloads(tmp_path:
         get_fundamental_indicators(provider, cache, symbol="600111", limit=8, ttl_seconds=3600)
     )
 
-    assert financials.fetch.cache_key.startswith("fundamental-financials-v2-")
-    assert indicators.fetch.cache_key.startswith("fundamental-indicators-v2-")
+    assert financials.fetch.cache_key.startswith("fundamental-financials-v3-")
+    assert indicators.fetch.cache_key.startswith("fundamental-indicators-v3-")
     assert financials.reports[0].operating_cash_flow_per_share == Decimal("0.3084")
     assert indicators.points[0].operating_cash_flow_per_share == Decimal("0.3084")
     assert indicators.points[0].operating_cash_flow_per_share_yoy == Decimal("8.7064")

@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit
 
-from quantpilot_market_data.models import ClickHouseHealthResponse
+from quantpilot_market_data.contracts.foundation import ClickHouseHealthResponse
 
 try:
     import clickhouse_connect
@@ -210,7 +210,7 @@ async def get_clickhouse_health() -> ClickHouseHealthResponse:
             latest_rows = await asyncio.to_thread(
                 _query_rows,
                 f"""
-                SELECT max(trade_date) AS latest_trade_date
+                SELECT maxOrNull(trade_date) AS latest_trade_date
                 FROM {_table_name(DAILY_BARS_TABLE)}
                 """,
             )

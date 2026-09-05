@@ -80,7 +80,7 @@ Redis 是短期缓存，不是事实库。缓存丢了不应该影响长期研�
 | --- | --- |
 | `api.py` | FastAPI 应用工厂、依赖装配和待迁移的少量路由 |
 | `database_core.py` | 数据库连接、日期、Decimal、JSON 和证券元数据解析等基础函数 |
-| `models.py` | Pydantic 响应模型和请求模型 |
+| `contracts/` | Pydantic 响应模型和请求模型 |
 | `routers/` | Controller 边界，新增 HTTP 入口优先落这里 |
 | `services/` | Use Case 边界，编排缓存、降级、provider 和 repository |
 | `repositories/` | TimescaleDB/PostgreSQL 持久化边界，承接 analytics、bars、coverage、foundation、ingestion、sector_flow、screener、universes、upserts 和 research facade |

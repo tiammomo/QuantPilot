@@ -7,19 +7,19 @@ from typing import Any
 from psycopg.rows import dict_row
 
 from quantpilot_market_data.cache import RedisJsonCache
+from quantpilot_market_data.contracts.analytics import (
+    SectorCapitalFlowDetail,
+    SectorCapitalFlowItem,
+    SectorCapitalFlowMarketSummary,
+    SectorCapitalFlowMember,
+    SectorCapitalFlowTrendPoint,
+)
 from quantpilot_market_data.database_core import (
     bool_or_none,
     connect,
     decimal_or_none,
     percent_change,
     security_sector_fields,
-)
-from quantpilot_market_data.models import (
-    SectorCapitalFlowDetail,
-    SectorCapitalFlowItem,
-    SectorCapitalFlowMarketSummary,
-    SectorCapitalFlowMember,
-    SectorCapitalFlowTrendPoint,
 )
 
 DEFAULT_UNIVERSE_ID = "a-share-sample-research-pool"

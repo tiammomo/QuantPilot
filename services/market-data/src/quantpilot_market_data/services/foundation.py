@@ -3,8 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime
 
-from quantpilot_market_data.database_core import SHANGHAI_TZ
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.foundation import (
     DataQualityScanRequest,
     DataQualityScanResponse,
     FactorDefinitionResponse,
@@ -13,6 +12,7 @@ from quantpilot_market_data.models import (
     TradingCalendarRefreshResponse,
     TradingCalendarResponse,
 )
+from quantpilot_market_data.database_core import SHANGHAI_TZ
 from quantpilot_market_data.providers.baostock import (
     BaoStockError,
     fetch_baostock_trade_dates,

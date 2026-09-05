@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 from quantpilot_market_data.clickhouse import get_clickhouse_health, initialize_clickhouse
-from quantpilot_market_data.models import (
-    ClickHouseHealthResponse,
-    ClickHouseSyncRequest,
-    ClickHouseSyncResponse,
-)
+from quantpilot_market_data.contracts.analytics import ClickHouseSyncRequest, ClickHouseSyncResponse
+from quantpilot_market_data.contracts.foundation import ClickHouseHealthResponse
 from quantpilot_market_data.repositories.analytics import sync_clickhouse_daily_bars
 
 

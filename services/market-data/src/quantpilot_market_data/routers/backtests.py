@@ -5,7 +5,8 @@ from decimal import Decimal
 from fastapi import APIRouter, HTTPException, Request
 
 from quantpilot_market_data.cache import MarketDataCache
-from quantpilot_market_data.models import Adjustment, BacktestResponse, KlinePeriod
+from quantpilot_market_data.contracts.analysis import BacktestResponse
+from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod
 from quantpilot_market_data.providers.base import HistoricalKlineProvider
 from quantpilot_market_data.providers.eastmoney import EastMoneyError
 from quantpilot_market_data.services.backtests import (

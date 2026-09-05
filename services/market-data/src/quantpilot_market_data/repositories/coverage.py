@@ -4,11 +4,11 @@ from dataclasses import dataclass
 
 from psycopg.rows import dict_row
 
-from quantpilot_market_data.database_core import connect, coverage_status
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.foundation import (
     MarketDataCoverageItem,
     MarketDataCoverageSummary,
 )
+from quantpilot_market_data.database_core import connect, coverage_status
 
 __all__ = ["MarketDataCoveragePage", "get_market_data_coverage_page", "list_market_data_coverage"]
 

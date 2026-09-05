@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from quantpilot_market_data.cache import MarketDataCache
-from quantpilot_market_data.models import AnnouncementResponse, DividendEventsResponse
+from quantpilot_market_data.contracts.fundamentals import (
+    AnnouncementResponse,
+    DividendEventsResponse,
+)
 from quantpilot_market_data.providers.base import AnnouncementProvider, DividendEventProvider
 from quantpilot_market_data.services.caching import cache_response, read_cached_response
 

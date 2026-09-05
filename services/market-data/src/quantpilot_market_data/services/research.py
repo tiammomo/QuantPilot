@@ -2,25 +2,29 @@ from __future__ import annotations
 
 from datetime import date
 
-from quantpilot_market_data.models import (
-    Adjustment,
+from quantpilot_market_data.contracts.analytics import (
     AShareScreenerResponse,
+    ScreenerMode,
+    SectorCapitalFlowResponse,
+)
+from quantpilot_market_data.contracts.foundation import MarketDataCoverageResponse
+from quantpilot_market_data.contracts.quotes import (
+    Adjustment,
+    KlinePeriod,
+    LocalKlineResponse,
+    SymbolResolveResult,
+)
+from quantpilot_market_data.contracts.universes import (
     AShareUniverseBatchImportRequest,
     AShareUniverseBatchImportResponse,
     ETFUniverseBatchImportRequest,
     ETFUniverseBatchImportResponse,
-    KlinePeriod,
-    LocalKlineResponse,
-    MarketDataCoverageResponse,
     ResearchUniverseHygieneResponse,
     ResearchUniverseMemberCreateRequest,
     ResearchUniverseMemberCreateResponse,
     ResearchUniverseMembersPageResponse,
     ResearchUniverseResponse,
     ResearchUniverseSummaryResponse,
-    ScreenerMode,
-    SectorCapitalFlowResponse,
-    SymbolResolveResult,
 )
 from quantpilot_market_data.providers.base import ResearchUniverseProvider
 from quantpilot_market_data.repositories.research import (

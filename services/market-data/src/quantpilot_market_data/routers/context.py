@@ -5,12 +5,11 @@ from typing import cast
 from fastapi import APIRouter, HTTPException
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache
-from quantpilot_market_data.models import (
-    Adjustment,
+from quantpilot_market_data.contracts.analysis import (
     AnalysisContextResponse,
     AnalysisContextSectionName,
-    KlinePeriod,
 )
+from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod
 from quantpilot_market_data.providers.base import AnalysisContextProvider
 from quantpilot_market_data.services.context import get_analysis_context
 

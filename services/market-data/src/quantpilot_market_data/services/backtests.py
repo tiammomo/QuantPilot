@@ -4,7 +4,8 @@ from decimal import Decimal
 
 from quantpilot_market_data.backtest import build_ma_crossover_backtest, build_strategy_backtest
 from quantpilot_market_data.cache import MarketDataCache
-from quantpilot_market_data.models import Adjustment, BacktestResponse, KlinePeriod
+from quantpilot_market_data.contracts.analysis import BacktestResponse
+from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod
 from quantpilot_market_data.providers.base import HistoricalKlineProvider
 from quantpilot_market_data.services.caching import cache_response, read_cached_response
 from quantpilot_market_data.services.kline_gateway import (

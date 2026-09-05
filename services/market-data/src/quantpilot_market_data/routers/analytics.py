@@ -3,12 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from quantpilot_market_data.clickhouse import ClickHouseError
+from quantpilot_market_data.contracts.analytics import ClickHouseSyncRequest, ClickHouseSyncResponse
+from quantpilot_market_data.contracts.foundation import ClickHouseHealthResponse
 from quantpilot_market_data.database_core import DatabaseError
-from quantpilot_market_data.models import (
-    ClickHouseHealthResponse,
-    ClickHouseSyncRequest,
-    ClickHouseSyncResponse,
-)
 from quantpilot_market_data.security import require_market_admin
 from quantpilot_market_data.services.analytics import (
     get_clickhouse_analytics_health,

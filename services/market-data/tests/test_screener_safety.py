@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from quantpilot_market_data.models import AShareScreenerResponse
+from quantpilot_market_data.contracts.analytics import AShareScreenerResponse
 from quantpilot_market_data.repositories.screener import (
     _is_known_tradable,
     _screener_coverage,

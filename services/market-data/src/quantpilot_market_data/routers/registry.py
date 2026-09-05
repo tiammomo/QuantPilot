@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from quantpilot_market_data.models import DataRegistryResponse
+from quantpilot_market_data.contracts.foundation import DataRegistryResponse
 from quantpilot_market_data.services.registry import ProviderRegistryTtls, build_data_registry
 
 

@@ -5,19 +5,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
-from quantpilot_market_data.models import (
-    Adjustment,
+from quantpilot_market_data.contracts.common import AssetType, MarketCode
+from quantpilot_market_data.contracts.fundamentals import (
     AnnouncementItem,
-    AssetType,
     DividendEvent,
     FinancialReportItem,
+)
+from quantpilot_market_data.contracts.quotes import (
+    Adjustment,
     KlineBar,
     KlinePeriod,
     KlineResponse,
-    MarketCode,
     RealtimeQuote,
     SymbolResolveResult,
 )
@@ -981,7 +983,7 @@ def parse_financial_reports_payload(
             revenue_yoy=_to_decimal(item.get("YSTZ")),
             net_profit_yoy=_to_decimal(item.get("SJLTZ")),
             operating_cash_flow_per_share=_to_decimal(item.get("MGJYXJJE")),
-            notice_date=_parse_datetime(item.get("NOTICE_DATE")),
+            notice_date=_parse_financial_notice_datetime(item.get("NOTICE_DATE")),
             raw=item,
         )
         for item in data
@@ -1190,6 +1192,18 @@ def _timestamp_to_datetime(value: Any) -> datetime | None:
     if seconds is None or seconds <= 0:
         return None
     return datetime.fromtimestamp(seconds, tz=UTC)
+
+
+def _parse_financial_notice_datetime(value: Any) -> datetime | None:
+    if value in (None, "-", ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return parsed.astimezone(UTC)
 
 
 def _parse_datetime(value: Any) -> datetime | None:

@@ -5,13 +5,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from math import sqrt
 from typing import Any
 
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.analysis import (
     BacktestEquityPoint,
     BacktestResponse,
     BacktestSummary,
     BacktestTrade,
-    KlineResponse,
 )
+from quantpilot_market_data.contracts.quotes import KlineResponse
 
 
 def _round(value: Decimal | None, places: int = 4) -> Decimal | None:

@@ -233,6 +233,17 @@ curl 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519?limit=8'
 
 ### 财务衍生指标
 
+财报与财务指标支持 `as_of` 严格历史查询，要求包含时区且不晚于当前时间，例如：
+
+```bash
+curl --get 'http://127.0.0.1:8000/api/v1/fundamentals/financials/600519' \
+  --data-urlencode 'as_of=2026-09-06T00:00:00+08:00' --data-urlencode 'limit=8'
+```
+
+先执行新增的 `sqls/010-financial-report-versions.sql`，再由管理员调用 `POST /api/v1/fundamentals/financials/{symbol}/capture?limit=40` 采集最新源数据（使用现有 `X-QuantPilot-Admin-Token`，不在命令历史中写入明文凭据）。重复内容复用版本，修订只追加。历史查询只返回截止时点前已经观测且已经公告的版本，并校验 `knowledge.data_version` 对应的内容。未积累的历史返回空样本，数据库故障返回 503，不会调用最新源或缓存补齐。未传 `as_of` 时仍返回最新数据，并标记 `knowledge.point_in_time=false`。
+
+这不是历史财报回填：首次采集以前的版本尚不可知；自动采集调度、研究计划的点时参数传递，以及复权/行业/退市证券历史仍待接入。字段与时间口径见 [财报点时版本](../../docs/data-dictionary.md#财报点时版本)。
+
 ```bash
 curl 'http://127.0.0.1:8000/api/v1/indicators/fundamental/600519?limit=8'
 ```
@@ -253,7 +264,7 @@ curl 'http://127.0.0.1:8000/api/v1/events/announcements/600519?limit=20'
 - `quantpilot_market_data/providers/akshare.py`：AKShare 可选补数字段 provider。
 - `quantpilot_market_data/database_core.py`：数据库连接、日期和序列化等共享基础函数。
 - `quantpilot_market_data/repositories/`：TimescaleDB/PostgreSQL 查询、事务、批量写入与分页；不存在聚合 `database.py` 兼容入口。
-- `quantpilot_market_data/models.py`：行情数据模型。
+- `quantpilot_market_data/contracts/`：行情数据模型。
 - `quantpilot_market_data/api.py`：FastAPI HTTP 服务。
 - `quantpilot_market_data/cli.py`：启动入口。
 

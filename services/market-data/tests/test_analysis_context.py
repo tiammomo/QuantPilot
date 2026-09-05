@@ -7,15 +7,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from quantpilot_market_data.api import create_app
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.fundamentals import (
     AnnouncementItem,
     AnnouncementResponse,
     FinancialReportItem,
     FinancialReportsResponse,
-    KlineBar,
-    KlineResponse,
-    RealtimeQuote,
 )
+from quantpilot_market_data.contracts.quotes import KlineBar, KlineResponse, RealtimeQuote
 
 
 def _quote() -> RealtimeQuote:

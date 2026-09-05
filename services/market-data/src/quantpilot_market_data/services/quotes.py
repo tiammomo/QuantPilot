@@ -6,10 +6,10 @@ from datetime import time as dt_time
 from zoneinfo import ZoneInfo
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.common import FetchMetadata
+from quantpilot_market_data.contracts.quotes import (
     Adjustment,
     BatchQuoteResponse,
-    FetchMetadata,
     KlinePeriod,
     KlineResponse,
     RealtimeQuote,

@@ -4,11 +4,11 @@ import asyncio
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.ingestion import (
     HistoryIngestionRequest,
     HistoryIngestionSymbolResult,
-    KlineResponse,
 )
+from quantpilot_market_data.contracts.quotes import KlineResponse
 from quantpilot_market_data.providers.akshare import AkShareClient
 from quantpilot_market_data.providers.baostock import BaoStockClient
 from quantpilot_market_data.providers.eastmoney import EastMoneyClient, EastMoneyError

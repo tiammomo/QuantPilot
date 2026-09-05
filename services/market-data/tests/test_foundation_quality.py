@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from quantpilot_market_data.models import ClickHouseHealthResponse, IngestionPreflightCoverage
+from quantpilot_market_data.contracts.foundation import ClickHouseHealthResponse
+from quantpilot_market_data.contracts.ingestion import IngestionPreflightCoverage
 from quantpilot_market_data.repositories.foundation import (
     _clickhouse_foundation_projection,
     _coverage_missing_fields,

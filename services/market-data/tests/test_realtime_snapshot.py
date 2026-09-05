@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from quantpilot_market_data.models import RealtimeQuote
+from quantpilot_market_data.contracts.quotes import RealtimeQuote
 from quantpilot_market_data.repositories.upserts import validate_realtime_snapshot
 
 

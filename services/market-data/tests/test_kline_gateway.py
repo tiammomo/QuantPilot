@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from quantpilot_market_data.models import LocalKlineBar, LocalKlineResponse, LocalKlineSummary
+from quantpilot_market_data.contracts.quotes import (
+    LocalKlineBar,
+    LocalKlineResponse,
+    LocalKlineSummary,
+)
 from quantpilot_market_data.repositories.bars import estimate_latest_completed_trade_date
 from quantpilot_market_data.services import kline_gateway
 

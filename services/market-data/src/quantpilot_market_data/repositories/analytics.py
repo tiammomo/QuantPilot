@@ -12,8 +12,8 @@ from quantpilot_market_data.clickhouse import (
     insert_daily_bars,
     is_clickhouse_enabled,
 )
+from quantpilot_market_data.contracts.analytics import ClickHouseSyncResponse
 from quantpilot_market_data.database_core import connect
-from quantpilot_market_data.models import ClickHouseSyncResponse
 
 DEFAULT_UNIVERSE_ID = "a-share-sample-research-pool"
 

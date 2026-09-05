@@ -5,6 +5,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from quantpilot_market_data.contracts.quotes import KlineResponse, RealtimeQuote
 from quantpilot_market_data.database_core import (
     SHANGHAI_TZ,
     amplitude_percent,
@@ -19,7 +20,6 @@ from quantpilot_market_data.database_core import (
     lookback_cutoff_datetime,
     parse_bar_datetime,
 )
-from quantpilot_market_data.models import KlineResponse, RealtimeQuote
 
 __all__ = [
     "upsert_kline_response",

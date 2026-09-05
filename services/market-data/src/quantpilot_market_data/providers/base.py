@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
-from quantpilot_market_data.models import (
-    Adjustment,
+from quantpilot_market_data.contracts.fundamentals import (
     AnnouncementItem,
     DividendEvent,
     FinancialReportItem,
+)
+from quantpilot_market_data.contracts.quotes import (
+    Adjustment,
     KlinePeriod,
     KlineResponse,
     RealtimeQuote,

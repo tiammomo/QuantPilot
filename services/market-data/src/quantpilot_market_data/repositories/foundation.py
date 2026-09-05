@@ -8,6 +8,16 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from quantpilot_market_data.clickhouse import get_clickhouse_health
+from quantpilot_market_data.contracts.foundation import (
+    ClickHouseHealthResponse,
+    DataQualityIssue,
+    DataQualityScanRequest,
+    DataQualityScanResponse,
+    FactorDefinition,
+    FoundationComponentStatus,
+    TradingCalendarDay,
+)
+from quantpilot_market_data.contracts.ingestion import IngestionPreflightCoverage
 from quantpilot_market_data.database_core import (
     SHANGHAI_TZ,
     canonical_symbol,
@@ -16,16 +26,6 @@ from quantpilot_market_data.database_core import (
     json_array,
     json_object,
     normalize_fetch_symbol,
-)
-from quantpilot_market_data.models import (
-    ClickHouseHealthResponse,
-    DataQualityIssue,
-    DataQualityScanRequest,
-    DataQualityScanResponse,
-    FactorDefinition,
-    FoundationComponentStatus,
-    IngestionPreflightCoverage,
-    TradingCalendarDay,
 )
 from quantpilot_market_data.repositories.bars import get_expected_latest_trade_date
 from quantpilot_market_data.repositories.ingestion import get_history_ingestion_preflight

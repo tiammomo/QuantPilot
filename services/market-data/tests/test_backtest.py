@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from quantpilot_market_data.backtest import build_strategy_backtest
-from quantpilot_market_data.models import KlineBar, KlineResponse
+from quantpilot_market_data.contracts.quotes import KlineBar, KlineResponse
 
 
 def sample_kline() -> KlineResponse:

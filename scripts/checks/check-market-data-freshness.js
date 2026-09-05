@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { PrismaClient } = require('@prisma/client');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 const DAILY_BAR_READY_HOUR = 18;
@@ -145,23 +145,20 @@ function parseArgs(argv) {
   return result;
 }
 
-function loadEnvironment() {
-  dotenv.config({ path: '.env', quiet: true });
-  dotenv.config({ path: '.env.local', override: true, quiet: true });
-}
 
-async function readFreshnessSnapshot(prisma) {
+async function readFreshnessSnapshot(prisma, estimatedDate = estimateLatestCompletedTradeDate()) {
   const [calendarRows, barRows] = await Promise.all([
     prisma.$queryRawUnsafe(
       `
         SELECT
           max(trade_date)::text AS "calendarThrough",
-          max(trade_date) FILTER (WHERE is_open IS TRUE)::text AS "latestOpenDate"
+          max(trade_date) FILTER (WHERE is_open IS TRUE AND trade_date <= $2::date)::text AS "latestOpenDate"
         FROM quant.trading_calendars
         WHERE market = ANY($1::text[])
           AND session = 'regular'
       `,
-      CN_CALENDAR_MARKETS
+      CN_CALENDAR_MARKETS,
+      estimatedDate
     ),
     prisma.$queryRawUnsafe(
       `
@@ -170,6 +167,7 @@ async function readFreshnessSnapshot(prisma) {
           FROM quant.canonical_stock_bars
           WHERE timeframe = 'daily'
             AND adjustment = 'qfq'
+            AND timezone('Asia/Shanghai', ts)::date <= $1::date
         )
         SELECT
           latest.trade_date::text AS "latestBarDate",
@@ -180,7 +178,8 @@ async function readFreshnessSnapshot(prisma) {
          AND bars.timeframe = 'daily'
          AND bars.adjustment = 'qfq'
         GROUP BY latest.trade_date
-      `
+      `,
+      estimatedDate
     ),
   ]);
   return {
@@ -220,12 +219,14 @@ function printResult(result, json) {
 }
 
 async function main() {
+  loadProjectEnvironment();
   const args = parseArgs(process.argv.slice(2));
-  loadEnvironment();
   const prisma = new PrismaClient();
   try {
-    const snapshot = await readFreshnessSnapshot(prisma);
+    const estimatedDate = estimateLatestCompletedTradeDate();
+    const snapshot = await readFreshnessSnapshot(prisma, estimatedDate);
     const result = evaluateFreshness(snapshot, {
+      estimatedDate,
       maxLagSessions: args.maxLagSessions,
       minSymbols: args.minSymbols,
     });
@@ -247,4 +248,5 @@ module.exports = {
   countWeekdaySessions,
   estimateLatestCompletedTradeDate,
   evaluateFreshness,
+  readFreshnessSnapshot,
 };

@@ -6,15 +6,9 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache, ttl_from_env
-from quantpilot_market_data.database_core import (
-    DatabaseError,
-    connect,
-    normalize_fetch_symbol,
-)
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.ingestion import (
     AutoFillIngestionStartResponse,
     HistoryAutoFillIngestionRequest,
     HistoryBatchIngestionRequest,
@@ -23,10 +17,14 @@ from quantpilot_market_data.models import (
     HistoryIngestionSymbolResult,
     RealtimeSnapshotIngestionRequest,
 )
+from quantpilot_market_data.database_core import (
+    DatabaseError,
+    connect,
+    normalize_fetch_symbol,
+)
 from quantpilot_market_data.providers.akshare import AkShareClient, AkShareError
 from quantpilot_market_data.providers.baostock import BaoStockClient, BaoStockError
 from quantpilot_market_data.providers.eastmoney import EastMoneyClient, EastMoneyError
-from quantpilot_market_data.readiness import get_market_readiness
 from quantpilot_market_data.repositories.ingestion import (
     create_ingestion_job,
     finish_ingestion_job,
@@ -46,6 +44,7 @@ from quantpilot_market_data.routers.foundation import router as foundation_route
 from quantpilot_market_data.routers.fundamentals import create_fundamentals_router
 from quantpilot_market_data.routers.indicators import create_indicators_router
 from quantpilot_market_data.routers.ingestion import router as ingestion_router
+from quantpilot_market_data.routers.lifecycle import create_lifecycle_router
 from quantpilot_market_data.routers.provider_candidates import (
     router as provider_candidates_router,
 )
@@ -73,6 +72,8 @@ KLINE_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_KLINE_CACHE_TTL_SECONDS", 180
 FINANCIAL_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_FINANCIAL_CACHE_TTL_SECONDS", 21600)
 ANNOUNCEMENT_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_ANNOUNCEMENT_CACHE_TTL_SECONDS", 600)
 SCREENER_CACHE_TTL_SECONDS = ttl_from_env("QUANTPILOT_SCREENER_CACHE_TTL_SECONDS", 60)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="QuantPilot Market Data API",
@@ -93,6 +94,17 @@ def create_app() -> FastAPI:
     intraday_redis_cache = RedisJsonCache()
     auto_fill_tasks: set[asyncio.Task[None]] = set()
 
+    async def database_probe() -> None:
+        connection = await connect()
+        async with connection:
+            await connection.execute("SELECT 1")
+
+    app.include_router(
+        create_lifecycle_router(
+            database_probe=database_probe,
+            redis_probe=intraday_redis_cache.ping,
+        )
+    )
     app.include_router(analytics_router)
     app.include_router(foundation_router)
     app.include_router(ingestion_router)
@@ -161,27 +173,6 @@ def create_app() -> FastAPI:
             )
         )
     )
-
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.get("/ready")
-    async def ready() -> JSONResponse:
-        async def database_probe() -> None:
-            connection = await connect()
-            async with connection:
-                await connection.execute("SELECT 1")
-
-        result = await get_market_readiness(
-            database_probe=database_probe,
-            redis_probe=intraday_redis_cache.ping,
-        )
-        return JSONResponse(
-            content=result,
-            status_code=200 if result["ok"] else 503,
-            headers={"Cache-Control": "no-store, max-age=0"},
-        )
 
     @app.post(
         "/api/v1/ingestion/eastmoney/history",

@@ -8,19 +8,17 @@ from time import perf_counter
 from pydantic import BaseModel
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache
-from quantpilot_market_data.fundamentals import build_fundamental_indicators
-from quantpilot_market_data.indicators import build_technical_indicators
-from quantpilot_market_data.models import (
-    Adjustment,
+from quantpilot_market_data.contracts.analysis import (
     AnalysisContextResponse,
     AnalysisContextSectionError,
     AnalysisContextSectionName,
     AnalysisContextSectionResult,
-    DataQuality,
-    FinancialReportsResponse,
-    KlinePeriod,
-    KlineResponse,
 )
+from quantpilot_market_data.contracts.common import DataQuality
+from quantpilot_market_data.contracts.fundamentals import FinancialReportsResponse
+from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod, KlineResponse
+from quantpilot_market_data.fundamentals import build_fundamental_indicators
+from quantpilot_market_data.indicators import build_technical_indicators
 from quantpilot_market_data.providers.base import AnalysisContextProvider
 from quantpilot_market_data.services.events import get_announcements
 from quantpilot_market_data.services.fundamentals import get_financial_reports

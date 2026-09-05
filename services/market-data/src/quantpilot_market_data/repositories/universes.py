@@ -7,6 +7,14 @@ from typing import Any
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from quantpilot_market_data.contracts.quotes import SymbolResolveResult
+from quantpilot_market_data.contracts.universes import (
+    ResearchUniverse,
+    ResearchUniverseHygieneItem,
+    ResearchUniverseHygieneResponse,
+    ResearchUniverseMember,
+    ResearchUniverseSummary,
+)
 from quantpilot_market_data.database_core import (
     DatabaseError,
     bool_or_none,
@@ -19,14 +27,6 @@ from quantpilot_market_data.database_core import (
     percent_change,
     security_sector_fields,
     universe_trend_status,
-)
-from quantpilot_market_data.models import (
-    ResearchUniverse,
-    ResearchUniverseHygieneItem,
-    ResearchUniverseHygieneResponse,
-    ResearchUniverseMember,
-    ResearchUniverseSummary,
-    SymbolResolveResult,
 )
 
 __all__ = [

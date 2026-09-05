@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from quantpilot_market_data.cache import MarketDataCache, RedisJsonCache
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.quotes import (
     Adjustment,
     BatchQuoteRequest,
     BatchQuoteResponse,

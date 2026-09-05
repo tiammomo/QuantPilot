@@ -15,6 +15,7 @@
 | `007-quant-foundation-components.sql` | 基础组件 | 创建交易日历、因子定义、数据质量扫描和通用平台任务表，并登记核心因子口径 |
 | `008-realtime-quote-snapshots.sql` | 实时行情隔离 | 创建未复权实时快照表，防止盘中观察值覆盖正式复权日线 |
 | `009-canonical-stock-bars-repair.sql` | 正式 K 线治理 | 归档并迁移历史快照污染，建立正式 K 线统一视图并重建覆盖状态 |
+| `010-financial-report-versions.sql` | 财报点时版本 | 保存首次观测、公告生效和不可变修订，支持严格历史查询 |
 
 主业务表由 Prisma 维护，不在这里手写：
 
@@ -36,7 +37,9 @@ npm run db:init
 npm run db:doctor
 ```
 
-`npm run db:init` 会按顺序执行 `sqls/*.sql`，然后运行 `prisma db push` 同步 Prisma 管理的应用表。已有数据库也可以重复执行该命令。
+`npm run db:init` 会按顺序执行 `sqls/*.sql`，然后运行 `prisma migrate deploy` 执行 Prisma 应用表的版本化迁移。已有数据库也可以重复执行该命令。
+
+已有本地库升级财报归档时只需执行新增的 `010-financial-report-versions.sql`，不会修改现有行情或应用业务行。归档表禁止 UPDATE、DELETE 和 TRUNCATE；修订必须追加观测。
 
 表字段、来源和页面使用位置见 [数据字典](../docs/data-dictionary.md)。如果新增 SQL 表、字段或因子定义，需要同步更新这里和数据字典。
 

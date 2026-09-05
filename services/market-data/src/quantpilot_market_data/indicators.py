@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from math import sqrt
 
-from quantpilot_market_data.models import (
+from quantpilot_market_data.contracts.quotes import (
     KlineResponse,
     TechnicalIndicatorPoint,
     TechnicalIndicatorsResponse,
