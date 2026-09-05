@@ -1,7 +1,6 @@
-import path from 'node:path';
 
 import { Prisma, PrismaClient } from '@prisma/client';
-import { config as loadEnv } from 'dotenv';
+import { loadProjectEnvironment } from '../shared/load-env';
 
 import { getProjectAuthConfig } from '../../src/lib/config/auth';
 import {
@@ -11,9 +10,7 @@ import {
 import { cleanupExpiredApiOperations } from '../../src/lib/server/api-idempotency';
 import { reconcileApiOperationQuotaSettlements } from '../../src/lib/server/api-idempotency-reconciliation';
 
-const root = process.cwd();
-loadEnv({ path: path.join(root, '.env'), quiet: true });
-loadEnv({ path: path.join(root, '.env.local'), override: true, quiet: true });
+loadProjectEnvironment();
 
 const prisma = new PrismaClient();
 const quota = createQuotaService(prisma);

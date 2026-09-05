@@ -3,16 +3,14 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const os = require('os');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 const { parseCliArgs, startWebDevServer } = require('./run-web');
 
 const rootDir = path.join(__dirname, '..', '..');
 const marketDataDir = path.join(rootDir, 'services', 'market-data');
 const isWindows = os.platform() === 'win32';
 
-dotenv.config({
-  path: [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')],
-});
+loadProjectEnvironment({ rootDir });
 
 function envFlag(name, fallback) {
   const value = process.env[name]?.trim().toLowerCase();

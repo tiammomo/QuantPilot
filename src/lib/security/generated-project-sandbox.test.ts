@@ -1,4 +1,8 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildGeneratedProjectEnv, wrapGeneratedProjectCommand } from './generated-project-sandbox';
 
@@ -8,6 +12,39 @@ afterEach(() => {
 });
 
 describe('generated project sandbox', () => {
+  it.runIf(process.env.QUANTPILOT_TEST_GENERATED_SANDBOX === '1')(
+    'executes the mounted npm runtime with an unreachable host alias while preserving isolation', async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-sandbox-regression-'));
+      const workspace = path.join(root, 'workspace');
+      const sentinel = path.join(root, 'host-only.txt');
+      try {
+        await fs.mkdir(workspace);
+        await fs.writeFile(sentinel, 'host-only');
+        const script = [
+          "const {execFileSync}=require('node:child_process');",
+          "const fs=require('node:fs');",
+          "const version=execFileSync('npm',['--version'],{encoding:'utf8'}).trim();",
+          "if(!/^\\d+\\.\\d+\\.\\d+$/.test(version))throw new Error('npm unavailable');",
+          `if(fs.existsSync(${JSON.stringify(sentinel)}))throw new Error('host path exposed');`,
+          "if(process.env.DATABASE_URL)throw new Error('platform environment exposed');",
+          "process.stdout.write('isolated runtime ready');",
+        ].join('\n');
+        const wrapped = await wrapGeneratedProjectCommand(workspace, 'node', ['-e', script]);
+        const result = await promisify(execFile)(wrapped.command, wrapped.args, {
+          cwd: workspace,
+          env: buildGeneratedProjectEnv(workspace, {
+            PATH: '/unmounted/node-version-alias/bin:/usr/bin:/bin',
+            DATABASE_URL: 'host-only',
+          }),
+          timeout: 20_000,
+        });
+        expect(result.stdout).toBe('isolated runtime ready');
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    }, 25_000,
+  );
+
   it('uses an explicit minimal environment without platform secrets', () => {
     const env = buildGeneratedProjectEnv('/tmp/project', {
       PATH: '/usr/bin',

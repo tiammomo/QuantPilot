@@ -11,14 +11,13 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
+const { parse: parseEnv } = require('dotenv');
 
 const rootDir = path.join(__dirname, '..', '..');
 const envFile = path.join(rootDir, '.env');
 const envLocalFile = path.join(rootDir, '.env.local');
 const rootDataDir = path.join(rootDir, 'data');
 const projectsDir = path.join(rootDataDir, 'projects');
-const defaultDatabaseUrl =
-  '"postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:5432/quantpilot?schema=public"';
 
 const MAX_PORT = 65_535;
 // Preview servers (per-project) dynamic pool
@@ -96,10 +95,44 @@ function readEnvRawValue(contents, key) {
   return match ? match[1] : '';
 }
 
-function shouldSetPostgresDatabaseUrl(contents) {
-  const current = readEnvRawValue(contents, 'DATABASE_URL');
-  if (!current) return true;
-  return !current.startsWith('postgresql://') && !current.startsWith('postgres://');
+function buildInfrastructureEnvironmentDefaults(contents) {
+  const existing = parseEnv(contents);
+  const defaults = {
+    TIMESCALEDB_IMAGE: 'timescale/timescaledb:2.27.1-pg18',
+    POSTGRES_DB: 'quantpilot',
+    POSTGRES_USER: 'quantpilot',
+    POSTGRES_PASSWORD: 'quantpilot_dev_password',
+    POSTGRES_PORT: '35433',
+    REDIS_IMAGE: 'redis:8-alpine',
+    REDIS_PORT: '36380',
+    REDIS_NAMESPACE: 'quantpilot',
+    QUANTPILOT_REDIS_CACHE_ENABLED: '1',
+    CLICKHOUSE_IMAGE: 'clickhouse/clickhouse-server:25.8',
+    CLICKHOUSE_DB: 'quantpilot',
+    CLICKHOUSE_USER: 'quantpilot',
+    CLICKHOUSE_PASSWORD: 'quantpilot_dev_password',
+    CLICKHOUSE_HTTP_PORT: '38123',
+    CLICKHOUSE_NATIVE_PORT: '39023',
+  };
+  const effective = { ...defaults, ...existing };
+  const updates = Object.fromEntries(
+    Object.entries(defaults).filter(([key]) => existing[key] === undefined),
+  );
+  if (!/^postgres(?:ql)?:\/\//.test(existing.DATABASE_URL ?? '')) {
+    const user = encodeURIComponent(effective.POSTGRES_USER);
+    const password = encodeURIComponent(effective.POSTGRES_PASSWORD);
+    const database = encodeURIComponent(effective.POSTGRES_DB);
+    updates.DATABASE_URL = `postgresql://${user}:${password}@127.0.0.1:${effective.POSTGRES_PORT}/${database}?schema=public`;
+  }
+  if (existing.REDIS_URL === undefined) {
+    updates.REDIS_URL = `redis://127.0.0.1:${effective.REDIS_PORT}/0`;
+  }
+  if (existing.CLICKHOUSE_URL === undefined) {
+    updates.CLICKHOUSE_URL = `http://127.0.0.1:${effective.CLICKHOUSE_HTTP_PORT}`;
+  }
+  return Object.fromEntries(
+    Object.entries(updates).map(([key, value]) => [key, JSON.stringify(value)]),
+  );
 }
 
 function ensureDirectory(dirPath) {
@@ -219,64 +252,7 @@ async function ensureEnvironment(options = {}) {
   ensureDirectory(rootDataDir);
   ensureDirectory(projectsDir);
 
-  const envDefaults = {};
-  if (shouldSetPostgresDatabaseUrl(envContents)) {
-    envDefaults.DATABASE_URL = defaultDatabaseUrl;
-  }
-  if (!hasEnvKey(envContents, 'TIMESCALEDB_IMAGE')) {
-    envDefaults.TIMESCALEDB_IMAGE = '"timescale/timescaledb:2.27.1-pg18"';
-  }
-  if (!hasEnvKey(envContents, 'POSTGRES_DB')) {
-    envDefaults.POSTGRES_DB = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'POSTGRES_USER')) {
-    envDefaults.POSTGRES_USER = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'POSTGRES_PASSWORD')) {
-    envDefaults.POSTGRES_PASSWORD = '"quantpilot_dev_password"';
-  }
-  if (!hasEnvKey(envContents, 'POSTGRES_PORT')) {
-    envDefaults.POSTGRES_PORT = '5432';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_URL')) {
-    envDefaults.REDIS_URL = '"redis://127.0.0.1:6379/0"';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_IMAGE')) {
-    envDefaults.REDIS_IMAGE = '"redis:8-alpine"';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_PORT')) {
-    envDefaults.REDIS_PORT = '6379';
-  }
-  if (!hasEnvKey(envContents, 'REDIS_NAMESPACE')) {
-    envDefaults.REDIS_NAMESPACE = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'QUANTPILOT_REDIS_CACHE_ENABLED')) {
-    envDefaults.QUANTPILOT_REDIS_CACHE_ENABLED = '1';
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_IMAGE')) {
-    envDefaults.CLICKHOUSE_IMAGE = '"clickhouse/clickhouse-server:25.8"';
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_DB')) {
-    envDefaults.CLICKHOUSE_DB = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_USER')) {
-    envDefaults.CLICKHOUSE_USER = '"quantpilot"';
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_PASSWORD')) {
-    envDefaults.CLICKHOUSE_PASSWORD = '"quantpilot_dev_password"';
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_HTTP_PORT')) {
-    const clickHouseHttpPort = await findAvailablePort(8_123, 8_199, 8_123);
-    envDefaults.CLICKHOUSE_HTTP_PORT = String(clickHouseHttpPort);
-    envDefaults.CLICKHOUSE_URL = `"http://127.0.0.1:${clickHouseHttpPort}"`;
-  } else if (!hasEnvKey(envContents, 'CLICKHOUSE_URL')) {
-    const clickHouseHttpPort = extractPort(envContents, ['CLICKHOUSE_HTTP_PORT']) ?? 8_123;
-    envDefaults.CLICKHOUSE_URL = `"http://127.0.0.1:${clickHouseHttpPort}"`;
-  }
-  if (!hasEnvKey(envContents, 'CLICKHOUSE_NATIVE_PORT')) {
-    const clickHouseNativePort = await findAvailablePort(9_000, 9_099, 9_000);
-    envDefaults.CLICKHOUSE_NATIVE_PORT = String(clickHouseNativePort);
-  }
+  const envDefaults = buildInfrastructureEnvironmentDefaults(envContents);
   if (!hasEnvKey(envContents, 'PROJECTS_DIR')) {
     envDefaults.PROJECTS_DIR = '"./data/projects"';
   }
@@ -477,6 +453,7 @@ if (require.main === module) {
 
 module.exports = {
   applyRuntimeEnvUpdates,
+  buildInfrastructureEnvironmentDefaults,
   ensureEnvironment,
   normalizeGeneratedEnvValue,
 };

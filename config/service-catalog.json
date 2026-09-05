@@ -165,7 +165,7 @@
       "endpoint": {
         "protocol": "postgresql",
         "env": ["DATABASE_URL"],
-        "default": "postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:5432/quantpilot?schema=public"
+        "default": "postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot?schema=public"
       },
       "commands": {
         "start": "npm run db:up",
@@ -192,7 +192,7 @@
       "endpoint": {
         "protocol": "redis",
         "env": ["REDIS_URL"],
-        "default": "redis://127.0.0.1:6379/0"
+        "default": "redis://127.0.0.1:36380/0"
       },
       "commands": {
         "start": "npm run redis:up",
@@ -218,13 +218,13 @@
       "endpoint": {
         "protocol": "http",
         "env": ["CLICKHOUSE_URL"],
-        "default": "http://127.0.0.1:8123",
+        "default": "http://127.0.0.1:38123",
         "healthPath": "/ping",
         "healthMethod": "GET"
       },
       "commands": {
         "start": "docker compose up -d clickhouse",
-        "health": "curl http://127.0.0.1:8123/ping"
+        "health": "curl http://127.0.0.1:38123/ping"
       },
       "dependencies": ["timescaledb"],
       "capabilities": ["analytics-acceleration", "event-log", "wide-table"]

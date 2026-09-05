@@ -478,7 +478,10 @@ export async function validateQuantVisualPresentation(params: {
   let browser: Awaited<ReturnType<typeof import('playwright').chromium.launch>> | null = null;
   try {
     const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.QUANTPILOT_CHROMIUM_EXECUTABLE_PATH || undefined,
+    });
     const viewports = await Promise.all(
       VIEWPORTS.map((viewport) =>
         validateViewport({

@@ -6,9 +6,11 @@ const { spawnSync } = require('child_process');
 const root = process.cwd();
 const skillsDir = path.join(root, '.pi', 'skills');
 const pycacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quantpilot-skill-pyc-'));
+const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
 
 function fail(message, result) {
   console.error(`[skill-scripts] ${message}`);
+  if (result?.error) console.error(result.error.message);
   if (result?.stdout) process.stderr.write(result.stdout);
   if (result?.stderr) process.stderr.write(result.stderr);
   fs.rmSync(pycacheDir, { recursive: true, force: true });
@@ -34,7 +36,7 @@ if (scripts.length === 0) fail('no deterministic skill scripts found');
 const env = { ...process.env, PYTHONPYCACHEPREFIX: pycacheDir };
 const pythonScripts = scripts.filter((script) => script.endsWith('.py'));
 if (pythonScripts.length > 0) {
-  const compile = spawnSync('python', ['-m', 'py_compile', ...pythonScripts], {
+  const compile = spawnSync(pythonCommand, ['-m', 'py_compile', ...pythonScripts], {
     cwd: root,
     env,
     encoding: 'utf8',
@@ -68,7 +70,7 @@ for (const script of scripts) {
     fail(`${relativePath} syntax validation failed`, syntax);
   }
 
-  const command = script.endsWith('.py') ? 'python' : script.endsWith('.sh') ? 'bash' : 'node';
+  const command = script.endsWith('.py') ? pythonCommand : script.endsWith('.sh') ? 'bash' : 'node';
   const help = spawnSync(command, [script, '--help'], {
     cwd: root,
     env,

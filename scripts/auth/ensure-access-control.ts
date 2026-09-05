@@ -1,7 +1,6 @@
-import path from 'node:path';
 
 import { Prisma, PrismaClient } from '@prisma/client';
-import { config as loadEnv } from 'dotenv';
+import { loadProjectEnvironment } from '../shared/load-env';
 
 import { ACCESS_CONTROL_CATALOG } from '../../src/lib/auth/permissions';
 import {
@@ -10,9 +9,7 @@ import {
 } from '../../src/lib/quota/defaults';
 import { reconcileAllProjectsOwnedAllocationsInTransaction } from '../../src/lib/quota/allocation-reconciliation';
 
-const root = process.cwd();
-loadEnv({ path: path.join(root, '.env'), quiet: true });
-loadEnv({ path: path.join(root, '.env.local'), override: true, quiet: true });
+loadProjectEnvironment();
 
 const prisma = new PrismaClient();
 

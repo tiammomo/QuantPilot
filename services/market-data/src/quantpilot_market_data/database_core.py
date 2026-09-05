@@ -56,9 +56,9 @@ class DatabaseError(RuntimeError):
 
 
 def load_local_env_if_needed() -> None:
-    if os.getenv("DATABASE_URL"):
+    if "DATABASE_URL" in os.environ:
         return
-    for env_file in (ROOT_DIR / ".env", ROOT_DIR / ".env.local"):
+    for env_file in (ROOT_DIR / ".env.local", ROOT_DIR / ".env"):
         if not env_file.exists():
             continue
         for line in env_file.read_text(encoding="utf-8").splitlines():

@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 
 import { PrismaClient } from '@prisma/client';
-import { config as loadEnv } from 'dotenv';
+import { loadProjectEnvironment } from '../shared/load-env';
 
 import { hashAuthPassword, validateAuthPassword } from '../../src/lib/auth/password';
 import {
@@ -12,9 +11,7 @@ import {
 } from '../../src/lib/config/auth';
 import { reconcileProjectsOwnedAllocation } from '../../src/lib/quota/allocation-reconciliation';
 
-const root = process.cwd();
-loadEnv({ path: path.join(root, '.env'), quiet: true });
-loadEnv({ path: path.join(root, '.env.local'), override: true, quiet: true });
+loadProjectEnvironment();
 
 const prisma = new PrismaClient();
 

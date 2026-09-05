@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 const { PrismaClient } = require('@prisma/client');
+const { loadProjectEnvironment } = require('../shared/load-env');
 
+loadProjectEnvironment();
 const prisma = new PrismaClient();
 
 async function main() {

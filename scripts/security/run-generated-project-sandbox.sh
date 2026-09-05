@@ -90,14 +90,15 @@ done
 ln -s usr/bin "$sandbox_root/bin"
 ln -s usr/lib "$sandbox_root/lib"
 ln -s usr/lib64 "$sandbox_root/lib64"
+mkdir -p "$sandbox_root/dev" "$sandbox_root/proc" "$sandbox_root/tmp"
+mount -t tmpfs -o size=128m,nosuid,nodev,noexec tmpfs "$sandbox_root/tmp"
+# Mount trusted inputs after /tmp so temporary workspaces and runtimes are
+# visible inside the sandbox instead of being covered by the private tmpfs.
 bind_read_only "$node_runtime"
 bind_read_only "$node_modules"
 bind_read_only "$preview_bridge"
 bind_read_only "$market_bridge"
 bind_workspace
-
-mkdir -p "$sandbox_root/dev" "$sandbox_root/proc" "$sandbox_root/tmp"
-mount -t tmpfs -o size=128m,nosuid,nodev,noexec tmpfs "$sandbox_root/tmp"
 mount -t proc -o nosuid,nodev,noexec proc "$sandbox_root/proc"
 for device in /dev/null /dev/zero /dev/random /dev/urandom; do
   bind_device "$device"
@@ -164,7 +165,10 @@ mkdir -p "$sandbox_root/tmp/home"
 export HOME=/tmp/home
 export TMPDIR=/tmp
 sandbox_env=(
-  "PATH=${PATH:-$node_runtime/bin:/usr/bin:/bin}"
+  # The host PATH can point at version-manager symlinks outside the mounted
+  # runtime (for example nodejs/current or an nvm alias). Use the canonical
+  # runtime we actually mounted, followed only by mounted system tools.
+  "PATH=$node_runtime/bin:/usr/local/bin:/usr/bin:/bin"
   "HOME=/tmp/home"
   "TMPDIR=/tmp"
   "CI=${CI:-1}"

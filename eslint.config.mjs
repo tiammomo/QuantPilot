@@ -34,6 +34,8 @@ const config = [
       'dist/**',
       'node_modules/**',
       'out/**',
+      'playwright-report/**',
+      'test-results/**',
       'tmp/**',
     ],
   },

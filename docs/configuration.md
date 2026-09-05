@@ -30,11 +30,19 @@ QuantPilot 支持这些长期运行方式：
 进程 / 容器环境变量 > .env.local > .env > 程序默认值
 ```
 
-`npm install` 的 `postinstall` 和 `npm run ensure:env` 会运行 `scripts/dev/setup-env.js`，创建缺失的 `.env` / `.env.local`，并同步 Web 与预览端口。脚本不会用示例文件覆盖已有密钥。开发启动器也按上述顺序加载配置。
+`npm install` 的 `postinstall` 和 `npm run ensure:env` 会运行 `scripts/dev/setup-env.js`，创建缺失的 `.env` / `.env.local`，并同步 Web 与预览端口。脚本不会用示例文件覆盖已有密钥。开发启动器、数据库初始化、认证维护、Worker 和行情维护脚本通过 `scripts/shared/load-env.js` 按上述顺序加载配置；CI 注入的隔离数据库地址不会被本机文件覆盖。
+
+Docker Compose 默认读取进程变量与 `.env`，不会自动读取 `.env.local`。将容器端口和数据库账号维护在 `.env`，并同步应用连接地址；默认 PostgreSQL、Redis、ClickHouse HTTP/Native 端口分别为 `35433`、`36380`、`38123`、`39023`。初始化脚本会按已有端口和账号生成缺失的连接地址，保留已配置的外部服务地址。
+
+项目 `.npmrc` 统一使用官方 npm registry，`package-lock.json` 保留完整性校验。安装依赖使用 `npm ci`；`npm run check:dependency-sources` 在 CI 安装前和发布质量门中检查来源，拒绝镜像源、凭据 URL 和缺失的 SHA-512 摘要。
+
+`package.json` 中对 `@prisma/config` 的 `deepmerge-ts` 覆盖固定到 `8.0.0`，用于修复 [GHSA-ggr8-5vv4-36mx](https://github.com/advisories/GHSA-ggr8-5vv4-36mx)；已验证配置加载、Prisma generate/validate 和完整迁移回归。后续 Prisma 上游依赖修复后再移除该覆盖，避免升级时重新引入旧版本。
 
 建议不要执行 `cp .env.example .env.local`。示例文件是完整字典，把它整体复制到本机覆盖层会制造大量重复值，之后很难判断哪个文件真正生效。`.env.local` 只保留本机确实需要的几行即可。
 
 布尔开关统一接受 `1/0`；部分解析器也接受 `true/false`、`yes/no`、`on/off`。文档和部署模板统一使用 `1/0`，避免不同工具解释不一致。修改服务端变量后需要重启 QuantPilot；修改 ModelPort 或 Memory 自身变量后需要重启对应服务。
+
+浏览器验收默认使用 Playwright 配套 Chromium。已有受管理浏览器时可在 `.env.local` 设置 `QUANTPILOT_CHROMIUM_EXECUTABLE_PATH`；产品页面 E2E、认证烟测、生成页面视觉验收与 benchmark 使用同一配置。CI 继续安装配套浏览器，不依赖本机路径。
 
 ## 首次启动
 

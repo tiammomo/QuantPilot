@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require('node:child_process');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
 
-function loadEnvironment() {
-  dotenv.config({ path: '.env', quiet: true });
-  dotenv.config({ path: '.env.local', override: true, quiet: true });
-}
 
 function positiveInteger(name, fallback, { min = 1, max = 100_000 } = {}) {
   const value = Number.parseInt(process.env[name] ?? '', 10) || fallback;
@@ -264,7 +260,7 @@ async function runMaintenance(options = {}) {
 }
 
 async function main() {
-  loadEnvironment();
+  loadProjectEnvironment();
   const options = parseArgs(process.argv.slice(2));
   const result = await runMaintenance(options);
   if (options.dryRun) console.log(JSON.stringify(result, null, 2));

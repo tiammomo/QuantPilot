@@ -10,7 +10,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
 const net = require('net');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 const { ensureEnvironment } = require('./setup-env');
 const { PrismaClient } = require('@prisma/client');
 const { buildStableCss } = require('../build/build-stable-css');
@@ -30,9 +30,7 @@ import "./.next/types/routes.d.ts";
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
 `;
 
-dotenv.config({
-  path: [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')],
-});
+loadProjectEnvironment({ rootDir });
 
 function parseCliArgs(argv) {
   const passthrough = [];

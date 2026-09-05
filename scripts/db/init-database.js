@@ -4,14 +4,13 @@ const fs = require('fs/promises');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
-const dotenv = require('dotenv');
+const { loadProjectEnvironment } = require('../shared/load-env');
 
 const rootDir = path.join(__dirname, '..', '..');
 const sqlDir = path.join(rootDir, 'sqls');
 const isWindows = os.platform() === 'win32';
 
-dotenv.config({ path: path.join(rootDir, '.env') });
-dotenv.config({ path: path.join(rootDir, '.env.local') });
+loadProjectEnvironment({ rootDir });
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {

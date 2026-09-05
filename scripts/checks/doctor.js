@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 const fs = require('fs');
-const http = require('http');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { PrismaClient } = require('@prisma/client');
+const { loadProjectEnvironment } = require('../shared/load-env');
+const { probeHttp } = require('../shared/http-probe');
 
 const ROOT = process.cwd();
 const FULL_CHECKS = process.argv.includes('--full');
+loadProjectEnvironment({ rootDir: ROOT });
 
 const checks = [];
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off', 'disabled']);
@@ -46,22 +48,8 @@ function readJson(filePath) {
   }
 }
 
-function readEnvFile(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
 function readEnvValue(key) {
-  if (process.env[key]) return process.env[key];
-  for (const file of ['.env.local', '.env']) {
-    const content = readEnvFile(path.join(ROOT, file));
-    const match = content.match(new RegExp(`^${key}=["']?([^"'\\n]+)["']?$`, 'm'));
-    if (match) return match[1];
-  }
-  return '';
+  return process.env[key] ?? '';
 }
 
 function envFlag(key, fallback) {
@@ -173,60 +161,15 @@ async function checkDatabase() {
 }
 
 function requestHead(url, timeoutMs = 8000) {
-  return new Promise((resolve) => {
-    const request = http.request(url, { method: 'HEAD', timeout: timeoutMs }, (response) => {
-      response.resume();
-      resolve({ ok: response.statusCode >= 200 && response.statusCode < 400, statusCode: response.statusCode });
-    });
-    request.on('timeout', () => {
-      request.destroy();
-      resolve({ ok: false, statusCode: null, error: 'timeout' });
-    });
-    request.on('error', (error) => resolve({ ok: false, statusCode: null, error: error.message }));
-    request.end();
-  });
+  return probeHttp(url, { method: 'HEAD', timeoutMs });
 }
 
 function requestGetOk(url, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    const request = http.get(url, { timeout: timeoutMs }, (response) => {
-      response.resume();
-      resolve({ ok: response.statusCode >= 200 && response.statusCode < 400, statusCode: response.statusCode });
-    });
-    request.on('timeout', () => {
-      request.destroy();
-      resolve({ ok: false, statusCode: null, error: 'timeout' });
-    });
-    request.on('error', (error) => resolve({ ok: false, statusCode: null, error: error.message }));
-  });
+  return probeHttp(url, { timeoutMs });
 }
 
 function requestJson(url, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    const request = http.get(url, { timeout: timeoutMs }, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => {
-        body += chunk;
-      });
-      response.on('end', () => {
-        try {
-          resolve({
-            ok: response.statusCode >= 200 && response.statusCode < 400,
-            statusCode: response.statusCode,
-            data: JSON.parse(body),
-          });
-        } catch (error) {
-          resolve({ ok: false, statusCode: response.statusCode, error: error.message });
-        }
-      });
-    });
-    request.on('timeout', () => {
-      request.destroy();
-      resolve({ ok: false, statusCode: null, error: 'timeout' });
-    });
-    request.on('error', (error) => resolve({ ok: false, statusCode: null, error: error.message }));
-  });
+  return probeHttp(url, { json: true, timeoutMs });
 }
 
 function summarizeCommandFailure(result) {
@@ -444,11 +387,11 @@ async function main() {
   if (FULL_CHECKS) {
     checkCommand('ESLint', 'npm', ['run', 'lint'], { successSummary: 'lint 通过。' });
     checkCommand('TypeScript', 'npm', ['run', 'type-check'], { successSummary: 'type-check 通过。' });
-    checkCommand('后端 Ruff', 'uv', ['run', 'ruff', 'check', '.'], {
+    checkCommand('后端 Ruff', 'uv', ['run', '--no-sync', 'ruff', 'check', '.'], {
       cwd: path.join(ROOT, 'services', 'market-data'),
       successSummary: 'ruff 通过。',
     });
-    checkCommand('后端 Pytest', 'uv', ['run', 'pytest'], {
+    checkCommand('后端 Pytest', 'uv', ['run', '--no-sync', 'pytest'], {
       cwd: path.join(ROOT, 'services', 'market-data'),
       successSummary: 'pytest 通过。',
     });
