@@ -8,19 +8,28 @@ import VercelProjectModal from '@/components/modals/VercelProjectModal';
 import SupabaseModal from '@/components/modals/SupabaseModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
+type ServiceId = 'github' | 'vercel' | 'supabase';
+
+interface ServiceData {
+  repo_url?: string;
+  repo_name?: string;
+  project_url?: string;
+  project_name?: string;
+  project_id?: string;
+}
 
 interface ServiceConnection {
   id: string;
   provider: string;
   status: string;
-  service_data: any;
+  service_data: ServiceData;
   created_at: string;
   updated_at?: string;
   last_sync_at?: string;
 }
 
 interface Service {
-  id: string;
+  id: ServiceId;
   name: string;
   icon: string;
   connected: boolean;
@@ -31,10 +40,11 @@ interface Service {
 
 interface ServiceSettingsProps {
   projectId: string;
+  projectName?: string;
   onOpenGlobalSettings?: () => void;
 }
 
-export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSettingsProps) {
+export function ServiceSettings({ projectId, projectName, onOpenGlobalSettings }: ServiceSettingsProps) {
   const [tokenStatus, setTokenStatus] = useState<{
     github: boolean | null;
     supabase: boolean | null;
@@ -74,7 +84,8 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
   const [gitHubModalOpen, setGitHubModalOpen] = useState(false);
   const [vercelModalOpen, setVercelModalOpen] = useState(false);
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [busyServiceId, setBusyServiceId] = useState<ServiceId | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const getProviderIcon = (provider: string) => {
     switch (provider) {
@@ -161,63 +172,56 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
     checkTokens();
   }, [loadServiceConnections, checkTokens]);
 
-  const handleConnect = async (serviceId: string) => {
-    if (serviceId === 'github') {
-      setGitHubModalOpen(true);
-      return;
-    }
-    
-    if (serviceId === 'vercel') {
-      setVercelModalOpen(true);
-      return;
-    }
-    
-    if (serviceId === 'supabase') {
-      setSupabaseModalOpen(true);
-      return;
-    }
-    
-    // For other services, show placeholder
-    alert(`${serviceId} integration not implemented yet.`);
+  const handleConnect = (serviceId: ServiceId) => {
+    setFeedback(null);
+    if (serviceId === 'github') setGitHubModalOpen(true);
+    else if (serviceId === 'vercel') setVercelModalOpen(true);
+    else setSupabaseModalOpen(true);
   };
 
   const handleGitHubModalSuccess = () => {
-    loadServiceConnections(); // Reload connections after GitHub connection
-    // Notify other components that services have been updated
+    loadServiceConnections();
+    setFeedback({ tone: 'success', message: 'GitHub repository connected.' });
     window.dispatchEvent(new CustomEvent('services-updated'));
   };
 
   const handleVercelModalSuccess = () => {
-    loadServiceConnections(); // Reload connections after Vercel connection
-    // Notify other components that services have been updated
+    loadServiceConnections();
+    setFeedback({ tone: 'success', message: 'Vercel project connected.' });
     window.dispatchEvent(new CustomEvent('services-updated'));
   };
 
   const handleSupabaseModalSuccess = () => {
-    loadServiceConnections(); // Reload connections after Supabase connection
-    // Notify other components that services have been updated
+    loadServiceConnections();
+    setFeedback({ tone: 'success', message: 'Supabase project connected.' });
     window.dispatchEvent(new CustomEvent('services-updated'));
   };
 
-  const handleDisconnect = async (serviceId: string) => {
+  const handleDisconnect = async (serviceId: ServiceId) => {
     if (!confirm(`Disconnect from ${serviceId}?`)) return;
-    
-    setIsLoading(true);
+
+    setFeedback(null);
+    setBusyServiceId(serviceId);
     try {
       const response = await fetch(`${API_BASE}/api/projects/${projectId}/services/${serviceId}`, {
         method: 'DELETE'
       });
       
       if (response.ok) {
-        loadServiceConnections(); // Reload connections
+        await loadServiceConnections();
+        setFeedback({ tone: 'success', message: `${serviceId} disconnected.` });
       } else {
-        alert(`Failed to disconnect from ${serviceId}`);
+        const payload = await response.json().catch(() => ({})) as { error?: string; message?: string };
+        setFeedback({
+          tone: 'error',
+          message: payload.message || payload.error || `Unable to disconnect ${serviceId}.`,
+        });
       }
     } catch (error) {
       console.error(`Error disconnecting from ${serviceId}:`, error);
-      alert(`Failed to disconnect from ${serviceId}`);
+      setFeedback({ tone: 'error', message: `Unable to disconnect ${serviceId}. Please try again.` });
     } finally {
-      setIsLoading(false);
+      setBusyServiceId(null);
     }
   };
 
@@ -228,6 +232,15 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
           Service Integrations
         </h3>
         <p className="text-sm text-slate-600 mb-4">Connect GitHub, Supabase and Vercel with a consistent, polished experience.</p>
+
+        {feedback && (
+          <p
+            role="status"
+            className={`mb-4 rounded-xl border px-3 py-2 text-sm ${feedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}
+          >
+            {feedback.message}
+          </p>
+        )}
 
         <div className="space-y-4">
           {services.map(service => (
@@ -313,15 +326,15 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
                       <button
                         onClick={() => handleDisconnect(service.id)}
                         className="px-4 py-2 text-sm rounded-xl text-red-600 hover:text-red-700 border border-transparent hover:border-red-200 hover:bg-red-50 transition whitespace-nowrap w-full sm:w-auto"
-                        disabled={isLoading}
+                        disabled={busyServiceId !== null}
                       >
-                        Disconnect
+                        {busyServiceId === service.id ? 'Disconnecting…' : 'Disconnect'}
                       </button>
                     ) : tokenStatus[service.id as keyof typeof tokenStatus] === false ? (
                       <button
                         onClick={() => { if (onOpenGlobalSettings) onOpenGlobalSettings(); }}
                         className="px-4 py-2.5 text-sm rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition flex items-center justify-center gap-2 whitespace-nowrap w-full sm:w-auto"
-                        disabled={isLoading}
+                        disabled={busyServiceId !== null}
                       >
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
                         Setup Token
@@ -330,9 +343,9 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
                       <button
                         onClick={() => handleConnect(service.id)}
                         className="px-4 py-2.5 text-sm rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition disabled:opacity-50 whitespace-nowrap w-full sm:w-auto"
-                        disabled={isLoading || tokenStatus[service.id as keyof typeof tokenStatus] === null}
+                        disabled={busyServiceId !== null || tokenStatus[service.id] === null}
                       >
-                        {tokenStatus[service.id as keyof typeof tokenStatus] === null ? 'Checking...' : 'Connect'}
+                        {tokenStatus[service.id] === null ? 'Checking...' : 'Connect'}
                       </button>
                     )}
                   </div>
@@ -349,7 +362,7 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
           isOpen={gitHubModalOpen}
           onClose={() => setGitHubModalOpen(false)}
           projectId={projectId}
-          projectName={projectId} // Use projectId as fallback project name
+          projectName={projectName || projectId}
           onSuccess={handleGitHubModalSuccess}
         />
       )}
@@ -360,7 +373,7 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
           isOpen={vercelModalOpen}
           onClose={() => setVercelModalOpen(false)}
           projectId={projectId}
-          projectName={projectId} // Use projectId as fallback project name
+          projectName={projectName || projectId}
           onSuccess={handleVercelModalSuccess}
         />
       )}
@@ -371,7 +384,7 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
           isOpen={supabaseModalOpen}
           onClose={() => setSupabaseModalOpen(false)}
           projectId={projectId}
-          projectName={projectId} // Use projectId as fallback project name
+          projectName={projectName || projectId}
           onSuccess={handleSupabaseModalSuccess}
         />
       )}

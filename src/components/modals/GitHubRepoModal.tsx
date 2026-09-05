@@ -1,6 +1,11 @@
 "use client";
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  repositoryAvailabilityMessage,
+  sanitizeRepositoryName,
+  validateRepositoryName,
+} from '@/lib/integrations/github-repository';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
@@ -24,127 +29,67 @@ export default function GitHubRepoModal({
   const [isPrivate, setIsPrivate] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [nameError, setNameError] = useState('');
+  const [availabilityWarning, setAvailabilityWarning] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
-
-  const sanitizeRepoName = useCallback((name: string): string => {
-    if (!name) return '';
-    
-    return name
-      // Convert to lowercase
-      .toLowerCase()
-      // Replace spaces and underscores with hyphens
-      .replace(/[\s_]+/g, '-')
-      // Remove invalid characters
-      .replace(/[^a-z0-9.-]/g, '')
-      // Remove consecutive periods and hyphens
-      .replace(/[-]{2,}/g, '-')
-      .replace(/[.]{2,}/g, '.')
-      // Remove leading/trailing periods and hyphens
-      .replace(/^[.-]+|[.-]+$/g, '')
-      // Limit to 100 characters
-      .substring(0, 100);
-  }, []);
-
-  const validateRepoName = (name: string): string => {
-    if (!name.trim()) {
-      return 'Repository name is required';
-    }
-
-    // GitHub repository name constraints
-    if (name.length > 100) {
-      return 'Repository name must be 100 characters or less';
-    }
-
-    if (name.startsWith('.') || name.startsWith('-') || name.endsWith('.') || name.endsWith('-')) {
-      return 'Repository name cannot start or end with a period or hyphen';
-    }
-
-    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
-      return 'Repository name can only contain alphanumeric characters, periods, hyphens, and underscores';
-    }
-
-    if (name.includes('..')) {
-      return 'Repository name cannot contain consecutive periods';
-    }
-
-    // Reserved names
-    const reservedNames = ['con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'];
-    if (reservedNames.includes(name.toLowerCase())) {
-      return 'Repository name cannot be a reserved name';
-    }
-
-    return '';
-  };
-
-  const checkRepoAvailability = async (name: string): Promise<string> => {
-    if (!name.trim()) return '';
-    
-    try {
-      setIsCheckingAvailability(true);
-      const response = await fetch(`${API_BASE}/api/github/check-repo/${encodeURIComponent(name)}`, {
-        method: 'GET'
-      });
-      
-      if (response.status === 409) {
-        return `Repository name "${name}" already exists`;
-      } else if (response.status === 404) {
-        // API endpoint not implemented yet, skip availability check
-        console.warn('GitHub check-repo API not implemented yet');
-        return '';
-      } else if (response.status === 401) {
-        return 'GitHub token not configured. Please add your token in Global Settings.';
-      } else if (!response.ok) {
-        // If we can't check availability, don't block the user
-        console.warn('Could not check repository availability:', response.status);
-        return '';
-      }
-      
-      return '';
-    } catch (error) {
-      console.error('Error checking repository availability:', error); // changed warn to error
-      return '';
-    } finally {
-      setIsCheckingAvailability(false);
-    }
-  };
+  const suggestion = useMemo(
+    () => sanitizeRepositoryName(`${projectName || 'project'}-${projectId.slice(-6)}`),
+    [projectId, projectName],
+  );
 
   // Initialize and set sanitized repo name when modal opens
   useEffect(() => {
     if (isOpen && !repoName) {
-      const sanitized = sanitizeRepoName(projectName || projectId || '');
+      const sanitized = sanitizeRepositoryName(projectName || projectId || '');
       setRepoName(sanitized);
     }
-  }, [isOpen, projectName, projectId, repoName, sanitizeRepoName]);
+  }, [isOpen, projectName, projectId, repoName]);
 
   // Validate repo name when it changes
   useEffect(() => {
-    if (repoName) {
-      const basicError = validateRepoName(repoName);
-      if (basicError) {
-        setNameError(basicError);
-      } else {
-        // Check availability if basic validation passes
-        // Temporarily disable API check - allow modal to appear
-        setNameError(''); // Set no error if basic validation passes
-        /*
-        const timeoutId = setTimeout(async () => {
-          const availabilityError = await checkRepoAvailability(repoName);
-          setNameError(availabilityError);
-        }, 500); // Debounce API calls
-        */
-        
-        // return () => clearTimeout(timeoutId);
+    const basicError = validateRepositoryName(repoName);
+    setNameError(basicError);
+    setAvailabilityWarning('');
+    if (basicError || !isOpen) return;
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      setIsCheckingAvailability(true);
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/github/check-repo/${encodeURIComponent(repoName)}`,
+          { method: 'GET', signal: controller.signal, cache: 'no-store' },
+        );
+        const payload = await response.json().catch(() => ({})) as { available?: boolean };
+        if (controller.signal.aborted) return;
+        const result = repositoryAvailabilityMessage({
+          name: repoName,
+          status: response.status,
+          available: payload.available,
+        });
+        setNameError(result.error);
+        setAvailabilityWarning(result.warning);
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
+        setAvailabilityWarning('Repository availability could not be verified. The server will validate again when you submit.');
+      } finally {
+        if (!controller.signal.aborted) setIsCheckingAvailability(false);
       }
-    } else {
-      setNameError('Repository name is required');
-    }
-  }, [repoName]);
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [isOpen, repoName]);
 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
       setRepoName('');
       setNameError('');
+      setAvailabilityWarning('');
+      setSubmitError('');
       setDescription('');
       setIsPrivate(false);
       setIsCheckingAvailability(false);
@@ -152,18 +97,20 @@ export default function GitHubRepoModal({
   }, [isOpen]);
 
   const handleRepoNameChange = (value: string) => {
+    setIsCheckingAvailability(false);
     setRepoName(value);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const error = validateRepoName(repoName);
+    const error = validateRepositoryName(repoName);
     if (error) {
       setNameError(error);
       return;
     }
 
+    setSubmitError('');
     setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/projects/${projectId}/github/connect`, {
@@ -177,11 +124,8 @@ export default function GitHubRepoModal({
       });
 
       if (response.ok) {
-        const result = await response.json();
         onSuccess();
         onClose();
-        // Show success message with repository URL
-        alert(`Repository created successfully!\n${result.repo_url}`);
       } else {
         let errorMessage = 'Unknown error occurred';
         
@@ -204,11 +148,11 @@ export default function GitHubRepoModal({
           errorMessage = 'GitHub access denied. Please ensure your token has the required permissions to create repositories.';
         }
 
-        alert(`Failed to create repository:\n${errorMessage}`);
+        setSubmitError(`Failed to create repository: ${errorMessage}`);
       }
     } catch (error) {
       console.error('GitHub repository creation error:', error);
-      alert('Failed to create repository. Please try again.');
+      setSubmitError('Failed to create repository. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -218,7 +162,7 @@ export default function GitHubRepoModal({
     <AnimatePresence initial={false}>
       {isOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
-        <div className="absolute inset-0" onClick={onClose}>
+        <div className="absolute inset-0" onClick={() => { if (!isLoading) onClose(); }}>
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -267,11 +211,12 @@ export default function GitHubRepoModal({
             <div className="space-y-6">
               {/* Repository Name */}
               <div>
-                <label className="block text-sm font-medium text-slate-900 mb-2">
+                <label htmlFor="github-repository-name" className="block text-sm font-medium text-slate-900 mb-2">
                   Repository name <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <input
+                    id="github-repository-name"
                     type="text"
                     value={repoName}
                     onChange={(e) => handleRepoNameChange(e.target.value)}
@@ -292,7 +237,7 @@ export default function GitHubRepoModal({
                   )}
                 </div>
                 {nameError && (
-                  <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                  <p role="alert" className="mt-1 text-sm text-red-600 flex items-center gap-1">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
                       <line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" strokeWidth="2"/>
@@ -301,13 +246,15 @@ export default function GitHubRepoModal({
                     {nameError}
                   </p>
                 )}
-                {!nameError && !isCheckingAvailability && (
+                {availabilityWarning && !nameError && (
+                  <p role="status" className="mt-1 text-xs leading-5 text-amber-700">{availabilityWarning}</p>
+                )}
+                {!nameError && !availabilityWarning && !isCheckingAvailability && (
                   <p className="mt-1 text-xs text-slate-500 ">
                     Great repository names are short and memorable. Need inspiration? How about <button type="button" className="text-slate-900 hover:underline" onClick={() => {
-                      const suggestion = sanitizeRepoName(`${projectName || 'project'}-${Math.random().toString(36).substring(7)}`);
                       handleRepoNameChange(suggestion);
                     }}>
-                      {sanitizeRepoName(`${projectName || 'project'}-${Math.random().toString(36).substring(7)}`)}
+                      {suggestion}
                     </button>?
                   </p>
                 )}
@@ -320,10 +267,11 @@ export default function GitHubRepoModal({
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-slate-900 mb-2">
+                <label htmlFor="github-repository-description" className="block text-sm font-medium text-slate-900 mb-2">
                   Description <span className="text-slate-500">(optional)</span>
                 </label>
                 <input
+                  id="github-repository-description"
                   type="text"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -387,6 +335,10 @@ export default function GitHubRepoModal({
               </div>
 
             </div>
+
+            {submitError && (
+              <p role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{submitError}</p>
+            )}
 
             {/* Actions */}
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-200 ">
