@@ -1,13 +1,15 @@
 "use client";
-import { useEffect, useState, useRef, useCallback, useMemo, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type UIEvent } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { MotionDiv, MotionH3, MotionP, MotionButton } from '@/lib/motion';
+import { MotionDiv } from '@/lib/motion';
 import { useRouter, useSearchParams, useParams, usePathname } from 'next/navigation';
-import dynamic from 'next/dynamic';
-import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaSync, FaCog, FaRocket, FaFolder, FaFolderOpen, FaFile, FaFileCode, FaCss3Alt, FaHtml5, FaJs, FaReact, FaPython, FaDocker, FaGitAlt, FaMarkdown, FaDatabase, FaPhp, FaJava, FaRust, FaVuejs, FaLock, FaHome, FaChevronUp, FaChevronRight, FaChevronDown, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
-import { SiTypescript, SiGo, SiRuby, SiSvelte, SiJson, SiYaml, SiCplusplus } from 'react-icons/si';
-import { VscJson } from 'react-icons/vsc';
+
+import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaCog, FaRocket, FaHome, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
+
+
 import { ExternalLink, Files, MessageSquareText, MonitorPlay } from 'lucide-react';
+import { TreeView, getFileIcon, type Entry } from './file-tree';
+import { useFileEditor } from './use-file-editor';
 import ChatLog from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput, { type UploadedImage } from '@/components/chat/ChatInput';
@@ -17,28 +19,9 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/models';
-import {
-  ACTIVE_CLI_BRAND_COLORS,
-  ACTIVE_CLI_IDS,
-  ACTIVE_CLI_MODEL_OPTIONS,
-  ACTIVE_CLI_NAME_MAP,
-  DEFAULT_ACTIVE_CLI,
-  buildActiveModelOptions,
-  normalizeModelForCli,
-  sanitizeActiveCli,
-  type ActiveCliId,
-  type ActiveModelOption,
-} from '@/lib/utils/cliOptions';
+import { ACTIVE_CLI_BRAND_COLORS, ACTIVE_CLI_IDS, ACTIVE_CLI_MODEL_OPTIONS, ACTIVE_CLI_NAME_MAP, DEFAULT_ACTIVE_CLI, buildActiveModelOptions, normalizeModelForCli, sanitizeActiveCli, type ActiveCliId, type ActiveModelOption } from '@/lib/utils/cliOptions';
 import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
-import {
-  CHAT_PANE_DEFAULT_WIDTH,
-  CHAT_PANE_MAX_WIDTH,
-  CHAT_PANE_MIN_WIDTH,
-  CHAT_PANE_WIDTH_STORAGE_KEY,
-  PREVIEW_PANE_MIN_WIDTH,
-  clampChatPaneWidth,
-  parseStoredChatPaneWidth,
-} from './pane-layout';
+import { CHAT_PANE_DEFAULT_WIDTH, CHAT_PANE_MAX_WIDTH, CHAT_PANE_MIN_WIDTH, CHAT_PANE_WIDTH_STORAGE_KEY, PREVIEW_PANE_MIN_WIDTH, clampChatPaneWidth, parseStoredChatPaneWidth } from './pane-layout';
 import { planPreviewReconciliation } from './preview-reconciliation';
 import { buildQuestionInstruction } from '@/components/chat/question-composer';
 
@@ -86,8 +69,6 @@ const hexToFilter = (hex: string): string => {
   };
   return filters[hex] || filters['#2563EB'];
 };
-
-type Entry = { path: string; type: 'file'|'dir'; size?: number };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
 type QuantValidationState = 'unknown' | 'running' | 'passed' | 'failed';
 
@@ -115,123 +96,6 @@ const buildModelOptions = (statuses: Record<string, CliStatusSnapshot>): ModelOp
     ...option,
     cli: option.cli,
   }));
-
-// TreeView component for VSCode-style file explorer
-interface TreeViewProps {
-  entries: Entry[];
-  selectedFile: string;
-  expandedFolders: Set<string>;
-  folderContents: Map<string, Entry[]>;
-  onToggleFolder: (path: string) => void;
-  onSelectFile: (path: string) => void;
-  onLoadFolder: (path: string) => Promise<void>;
-  level: number;
-  parentPath?: string;
-  getFileIcon: (entry: Entry) => React.ReactElement;
-}
-
-function TreeView({ entries, selectedFile, expandedFolders, folderContents, onToggleFolder, onSelectFile, onLoadFolder, level, parentPath = '', getFileIcon }: TreeViewProps) {
-  // Ensure entries is an array
-  if (!entries || !Array.isArray(entries)) {
-    return null;
-  }
-
-  // Group entries by directory
-  const sortedEntries = [...entries].sort((a, b) => {
-    // Directories first
-    if (a.type === 'dir' && b.type === 'file') return -1;
-    if (a.type === 'file' && b.type === 'dir') return 1;
-    // Then alphabetical
-    return a.path.localeCompare(b.path);
-  });
-
-  return (
-    <>
-      {sortedEntries.map((entry, index) => {
-        // entry.path should already be the full path from API
-        const fullPath = entry.path;
-        let entryKey =
-          fullPath && typeof fullPath === 'string' && fullPath.trim().length > 0
-            ? fullPath.trim()
-            : (entry as any)?.name && typeof (entry as any).name === 'string' && (entry as any).name.trim().length > 0
-            ? `${parentPath || 'root'}::__named_${(entry as any).name.trim()}`
-            : '';
-        if (!entryKey || entryKey.trim().length === 0) {
-          entryKey = `${parentPath || 'root'}::__entry_${level}_${index}_${entry.type}`;
-        }
-        const isExpanded = expandedFolders.has(fullPath);
-        const indent = level * 8;
-
-        return (
-          <div key={entryKey}>
-            <div
-              className={`group flex items-center h-[22px] px-2 cursor-pointer ${
-                selectedFile === fullPath
-                  ? 'bg-blue-100 '
-                  : 'hover:bg-slate-100 '
-              }`}
-              style={{ paddingLeft: `${8 + indent}px` }}
-              onClick={async () => {
-                if (entry.type === 'dir') {
-                  // Load folder contents if not already loaded
-                  if (!folderContents.has(fullPath)) {
-                    await onLoadFolder(fullPath);
-                  }
-                  onToggleFolder(fullPath);
-                } else {
-                  onSelectFile(fullPath);
-                }
-              }}
-            >
-              {/* Chevron for folders */}
-              <div className="w-4 flex items-center justify-center mr-0.5">
-                {entry.type === 'dir' && (
-                  isExpanded ?
-                    <span className="w-2.5 h-2.5 text-slate-600 flex items-center justify-center"><FaChevronDown size={10} /></span> :
-                    <span className="w-2.5 h-2.5 text-slate-600 flex items-center justify-center"><FaChevronRight size={10} /></span>
-                )}
-              </div>
-
-              {/* Icon */}
-              <span className="w-4 h-4 flex items-center justify-center mr-1.5">
-                {entry.type === 'dir' ? (
-                  isExpanded ?
-                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolderOpen size={16} /></span> :
-                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolder size={16} /></span>
-                ) : (
-                  getFileIcon(entry)
-                )}
-              </span>
-
-              {/* File/Folder name */}
-              <span className={`text-[13px] leading-[22px] ${
-                selectedFile === fullPath ? 'text-blue-700 ' : 'text-slate-700 '
-              }`} style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
-                {level === 0 ? (entry.path.split('/').pop() || entry.path) : (entry.path.split('/').pop() || entry.path)}
-              </span>
-            </div>
-
-            {/* Render children if expanded */}
-            {entry.type === 'dir' && isExpanded && folderContents.has(fullPath) && (
-              <TreeView
-                entries={folderContents.get(fullPath) || []}
-                selectedFile={selectedFile}
-                expandedFolders={expandedFolders}
-                folderContents={folderContents}
-                onToggleFolder={onToggleFolder}
-                onSelectFile={onSelectFile}
-                onLoadFolder={onLoadFolder}
-                level={level + 1}
-                parentPath={fullPath}
-                getFileIcon={getFileIcon}
-              />
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
 
 export default function ChatPage() {
   const params = useParams<{ project_id: string }>();
@@ -268,14 +132,6 @@ export default function ChatPage() {
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [hasTreeLoaded, setHasTreeLoaded] = useState(false);
   const [treeLoadError, setTreeLoadError] = useState<string | null>(null);
-  const [content, setContent] = useState<string>('');
-  const [editedContent, setEditedContent] = useState<string>('');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [isSavingFile, setIsSavingFile] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<'idle' | 'success' | 'error'>('idle');
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string>('');
-  const [currentPath, setCurrentPath] = useState<string>('.');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['']));
   const [folderContents, setFolderContents] = useState<Map<string, Entry[]>>(new Map());
   const [prompt, setPrompt] = useState('');
@@ -365,11 +221,6 @@ export default function ChatPage() {
   const [currentRoute, setCurrentRoute] = useState<string>('/');
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const shouldShowPreviewFrame = Boolean(previewUrl) && !isStartingPreview;
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const highlightRef = useRef<HTMLPreElement>(null);
-  const lineNumberRef = useRef<HTMLDivElement>(null);
-  const editedContentRef = useRef<string>('');
-  const [isFileUpdating, setIsFileUpdating] = useState(false);
   const activeBrandColor =
     assistantBrandColors[preferredCli] || assistantBrandColors[DEFAULT_ACTIVE_CLI];
   const modelOptions = useMemo(() => buildModelOptions(cliStatuses), [cliStatuses]);
@@ -1400,7 +1251,6 @@ const persistProjectPreferences = useCallback(
         setHasTreeLoaded(true);
       }
 
-      setCurrentPath(dir);
     } catch (error) {
       console.error('Failed to load tree:', error);
       setTreeLoadError(error instanceof Error ? error.message : '文件树加载失败');
@@ -1416,25 +1266,9 @@ const persistProjectPreferences = useCallback(
   // Load folder contents
   const handleLoadFolder = useCallback(async (path: string) => {
     const contents = await loadSubdirectory(path);
-    setFolderContents(prev => {
-      const newMap = new Map(prev);
-      newMap.set(path, contents);
-
-      // Also load nested directories
-      for (const entry of contents) {
-        if (entry.type === 'dir') {
-          const fullPath = `${path}/${entry.path}`;
-          // Don't load if already loaded
-          if (!newMap.has(fullPath)) {
-            loadSubdirectory(fullPath).then(subContents => {
-              setFolderContents(prev2 => new Map(prev2).set(fullPath, subContents));
-            });
-          }
-        }
-      }
-
-      return newMap;
-    });
+    // API entries already use paths relative to the project root. Children
+    // load when expanded; state updaters must not initiate network requests.
+    setFolderContents(prev => new Map(prev).set(path, contents));
   }, [loadSubdirectory]);
 
   // Toggle folder expansion
@@ -1450,403 +1284,12 @@ const persistProjectPreferences = useCallback(
     });
   }
 
-  // Build tree structure from flat list
-  function buildTreeStructure(entries: Entry[]): Map<string, Entry[]> {
-    const structure = new Map<string, Entry[]>();
-
-    // Initialize with root
-    structure.set('', []);
-
-    entries.forEach(entry => {
-      const parts = entry.path.split('/');
-      const parentPath = parts.slice(0, -1).join('/');
-
-      if (!structure.has(parentPath)) {
-        structure.set(parentPath, []);
-      }
-      structure.get(parentPath)?.push(entry);
-
-      // If it's a directory, ensure it exists in the structure
-      if (entry.type === 'dir') {
-        if (!structure.has(entry.path)) {
-          structure.set(entry.path, []);
-        }
-      }
-    });
-
-    return structure;
-  }
-
-  const openFile = useCallback(async (path: string) => {
-    try {
-      if (hasUnsavedChanges && path !== selectedFile) {
-        const shouldDiscard =
-          typeof window !== 'undefined'
-            ? window.confirm('You have unsaved changes. Discard them and open the new file?')
-            : true;
-        if (!shouldDiscard) {
-          return;
-        }
-      }
-
-      setSaveFeedback('idle');
-      setSaveError(null);
-
-      const r = await fetch(`${API_BASE}/api/repo/${projectId}/file?path=${encodeURIComponent(path)}`);
-
-      if (!r.ok) {
-        console.error('Failed to load file:', r.status, r.statusText);
-        const fallback = '// Failed to load file content';
-        setContent(fallback);
-        setEditedContent(fallback);
-        editedContentRef.current = fallback;
-        setHasUnsavedChanges(false);
-        setSelectedFile(path);
-        return;
-      }
-
-      const data = await r.json();
-      const fileContent = typeof data?.content === 'string' ? data.content : '';
-      setContent(fileContent);
-      setEditedContent(fileContent);
-      editedContentRef.current = fileContent;
-      setHasUnsavedChanges(false);
-      setSelectedFile(path);
-      setIsFileUpdating(false);
-
-      requestAnimationFrame(() => {
-        if (editorRef.current) {
-          editorRef.current.scrollTop = 0;
-          editorRef.current.scrollLeft = 0;
-        }
-        if (highlightRef.current) {
-          highlightRef.current.scrollTop = 0;
-          highlightRef.current.scrollLeft = 0;
-        }
-        if (lineNumberRef.current) {
-          lineNumberRef.current.scrollTop = 0;
-        }
-      });
-    } catch (error) {
-      console.error('Error opening file:', error);
-      const fallback = '// Error loading file';
-      setContent(fallback);
-      setEditedContent(fallback);
-      editedContentRef.current = fallback;
-      setHasUnsavedChanges(false);
-      setSelectedFile(path);
-    }
-  }, [projectId, hasUnsavedChanges, selectedFile]);
-
-  // Reload currently selected file
-  const reloadCurrentFile = useCallback(async () => {
-    if (selectedFile && !showPreview && !hasUnsavedChanges) {
-      try {
-        const r = await fetch(`${API_BASE}/api/repo/${projectId}/file?path=${encodeURIComponent(selectedFile)}`);
-        if (r.ok) {
-          const data = await r.json();
-          const newContent = data.content || '';
-          if (newContent !== content) {
-            setIsFileUpdating(true);
-            setContent(newContent);
-            setEditedContent(newContent);
-            editedContentRef.current = newContent;
-            setHasUnsavedChanges(false);
-            setSaveFeedback('idle');
-            setSaveError(null);
-            setTimeout(() => setIsFileUpdating(false), 500);
-          }
-        }
-      } catch (error) {
-        // Silently fail - this is a background refresh
-      }
-    }
-  }, [projectId, selectedFile, showPreview, hasUnsavedChanges, content]);
-
-  const highlightedCode = useMemo(() => editedContent || ' ', [editedContent]);
-
-  const onEditorChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.target.value;
-    setEditedContent(value);
-    editedContentRef.current = value;
-    setHasUnsavedChanges(value !== content);
-    setSaveFeedback('idle');
-    setSaveError(null);
-    if (isFileUpdating) {
-      setIsFileUpdating(false);
-    }
-  }, [content, isFileUpdating]);
-
-  const handleEditorScroll = useCallback((event: UIEvent<HTMLTextAreaElement>) => {
-    const { scrollTop, scrollLeft } = event.currentTarget;
-    if (highlightRef.current) {
-      highlightRef.current.scrollTop = scrollTop;
-      highlightRef.current.scrollLeft = scrollLeft;
-    }
-    if (lineNumberRef.current) {
-      lineNumberRef.current.scrollTop = scrollTop;
-    }
-  }, []);
-
-  const handleSaveFile = useCallback(async () => {
-    if (!selectedFile || isSavingFile || !hasUnsavedChanges) {
-      return;
-    }
-
-    const contentToSave = editedContentRef.current;
-    setIsSavingFile(true);
-    setSaveFeedback('idle');
-    setSaveError(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/repo/${projectId}/file`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: selectedFile, content: contentToSave }),
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to save file';
-        try {
-          const data = await response.clone().json();
-          errorMessage = data?.error || data?.message || errorMessage;
-        } catch {
-          const text = await response.text().catch(() => '');
-          if (text) {
-            errorMessage = text;
-          }
-        }
-        throw new Error(errorMessage);
-      }
-
-      setContent(contentToSave);
-      setSaveFeedback('success');
-
-      if (editedContentRef.current === contentToSave) {
-        setHasUnsavedChanges(false);
-        setIsFileUpdating(true);
-        setTimeout(() => setIsFileUpdating(false), 800);
-      }
-
-      refreshPreview();
-    } catch (error) {
-      console.error('Failed to save file:', error);
-      setSaveFeedback('error');
-      setSaveError(error instanceof Error ? error.message : 'Failed to save file');
-    } finally {
-      setIsSavingFile(false);
-    }
-  }, [selectedFile, isSavingFile, hasUnsavedChanges, projectId, refreshPreview]);
-
-  const handleEditorKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-      event.preventDefault();
-      handleSaveFile();
-      return;
-    }
-
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      const el = event.currentTarget;
-      const start = el.selectionStart ?? 0;
-      const end = el.selectionEnd ?? 0;
-      const indent = '  ';
-      const value = editedContent;
-      const newValue = value.slice(0, start) + indent + value.slice(end);
-
-      setEditedContent(newValue);
-      editedContentRef.current = newValue;
-      setHasUnsavedChanges(newValue !== content);
-      setSaveFeedback('idle');
-      setSaveError(null);
-      if (isFileUpdating) {
-        setIsFileUpdating(false);
-      }
-
-      requestAnimationFrame(() => {
-        const position = start + indent.length;
-        el.selectionStart = position;
-        el.selectionEnd = position;
-        if (highlightRef.current) {
-          highlightRef.current.scrollTop = el.scrollTop;
-          highlightRef.current.scrollLeft = el.scrollLeft;
-        }
-        if (lineNumberRef.current) {
-          lineNumberRef.current.scrollTop = el.scrollTop;
-        }
-      });
-    }
-  }, [handleSaveFile, editedContent, content, isFileUpdating]);
-
-  useEffect(() => {
-    if (saveFeedback === 'success') {
-      const timer = setTimeout(() => setSaveFeedback('idle'), 1800);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [saveFeedback]);
-
-  useEffect(() => {
-    if (editorRef.current && highlightRef.current && lineNumberRef.current) {
-      const { scrollTop, scrollLeft } = editorRef.current;
-      highlightRef.current.scrollTop = scrollTop;
-      highlightRef.current.scrollLeft = scrollLeft;
-      lineNumberRef.current.scrollTop = scrollTop;
-    }
-  }, [editedContent]);
-
-  // Get file extension for syntax highlighting
-  function getFileLanguage(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'tsx':
-      case 'ts':
-        return 'typescript';
-      case 'jsx':
-      case 'js':
-      case 'mjs':
-        return 'javascript';
-      case 'css':
-        return 'css';
-      case 'scss':
-      case 'sass':
-        return 'scss';
-      case 'html':
-      case 'htm':
-        return 'html';
-      case 'json':
-        return 'json';
-      case 'md':
-      case 'markdown':
-        return 'markdown';
-      case 'py':
-        return 'python';
-      case 'sh':
-      case 'bash':
-        return 'bash';
-      case 'yaml':
-      case 'yml':
-        return 'yaml';
-      case 'xml':
-        return 'xml';
-      case 'sql':
-        return 'sql';
-      case 'php':
-        return 'php';
-      case 'java':
-        return 'java';
-      case 'c':
-        return 'c';
-      case 'cpp':
-      case 'cc':
-      case 'cxx':
-        return 'cpp';
-      case 'rs':
-        return 'rust';
-      case 'go':
-        return 'go';
-      case 'rb':
-        return 'ruby';
-      case 'vue':
-        return 'vue';
-      case 'svelte':
-        return 'svelte';
-      case 'dockerfile':
-        return 'dockerfile';
-      case 'toml':
-        return 'toml';
-      case 'ini':
-        return 'ini';
-      case 'conf':
-      case 'config':
-        return 'nginx';
-      default:
-        return 'plaintext';
-    }
-  }
-
-  // Get file icon based on type
-  function getFileIcon(entry: Entry): React.ReactElement {
-    if (entry.type === 'dir') {
-      return <span className="text-blue-500"><FaFolder size={16} /></span>;
-    }
-
-    const ext = entry.path.split('.').pop()?.toLowerCase();
-    const filename = entry.path.split('/').pop()?.toLowerCase();
-
-    // Special files
-    if (filename === 'package.json') return <span className="text-green-600"><VscJson size={16} /></span>;
-    if (filename === 'dockerfile') return <span className="text-blue-400"><FaDocker size={16} /></span>;
-    if (filename?.startsWith('.env')) return <span className="text-yellow-500"><FaLock size={16} /></span>;
-    if (filename === 'readme.md') return <span className="text-slate-600"><FaMarkdown size={16} /></span>;
-    if (filename?.includes('config')) return <span className="text-slate-500"><FaCog size={16} /></span>;
-
-    switch (ext) {
-      case 'tsx':
-        return <span className="text-cyan-400"><FaReact size={16} /></span>;
-      case 'ts':
-        return <span className="text-blue-600"><SiTypescript size={16} /></span>;
-      case 'jsx':
-        return <span className="text-cyan-400"><FaReact size={16} /></span>;
-      case 'js':
-      case 'mjs':
-        return <span className="text-yellow-400"><FaJs size={16} /></span>;
-      case 'css':
-        return <span className="text-blue-500"><FaCss3Alt size={16} /></span>;
-      case 'scss':
-      case 'sass':
-        return <span className="text-pink-500"><FaCss3Alt size={16} /></span>;
-      case 'html':
-      case 'htm':
-        return <span className="text-orange-500"><FaHtml5 size={16} /></span>;
-      case 'json':
-        return <span className="text-yellow-600"><VscJson size={16} /></span>;
-      case 'md':
-      case 'markdown':
-        return <span className="text-slate-600"><FaMarkdown size={16} /></span>;
-      case 'py':
-        return <span className="text-blue-400"><FaPython size={16} /></span>;
-      case 'sh':
-      case 'bash':
-        return <span className="text-green-500"><FaFileCode size={16} /></span>;
-      case 'yaml':
-      case 'yml':
-        return <span className="text-red-500"><SiYaml size={16} /></span>;
-      case 'xml':
-        return <span className="text-orange-600"><FaFileCode size={16} /></span>;
-      case 'sql':
-        return <span className="text-blue-600"><FaDatabase size={16} /></span>;
-      case 'php':
-        return <span className="text-indigo-500"><FaPhp size={16} /></span>;
-      case 'java':
-        return <span className="text-red-600"><FaJava size={16} /></span>;
-      case 'c':
-        return <span className="text-blue-700"><FaFileCode size={16} /></span>;
-      case 'cpp':
-      case 'cc':
-      case 'cxx':
-        return <span className="text-blue-600"><SiCplusplus size={16} /></span>;
-      case 'rs':
-        return <span className="text-orange-700"><FaRust size={16} /></span>;
-      case 'go':
-        return <span className="text-cyan-500"><SiGo size={16} /></span>;
-      case 'rb':
-        return <span className="text-red-500"><SiRuby size={16} /></span>;
-      case 'vue':
-        return <span className="text-green-500"><FaVuejs size={16} /></span>;
-      case 'svelte':
-        return <span className="text-orange-600"><SiSvelte size={16} /></span>;
-      case 'dockerfile':
-        return <span className="text-blue-400"><FaDocker size={16} /></span>;
-      case 'toml':
-      case 'ini':
-      case 'conf':
-      case 'config':
-        return <span className="text-slate-500"><FaCog size={16} /></span>;
-      default:
-        return <span className="text-slate-400"><FaFile size={16} /></span>;
-    }
-  }
+  const {
+    selectedFile, editedContent, hasUnsavedChanges, isSavingFile, saveFeedback, saveError,
+    isFileUpdating, isLoadingFile, fileLoadError, editorRef, highlightRef, lineNumberRef,
+    openFile, closeFile, reloadCurrentFile, handleSaveFile, onEditorChange,
+    handleEditorScroll, handleEditorKeyDown, highlightedCode,
+  } = useFileEditor({ projectId, apiBase: API_BASE, showPreview, refreshPreview });
 
   // Ensure we only trigger dependency installation once per page lifecycle
   const installTriggeredRef = useRef(false);
@@ -2059,7 +1502,6 @@ const persistProjectPreferences = useCallback(
     setTree([]);
     setFolderContents(new Map());
     setExpandedFolders(new Set(['']));
-    setSelectedFile('');
     setHasTreeLoaded(false);
     setTreeLoadError(null);
   }, [projectId]);
@@ -3731,10 +3173,10 @@ const persistProjectPreferences = useCallback(
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex h-full overflow-hidden rounded-[1.125rem] border border-border/70 bg-white shadow-xl shadow-slate-900/5"
+                className="flex h-full flex-col sm:flex-row overflow-hidden rounded-[1.125rem] border border-border/70 bg-white shadow-xl shadow-slate-900/5"
               >
                 {/* Left Sidebar - File Explorer (VS Code style) */}
-                <div className="w-64 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col">
+                <div className="w-full max-h-32 sm:w-64 sm:max-h-none min-h-0 flex-shrink-0 bg-slate-50 border-b sm:border-b-0 sm:border-r border-slate-200 flex flex-col">
                   {/* File Tree */}
                   <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
                     {isTreeLoading ? (
@@ -3779,7 +3221,7 @@ const persistProjectPreferences = useCallback(
                 </div>
 
                 {/* Right Editor Area */}
-                <div className="flex-1 flex flex-col bg-white min-w-0">
+                <div className="flex-1 flex flex-col bg-white min-w-0 min-h-0">
                   {selectedFile ? (
                     <>
                       {/* File Tab */}
@@ -3827,25 +3269,8 @@ const persistProjectPreferences = useCallback(
                             </button>
                             <button
                               className="text-slate-700 hover:bg-slate-200 px-1 rounded"
-                              onClick={() => {
-                                if (hasUnsavedChanges) {
-                                  const confirmClose =
-                                    typeof window !== 'undefined'
-                                      ? window.confirm('You have unsaved changes. Close without saving?')
-                                      : true;
-                                  if (!confirmClose) {
-                                    return;
-                                  }
-                                }
-                                setSelectedFile('');
-                                setContent('');
-                                setEditedContent('');
-                                editedContentRef.current = '';
-                                setHasUnsavedChanges(false);
-                                setSaveFeedback('idle');
-                                setSaveError(null);
-                                setIsFileUpdating(false);
-                              }}
+                              onClick={closeFile}
+                              aria-label="关闭当前文件"
                             >
                               ×
                             </button>
@@ -3853,6 +3278,8 @@ const persistProjectPreferences = useCallback(
                         </div>
                       </div>
 
+                      {fileLoadError && <p role="alert" className="px-3 py-2 text-sm text-red-600">{fileLoadError}</p>}
+                      {isLoadingFile && <p role="status" className="px-3 py-2 text-sm text-slate-500">正在读取文件…</p>}
                       {/* Code Editor */}
                       <div className="flex-1 overflow-hidden">
                         <div className="w-full h-full flex bg-white overflow-hidden">
@@ -3887,6 +3314,7 @@ const persistProjectPreferences = useCallback(
                               onChange={onEditorChange}
                               onScroll={handleEditorScroll}
                               onKeyDown={handleEditorKeyDown}
+                              readOnly={isLoadingFile || Boolean(fileLoadError)}
                               spellCheck={false}
                               autoCorrect="off"
                               autoCapitalize="none"

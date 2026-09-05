@@ -457,7 +457,7 @@
       },
       {
         "path": "src/app/[project_id]/chat/page.tsx",
-        "maxLines": 4100,
+        "maxLines": 3600,
         "targetLines": 1800,
         "nextAction": "把 generation controller、preview reconciliation、message transport 和页面布局拆入独立 hooks/components，页面只保留组合。"
       },
@@ -694,6 +694,24 @@
         "maxLines": 500,
         "targetLines": 500,
         "nextAction": "保持单一领域职责和显式依赖，不把流程编排或其他领域重新合入此模块。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/file-tree.tsx",
+        "maxLines": 250,
+        "targetLines": 250,
+        "nextAction": "保持文件树、编辑状态与 React 交互边界；文件读写竞态由独立状态单元回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/file-editor-state.ts",
+        "maxLines": 200,
+        "targetLines": 200,
+        "nextAction": "保持文件树、编辑状态与 React 交互边界；文件读写竞态由独立状态单元回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/use-file-editor.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持文件树、编辑状态与 React 交互边界；文件读写竞态由独立状态单元回归。"
       }
     ]
   }
