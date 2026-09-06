@@ -1,4 +1,9 @@
-import { DASHBOARD_DATA_READER, DASHBOARD_PAGE_RUNTIME_PRELUDE } from './scaffold-dashboard-runtime-template';
+import {
+  DASHBOARD_ASSET_READER,
+  DASHBOARD_VALUE_TONE,
+  DASHBOARD_DATA_READER,
+  DASHBOARD_PAGE_RUNTIME_PRELUDE,
+} from './scaffold-dashboard-runtime-template';
 import {
   comparisonWorkbenchCss,
   holdingWorkbenchCss,
@@ -10,9 +15,7 @@ export function comparisonPageTemplate() {
 
 ${DASHBOARD_DATA_READER}
 
-function getAssets(data: JsonRecord | null): JsonRecord[] {
-  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-}
+${DASHBOARD_ASSET_READER}
 
 function getComparisonRows(data: JsonRecord | null): JsonRecord[] {
   const comparison = asRecord(data?.comparison);
@@ -75,11 +78,7 @@ function getLiquidityRows(data: JsonRecord | null): JsonRecord[] {
   return asArray(liquidity?.rows).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
 }
 
-function tone(value: unknown): 'up' | 'down' | 'neutral' {
-  const number = numeric(value);
-  if (number === null || number === 0) return 'neutral';
-  return number > 0 ? 'up' : 'down';
-}
+${DASHBOARD_VALUE_TONE}
 
 function BarChart({ rows, field, title, subtitle, inverse = false }: {
   rows: JsonRecord[];
@@ -405,17 +404,11 @@ export default async function Home() {
 export function stockSelectionPageTemplate() {
   return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
 
-function tone(value: unknown): 'up' | 'down' | 'neutral' {
-  const number = numeric(value);
-  if (number === null || number === 0) return 'neutral';
-  return number > 0 ? 'up' : 'down';
-}
+${DASHBOARD_VALUE_TONE}
 
 ${DASHBOARD_DATA_READER}
 
-function getAssets(data: JsonRecord | null): JsonRecord[] {
-  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-}
+${DASHBOARD_ASSET_READER}
 
 function getComparisonRows(data: JsonRecord | null): JsonRecord[] {
   const comparison = asRecord(data?.comparison);
@@ -1598,17 +1591,11 @@ ${stockSelectionWorkbenchCss()}
 export function holdingAnalysisPageTemplate() {
   return `${DASHBOARD_PAGE_RUNTIME_PRELUDE}
 
-function tone(value: unknown): 'up' | 'down' | 'neutral' {
-  const number = numeric(value);
-  if (number === null || number === 0) return 'neutral';
-  return number > 0 ? 'up' : 'down';
-}
+${DASHBOARD_VALUE_TONE}
 
 ${DASHBOARD_DATA_READER}
 
-function getAssets(data: JsonRecord | null): JsonRecord[] {
-  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
-}
+${DASHBOARD_ASSET_READER}
 
 function getHoldings(data: JsonRecord | null): JsonRecord[] {
   const raw = asArray(data?.holdings).map(asRecord).filter((item): item is JsonRecord => Boolean(item));

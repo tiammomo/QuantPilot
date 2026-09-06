@@ -57,3 +57,13 @@ export const DASHBOARD_DATA_READER = `async function readDashboardData(): Promis
     return null;
   }
 }`;
+
+export const DASHBOARD_ASSET_READER = `function getAssets(data: JsonRecord | null): JsonRecord[] {
+  return asArray(data?.assets).map(asRecord).filter((item): item is JsonRecord => Boolean(item));
+}`;
+
+export const DASHBOARD_VALUE_TONE = `function tone(value: unknown): 'up' | 'down' | 'neutral' {
+  const number = numeric(value);
+  if (number === null || number === 0) return 'neutral';
+  return number > 0 ? 'up' : 'down';
+}`;
