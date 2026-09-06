@@ -502,9 +502,9 @@
       },
       {
         "path": "src/lib/agent/pi/run-engine.ts",
-        "maxLines": 2100,
+        "maxLines": 1850,
         "targetLines": 1600,
-        "nextAction": "保持上游 PI loop 单一入口，并按 adapter、tool governance、event projection 和 terminalization 拆分宿主逻辑。"
+        "nextAction": "Token 映射与来源汇总已独立；继续拆 provider 消息转换和工具生命周期，保持 PI loop 单一入口。"
       },
       {
         "path": "src/lib/quant/validation.ts",
@@ -817,6 +817,18 @@
         "maxLines": 150,
         "targetLines": 150,
         "nextAction": "请求状态以成功的服务端查询为准；网络失败、旧响应及组件退出不能误判任务完成。"
+      },
+      {
+        "path": "src/lib/agent/pi/token-usage.ts",
+        "maxLines": 250,
+        "targetLines": 250,
+        "nextAction": "保持用量与上下文口径独立、来源显式；缺失信息不能伪装为精确零值。"
+      },
+      {
+        "path": "src/lib/agent/context/usage-snapshot.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持用量与上下文口径独立、来源显式；缺失信息不能伪装为精确零值。"
       }
     ]
   }

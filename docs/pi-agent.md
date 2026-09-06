@@ -110,6 +110,10 @@ Workspace 在每个用户回合的最终回复下方显示一条非卡片式运�
 
 模型 Provider 的 `include_usage` 是首选真值。Run Engine 严格校验 `input + output = total`、cache split 和 reasoning 子集，并把累计 usage 写入 durable run/event；Provider 缺失 usage 时使用保守估算。最终投影会根据 durable usage event 区分 provider、estimated、mixed 和 partial，非 provider 完整统计在界面使用“约”或“不完整”提示，不能冒充账单精确值。
 
+用量来源随 PI 消息转换、序列化与多轮累计保留。流中断时保留已经收到的用量并标为 `partial`；响应正常结束但没有用量回执时，使用 prepared input 和输出 UTF-8 字节数作保守估算，计入累计输入与 cache-miss 预算。新的 durable event 显式记录 `provider` 来源；历史正数统计缺少来源时按不完整处理，不回写既有消息。SDK 必填的 cost 零值只是占位，不能解释为免费调用。
+
+启用 Context Manager 的 run 还记录末次准备请求的上下文快照：run/model、轮次、采样时间、预估输入、配置窗口、预留输出、实际输入预算与本轮是否压缩。最终摘要分别展示累计 Token 和“末次上下文约 … / …（输入预算）”；快照是历史单次输入预估，不代表当前内存占用或计费金额。采集只选择最新 run 的快照，缺失时显示“上下文未记录”，不借用旧 run。快照不含原始消息、工具输出或推理正文，持久化与客户端解析均按白名单校验。
+
 统计结构只写入最终 Message metadata，由客户端严格校验非负安全整数和 Token 算术后渲染；不会拼进最终 Markdown 正文，因此下一轮 `buildBoundedHistory` 不会为指标重复支付上下文 Token。Stage 5 成功、失败和暂停消息都持久化同一结构，SSE/WebSocket 断线恢复和历史加载使用同一个权威消息。指标采集失败只记录观测错误，不能改变 Mission 已提交的业务终态。
 
 自动修复还带有失败集收敛保护：如果某次 Agent repair 自身未正常提交，且修复前后的 blocking check ID 集合完全相同，平台会先判断这些失败是否全部属于可安全接管的页面展示类问题。只有满足该条件时才提前使用确定性看板模板并重新执行完整验证；数据、证据、策略、代理等失败，以及失败项已经减少的 repair，仍保留正常的受限修复预算。这样可以避免同一个展示失败连续消耗多个满轮次 run，同时不让模板恢复覆盖数据与 evidence。
