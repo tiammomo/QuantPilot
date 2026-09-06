@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { spawn } = require('node:child_process');
 
 const root = process.cwd();
@@ -16,9 +17,26 @@ function assertArtifact() {
     '.next/server',
     '.next/static',
     'public/generated/quantpilot-tailwind.css',
+    '.pi/skills.registry.json',
+    '.pi/skills.lock.json',
+    '.pi/skills.changelog.json',
+    'scripts/security',
   ]) {
     if (!fs.existsSync(path.join(standalone, required))) {
       throw new Error(`standalone artifact is missing ${required}`);
+    }
+  }
+  const registry = JSON.parse(fs.readFileSync(path.join(standalone, '.pi/skills.registry.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(standalone, '.pi/skills.lock.json'), 'utf8'));
+  for (const skill of registry.coreSkills) {
+    const entry = lock.skills[skill.id];
+    const skillSource = path.join(standalone, '.pi', 'skills', skill.id, 'SKILL.md');
+    if (!entry || entry.version !== skill.version || !fs.existsSync(skillSource)) {
+      throw new Error(`standalone skill source or lock is missing: ${skill.id}`);
+    }
+    const bytes = fs.readFileSync(path.join(standalone, entry.packagePath));
+    if (createHash('sha256').update(bytes).digest('hex') !== entry.packageSha256) {
+      throw new Error(`standalone skill package hash mismatch: ${skill.id}`);
     }
   }
   const leakedEnv = fs.readdirSync(standalone)
@@ -35,7 +53,7 @@ async function waitForHealth(child, output) {
       throw new Error(`standalone server exited early (${child.exitCode})\n${output.join('')}`);
     }
     try {
-      const response = await fetch(`${baseUrl}/api/health`, { cache: 'no-store' });
+      const response = await fetch(`${baseUrl}/api/health`, { cache: 'no-store', signal: AbortSignal.timeout(5_000) });
       if (response.ok) return response;
     } catch {
       // The listener may not be ready yet.
@@ -90,12 +108,12 @@ async function main() {
     ]) {
       if (!health.headers.get(header)) throw new Error(`security header missing: ${header}`);
     }
-    const css = await fetch(`${baseUrl}/generated/quantpilot-tailwind.css`);
+    const css = await fetch(`${baseUrl}/generated/quantpilot-tailwind.css`, { signal: AbortSignal.timeout(5_000) });
     const cssBytes = (await css.arrayBuffer()).byteLength;
     if (!css.ok || cssBytes === 0) {
       throw new Error(`standalone stable CSS request failed with HTTP ${css.status}`);
     }
-    console.log(`[standalone-smoke] ready on ${baseUrl}; liveness, assets and security headers verified`);
+    console.log(`[standalone-smoke] ready on ${baseUrl}; skill packages, liveness, assets and security headers verified`);
   } finally {
     await stop(child);
   }

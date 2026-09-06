@@ -75,7 +75,12 @@ const nextConfig = {
     '/api/**': tracingExcludes,
   },
   outputFileTracingIncludes: {
-    '/api/**': ['./.claude/**', './scripts/security/**'],
+    '/api/**': [
+      './.pi/skills.*.json',
+      './.pi/skills/**',
+      './.pi/skill-packages/**',
+      './scripts/security/**',
+    ],
   },
   webpack(config, { isServer }) {
     if (isServer) {
