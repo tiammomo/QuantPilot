@@ -147,9 +147,7 @@ jobs:
         run: uv sync --locked --all-groups
 
       - name: Production dependency audit
-        run: |
-          uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes --format requirements-txt --output-file /tmp/quantpilot-market-requirements.txt
-          uvx pip-audit -r /tmp/quantpilot-market-requirements.txt
+        run: node ../../scripts/checks/audit-market-dependencies.js
 
       - name: Lint
         run: uv run ruff check .

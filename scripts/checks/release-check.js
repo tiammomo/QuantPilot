@@ -56,7 +56,10 @@ const checks = [
 ];
 
 if (includeSecurity) {
-  checks.splice(1, 0, ['Dependency security audit', 'npm', ['run', 'security:audit'], ROOT]);
+  checks.splice(1, 0,
+    ['Dependency security audit', 'npm', ['run', 'security:audit'], ROOT],
+    ['Backend dependency security audit', 'npm', ['run', 'security:audit:backend'], ROOT],
+  );
 }
 if (includeRuntime) {
   checks.push(['Runtime and infrastructure doctor', 'npm', ['run', 'doctor:full'], ROOT]);

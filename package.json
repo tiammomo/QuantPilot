@@ -113,7 +113,8 @@
     "benchmark:quant:e2e": "node scripts/evals/run-quant-benchmarks.js --mode e2e",
     "benchmark:quant:hidden": "node scripts/evals/run-quant-benchmarks.js --mode e2e --dataset-visibility hidden",
     "benchmark:quant:shadow": "node scripts/evals/run-quant-benchmarks.js --mode e2e --dataset-visibility production_replay",
-    "postinstall": "npm run ensure:env"
+    "postinstall": "npm run ensure:env",
+    "security:audit:backend": "node scripts/checks/audit-market-dependencies.js"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
