@@ -1,10 +1,12 @@
 # QuantPilot
 
-QuantPilot 是建立在通用 Data Agent 与开源 [PI Agent](https://github.com/earendil-works/pi) 执行内核之上的金融量化应用。用户用自然语言提出研究问题，Finance Domain Pack 会组合证券解析、真实数据、Skills、工具、Mission 和可视化规则，生成可运行工作空间，并通过自动验证、视觉检查、产物契约和评测链路把结果收敛到“好看、可用、可追溯”。同一套框架可以继续接入零售、运营、制造等业务 Domain Pack，而不把业务规则写回 Agent 内核。
+QuantPilot 是建立在通用 Data Agent 与开源 [PI Agent](https://github.com/earendil-works/pi) 执行内核之上的金融量化应用。用户用自然语言提出研究问题，Finance Domain Pack 会组合证券解析、真实数据、Skills、工具、Mission 和可视化规则，生成可运行工作空间，并通过自动验证、视觉检查、产物契约和评测链路把结果收敛到“好看、可用、可追溯”。下一阶段聚焦“可信数据 → 可复现实验 → 持续研究 → 结果复盘”，具体交付与当前缺口见 [路线图](docs/ROADMAP.md)。
 
 生成内容仅用于研究、复盘和辅助决策，不构成投资建议、收益承诺或即时交易指令。
 
-如果你是第一次打开这个项目，先选择模型与 Memory 运行方式，再把本地环境跑起来。核心链路是：真实数据进入本地库，Agent 基于 skills 生成工作空间，平台再用验证和评测把结果收紧。
+如果你是第一次打开这个项目，先配置模型并启动本地数据服务；Memory 和可观测性组件按需启用。核心链路是：真实数据进入本地库，Agent 基于 skills 生成工作空间，平台再用验证和评测把结果收紧。
+
+产品统一通过浏览器访问，基础组件通过本地 Docker Compose 安装。已移除只包装 Web 页面的 Electron 桌面壳及其打包命令；Web 开发与 standalone 部署继续维护。
 
 ## 核心能力
 

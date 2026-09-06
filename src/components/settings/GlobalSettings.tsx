@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AnimatePresence } from "framer-motion";
 import { MotionDiv } from "@/lib/motion";
-import { FaCog } from "react-icons/fa";
+import { Settings } from 'lucide-react';
 import ServiceConnectionModal from "@/components/modals/ServiceConnectionModal";
 import {
   normalizeGlobalAISettings,
@@ -260,7 +260,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = "general"
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-slate-600">
-                  <FaCog size={20} />
+                  <Settings size={20} />
                 </span>
                 <div>
                   <h2 className="text-xl font-semibold text-slate-900">平台设置</h2>

@@ -1,6 +1,7 @@
 "use client";
 
-import { FaDatabase, FaServer } from "react-icons/fa";
+import Link from "next/link";
+import { Database, Server } from 'lucide-react';
 
 interface InfrastructureHealth {
   provider: string;
@@ -16,24 +17,6 @@ interface InfrastructureHealth {
   };
   commands: Record<string, string>;
 }
-
-const INFRASTRUCTURE_RECOMMENDATIONS = [
-  {
-    name: "Redis",
-    stage: "建议下一阶段",
-    description: "承载评测、策略扫描、生成任务的队列、缓存和分布式锁，替代内存状态。",
-  },
-  {
-    name: "对象存储",
-    stage: "产物规模上来后",
-    description: "保存截图、回测报告、原始行情文件和大 JSON，数据库只保留索引与摘要。",
-  },
-  {
-    name: "ClickHouse",
-    stage: "暂不引入",
-    description: "只有 tick、盘口快照和多维研究分析达到很大规模时再接入。",
-  },
-];
 
 interface InfrastructureTabProps {
   infrastructure: InfrastructureHealth | null;
@@ -63,7 +46,7 @@ function InfrastructureTab({
         <div>
           <h3 className="text-lg font-medium text-slate-900">基础组件配置</h3>
           <p className="mt-1 text-sm text-slate-600">
-            管理 QuantPilot 本地开发依赖的数据库、时序扩展和后续基础设施入口。
+            查看本地 Docker 数据库连接与时序扩展状态。
           </p>
         </div>
         <button
@@ -79,7 +62,7 @@ function InfrastructureTab({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <FaDatabase className="text-slate-400" />
+            <Database className="text-slate-400" />
             主业务库
           </div>
           <p className="mt-2 text-lg font-semibold text-slate-900">
@@ -93,7 +76,7 @@ function InfrastructureTab({
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <FaServer className="text-slate-400" />
+            <Server className="text-slate-400" />
             时序扩展
           </div>
           <p className="mt-2 text-lg font-semibold text-slate-900">
@@ -164,20 +147,13 @@ function InfrastructureTab({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <h4 className="text-sm font-semibold text-slate-900">推荐组件路线</h4>
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          {INFRASTRUCTURE_RECOMMENDATIONS.map((item) => (
-            <div key={item.name} className="rounded-lg border border-slate-100 bg-slate-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-medium text-slate-900">{item.name}</p>
-                <span className="rounded-full bg-white px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                  {item.stage}
-                </span>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-slate-600">{item.description}</p>
-            </div>
-          ))}
-        </div>
+        <h4 className="text-sm font-semibold text-slate-900">全部组件状态</h4>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Redis 缓存、ClickHouse 分析和日志组件的运行状态、健康检查与故障信息统一在运行治理中心查看。
+        </p>
+        <Link href="/ops-platform" className="mt-3 inline-flex text-sm font-medium text-blue-600 hover:underline">
+          打开运行治理中心
+        </Link>
       </div>
     </div>
   );

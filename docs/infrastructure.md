@@ -175,7 +175,6 @@ Loki 宿主机端口默认使用 `33100`，生成项目预览端口池从 `4100`
 | `QUANTPILOT_MARKET_MAINTENANCE_ENABLED` | `0` | 是否已部署每日行情维护调度；生产门禁要求为 `1`。实际 timer 模板位于 `deploy/systemd/quantpilot-market-maintenance.timer`。 |
 | `QUANTPILOT_MARKET_MAINTENANCE_UNIVERSE_ID` | `a-share-sample-research-pool` | 每日同步的权威股票池。 |
 | `QUANTPILOT_MARKET_FRESHNESS_MIN_SYMBOLS` | `250` | 最新交易日必须覆盖的最少标的数，避免单一标的更新掩盖全市场过期。 |
-| `QUANTPILOT_ALLOW_SKILLS_REGISTRY_FALLBACK` | `0` | 是否允许 Skills registry 损坏时使用内置降级表；默认 fail closed，生产不得开启。 |
 | `QUANTPILOT_WEB_HOST` | `127.0.0.1` | 主前端开发服务监听地址；本地默认仅回环可访问，需要受控局域网访问时再显式覆盖。 |
 
 推荐本地开发保持 `auto`，只在 CI、演示环境或生产巡检中切到 `strict`。完全离线看页面结构、Skills、日志文件时可切到 `offline`。

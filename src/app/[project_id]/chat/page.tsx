@@ -4,10 +4,8 @@ import { AnimatePresence } from 'framer-motion';
 import { MotionDiv } from '@/lib/motion';
 import { useRouter, useSearchParams, useParams, usePathname } from 'next/navigation';
 
-import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaCog, FaRocket, FaHome, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
+import { ArrowLeft, ArrowRight, Code, ExternalLink, Files, Home, MessageSquareText, Monitor, MonitorPlay, Play, Rocket, RotateCcw, Settings, Smartphone, Square } from 'lucide-react';
 
-
-import { ExternalLink, Files, MessageSquareText, MonitorPlay } from 'lucide-react';
 import { TreeView, getFileIcon, type Entry } from './file-tree';
 import { useFileEditor } from './use-file-editor';
 import ChatLog from '@/components/chat/ChatLog';
@@ -24,8 +22,6 @@ import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-ter
 import { CHAT_PANE_DEFAULT_WIDTH, CHAT_PANE_MAX_WIDTH, CHAT_PANE_MIN_WIDTH, CHAT_PANE_WIDTH_STORAGE_KEY, PREVIEW_PANE_MIN_WIDTH, clampChatPaneWidth, parseStoredChatPaneWidth } from './pane-layout';
 import { planPreviewReconciliation } from './preview-reconciliation';
 import { buildQuestionInstruction } from '@/components/chat/question-composer';
-
-// No longer loading ProjectSettings (managed by global settings on main page)
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
@@ -1179,7 +1175,6 @@ const persistProjectPreferences = useCallback(
     }
   }, [previewUrl, currentRoute]);
 
-
   const stop = useCallback(async () => {
     try {
       previewAutoRecoverySuppressedRef.current = true;
@@ -1989,7 +1984,6 @@ const persistProjectPreferences = useCallback(
     }
   }, [isPausingAgent, projectId]);
 
-
   // Handle project status updates via callback from ChatLog
   const handleProjectStatusUpdate = (
     status: string,
@@ -2201,7 +2195,6 @@ const persistProjectPreferences = useCallback(
     }
   }, [showPreview, selectedFile, hasUnsavedChanges, reloadCurrentFile]);
 
-
   useEffect(() => {
     if (!projectId) {
       return;
@@ -2292,7 +2285,6 @@ const persistProjectPreferences = useCallback(
     }
   }, [globalSettings, usingGlobalDefaults, updatePreferredCli, updateSelectedModel]);
 
-
   // Show loading UI if project is initializing
 
   if (currentProjectAvailability !== 'available') {
@@ -2342,7 +2334,7 @@ const persistProjectPreferences = useCallback(
               aria-label="返回项目首页"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
             >
-              <FaArrowLeft size={13} />
+              <ArrowLeft size={13} />
             </button>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#ee6b4d] to-[#d84d35] text-sm font-bold text-white shadow-[0_8px_20px_-10px_rgba(224,83,57,0.8)]">
               Q
@@ -2379,7 +2371,7 @@ const persistProjectPreferences = useCallback(
               aria-label="打开项目设置"
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/70 bg-background/80 text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
             >
-              <FaCog size={14} />
+              <Settings size={14} />
             </button>
             <a
               href={previewUrl ?? '#'}
@@ -2633,7 +2625,7 @@ const persistProjectPreferences = useCallback(
                       }}
                       aria-label="显示看板预览"
                     >
-                      <span className="flex h-4 w-4 items-center justify-center"><FaDesktop size={14} /></span>
+                      <span className="flex h-4 w-4 items-center justify-center"><Monitor size={14} /></span>
                       <span className="hidden xl:inline">看板</span>
                     </button>
                     <button
@@ -2651,7 +2643,7 @@ const persistProjectPreferences = useCallback(
                       }}
                       aria-label="显示项目文件"
                     >
-                      <span className="flex h-4 w-4 items-center justify-center"><FaCode size={14} /></span>
+                      <span className="flex h-4 w-4 items-center justify-center"><Code size={14} /></span>
                       <span className="hidden xl:inline">文件</span>
                     </button>
                   </div>
@@ -2662,7 +2654,7 @@ const persistProjectPreferences = useCallback(
                       {/* Route Navigation */}
                       <div className="hidden h-8 min-w-0 items-center rounded-xl border border-border/70 bg-background/70 px-2.5 shadow-sm min-[1180px]:flex">
                         <span className="mr-2 text-muted-foreground">
-                          <FaHome size={12} />
+                          <Home size={12} />
                         </span>
                         <span className="mr-1 text-sm text-muted-foreground">/</span>
                         <input
@@ -2686,7 +2678,7 @@ const persistProjectPreferences = useCallback(
                           aria-label="打开预览路由"
                           className="ml-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
-                          <FaArrowRight size={12} />
+                          <ArrowRight size={12} />
                         </button>
                       </div>
 
@@ -2703,7 +2695,7 @@ const persistProjectPreferences = useCallback(
                           }}
                           title="刷新预览"
                         >
-                          <FaRedo size={14} />
+                          <RotateCcw size={14} />
                         </button>
 
                         {/* Device Mode Toggle */}
@@ -2717,7 +2709,7 @@ const persistProjectPreferences = useCallback(
                             }`}
                             onClick={() => setDeviceMode('desktop')}
                           >
-                            <FaDesktop size={14} />
+                            <Monitor size={14} />
                           </button>
                           <button
                             aria-label="移动端预览"
@@ -2728,7 +2720,7 @@ const persistProjectPreferences = useCallback(
                             }`}
                             onClick={() => setDeviceMode('mobile')}
                           >
-                            <FaMobileAlt size={14} />
+                            <Smartphone size={14} />
                           </button>
                         </div>
                       </div>
@@ -2744,7 +2736,7 @@ const persistProjectPreferences = useCallback(
                     className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/70 bg-background/70 text-muted-foreground shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary lg:hidden"
                     title="项目设置"
                   >
-                    <FaCog size={16} />
+                    <Settings size={16} />
                   </button>
 
                   {/* Stop Button */}
@@ -2753,7 +2745,7 @@ const persistProjectPreferences = useCallback(
                       className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl border border-red-200 bg-red-50 px-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/70"
                       onClick={stop}
                     >
-                      <FaStop size={12} />
+                      <Square size={12} />
                       停止
                     </button>
                   )}
@@ -2765,7 +2757,7 @@ const persistProjectPreferences = useCallback(
                       className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl bg-foreground px-3 text-xs font-semibold text-background shadow-sm transition-opacity hover:opacity-85"
                       onClick={() => setShowPublishPanel(true)}
                     >
-                      <FaRocket size={14} />
+                      <Rocket size={14} />
                       发布
                       {deploymentStatus === 'deploying' && (
                         <span className="ml-2 inline-block w-2 h-2 rounded-full bg-amber-400"></span>
@@ -3098,7 +3090,7 @@ const persistProjectPreferences = useCallback(
                                     whileHover={{ scale: 1.2 }}
                                     whileTap={{ scale: 0.9 }}
                                   >
-                                    <FaPlay
+                                    <Play
                                       size={32}
                                     />
                                   </MotionDiv>
@@ -3332,7 +3324,7 @@ const persistProjectPreferences = useCallback(
                     /* Welcome Screen */
                     <div className="flex-1 flex items-center justify-center bg-white ">
                       <div className="text-center">
-                        <span className="w-16 h-16 mb-4 opacity-10 text-slate-400 mx-auto flex items-center justify-center"><FaCode size={64} /></span>
+                        <span className="w-16 h-16 mb-4 opacity-10 text-slate-400 mx-auto flex items-center justify-center"><Code size={64} /></span>
                         <h3 className="text-lg font-medium text-slate-700 mb-2">
                           Welcome to Code Editor
                         </h3>
@@ -3352,7 +3344,6 @@ const persistProjectPreferences = useCallback(
         </div>
       </div>
 
-
       {/* Publish Modal */}
       {showPublishPanel && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -3361,7 +3352,7 @@ const persistProjectPreferences = useCallback(
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60 ">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-black border border-black/10 ">
-                  <FaRocket size={14} />
+                  <Rocket size={14} />
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-slate-900 ">Publish Project</h3>

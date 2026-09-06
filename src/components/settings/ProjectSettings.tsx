@@ -3,7 +3,7 @@
  * Main settings modal with tabs
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { FaCog, FaRobot, FaLock, FaPlug } from 'react-icons/fa';
+import { Bot, Lock, Plug, Settings } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 import { GeneralSettings } from './GeneralSettings';
 import { AIAssistantSettings } from './AIAssistantSettings';
@@ -40,23 +40,23 @@ export function ProjectSettings({
         {
           id: 'general' as SettingsTab,
           label: 'General',
-          icon: <span className="w-4 h-4 inline-flex"><FaCog /></span>,
+          icon: <span className="w-4 h-4 inline-flex"><Settings /></span>,
           hidden: !isProjectScoped,
         },
         {
           id: 'ai-assistant' as SettingsTab,
           label: 'Agent',
-          icon: <span className="w-4 h-4 inline-flex"><FaRobot /></span>,
+          icon: <span className="w-4 h-4 inline-flex"><Bot /></span>,
         },
         {
           id: 'environment' as SettingsTab,
           label: 'Envs',
-          icon: <span className="w-4 h-4 inline-flex"><FaLock /></span>,
+          icon: <span className="w-4 h-4 inline-flex"><Lock /></span>,
         },
         {
           id: 'services' as SettingsTab,
           label: 'Services',
-          icon: <span className="w-4 h-4 inline-flex"><FaPlug /></span>,
+          icon: <span className="w-4 h-4 inline-flex"><Plug /></span>,
         },
       ].filter(tab => !('hidden' in tab) || !tab.hidden),
     [isProjectScoped]
@@ -82,7 +82,7 @@ export function ProjectSettings({
     {
       id: 'ai-assistant' as SettingsTab,
       label: 'Agent',
-      icon: <span className="w-4 h-4 inline-flex"><FaRobot /></span>,
+      icon: <span className="w-4 h-4 inline-flex"><Bot /></span>,
     },
   ];
 

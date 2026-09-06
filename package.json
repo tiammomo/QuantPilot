@@ -3,24 +3,18 @@
   "version": "2.0.0",
   "description": "Quant-focused AI workflow builder powered by PI Agent and configurable model providers",
   "private": true,
-  "main": "index.js",
   "scripts": {
     "dev": "node scripts/dev/run-full.js",
     "dev:web": "node scripts/dev/run-web.js",
     "dev:market": "uv run --extra baostock --extra akshare --project services/market-data quantpilot-market-api",
-    "dev:desktop": "node scripts/dev/run-desktop.js",
     "ensure:env": "node scripts/dev/setup-env.js",
     "clean:local": "node scripts/dev/cleanup-local-artifacts.js",
     "clean:local:dry-run": "node scripts/dev/cleanup-local-artifacts.js --dry-run",
     "clean:workspaces": "node scripts/dev/cleanup-local-artifacts.js --include-workspace-builds",
     "build": "node scripts/build/run-build.js",
     "build:standalone": "node scripts/build/run-build.js --standalone --turbopack",
-    "build:desktop": "npm run build:standalone && electron-builder",
     "styles:build": "node scripts/build/build-stable-css.js",
     "brand:icons": "node scripts/build/generate-brand-icons.js",
-    "package:mac": "npm run build:standalone && electron-builder --mac",
-    "package:win": "npm run build:standalone && electron-builder --win",
-    "package:linux": "npm run build:standalone && electron-builder --linux",
     "start": "next start",
     "lint": "eslint .",
     "test": "npm run test:unit && npm run test:backend",
@@ -142,7 +136,6 @@
     "postcss": "^8.5.28",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-icons": "^5.6.0",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.6.0",
     "tar": "^7.5.22",
@@ -159,8 +152,6 @@
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "4.1.10",
     "autoprefixer": "^10.5.0",
-    "electron": "^42.3.0",
-    "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.6",
     "playwright": "^1.60.0",
@@ -168,7 +159,8 @@
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.19",
     "tsconfig-paths": "^4.2.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "jiti": "2.6.1"
   },
   "overrides": {
     "@prisma/config": {
@@ -199,63 +191,5 @@
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/tiammomo/QuantPilot.git"
-  },
-  "build": {
-    "appId": "com.quantpilot.desktop",
-    "productName": "QuantPilot",
-    "files": [
-      "index.js",
-      "electron/**/*",
-      ".next/standalone/**/*",
-      ".next/static/**/*",
-      "public/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": ".next/static",
-        "to": ".next/static"
-      },
-      {
-        "from": "public",
-        "to": "public"
-      },
-      {
-        "from": ".pi",
-        "to": ".pi"
-      },
-      {
-        "from": "scripts/security",
-        "to": "scripts/security"
-      }
-    ],
-    "asar": true,
-    "directories": {
-      "buildResources": "resources",
-      "output": "dist"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.developer-tools"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Development"
-    }
   }
 }

@@ -15,8 +15,6 @@
       "dependsOn": [],
       "publicSurface": [
         "@/types/shared",
-        "@/types/client",
-        "@/types/server",
         "@/lib/utils",
         "@/lib/config/constants"
       ]
@@ -397,6 +395,30 @@
       {
         "path": "services/market-data/src/quantpilot_market_data/models.py",
         "reason": "数据合同已迁入 contracts/ 各领域，调用方直接导入所属模块，不恢复单文件合同门面。"
+      },
+      {
+        "path": "electron/**",
+        "reason": "产品入口统一为 Web 与本地 Docker 组件，不恢复没有独立业务能力的桌面包装。"
+      },
+      {
+        "path": "scripts/dev/run-desktop.js",
+        "reason": "开发环境只维护 Web 与 market-data 启动器。"
+      },
+      {
+        "path": "src/stubs/react-icons-*.tsx",
+        "reason": "UI 直接使用 Lucide 图标，不恢复重复图标库和兼容包装。"
+      },
+      {
+        "path": "src/lib/quant/skills-registry.*",
+        "reason": "运行时只消费 PI Agent 的规范 Skills 注册表与锁定包，不恢复无调用方的内置降级注册表。"
+      },
+      {
+        "path": "src/lib/agent/index.ts",
+        "reason": "调用方直接导入领域 public surface，不恢复未使用且重复导出的聚合入口。"
+      },
+      {
+        "path": "src/types/fernet.d.ts",
+        "reason": "加密已使用现有服务合同，不恢复没有依赖和调用方的 ambient module。"
       }
     ],
     "forbiddenContent": [

@@ -34,32 +34,11 @@
       "@/types/shared/*": [
         "./src/types/shared/*"
       ],
-      "@/types/client": [
-        "./src/types/client/index.ts"
-      ],
-      "@/types/client/*": [
-        "./src/types/client/*"
-      ],
-      "@/types/server": [
-        "./src/types/server/index.ts"
-      ],
-      "@/types/server/*": [
-        "./src/types/server/*"
-      ],
       "@/types/backend": [
         "./src/types/backend/index.ts"
       ],
       "@/types/backend/*": [
         "./src/types/backend/*"
-      ],
-      "react-icons/fa": [
-        "./src/stubs/react-icons-fa.tsx"
-      ],
-      "react-icons/si": [
-        "./src/stubs/react-icons-si.tsx"
-      ],
-      "react-icons/vsc": [
-        "./src/stubs/react-icons-vsc.tsx"
       ]
     }
   },
