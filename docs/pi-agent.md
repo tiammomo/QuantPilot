@@ -110,7 +110,7 @@ Workspace 在每个用户回合的最终回复下方显示一条非卡片式运�
 
 模型 Provider 的 `include_usage` 是首选真值。Run Engine 严格校验 `input + output = total`、cache split 和 reasoning 子集，并把累计 usage 写入 durable run/event；Provider 缺失 usage 时使用保守估算。最终投影会根据 durable usage event 区分 provider、estimated、mixed 和 partial，非 provider 完整统计在界面使用“约”或“不完整”提示，不能冒充账单精确值。
 
-用量来源随 PI 消息转换、序列化与多轮累计保留。流中断时保留已经收到的用量并标为 `partial`；响应正常结束但没有用量回执时，使用 prepared input 和输出 UTF-8 字节数作保守估算，计入累计输入与 cache-miss 预算。新的 durable event 显式记录 `provider` 来源；历史正数统计缺少来源时按不完整处理，不回写既有消息。SDK 必填的 cost 零值只是占位，不能解释为免费调用。
+用量来源随 PI 消息转换、序列化与多轮累计保留。流中断时保留已经收到的用量并标为 `partial`；响应正常结束但没有用量回执时，使用 prepared input 和输出 UTF-8 字节数作保守估算，计入累计输入与 cache-miss 预算。新的 durable event 显式记录 `provider` 来源；历史统计缺少来源时按不完整处理，包括无法确认来源的零值，不回写既有消息。未创建 AgentRun 的平台回合，以及有明确零用量回执的确定性 run，仍可展示精确零值。SDK 必填的 cost 零值只是占位，不能解释为免费调用。
 
 启用 Context Manager 的 run 还记录末次准备请求的上下文快照：run/model、轮次、采样时间、预估输入、配置窗口、预留输出、实际输入预算与本轮是否压缩。最终摘要分别展示累计 Token 和“末次上下文约 … / …（输入预算）”；快照是历史单次输入预估，不代表当前内存占用或计费金额。采集只选择最新 run 的快照，缺失时显示“上下文未记录”，不借用旧 run。快照不含原始消息、工具输出或推理正文，持久化与客户端解析均按白名单校验。
 

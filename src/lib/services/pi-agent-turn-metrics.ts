@@ -60,7 +60,7 @@ function tokenAccountingForRuns(
   if (
     runs.some((run) => {
       const source = usageSourceFromEvent(run.events[0]);
-      return source === 'partial' || (run.totalTokens > 0 && source === undefined);
+      return source === 'partial' || source === undefined;
     })
   )
     return 'partial';

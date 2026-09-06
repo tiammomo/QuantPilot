@@ -213,6 +213,23 @@ describe('PI Agent conversation turn metrics collector', () => {
     }
   );
 
+  it.each([undefined, 'provider'] as const)('requires provenance even for a zero-token run: %s', async (source) => {
+    mocks.findRuns.mockResolvedValue([
+      run({
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cachedInputTokens: 0,
+        cacheMissInputTokens: 0,
+        reasoningTokens: 0,
+        events: [{ eventType: 'run_finished', payload: { usage: { totalTokens: 0, usageSource: source } } }],
+      }),
+    ]);
+    const metrics = await collectPiAgentTurnMetrics({ projectId: 'project-a', requestId: 'request-a' });
+    expect(metrics.totalTokens).toBe(0);
+    expect(metrics.tokenAccounting).toBe(source === 'provider' ? 'provider' : 'partial');
+  });
+
   it.each([
     run({ events: [] }),
     run({ events: [{ eventType: 'run_finished', payload: { usage: { totalTokens: 120 } } }] }),
