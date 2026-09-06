@@ -532,9 +532,9 @@
       },
       {
         "path": "src/lib/quant/strategies.ts",
-        "maxLines": 1170,
-        "targetLines": 900,
-        "nextAction": "已拆 catalog/types/scan repository/readiness/response mappers；继续拆 market API client 和 dashboard service。"
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "只保留策略目录、工作空间关联与扫描编排；市场请求、研究状态、默认数据和类型直接导入所属模块。"
       },
       {
         "path": "src/lib/eval/runtime.ts",
@@ -778,6 +778,30 @@
       },
       {
         "path": "src/app/[project_id]/chat/publish-panel.tsx",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/lib/quant/strategy-market-api.ts",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/lib/quant/strategy-market-client.ts",
+        "maxLines": 450,
+        "targetLines": 450,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/lib/quant/strategy-research-state.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/lib/quant/strategy-research-defaults.ts",
         "maxLines": 150,
         "targetLines": 150,
         "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"

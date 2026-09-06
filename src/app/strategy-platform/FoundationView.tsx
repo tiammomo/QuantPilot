@@ -10,7 +10,7 @@ import type {
   StrategyDashboardData,
   StrategyFactorDefinition,
   StrategyFoundationComponent,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 import { API_BASE } from "./strategy-platform-helpers";
 
 function foundationStatusLabel(status: StrategyFoundationComponent["status"]) {

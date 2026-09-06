@@ -50,7 +50,7 @@ import type {
   StrategyUniverse,
   StrategyUniverseMember,
   StrategyUniverseMembersPage,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 import { FinancialKnowledgeView } from "./FinancialKnowledgeView";
 import { UniverseView } from "./UniverseView";
 import { FactorCatalogView } from "./FactorCatalogView";

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
-import type { StrategyDashboardData, StrategyFactorCatalogItem } from "@/lib/quant/strategies";
+import type { StrategyDashboardData, StrategyFactorCatalogItem } from '@/lib/quant/strategy-types';
 
 function factorCatalogStatusLabel(status: StrategyFactorCatalogItem["status"]) {
   if (status === "ready") return "可计算";

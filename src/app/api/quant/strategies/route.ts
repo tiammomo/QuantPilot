@@ -24,10 +24,7 @@ import {
 import { strategyPermissionAction } from './permission';
 import {
   addStrategyUniverseMember,
-  buildStrategyPrompt,
   controlStrategyIngestionJob,
-  enqueueStrategyParameterScan,
-  getStrategyDashboardData,
   getStrategyIngestionJobs,
   getStrategyIntradayBars,
   getStrategyRealtimeQuote,
@@ -38,8 +35,13 @@ import {
   ingestStrategyUniverseHistoryBatch,
   runStrategyScreener,
   runStrategyDataQualityScan,
-  runStrategyParameterScan,
   startStrategyUniverseHistoryAutoFill,
+} from '@/lib/quant/strategy-market-client';
+import {
+  buildStrategyPrompt,
+  enqueueStrategyParameterScan,
+  getStrategyDashboardData,
+  runStrategyParameterScan,
 } from '@/lib/quant/strategies';
 
 const STRATEGY_DATA_UNIT_WEIGHTS: Readonly<Record<string, number>> = {

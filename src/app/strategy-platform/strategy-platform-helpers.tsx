@@ -5,7 +5,7 @@ import type {
   StrategyIngestionJob,
   StrategyUniverse,
   StrategyUniverseMember,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 
 export type StrategyView =
   | "universe"

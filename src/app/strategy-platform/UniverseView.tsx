@@ -14,7 +14,7 @@ import type {
   StrategyIngestionJob,
   StrategyUniverse,
   StrategyUniverseMembersPage,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 import { StockKlineDetail } from "./StockKlineDetail";
 import {
   type IngestionRangeMode,

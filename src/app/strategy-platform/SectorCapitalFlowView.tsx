@@ -10,7 +10,7 @@ import type {
   StrategySectorCapitalFlowDetail,
   StrategySectorCapitalFlowItem,
   StrategySectorCapitalFlowMarketSummary,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 import {
   API_BASE,
   finiteNumber,

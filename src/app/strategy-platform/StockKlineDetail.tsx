@@ -12,7 +12,7 @@ import type {
   StrategyRealtimeQuote,
   StrategyUniverse,
   StrategyUniverseMember,
-} from "@/lib/quant/strategies";
+} from '@/lib/quant/strategy-types';
 import {
   API_BASE,
   finiteNumber,

@@ -17,12 +17,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.requireAction }));
-vi.mock('@/lib/quant/strategies', () => ({
+vi.mock('@/lib/quant/strategy-market-client', () => ({
   addStrategyUniverseMember: mocks.addStrategyUniverseMember,
-  buildStrategyPrompt: vi.fn(() => ({ prompt: 'strategy' })),
   controlStrategyIngestionJob: vi.fn(),
-  enqueueStrategyParameterScan: mocks.enqueueStrategyParameterScan,
-  getStrategyDashboardData: mocks.getStrategyDashboardData,
   getStrategyIngestionJobs: vi.fn(),
   getStrategyIntradayBars: vi.fn(),
   getStrategyRealtimeQuote: vi.fn(),
@@ -33,8 +30,13 @@ vi.mock('@/lib/quant/strategies', () => ({
   ingestStrategyUniverseHistoryBatch: vi.fn(),
   runStrategyScreener: vi.fn(),
   runStrategyDataQualityScan: vi.fn(),
-  runStrategyParameterScan: vi.fn(),
-  startStrategyUniverseHistoryAutoFill: vi.fn(),
+  startStrategyUniverseHistoryAutoFill: vi.fn()
+}));
+vi.mock('@/lib/quant/strategies', () => ({
+  buildStrategyPrompt: vi.fn(() => ({ prompt: 'strategy' })),
+  enqueueStrategyParameterScan: mocks.enqueueStrategyParameterScan,
+  getStrategyDashboardData: mocks.getStrategyDashboardData,
+  runStrategyParameterScan: vi.fn()
 }));
 vi.mock('@/lib/server/api-idempotency', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/server/api-idempotency')>(),
