@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from quantpilot_market_data.backtest import build_ma_crossover_backtest, build_strategy_backtest
+from quantpilot_market_data.backtest_experiments import current_engine_identity, verify_experiment
 from quantpilot_market_data.cache import MarketDataCache
 from quantpilot_market_data.contracts.analysis import BacktestResponse
 from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod
@@ -12,6 +13,17 @@ from quantpilot_market_data.services.kline_gateway import (
     get_kline_local_first,
     get_local_kline_if_ready,
 )
+
+
+def _read_cached_backtest(cache: MarketDataCache, cache_key: str) -> BacktestResponse | None:
+    try:
+        cached = read_cached_response(cache, cache_key, BacktestResponse)
+        if cached is not None:
+            verify_experiment(cached)
+        return cached
+    except ValueError:
+        # A stale or damaged cache is replaceable; captured artifacts are never repaired this way.
+        return None
 
 
 async def get_ma_crossover_backtest(
@@ -50,6 +62,7 @@ async def get_ma_crossover_backtest(
     cache_key = cache.build_key(
         "backtest-ma-crossover",
         {
+            "engine": current_engine_identity().model_dump(mode="json"),
             "symbol": symbol,
             "fast_window": normalized_fast,
             "slow_window": normalized_slow,
@@ -61,7 +74,7 @@ async def get_ma_crossover_backtest(
             "fee_bps": str(fee_bps),
         },
     )
-    cached = read_cached_response(cache, cache_key, BacktestResponse)
+    cached = _read_cached_backtest(cache, cache_key)
     if cached is not None:
         return cached
 
@@ -118,6 +131,7 @@ async def get_strategy_backtest(
     cache_key = cache.build_key(
         "backtest-strategy",
         {
+            "engine": current_engine_identity().model_dump(mode="json"),
             "strategy_id": strategy_id,
             "symbol": symbol,
             "parameters": parameters,
@@ -129,7 +143,7 @@ async def get_strategy_backtest(
             "fee_bps": str(fee_bps),
         },
     )
-    cached = read_cached_response(cache, cache_key, BacktestResponse)
+    cached = _read_cached_backtest(cache, cache_key)
     if cached is not None:
         return cached
 

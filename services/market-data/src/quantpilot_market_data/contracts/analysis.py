@@ -13,6 +13,7 @@ from quantpilot_market_data.contracts.common import (
     MarketCode,
     _merge_data_quality,
 )
+from quantpilot_market_data.contracts.experiments import BacktestExperiment
 from quantpilot_market_data.contracts.quotes import Adjustment, KlinePeriod
 
 AnalysisContextSectionName = Literal[
@@ -103,6 +104,7 @@ class BacktestSummary(BaseModel):
 
 
 class BacktestResponse(BaseModel):
+    experiment: BacktestExperiment | None = None
     symbol: str
     name: str | None = None
     secid: str

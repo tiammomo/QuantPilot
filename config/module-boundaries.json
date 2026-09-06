@@ -829,6 +829,30 @@
         "maxLines": 150,
         "targetLines": 150,
         "nextAction": "保持用量与上下文口径独立、来源显式；缺失信息不能伪装为精确零值。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/contracts/experiments.py",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持数值引擎、实验契约与离线复跑分离；实验不得重新取实时数据，新增策略必须通过复跑回归。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/backtest_experiments.py",
+        "maxLines": 250,
+        "targetLines": 250,
+        "nextAction": "保持数值引擎、实验契约与离线复跑分离；实验不得重新取实时数据，新增策略必须通过复跑回归。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/replay_backtest.py",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "保持数值引擎、实验契约与离线复跑分离；实验不得重新取实时数据，新增策略必须通过复跑回归。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/backtest.py",
+        "maxLines": 800,
+        "targetLines": 800,
+        "nextAction": "保持数值引擎、实验契约与离线复跑分离；实验不得重新取实时数据，新增策略必须通过复跑回归。"
       }
     ]
   }

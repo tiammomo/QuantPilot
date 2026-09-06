@@ -5,6 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from math import sqrt
 from typing import Any
 
+from quantpilot_market_data.backtest_experiments import attach_experiment, capture_input_data
 from quantpilot_market_data.contracts.analysis import (
     BacktestEquityPoint,
     BacktestResponse,
@@ -325,10 +326,17 @@ def build_strategy_backtest(
 
     params["fee_bps"] = str(fee_bps)
     cash = _safe_decimal(initial_cash)
-    if cash <= 0:
-        raise ValueError("initial_cash 必须大于 0。")
+    if not cash.is_finite() or cash <= 0:
+        raise ValueError("initial_cash 必须为大于 0 的有限数值。")
+    fee = _safe_decimal(fee_bps)
+    if not fee.is_finite() or fee < 0 or fee > 10000:
+        raise ValueError("fee_bps 必须为 0 到 10000 之间的有限数值。")
 
-    fee_rate = _safe_decimal(fee_bps) / Decimal("10000")
+    data = capture_input_data(kline)
+    source_metadata = kline.metadata
+    kline = KlineResponse.model_validate(data.model_dump(mode="json"))
+
+    fee_rate = fee / Decimal("10000")
     closes = [bar.close for bar in kline.bars]
     highs = [bar.high for bar in kline.bars]
     lows = [bar.low for bar in kline.bars]
@@ -725,13 +733,15 @@ def build_strategy_backtest(
         ),
     )
 
-    return BacktestResponse(
+    response = BacktestResponse(
         symbol=kline.symbol,
         name=kline.name,
         secid=kline.secid,
         asset_type=kline.asset_type,
         market=kline.market,
         source=kline.source,
+        currency=kline.currency,
+        timezone=kline.timezone,
         strategy_id=normalized_strategy_id,
         strategy_name=STRATEGY_NAMES[normalized_strategy_id],
         fast_window=fast_window,
@@ -745,8 +755,10 @@ def build_strategy_backtest(
         summary=summary,
         as_of=kline.as_of,
         fetched_at=datetime.now(UTC),
-        metadata=kline.metadata,
+        metadata=source_metadata,
+        data_quality=kline.data_quality,
     )
+    return attach_experiment(response, data, initial_cash=cash, fee_bps=fee)
 
 
 def _trade_entry_index(kline: KlineResponse, entry_date: str) -> int:
