@@ -1,10 +1,26 @@
 "use client";
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { MotionDiv } from '@/lib/motion';
 import { useRouter, useSearchParams, useParams, usePathname } from 'next/navigation';
 
-import { ArrowLeft, ArrowRight, Code, ExternalLink, Files, Home, MessageSquareText, Monitor, MonitorPlay, Play, Rocket, RotateCcw, Settings, Smartphone, Square } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Code,
+  ExternalLink,
+  Files,
+  Home,
+  MessageSquareText,
+  Monitor,
+  MonitorPlay,
+  Play,
+  Rocket,
+  RotateCcw,
+  Settings,
+  Smartphone,
+  Square,
+} from 'lucide-react';
 
 import { TreeView, getFileIcon, type Entry } from './file-tree';
 import { useFileEditor } from './use-file-editor';
@@ -17,10 +33,23 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/models';
-import { ACTIVE_CLI_BRAND_COLORS, ACTIVE_CLI_IDS, ACTIVE_CLI_MODEL_OPTIONS, ACTIVE_CLI_NAME_MAP, DEFAULT_ACTIVE_CLI, buildActiveModelOptions, normalizeModelForCli, sanitizeActiveCli, type ActiveCliId, type ActiveModelOption } from '@/lib/utils/cliOptions';
-import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
-import { CHAT_PANE_DEFAULT_WIDTH, CHAT_PANE_MAX_WIDTH, CHAT_PANE_MIN_WIDTH, CHAT_PANE_WIDTH_STORAGE_KEY, PREVIEW_PANE_MIN_WIDTH, clampChatPaneWidth, parseStoredChatPaneWidth } from './pane-layout';
-import { planPreviewReconciliation } from './preview-reconciliation';
+import {
+  ACTIVE_CLI_BRAND_COLORS,
+  ACTIVE_CLI_IDS,
+  ACTIVE_CLI_MODEL_OPTIONS,
+  ACTIVE_CLI_NAME_MAP,
+  DEFAULT_ACTIVE_CLI,
+  buildActiveModelOptions,
+  normalizeModelForCli,
+  sanitizeActiveCli,
+  type ActiveCliId,
+  type ActiveModelOption,
+} from '@/lib/utils/cliOptions';
+import { useChatPane } from './use-chat-pane';
+import { CHAT_PANE_MIN_WIDTH, CHAT_PANE_MAX_WIDTH } from './pane-layout';
+import { useProjectDeployment } from './use-project-deployment';
+import { PublishPanel } from './publish-panel';
+import { useGenerationPreview } from './use-generation-preview';
 import { buildQuestionInstruction } from '@/components/chat/question-composer';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
@@ -66,19 +95,6 @@ const hexToFilter = (hex: string): string => {
   return filters[hex] || filters['#2563EB'];
 };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
-type QuantValidationState = 'unknown' | 'running' | 'passed' | 'failed';
-
-type QuantValidationRepairPlan = {
-  status: 'needed';
-  repairPlanPath?: string;
-  steps?: Array<{
-    checkId?: string;
-    checkName?: string;
-    summary?: string;
-    actions?: string[];
-  }>;
-};
-
 type CliStatusSnapshot = {
   available?: boolean;
   configured?: boolean;
@@ -102,6 +118,10 @@ export default function ChatPage() {
     projectIdFromParams ??
     pathname?.split('/').filter(Boolean).find((segment) => segment.startsWith('project-')) ??
     '';
+  return <ChatWorkspace key={projectId} projectId={projectId} />;
+}
+
+function ChatWorkspace({ projectId }: { projectId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isVisualCheck = searchParams?.get('visualCheck') === '1';
@@ -123,7 +143,6 @@ export default function ChatPage() {
   const currentProjectAvailability = projectAvailability.projectId === projectId
     ? projectAvailability.status
     : 'checking';
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [tree, setTree] = useState<Entry[]>([]);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [hasTreeLoaded, setHasTreeLoaded] = useState(false);
@@ -152,7 +171,6 @@ export default function ChatPage() {
   const [mode, setMode] = useState<'act' | 'chat'>(() =>
     searchParams?.get('mode') === 'chat' ? 'chat' : 'act'
   );
-  const [isRunning, setIsRunning] = useState(false);
   const [isPausingAgent, setIsPausingAgent] = useState(false);
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const queuedFollowUpsRef = useRef<QueuedFollowUp[]>([]);
@@ -165,44 +183,16 @@ export default function ChatPage() {
   const [isSseFallbackActive, setIsSseFallbackActive] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [mobileWorkspaceView, setMobileWorkspaceView] = useState<MobileWorkspaceView>('chat');
-  const [chatPaneWidth, setChatPaneWidth] = useState(CHAT_PANE_DEFAULT_WIDTH);
-  const [isChatPaneResizing, setIsChatPaneResizing] = useState(false);
-  const chatPaneRef = useRef<HTMLDivElement>(null);
-  const chatPaneWidthRef = useRef(CHAT_PANE_DEFAULT_WIDTH);
-  const chatPanePreferredWidthRef = useRef(CHAT_PANE_DEFAULT_WIDTH);
-  const chatPaneResizeRef = useRef({
-    startX: 0,
-    startWidth: CHAT_PANE_DEFAULT_WIDTH,
-  });
   const [deviceMode, setDeviceMode] = useState<'desktop'|'mobile'>('desktop');
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<{name: string; url: string; base64?: string; path?: string}[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   // Initialize states with default values, will be loaded from localStorage in useEffect
   const [hasInitialPrompt, setHasInitialPrompt] = useState<boolean>(false);
-  const [agentWorkComplete, setAgentWorkComplete] = useState<boolean>(false);
   const [projectStatus, setProjectStatus] = useState<ProjectStatus>('initializing');
   const [initializationMessage, setInitializationMessage] = useState('Starting project initialization...');
   const [initialPromptSent, setInitialPromptSent] = useState(false);
   const initialPromptSentRef = useRef(false);
-  const [showPublishPanel, setShowPublishPanel] = useState(false);
-  const [publishLoading, setPublishLoading] = useState(false);
-  const [githubConnected, setGithubConnected] = useState<boolean | null>(null);
-  const [vercelConnected, setVercelConnected] = useState<boolean | null>(null);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [deploymentId, setDeploymentId] = useState<string | null>(null);
-  const [deploymentStatus, setDeploymentStatus] = useState<'idle' | 'deploying' | 'ready' | 'error'>('idle');
-  const deployPollRef = useRef<NodeJS.Timeout | null>(null);
-  const [isStartingPreview, setIsStartingPreview] = useState(false);
-  const previewStartInFlightRef = useRef<string | null>(null);
-  const previewAutoRecoveryAttemptRef = useRef<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const previewAutoRecoverySuppressedRef = useRef(false);
-  const previewTerminalFailureRef = useRef(false);
-  const [previewInitializationMessage, setPreviewInitializationMessage] = useState('正在启动预览服务...');
-  const [quantValidationState, setQuantValidationState] = useState<QuantValidationState>('unknown');
-  const [quantValidationMessage, setQuantValidationMessage] = useState<string | null>(null);
-  const [quantRepairPlan, setQuantRepairPlan] = useState<QuantValidationRepairPlan | null>(null);
   const [cliStatuses, setCliStatuses] = useState<Record<string, CliStatusSnapshot>>({});
   const [conversationId, setConversationId] = useState<string>(() => {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
@@ -214,8 +204,15 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli(DEFAULT_ACTIVE_CLI));
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState<boolean>(true);
   const [isUpdatingModel, setIsUpdatingModel] = useState<boolean>(false);
-  const [currentRoute, setCurrentRoute] = useState<string>('/');
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { chatPaneWidth, isChatPaneResizing, chatPaneRef, chatPaneWidthRef, persistChatPaneWidth, resetChatPaneWidth, startChatPaneResize } = useChatPane();
+  const deployment = useProjectDeployment(projectId);
+  const { setShowPublishPanel, deploymentStatus } = deployment;
+  const revealPreview = useCallback(() => { setShowPreview(true); setMobileWorkspaceView('preview'); }, []);
+  const { controller: previewController, previewUrl, isStartingPreview, previewInitializationMessage,
+    quantValidationState, quantValidationMessage, quantRepairPlan, isRunning, agentWorkComplete,
+    currentRoute, setCurrentRoute, iframeRef, navigateToRoute, refreshPreview, start, stop,
+    setIsRunning, setAgentWorkComplete, setPreviewInitializationMessage,
+  } = useGenerationPreview({ projectId, isVisualCheck, hasActiveRequests, onReveal: revealPreview });
   const shouldShowPreviewFrame = Boolean(previewUrl) && !isStartingPreview;
   const activeBrandColor =
     assistantBrandColors[preferredCli] || assistantBrandColors[DEFAULT_ACTIVE_CLI];
@@ -247,93 +244,6 @@ export default function ChatPage() {
     }
   }, [preferredCli]);
 
-  const persistChatPaneWidth = useCallback((width: number) => {
-    const nextWidth = clampChatPaneWidth(width, window.innerWidth);
-    chatPaneWidthRef.current = nextWidth;
-    chatPanePreferredWidthRef.current = nextWidth;
-    setChatPaneWidth(nextWidth);
-    window.localStorage.setItem(CHAT_PANE_WIDTH_STORAGE_KEY, String(nextWidth));
-  }, []);
-
-  const resetChatPaneWidth = useCallback(() => {
-    const nextWidth = clampChatPaneWidth(CHAT_PANE_DEFAULT_WIDTH, window.innerWidth);
-    chatPaneWidthRef.current = nextWidth;
-    chatPanePreferredWidthRef.current = CHAT_PANE_DEFAULT_WIDTH;
-    setChatPaneWidth(nextWidth);
-    window.localStorage.removeItem(CHAT_PANE_WIDTH_STORAGE_KEY);
-  }, []);
-
-  const startChatPaneResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    chatPaneResizeRef.current = {
-      startX: event.clientX,
-      startWidth: chatPaneRef.current?.getBoundingClientRect().width ?? chatPaneWidthRef.current,
-    };
-    setIsChatPaneResizing(true);
-  }, []);
-
-  useEffect(() => {
-    const storedWidth = parseStoredChatPaneWidth(
-      window.localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY),
-      CHAT_PANE_MAX_WIDTH + PREVIEW_PANE_MIN_WIDTH,
-    );
-    if (storedWidth !== null) {
-      const visibleWidth = clampChatPaneWidth(storedWidth, window.innerWidth);
-      chatPanePreferredWidthRef.current = storedWidth;
-      chatPaneWidthRef.current = visibleWidth;
-      setChatPaneWidth(visibleWidth);
-    }
-
-    const clampToViewport = () => {
-      const nextWidth = clampChatPaneWidth(
-        chatPanePreferredWidthRef.current,
-        window.innerWidth,
-      );
-      chatPaneWidthRef.current = nextWidth;
-      setChatPaneWidth(nextWidth);
-    };
-    window.addEventListener('resize', clampToViewport);
-    return () => window.removeEventListener('resize', clampToViewport);
-  }, []);
-
-  useEffect(() => {
-    if (!isChatPaneResizing) return;
-
-    const move = (event: PointerEvent) => {
-      const nextWidth = clampChatPaneWidth(
-        chatPaneResizeRef.current.startWidth + event.clientX - chatPaneResizeRef.current.startX,
-        window.innerWidth,
-      );
-      chatPaneWidthRef.current = nextWidth;
-      chatPanePreferredWidthRef.current = nextWidth;
-      setChatPaneWidth(nextWidth);
-    };
-    const stop = () => {
-      window.localStorage.setItem(
-        CHAT_PANE_WIDTH_STORAGE_KEY,
-        String(chatPanePreferredWidthRef.current),
-      );
-      setIsChatPaneResizing(false);
-    };
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-  }, [isChatPaneResizing]);
-
   const sendInitialPrompt = useCallback(async (initialPrompt: string) => {
     if (initialPromptSent) {
       return;
@@ -343,9 +253,10 @@ export default function ChatPage() {
     localStorage.setItem(`project_${projectId}_taskComplete`, 'false');
 
     const requestId = crypto.randomUUID();
+    let requestAccepted = false;
 
     try {
-      setIsRunning(true);
+      previewController.beginGeneration(requestId);
       setInitialPromptSent(true);
 
       const requestBody = {
@@ -372,6 +283,7 @@ export default function ChatPage() {
       }
 
       const result = await r.json();
+      requestAccepted = !['intent_clarification_required', 'intent_refused', 'cancelled'].includes(result?.status);
       const returnedConversationId =
         typeof result?.conversationId === 'string' ? result.conversationId : undefined;
       if (returnedConversationId) {
@@ -383,6 +295,7 @@ export default function ChatPage() {
       const userMessageId =
         typeof result?.userMessageId === 'string' ? result.userMessageId : '';
 
+      previewController.trackRequest(resolvedRequestId, requestId);
       createRequest(resolvedRequestId, userMessageId, initialPrompt, 'act');
       setPrompt('');
 
@@ -393,9 +306,9 @@ export default function ChatPage() {
       console.error('Error sending initial prompt:', error);
       setInitialPromptSent(false);
     } finally {
-      setIsRunning(false);
+      if (!requestAccepted) previewController.rejectRequest(requestId);
     }
-  }, [initialPromptSent, conversationId, projectId, selectedModel, createRequest]);
+  }, [initialPromptSent, conversationId, projectId, selectedModel, createRequest, previewController, setAgentWorkComplete]);
 
   // Guarded trigger that can be called from multiple places safely
   const triggerInitialPromptIfNeeded = useCallback(() => {
@@ -590,605 +503,6 @@ const persistProjectPreferences = useCallback(
       }
     }
   }, [modelOptions, preferredCli, selectedModel, handleModelChange]);
-
-  const loadDeployStatus = useCallback(async () => {
-    try {
-      // Use the same API as ServiceSettings to check actual project service connections
-      const response = await fetch(`${API_BASE}/api/projects/${projectId}/services`);
-      if (response.status === 404) {
-        setGithubConnected(false);
-        setVercelConnected(false);
-        setPublishedUrl(null);
-        setDeploymentStatus('idle');
-        return;
-      }
-
-      if (response.ok) {
-        const connections = await response.json();
-        const githubConnection = connections.find((conn: any) => conn.provider === 'github');
-        const vercelConnection = connections.find((conn: any) => conn.provider === 'vercel');
-
-        // Check actual project connections (not just token existence)
-        setGithubConnected(!!githubConnection);
-        setVercelConnected(!!vercelConnection);
-
-        // Set published URL only if actually deployed
-        if (vercelConnection && vercelConnection.service_data) {
-          const sd = vercelConnection.service_data;
-          // Only use actual deployment URLs, not predicted ones
-          const rawUrl = sd.last_deployment_url || null;
-          const url = rawUrl ? (String(rawUrl).startsWith('http') ? String(rawUrl) : `https://${rawUrl}`) : null;
-          setPublishedUrl(url || null);
-          if (url) {
-            setDeploymentStatus('ready');
-          } else {
-            setDeploymentStatus('idle');
-          }
-        } else {
-          setPublishedUrl(null);
-          setDeploymentStatus('idle');
-        }
-      } else {
-        setGithubConnected(false);
-        setVercelConnected(false);
-        setPublishedUrl(null);
-        setDeploymentStatus('idle');
-      }
-
-    } catch (e) {
-      console.warn('Failed to load deploy status', e);
-      setGithubConnected(false);
-      setVercelConnected(false);
-      setPublishedUrl(null);
-      setDeploymentStatus('idle');
-    }
-  }, [projectId]);
-
-  const startDeploymentPolling = useCallback((depId: string) => {
-    if (deployPollRef.current) clearInterval(deployPollRef.current);
-    setDeploymentStatus('deploying');
-    setDeploymentId(depId);
-
-    console.log('🔍 Monitoring deployment:', depId);
-
-    deployPollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/projects/${projectId}/vercel/deployment/current`);
-        if (r.status === 404) {
-          setDeploymentStatus('idle');
-          setDeploymentId(null);
-          setPublishLoading(false);
-          if (deployPollRef.current) {
-            clearInterval(deployPollRef.current);
-            deployPollRef.current = null;
-          }
-          return;
-        }
-        if (!r.ok) return;
-        const data = await r.json();
-
-        // Stop polling if no active deployment (completed)
-        if (!data.has_deployment) {
-          console.log('🔍 Deployment completed - no active deployment');
-
-          // Set final deployment URL
-          if (data.last_deployment_url) {
-            const url = String(data.last_deployment_url).startsWith('http') ? data.last_deployment_url : `https://${data.last_deployment_url}`;
-            console.log('🔍 Deployment complete! URL:', url);
-            setPublishedUrl(url);
-            setDeploymentStatus('ready');
-          } else {
-            setDeploymentStatus('idle');
-          }
-
-          // End publish loading state (important: release loading even if no deployment)
-          setPublishLoading(false);
-
-          if (deployPollRef.current) {
-            clearInterval(deployPollRef.current);
-            deployPollRef.current = null;
-          }
-          return;
-        }
-
-        // If there is an active deployment
-        const status = data.status;
-
-        // Log only status changes
-        if (status && status !== 'QUEUED') {
-          console.log('🔍 Deployment status:', status);
-        }
-
-        // Check if deployment is ready or failed
-        const isReady = status === 'READY';
-        const isBuilding = status === 'BUILDING' || status === 'QUEUED';
-        const isError = status === 'ERROR';
-
-        if (isError) {
-          console.error('🔍 Deployment failed:', status);
-          setDeploymentStatus('error');
-
-          // End publish loading state
-          setPublishLoading(false);
-
-          // Close publish panel after error (with delay to show error message)
-          setTimeout(() => {
-            setShowPublishPanel(false);
-          }, 3000); // Show error for 3 seconds before closing
-
-          if (deployPollRef.current) {
-            clearInterval(deployPollRef.current);
-            deployPollRef.current = null;
-          }
-          return;
-        }
-
-        if (isReady && data.deployment_url) {
-          const url = String(data.deployment_url).startsWith('http') ? data.deployment_url : `https://${data.deployment_url}`;
-          console.log('🔍 Deployment complete! URL:', url);
-          setPublishedUrl(url);
-          setDeploymentStatus('ready');
-
-          // End publish loading state
-          setPublishLoading(false);
-
-          // Keep panel open to show the published URL
-
-          if (deployPollRef.current) {
-            clearInterval(deployPollRef.current);
-            deployPollRef.current = null;
-          }
-        } else if (isBuilding) {
-          setDeploymentStatus('deploying');
-        }
-      } catch (error) {
-        console.error('🔍 Polling error:', error);
-      }
-    }, 1000); // Changed to 1 second interval
-  }, [projectId]);
-
-  const checkCurrentDeployment = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${projectId}/vercel/deployment/current`);
-      if (response.status === 404) {
-        return;
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.has_deployment) {
-          setDeploymentId(data.deployment_id);
-          setDeploymentStatus('deploying');
-          setPublishLoading(false);
-          setShowPublishPanel(true);
-          startDeploymentPolling(data.deployment_id);
-          console.log('🔍 Resuming deployment monitoring:', data.deployment_id);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to check current deployment', e);
-    }
-  }, [projectId, startDeploymentPolling]);
-
-  const readQuantValidationStatus = useCallback(async (): Promise<QuantValidationState> => {
-    try {
-      const response = await fetch(`${API_BASE}/api/projects/${projectId}/quant/validation`, {
-        method: 'GET',
-        cache: 'no-store',
-      });
-      if (!response.ok) {
-        return 'unknown';
-      }
-      const payload = await response.json();
-      let report = payload?.data ?? null;
-      const generationState = payload?.generationState ?? null;
-      const generationRequestId =
-        typeof generationState?.requestId === 'string'
-          ? generationState.requestId
-          : null;
-      const validationRunId =
-        typeof report?.runId === 'string' ? report.runId : null;
-      const generationIsActive = ['pending', 'running', 'repairing'].includes(
-        String(generationState?.status ?? ''),
-      );
-      const validationMatchesGeneration = !generationRequestId
-        ? true
-        : validationRunId
-          ? validationRunId === generationRequestId
-          : ['completed', 'failed'].includes(String(generationState?.status ?? ''));
-
-      if (!validationMatchesGeneration) {
-        setQuantValidationState('running');
-        setQuantValidationMessage('正在等待当前生成任务的自动验证结果。');
-        setQuantRepairPlan(null);
-        return 'running';
-      }
-
-      const staleReport = Array.isArray(report?.checks)
-        ? report.checks.some((check: any) => check?.id === 'validation_report_stale')
-        : false;
-      if (staleReport && generationIsActive) {
-        setQuantValidationState('running');
-        setQuantValidationMessage('当前产物仍在更新，正在等待本轮自动验证。');
-        setQuantRepairPlan(null);
-        return 'running';
-      }
-      if (staleReport && !isVisualCheck && !generationIsActive) {
-        setQuantValidationState('running');
-        setQuantValidationMessage('生成产物已更新，正在重新执行自动验证。');
-        setQuantRepairPlan(null);
-        const rerunResponse = await fetch(`${API_BASE}/api/projects/${projectId}/quant/validation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({}),
-        });
-        if (rerunResponse.ok) {
-          const rerunPayload = await rerunResponse.json().catch(() => null);
-          report = rerunPayload?.data ?? report;
-          payload.repairPlan = rerunPayload?.repairPlan ?? payload.repairPlan;
-        }
-      }
-      if (report?.passed === true || report?.status === 'passed') {
-        setQuantValidationState('passed');
-        setQuantValidationMessage('自动验证通过。');
-        setQuantRepairPlan(null);
-        return 'passed';
-      }
-      if (report?.passed === false || report?.status === 'failed') {
-        const repairPlan =
-          payload?.repairPlan && payload.repairPlan.status === 'needed'
-            ? (payload.repairPlan as QuantValidationRepairPlan)
-            : null;
-        const failedChecks = Array.isArray(report?.checks)
-          ? report.checks
-              .filter((check: any) => check?.status === 'failed')
-              .map((check: any) => check?.summary || check?.name || check?.id)
-              .filter(Boolean)
-          : [];
-        setQuantValidationState('failed');
-        setQuantRepairPlan(repairPlan);
-        setQuantValidationMessage(
-          failedChecks.length
-            ? `自动验证未通过：${failedChecks.join('；')}`
-            : '自动验证未通过，请查看验证摘要。'
-        );
-        return 'failed';
-      }
-    } catch (error) {
-      console.warn('[Preview] failed to read quant validation report:', error);
-    }
-    return 'unknown';
-  }, [isVisualCheck, projectId]);
-
-  const readGenerationTerminalSnapshot = useCallback(async (): Promise<QuantGenerationTerminalSnapshot | null> => {
-    const response = await fetch(
-      `${API_BASE}/api/projects/${projectId}/generation/status`,
-      { cache: 'no-store' },
-    );
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json();
-    return (payload?.data ?? null) as QuantGenerationTerminalSnapshot | null;
-  }, [projectId]);
-
-  const start = useCallback(async (options: {
-    requireValidation?: boolean;
-    acceptedSnapshot?: QuantGenerationTerminalSnapshot;
-  } = {}) => {
-    // A URL already adopted by this page must never trigger another start.
-    if (previewUrlRef.current) {
-      return true;
-    }
-    if (previewStartInFlightRef.current) {
-      return false;
-    }
-
-    previewStartInFlightRef.current = projectId;
-    previewTerminalFailureRef.current = false;
-    let dependencyProgressTimer: ReturnType<typeof setTimeout> | null = null;
-    let buildProgressTimer: ReturnType<typeof setTimeout> | null = null;
-    try {
-      setIsStartingPreview(true);
-      setPreviewInitializationMessage(
-        options.requireValidation ? '正在检查自动验证结果...' : '正在启动预览服务...'
-      );
-
-      const terminalSnapshot =
-        options.acceptedSnapshot ?? await readGenerationTerminalSnapshot();
-      if (previewStartInFlightRef.current !== projectId) {
-        return false;
-      }
-      if (!terminalSnapshot) {
-        setPreviewInitializationMessage('暂时无法确认生成终态，请稍后重试。');
-        return false;
-      }
-      if (
-        terminalSnapshot.missionAcceptanceRequired &&
-        !terminalSnapshot.missionAcceptanceSatisfied
-      ) {
-        previewUrlRef.current = null;
-        setPreviewUrl(null);
-        setPreviewInitializationMessage('正在等待 PI Agent 证据验收，暂不展示预览。');
-        return false;
-      }
-      if (terminalSnapshot.validationStatus !== 'passed') {
-        setPreviewInitializationMessage(
-          terminalSnapshot.validationStatus === 'failed'
-            ? '自动验证未通过，暂不展示可视化看板。'
-            : '自动验证尚未完成，暂不展示可视化看板。'
-        );
-        return false;
-      }
-      if (terminalSnapshot.previewUrl) {
-        previewUrlRef.current = terminalSnapshot.previewUrl;
-        setPreviewUrl(terminalSnapshot.previewUrl);
-        setPreviewInitializationMessage('预览已就绪');
-        setShowPreview(true);
-        setMobileWorkspaceView('preview');
-        setCurrentRoute('/');
-        return true;
-      }
-      if (terminalSnapshot.status !== 'preview_pending') {
-        setPreviewInitializationMessage('持久看板预览尚未进入可恢复状态。');
-        return false;
-      }
-
-      dependencyProgressTimer = setTimeout(() => setPreviewInitializationMessage('正在检查依赖...'), 1000);
-      buildProgressTimer = setTimeout(() => setPreviewInitializationMessage('正在构建和验证看板...'), 2500);
-
-      const r = await fetch(`${API_BASE}/api/projects/${projectId}/preview/start`, { method: 'POST' });
-      if (previewStartInFlightRef.current !== projectId) {
-        return false;
-      }
-      if (!r.ok) {
-        let errorMessage = r.statusText || '预览启动失败';
-        try {
-          const payload = await r.json();
-          if (typeof payload?.error === 'string' && payload.error.trim()) {
-            errorMessage = payload.error.trim();
-          }
-        } catch {
-          // 响应体不是 JSON 时使用 HTTP 状态文本。
-        }
-        console.warn('[Preview] start failed:', errorMessage);
-        previewTerminalFailureRef.current = true;
-        setPreviewInitializationMessage(`预览启动失败：${errorMessage}`);
-        return false;
-      }
-      const payload = await r.json();
-      const data = payload?.data ?? payload ?? {};
-      const nextPreviewUrl =
-        typeof data.url === 'string'
-          ? data.url
-          : typeof data.previewUrl === 'string'
-          ? data.previewUrl
-          : typeof payload?.url === 'string'
-          ? payload.url
-          : typeof payload?.previewUrl === 'string'
-          ? payload.previewUrl
-          : null;
-      if (!nextPreviewUrl) {
-        throw new Error('预览服务未返回可用地址');
-      }
-
-      setPreviewInitializationMessage('预览已就绪');
-      previewAutoRecoverySuppressedRef.current = false;
-      previewTerminalFailureRef.current = false;
-      previewUrlRef.current = nextPreviewUrl;
-      setPreviewUrl(nextPreviewUrl);
-      setShowPreview(true);
-      setMobileWorkspaceView('preview');
-      setCurrentRoute('/');
-      return true;
-    } catch (error) {
-      previewTerminalFailureRef.current = true;
-      console.warn('[Preview] start request failed:', error);
-      setPreviewInitializationMessage(
-        error instanceof Error ? `预览启动异常：${error.message}` : '预览启动异常'
-      );
-      return false;
-    } finally {
-      if (dependencyProgressTimer) clearTimeout(dependencyProgressTimer);
-      if (buildProgressTimer) clearTimeout(buildProgressTimer);
-      if (previewStartInFlightRef.current === projectId) {
-        previewStartInFlightRef.current = null;
-        setIsStartingPreview(false);
-      }
-    }
-  }, [projectId, readGenerationTerminalSnapshot]);
-
-  const reconcileGenerationTerminal = useCallback(async () => {
-    if (!projectId) {
-      return;
-    }
-
-    try {
-      const snapshot = await readGenerationTerminalSnapshot();
-      if (!snapshot) {
-        return;
-      }
-
-      const previewPlan = planPreviewReconciliation({
-        projectId,
-        snapshot,
-        currentPreviewUrl: previewUrlRef.current,
-        attemptedRecoveryKey: previewAutoRecoveryAttemptRef.current,
-      });
-
-      if (previewPlan.action === 'withhold_until_acceptance') {
-        previewUrlRef.current = null;
-        setPreviewUrl(null);
-        setIsStartingPreview(false);
-        setIsRunning(true);
-        setAgentWorkComplete(false);
-        setQuantValidationState('running');
-        setQuantValidationMessage('自动检查已完成，正在等待 PI Agent 证据验收。');
-        setPreviewInitializationMessage('证据验收通过后才会展示最终看板。');
-        return;
-      }
-
-      if (previewPlan.action === 'ready') {
-        previewAutoRecoverySuppressedRef.current = false;
-        previewTerminalFailureRef.current = false;
-        setQuantValidationState('passed');
-        setQuantValidationMessage('自动验证通过，看板预览已就绪。');
-        setAgentWorkComplete(true);
-        localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-        if (previewPlan.shouldAdoptUrl) {
-          previewUrlRef.current = previewPlan.previewUrl;
-          setPreviewUrl(previewPlan.previewUrl);
-        }
-        setShowPreview(true);
-        setMobileWorkspaceView('preview');
-        setIsStartingPreview(false);
-        setIsRunning(false);
-        setPreviewInitializationMessage('预览已就绪');
-        return;
-      }
-
-      if (previewPlan.action === 'start_once') {
-        // Visual-check mode may inspect an already running accepted preview,
-        // but must never mutate process state by starting one itself.
-        if (isVisualCheck) {
-          setPreviewInitializationMessage('已验收看板当前没有运行中的预览。');
-          return;
-        }
-        setQuantValidationState('passed');
-        setQuantValidationMessage('自动验证通过，正在恢复持久看板预览。');
-        setShowPreview(true);
-        setMobileWorkspaceView('preview');
-        if (
-          !previewAutoRecoverySuppressedRef.current &&
-          !previewTerminalFailureRef.current &&
-          !previewStartInFlightRef.current
-        ) {
-          // Record before launching so overlapping status polls cannot enqueue
-          // another POST while React state is still settling.
-          previewAutoRecoveryAttemptRef.current = previewPlan.attemptKey;
-          void start({
-            requireValidation: false,
-            acceptedSnapshot: snapshot,
-          });
-        }
-        return;
-      }
-
-      if (snapshot.status === 'preview_pending') {
-        return;
-      }
-
-      if (snapshot.status === 'needs_revalidation') {
-        setIsRunning(false);
-        setAgentWorkComplete(false);
-        setQuantValidationState('failed');
-        setQuantValidationMessage('看板文件已在任务完成后更新，需要发起新一轮验收。');
-        previewUrlRef.current = null;
-        setPreviewUrl(null);
-        setIsStartingPreview(false);
-        setPreviewInitializationMessage('看板已更新，请重新生成并验收后查看最终预览。');
-        return;
-      }
-
-      if (snapshot.status === 'running') {
-        setIsRunning(true);
-        setAgentWorkComplete(false);
-        setQuantValidationState('running');
-        setQuantValidationMessage('当前生成任务尚未完成，正在等待验证和预览终态。');
-        if (snapshot.validationStatus === 'pending') {
-          previewUrlRef.current = null;
-          setPreviewUrl(null);
-          if (!hasActiveRequests) {
-            void readQuantValidationStatus();
-          }
-        }
-        if (!previewUrlRef.current) {
-          setPreviewInitializationMessage('正在生成、验证并准备最终可视化看板...');
-        }
-        return;
-      }
-
-      if (snapshot.status === 'failed') {
-        setIsRunning(false);
-        setQuantValidationState('failed');
-        setQuantValidationMessage(
-          snapshot.errorMessage || '生成或自动验证最终失败，请查看执行摘要。',
-        );
-        previewUrlRef.current = null;
-        setPreviewUrl(null);
-        setPreviewInitializationMessage(
-          snapshot.errorMessage || '生成终态失败，暂时无法展示看板。',
-        );
-        return;
-      }
-
-      if (
-        snapshot.status === 'cancelled' ||
-        snapshot.status === 'needs_clarification' ||
-        snapshot.status === 'refused'
-      ) {
-        setIsRunning(false);
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[Generation] terminal reconciliation failed:', error);
-      }
-    }
-  }, [
-    hasActiveRequests,
-    isVisualCheck,
-    projectId,
-    readGenerationTerminalSnapshot,
-    readQuantValidationStatus,
-    start,
-  ]);
-
-  // Navigate to specific route in iframe
-  const navigateToRoute = (route: string) => {
-    if (previewUrl && iframeRef.current) {
-      const baseUrl = previewUrl.split('?')[0]; // Remove any query params
-      // Ensure route starts with /
-      const normalizedRoute = route.startsWith('/') ? route : `/${route}`;
-      const newUrl = `${baseUrl}${normalizedRoute}`;
-      iframeRef.current.src = newUrl;
-      setCurrentRoute(normalizedRoute);
-    }
-  };
-
-  const refreshPreview = useCallback(() => {
-    if (!previewUrl || !iframeRef.current) {
-      return;
-    }
-
-    try {
-      const normalizedRoute =
-        currentRoute && currentRoute.startsWith('/')
-          ? currentRoute
-          : `/${currentRoute || ''}`;
-      const baseUrl = previewUrl.split('?')[0] || previewUrl;
-      const url = new URL(baseUrl + normalizedRoute);
-      url.searchParams.set('_ts', Date.now().toString());
-      iframeRef.current.src = url.toString();
-    } catch (error) {
-      console.warn('Failed to refresh preview iframe:', error);
-    }
-  }, [previewUrl, currentRoute]);
-
-  const stop = useCallback(async () => {
-    try {
-      previewAutoRecoverySuppressedRef.current = true;
-      await fetch(`${API_BASE}/api/projects/${projectId}/preview/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ intent: 'explicit-user-stop' }),
-      });
-      previewUrlRef.current = null;
-      setPreviewUrl(null);
-    } catch (error) {
-      console.error('Error stopping preview:', error);
-    }
-  }, [projectId]);
 
   const loadSubdirectory = useCallback(async (dir: string): Promise<Entry[]> => {
     try {
@@ -1486,13 +800,6 @@ const persistProjectPreferences = useCallback(
   }, [loadTree]);
 
   useEffect(() => {
-    previewStartInFlightRef.current = null;
-    previewAutoRecoveryAttemptRef.current = null;
-    previewUrlRef.current = null;
-    previewAutoRecoverySuppressedRef.current = false;
-    previewTerminalFailureRef.current = false;
-    setIsStartingPreview(false);
-    setPreviewUrl(null);
     setProjectAvailability({ projectId, status: 'checking' });
     setTree([]);
     setFolderContents(new Map());
@@ -1500,16 +807,6 @@ const persistProjectPreferences = useCallback(
     setHasTreeLoaded(false);
     setTreeLoadError(null);
   }, [projectId]);
-
-  const loadDeployStatusRef = useRef(loadDeployStatus);
-  useEffect(() => {
-    loadDeployStatusRef.current = loadDeployStatus;
-  }, [loadDeployStatus]);
-
-  const checkCurrentDeploymentRef = useRef(checkCurrentDeployment);
-  useEffect(() => {
-    checkCurrentDeploymentRef.current = checkCurrentDeployment;
-  }, [checkCurrentDeployment]);
 
   // Stable message handlers with useCallback to prevent reassignment
   const createStableMessageHandlers = useCallback(() => {
@@ -1636,15 +933,8 @@ const persistProjectPreferences = useCallback(
       return;
     }
 
-    setIsRunning(true);
-    setAgentWorkComplete(false);
-    previewAutoRecoverySuppressedRef.current = false;
-    previewAutoRecoveryAttemptRef.current = null;
-    previewTerminalFailureRef.current = false;
-    previewUrlRef.current = null;
-    setPreviewUrl(null);
-    setPreviewInitializationMessage('正在准备数据和可视化看板，验证通过后自动展示...');
     const requestId = crypto.randomUUID();
+    previewController.beginGeneration(requestId);
     let tempUserMessageId: string | null = null;
     let requestAccepted = false;
 
@@ -1911,7 +1201,7 @@ const persistProjectPreferences = useCallback(
       alert(`Failed to send message: ${errorMessage}\n\nPlease try again. If the problem persists, check the console for details.`);
     } finally {
       if (!requestAccepted) {
-        setIsRunning(false);
+        previewController.rejectRequest(requestId);
       }
       // Remove from pending requests
       pendingRequestsRef.current.delete(requestFingerprint);
@@ -1982,7 +1272,7 @@ const persistProjectPreferences = useCallback(
     } finally {
       setIsPausingAgent(false);
     }
-  }, [isPausingAgent, projectId]);
+  }, [isPausingAgent, projectId, setAgentWorkComplete, setIsRunning, setPreviewInitializationMessage]);
 
   // Handle project status updates via callback from ChatLog
   const handleProjectStatusUpdate = (
@@ -1992,119 +1282,11 @@ const persistProjectPreferences = useCallback(
   ) => {
     const previousStatus = projectStatus;
 
-    if (status === 'validation_running') {
-      setIsRunning(true);
-      setQuantValidationState('running');
-      setQuantValidationMessage(message ?? '正在执行自动验证。');
-      setQuantRepairPlan(null);
-      setPreviewInitializationMessage(message ?? '正在执行自动验证，验证通过后展示看板。');
-      return;
-    }
-
-    if (status === 'agent_execution_completed' || status === 'agent_execution_failed') {
-      setIsRunning(true);
-      setAgentWorkComplete(false);
-      setQuantValidationState('running');
-      setQuantValidationMessage(
-        status === 'agent_execution_failed'
-          ? 'Agent 执行异常结束，正在验证已生成产物并尝试自动修复。'
-          : 'Agent 代码执行完成，正在进行自动验证。',
-      );
-      setPreviewInitializationMessage(
-        status === 'agent_execution_failed'
-          ? 'Agent 执行异常，正在验证现有看板产物...'
-          : '代码生成完成，正在验证并准备最终看板...',
-      );
-      return;
-    }
-
-    if (status === 'validation_repairing' || status === 'validation_repair_failed') {
-      setIsRunning(true);
-      setQuantValidationState('running');
-      setQuantValidationMessage(message ?? '自动验证未通过，正在修复看板产物。');
-      setPreviewInitializationMessage(message ?? '正在自动修复并重新验证看板...');
-      return;
-    }
-
-    if (status === 'preview_starting') {
-      setIsRunning(true);
-      setQuantValidationState('passed');
-      setQuantValidationMessage('自动验证通过，正在确认持久看板预览。');
-      setPreviewInitializationMessage(message ?? '正在启动并确认持久看板预览...');
-      setShowPreview(true);
-      setMobileWorkspaceView('preview');
-      return;
-    }
-
     if (status === 'agent_paused') {
-      setIsRunning(false);
       setIsPausingAgent(false);
-      setPreviewInitializationMessage(message ?? '任务已暂停。');
       pendingRequestsRef.current.clear();
-      return;
     }
-
-    if (status === 'validation_failed') {
-      const terminalFailure = metadata?.terminalFailure === true;
-      previewStartInFlightRef.current = null;
-      previewUrlRef.current = null;
-      setQuantValidationState('failed');
-      setQuantValidationMessage(
-        message ??
-          (terminalFailure
-            ? '自动验证最终未通过，请查看验证摘要。'
-            : '自动验证未通过，正在等待自动修复。'),
-      );
-      setPreviewUrl(null);
-      setIsStartingPreview(false);
-      setIsRunning(!terminalFailure);
-      setPreviewInitializationMessage(
-        message ??
-          (terminalFailure
-            ? '自动验证最终未通过，暂不展示可视化看板。'
-            : '自动验证未通过，正在自动修复看板。'),
-      );
-      return;
-    }
-
-    if (status === 'preview_failed') {
-      previewStartInFlightRef.current = null;
-      previewTerminalFailureRef.current = true;
-      previewUrlRef.current = null;
-      setQuantValidationState('passed');
-      setQuantValidationMessage(
-        message ?? '自动验证已通过，但持久看板预览启动失败。',
-      );
-      setPreviewUrl(null);
-      setIsStartingPreview(false);
-      setIsRunning(false);
-      setPreviewInitializationMessage(
-        message ?? '看板代码已验证通过，但预览服务启动失败。请点击重试。',
-      );
-      return;
-    }
-
-    if (status === 'validation_passed') {
-      const readyPreviewUrl =
-        typeof metadata?.previewUrl === 'string' && metadata.previewUrl.trim().length > 0
-          ? metadata.previewUrl.trim()
-          : null;
-      setQuantValidationState('running');
-      setQuantValidationMessage(
-        message ?? (readyPreviewUrl ? '正在确认看板验收终态。' : '自动检查已通过，正在等待证据验收。'),
-      );
-      setQuantRepairPlan(null);
-      if (readyPreviewUrl) {
-        setShowPreview(true);
-        setMobileWorkspaceView('preview');
-        setPreviewInitializationMessage('正在核对 Mission 验收凭据与最终预览...');
-        void reconcileGenerationTerminal();
-        return;
-      }
-
-      setPreviewInitializationMessage('证据验收通过后才会展示最终看板。');
-      return;
-    }
+    if (previewController.handleStatus(status, message, metadata)) return;
 
     // Ignore if status is the same (prevent duplicates)
     if (previousStatus === status) {
@@ -2173,7 +1355,7 @@ const persistProjectPreferences = useCallback(
         setAgentWorkComplete(storedTaskComplete === 'true');
       }
     }
-  }, [projectId]);
+  }, [projectId, setAgentWorkComplete]);
 
   // Load the file tree on demand when the user opens code view.
   useEffect(() => {
@@ -2214,10 +1396,7 @@ const persistProjectPreferences = useCallback(
         await loadTreeRef.current?.('.');
         if (canceled) return;
 
-        await loadDeployStatusRef.current?.();
-        if (canceled) return;
 
-        checkCurrentDeploymentRef.current?.();
       } catch (error) {
         console.error('Failed to initialize chat view:', error);
       }
@@ -2225,40 +1404,10 @@ const persistProjectPreferences = useCallback(
 
     initializeChat();
 
-    const handleServicesUpdate = () => {
-      loadDeployStatusRef.current?.();
-    };
-
-    window.addEventListener('services-updated', handleServicesUpdate);
-
     return () => {
       canceled = true;
-      window.removeEventListener('services-updated', handleServicesUpdate);
     };
   }, [projectId]);
-
-  // Reconcile against durable generation/validation/preview state so a lost
-  // realtime event, tab refresh, or platform restart cannot strand the UI on
-  // the placeholder after a dashboard is actually ready.
-  useEffect(() => {
-    if (!projectId) {
-      return;
-    }
-
-    void reconcileGenerationTerminal();
-    const interval = window.setInterval(
-      () => void reconcileGenerationTerminal(),
-      generationBusy || !previewUrl ? 2_000 : 10_000,
-    );
-
-    return () => window.clearInterval(interval);
-  }, [
-    generationBusy,
-    isVisualCheck,
-    previewUrl,
-    projectId,
-    reconcileGenerationTerminal,
-  ]);
 
   // Cleanup pending requests on unmount
   useEffect(() => {
@@ -2766,163 +1915,7 @@ const persistProjectPreferences = useCallback(
                         <span className="ml-2 inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
                       )}
                     </button>
-                    {false && showPublishPanel && (
-                      <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-5">
-                        <h3 className="text-lg font-semibold text-slate-900 mb-4">Publish Project</h3>
 
-                        {/* Deployment Status Display */}
-                        {deploymentStatus === 'deploying' && (
-                          <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200 ">
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                              <p className="text-sm font-medium text-blue-700 ">Deployment in progress...</p>
-                            </div>
-                            <p className="text-xs text-blue-600 ">Building and deploying your project. This may take a few minutes.</p>
-                          </div>
-                        )}
-
-                        {deploymentStatus === 'ready' && publishedUrl && (
-                          <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200 ">
-                            <p className="text-sm font-medium text-green-700 mb-2">Currently published at:</p>
-                            <a
-                              href={publishedUrl ?? undefined}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-green-600 font-mono hover:underline break-all"
-                            >
-                              {publishedUrl}
-                            </a>
-                          </div>
-                        )}
-
-                        {deploymentStatus === 'error' && (
-                          <div className="mb-4 p-4 bg-red-50 rounded-lg border border-red-200 ">
-                            <p className="text-sm font-medium text-red-700 mb-2">Deployment failed</p>
-                            <p className="text-xs text-red-600 ">There was an error during deployment. Please try again.</p>
-                          </div>
-                        )}
-
-                        <div className="space-y-4">
-                          {!githubConnected || !vercelConnected ? (
-                            <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 ">
-                              <p className="text-sm font-medium text-slate-900 mb-3">To publish, connect the following services:</p>
-                              <div className="space-y-2">
-                                {!githubConnected && (
-                                  <div className="flex items-center gap-2 text-amber-700 ">
-                                    <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                    <span className="text-sm">GitHub repository not connected</span>
-                                  </div>
-                                )}
-                                {!vercelConnected && (
-                                  <div className="flex items-center gap-2 text-amber-700 ">
-                                    <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                    </svg>
-                                    <span className="text-sm">Vercel project not connected</span>
-                                  </div>
-                                )}
-                              </div>
-                              <p className="mt-3 text-sm text-slate-600 ">
-                                Go to
-                                <button
-                                  onClick={() => {
-                                    setShowPublishPanel(false);
-                                    setShowGlobalSettings(true);
-                                  }}
-                                  className="text-indigo-600 hover:text-indigo-500 underline font-medium mx-1"
-                                >
-                                  Settings → Service Integrations
-                                </button>
-                                to connect.
-                              </p>
-                            </div>
-                          ) : null}
-
-                          <button
-                            disabled={publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected}
-                            onClick={async () => {
-                              console.log('🚀 Publish started');
-
-                              setPublishLoading(true);
-                              try {
-                                // Push to GitHub
-                                console.log('🚀 Pushing to GitHub...');
-                                const pushRes = await fetch(`${API_BASE}/api/projects/${projectId}/github/push`, { method: 'POST' });
-                                if (!pushRes.ok) {
-                                  const errorText = await pushRes.text();
-                                  console.error('🚀 GitHub push failed:', errorText);
-                                  throw new Error(errorText);
-                                }
-
-                                // Deploy to Vercel
-                                console.log('🚀 Deploying to Vercel...');
-                                const deployUrl = `${API_BASE}/api/projects/${projectId}/vercel/deploy`;
-
-                                const vercelRes = await fetch(deployUrl, {
-                                  method: 'POST'
-                                });
-                                if (!vercelRes.ok) {
-                                  const responseText = await vercelRes.text();
-                                  console.error('🚀 Vercel deploy failed:', responseText);
-                                }
-                                if (vercelRes.ok) {
-                                  const data = await vercelRes.json();
-                                  console.log('🚀 Deployment started, polling for status...');
-
-                                  // Set deploying status BEFORE ending publishLoading to prevent gap
-                                  setDeploymentStatus('deploying');
-
-                                  if (data.deployment_id) {
-                                    startDeploymentPolling(data.deployment_id);
-                                  }
-
-                                  // Only set URL if deployment is already ready
-                                  if (data.status === 'READY' && data.deployment_url) {
-                                    const url = data.deployment_url.startsWith('http') ? data.deployment_url : `https://${data.deployment_url}`;
-                                    setPublishedUrl(url);
-                                    setDeploymentStatus('ready');
-                                  }
-                                } else {
-                                  const errorText = await vercelRes.text();
-                                  console.error('🚀 Vercel deploy failed:', vercelRes.status, errorText);
-                                  // if Vercel not connected, just close
-                                  setDeploymentStatus('idle');
-                                  setPublishLoading(false); // Stop loading even on Vercel deployment failure
-                                }
-                                // Keep panel open to show deployment progress
-                              } catch (e) {
-                                console.error('🚀 Publish failed:', e);
-                                alert('Publish failed. Check Settings and tokens.');
-                                setDeploymentStatus('idle');
-                                setPublishLoading(false); // Stop loading on error
-                                // Close panel after error
-                                setTimeout(() => {
-                                  setShowPublishPanel(false);
-                                }, 1000);
-                              } finally {
-                                loadDeployStatus();
-                              }
-                            }}
-                            className={`w-full px-4 py-3 rounded-lg font-medium text-white transition-colors ${
-                              publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected
-                                ? 'bg-slate-400 cursor-not-allowed'
-                                : 'bg-indigo-600 hover:bg-indigo-700 '
-                            }`}
-                          >
-                            {publishLoading
-                              ? 'Publishing...'
-                              : deploymentStatus === 'deploying'
-                              ? 'Deploying...'
-                              : !githubConnected || !vercelConnected
-                              ? 'Connect Services First'
-                              : deploymentStatus === 'ready' && publishedUrl ? 'Update' : 'Publish'
-                            }
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                   )}
                 </div>
@@ -2950,6 +1943,7 @@ const persistProjectPreferences = useCallback(
                       } overflow-hidden`}
                     >
                       <iframe
+                        title="研究看板预览"
                         ref={iframeRef}
                         className="w-full h-full border-none bg-white "
                         src={previewUrl ?? undefined}
@@ -3051,9 +2045,9 @@ const persistProjectPreferences = useCallback(
                           />
                         ) : (
                           <>
-                            <div
+                            <button type="button" aria-label="启动看板预览" disabled={isRunning || isStartingPreview || isVisualCheck}
                               onClick={!isRunning && !isStartingPreview ? () => start({ requireValidation: true }) : undefined}
-                              className={`w-40 h-40 mx-auto mb-6 relative ${!isRunning && !isStartingPreview ? 'cursor-pointer group' : ''}`}
+                              className={`block w-40 h-40 mx-auto mb-6 relative ${!isRunning && !isStartingPreview ? 'cursor-pointer group' : ''}`}
                             >
                               {/* QuantPilot 启动动画图标 */}
                               <MotionDiv
@@ -3096,7 +2090,7 @@ const persistProjectPreferences = useCallback(
                                   </MotionDiv>
                                 )}
                               </div>
-                            </div>
+                            </button>
 
                             <h3 className="text-2xl font-bold text-slate-900 mb-3">
                               {quantValidationState === 'failed' ? '看板验证未通过' : '看板待生成'}
@@ -3345,139 +2339,7 @@ const persistProjectPreferences = useCallback(
       </div>
 
       {/* Publish Modal */}
-      {showPublishPanel && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowPublishPanel(false)} />
-          <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60 ">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white bg-black border border-black/10 ">
-                  <Rocket size={14} />
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold text-slate-900 ">Publish Project</h3>
-                  <p className="text-xs text-slate-600 ">Deploy with Vercel, linked to your GitHub repo</p>
-                </div>
-              </div>
-              <button onClick={() => setShowPublishPanel(false)} className="text-slate-400 hover:text-slate-600 ">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {deploymentStatus === 'deploying' && (
-                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 ">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm font-medium text-blue-700 ">Deployment in progress…</p>
-                  </div>
-                  <p className="text-xs text-blue-700/80 ">Building and deploying your project. This may take a few minutes.</p>
-                </div>
-              )}
-
-              {deploymentStatus === 'ready' && publishedUrl && (
-                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 ">
-                  <p className="text-sm font-medium text-emerald-700 mb-2">Published successfully</p>
-                  <div className="flex items-center gap-2">
-                    <a href={publishedUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-mono text-emerald-700 underline break-all flex-1">
-                      {publishedUrl}
-                    </a>
-                    <button
-                      onClick={() => navigator.clipboard?.writeText(publishedUrl)}
-                      className="px-2 py-1 text-xs rounded-lg border border-emerald-300/80 text-emerald-700 hover:bg-emerald-100 "
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {deploymentStatus === 'error' && (
-                <div className="p-4 rounded-xl border border-red-200 bg-red-50 ">
-                  <p className="text-sm font-medium text-red-700 ">Deployment failed. Please try again.</p>
-                </div>
-              )}
-
-              {!githubConnected || !vercelConnected ? (
-                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 ">
-                  <p className="text-sm font-medium text-slate-900 mb-2">Connect the following services:</p>
-                  <div className="space-y-1 text-amber-700 text-sm">
-                    {!githubConnected && (<div className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-500"/>GitHub repository not connected</div>)}
-                    {!vercelConnected && (<div className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-500"/>Vercel project not connected</div>)}
-                  </div>
-                  <button
-                    className="mt-3 w-full px-4 py-2 rounded-xl border border-slate-200 text-slate-800 hover:bg-slate-50 "
-                    onClick={() => { setShowPublishPanel(false); setShowGlobalSettings(true); }}
-                  >
-                    Open Settings → Services
-                  </button>
-                </div>
-              ) : null}
-
-              <button
-                disabled={publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected}
-                onClick={async () => {
-                  try {
-                    setPublishLoading(true);
-                    setDeploymentStatus('deploying');
-                    // 1) Push to GitHub to ensure branch/commit exists
-                    try {
-                      const pushRes = await fetch(`${API_BASE}/api/projects/${projectId}/github/push`, { method: 'POST' });
-                      if (!pushRes.ok) {
-                        const err = await pushRes.text();
-                        console.error('🚀 GitHub push failed:', err);
-                        throw new Error(err);
-                      }
-                    } catch (e) {
-                      console.error('🚀 GitHub push step failed', e);
-                      throw e;
-                    }
-                    // Small grace period to let GitHub update default branch
-                    await new Promise(r => setTimeout(r, 800));
-                    // 2) Deploy to Vercel (branch auto-resolved on server)
-                    const deployUrl = `${API_BASE}/api/projects/${projectId}/vercel/deploy`;
-                    const vercelRes = await fetch(deployUrl, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ branch: 'main' })
-                    });
-                    if (vercelRes.ok) {
-                      const data = await vercelRes.json();
-                      setDeploymentStatus('deploying');
-                      if (data.deployment_id) startDeploymentPolling(data.deployment_id);
-                      if (data.ready && data.deployment_url) {
-                        const url = data.deployment_url.startsWith('http') ? data.deployment_url : `https://${data.deployment_url}`;
-                        setPublishedUrl(url);
-                        setDeploymentStatus('ready');
-                      }
-                    } else {
-                      const errorText = await vercelRes.text();
-                      console.error('🚀 Vercel deploy failed:', vercelRes.status, errorText);
-                      setDeploymentStatus('idle');
-                      setPublishLoading(false);
-                    }
-                  } catch (e) {
-                    console.error('🚀 Publish failed:', e);
-                    alert('Publish failed. Check Settings and tokens.');
-                    setDeploymentStatus('idle');
-                    setPublishLoading(false);
-                    setTimeout(() => setShowPublishPanel(false), 1000);
-                  } finally {
-                    loadDeployStatus();
-                  }
-                }}
-                className={`w-full px-4 py-3 rounded-xl font-medium text-white transition ${
-                  publishLoading || deploymentStatus === 'deploying' || !githubConnected || !vercelConnected
-                    ? 'bg-slate-400 cursor-not-allowed'
-                    : 'bg-black hover:bg-slate-900'
-                }`}
-              >
-                {publishLoading ? 'Publishing…' : deploymentStatus === 'deploying' ? 'Deploying…' : (!githubConnected || !vercelConnected) ? 'Connect Services First' : (deploymentStatus === 'ready' && publishedUrl ? 'Update' : 'Publish')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PublishPanel deployment={deployment} onOpenSettings={() => setShowGlobalSettings(true)} />
 
       {/* Project Settings Modal */}
       <ProjectSettings

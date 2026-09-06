@@ -456,6 +456,11 @@
         "path": "src/lib/agent/skills/compiler.ts",
         "pattern": "QuantPilotImage|mcp__MiniMax__understand_image",
         "reason": "PI Agent Skill 编译器不保留具体产品或 Provider 的旧工具别名兼容。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/page.tsx",
+        "pattern": "false\\s*&&\\s*showPublishPanel",
+        "reason": "发布 UI 只保留独立 PublishPanel，不恢复永久关闭的重复发布浮层。"
       }
     ],
     "largeFileBudgets": [
@@ -479,9 +484,9 @@
       },
       {
         "path": "src/app/[project_id]/chat/page.tsx",
-        "maxLines": 3600,
+        "maxLines": 2400,
         "targetLines": 1800,
-        "nextAction": "把 generation controller、preview reconciliation、message transport 和页面布局拆入独立 hooks/components，页面只保留组合。"
+        "nextAction": "预览终态、发布生命周期和分栏已迁出；继续拆消息提交、模型偏好和视图布局，避免恢复异步状态共享。"
       },
       {
         "path": "src/app/api/chat/[project_id]/act/route.ts",
@@ -734,6 +739,60 @@
         "maxLines": 300,
         "targetLines": 300,
         "nextAction": "仅负责不可变财报版本与历史查询；provider 抓取和 HTTP 错误映射留在 service/router。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/generation-preview-controller.ts",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/generation-preview-state.ts",
+        "maxLines": 200,
+        "targetLines": 200,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/preview-validation.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/use-generation-preview.ts",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/use-project-deployment.ts",
+        "maxLines": 200,
+        "targetLines": 200,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/use-chat-pane.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/app/[project_id]/chat/publish-panel.tsx",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持当前单一职责，调用方直接使用所属模块；新增职责必须独立并补对应回归。"
+      },
+      {
+        "path": "src/hooks/useUserRequests.ts",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "请求状态以成功的服务端查询为准；网络失败、旧响应及组件退出不能误判任务完成。"
+      },
+      {
+        "path": "src/hooks/request-activity-monitor.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "请求状态以成功的服务端查询为准；网络失败、旧响应及组件退出不能误判任务完成。"
       }
     ]
   }
