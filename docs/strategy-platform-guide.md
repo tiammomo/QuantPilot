@@ -50,6 +50,25 @@ flowchart LR
 
 页面不直接访问外部行情网站。外部数据源只在补数或实时接口里作为采集入口，采集结果最终应落到 PostgreSQL/TimescaleDB，再由后端统一读出。
 
+## 保存回测并离线复跑
+
+两类回测接口（`/api/v1/backtests/ma-crossover/{symbol}` 和 `/api/v1/backtests/strategies/{strategy_id}/{symbol}`）现在随响应返回 `experiment`。记录包含本次真正用于计算的行情字段、数据源与观测时间、复权和周期、原始参数、未舍入的初始资金及费率，以及输入、计算结果和实验整体的 SHA-256。策略默认值随引擎代码指纹绑定；运行环境还记录 Python、Pydantic、平台和 Decimal 设置。
+
+完整响应就是可携带的复跑产物。平台预取会将它写入 `data_file/raw/RUN_ID/SYMBOL/backtest-ma-crossover-EXPERIMENT_HASH.json`；不同实验保留不同文件。`data_file/final/dashboard-data.json` 中的 `backtest.experiment_ref` 只放文件路径与校验值，不重复内嵌全部行情。基准评测会检查引用对应的原始文件、摘要和展示结果是否一致；数值复算由下面的 Python 命令完成。既有原始证据保留规则继续适用，清理构建缓存不会删除这些数据文件。
+
+在与记录匹配的 market-data 代码和运行环境中执行：
+
+```bash
+uv run --project services/market-data python -m quantpilot_market_data.replay_backtest \
+  "/path/to/workspace/data_file/raw/RUN_ID/SYMBOL/backtest-ma-crossover-EXPERIMENT_HASH.json"
+```
+
+命令只读取该文件并运行本地数值引擎，不查询实时行情、数据库或模型。输入与结果校验通过且复算一致时返回 `status=verified` 和退出码 0；数据被改动、结果不一致、引擎或运行环境变化均返回非零。旧响应仍可读取，但缺少完整实验记录时不能离线复跑；不会用今天的行情补齐旧记录。文件读取上限为 8 MiB，每个快照最多 1,500 根 K 线。正常接口缓存也按引擎身份隔离，并在读取时检查记录完整性。
+
+这里的校验值用于检测输入和计算结果变化，不是数据源签名。复跑成功也不代表策略已经具备真实交易条件：当前仍为单标的、只做多、同根 K 线收盘信号与成交、按 252 根 K 线年化的研究模型，尚未模拟滑点、容量、停牌、涨跌停和退市执行限制。观测快照不证明历史时点已可获得这些数据，不能据此宣称 point-in-time 或零未来数据泄漏。缓存路径、传输 metadata 和本次计算的墙钟时间不进入结果校验值。
+
+参数扫描当前仍逐组请求行情，持久化的是指标摘要；整个扫描共用冻结数据、保存实验引用和研究结果复盘，是接续批次的工作。
+
 ## 股票池边界
 
 A 股股票池和 ETF/指数池要拆开，原因很朴素：个股策略和 ETF/指数策略的判断对象不同。

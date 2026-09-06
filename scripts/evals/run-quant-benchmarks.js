@@ -77,6 +77,7 @@ const { evaluateOracleAssertions } = jiti('../../src/lib/eval/oracles.ts');
 const { buildEvalQualitySummary } = jiti('../../src/lib/eval/scoring.ts');
 const { buildEvalTraceDiagnostics } = jiti('../../src/lib/eval/trace-diagnostics.ts');
 const { evalSnapshotPayloadSha256 } = jiti('../../src/lib/eval/snapshot-contract.ts');
+const { inspectBacktestArtifact } = jiti('../../src/lib/eval/backtest-artifact.ts');
 const { normalizedPromptHash } = jiti('../../src/lib/eval/dataset-contract.ts');
 
 const CUSTOM_LANE_BUDGETS = createPiAgentPhaseGraph({
@@ -861,6 +862,14 @@ async function inspectArtifacts({ projectPath, testCase, prefetch }) {
 
   const rawFiles = new Set((prefetch.rawFiles || []).map((filePath) => path.basename(filePath)));
   for (const expectedRaw of testCase.expectedRawFiles || []) {
+    if (expectedRaw === 'backtest-ma-crossover.json') {
+      failures.push(...await inspectBacktestArtifact({
+        backtest: finalData.backtest,
+        rawFiles: prefetch.rawFiles || [],
+        readArtifact,
+      }));
+      continue;
+    }
     assertCondition(rawFiles.has(expectedRaw), `raw 数据缺少 ${expectedRaw}`, failures);
   }
 

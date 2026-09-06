@@ -191,9 +191,27 @@ export async function fetchSymbolDataset(params: {
       backtest = await fetchJson(
         `/api/v1/backtests/ma-crossover/${params.symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=250&fee_bps=5`
       );
-      const filePath = path.join(symbolRawDir, 'backtest-ma-crossover.json');
+      const experiment = asRecord(backtest.experiment);
+      const experimentId = typeof experiment?.experiment_id === 'string'
+        && /^sha256:[a-f0-9]{64}$/.test(experiment.experiment_id)
+        ? experiment.experiment_id.slice('sha256:'.length) : null;
+      const filePath = path.join(symbolRawDir,
+        experimentId ? `backtest-ma-crossover-${experimentId}.json` : 'backtest-ma-crossover.json');
       await writeJson(filePath, backtest);
-      params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
+      const artifactPath = path.relative(params.projectPath, filePath).replaceAll(path.sep, '/');
+      params.rawFiles.push(artifactPath);
+      if (experiment) {
+        const { experiment: _capturedInputs, ...researchBacktest } = backtest;
+        const hashes = Object.fromEntries(
+          ['experiment_id', 'data_sha256', 'result_sha256']
+            .filter(key => typeof experiment[key] === 'string' && /^sha256:[a-f0-9]{64}$/.test(experiment[key]))
+            .map(key => [key, experiment[key]])
+        );
+        backtest = {
+          ...researchBacktest,
+          experiment_ref: { artifact_path: artifactPath, ...hashes },
+        };
+      }
     } catch (error) {
       params.warnings.push(`${params.symbol} 均线突破回测预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
