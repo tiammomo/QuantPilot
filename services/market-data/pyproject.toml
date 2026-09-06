@@ -21,7 +21,7 @@ akshare = [
     "akshare>=1.17.0",
 ]
 baostock = [
-    "baostock>=0.8.9",
+    "baostock>=0.9.2",
 ]
 tushare = [
     "tushare>=1.4.0",
