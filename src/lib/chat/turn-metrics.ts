@@ -1,3 +1,5 @@
+import { parsePiAgentContextSnapshot, type PiAgentContextSnapshot } from '@/lib/agent/context/usage-snapshot';
+
 export const PI_AGENT_TURN_METRICS_SCHEMA_VERSION = 1 as const;
 
 export type PiAgentTokenAccounting =
@@ -18,6 +20,7 @@ export interface PiAgentTurnMetrics {
   cacheMissInputTokens: number;
   reasoningTokens: number;
   tokenAccounting: PiAgentTokenAccounting;
+  contextSnapshot?: PiAgentContextSnapshot;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
@@ -75,6 +78,8 @@ export function parsePiAgentTurnMetrics(value: unknown): PiAgentTurnMetrics | nu
     return null;
   }
   if (metrics.reasoningTokens > metrics.outputTokens) return null;
+  const context = parsePiAgentContextSnapshot(candidate.contextSnapshot);
+  if (context) metrics.contextSnapshot = context;
   return metrics;
 }
 

@@ -34,6 +34,41 @@ function toolEventBase(call = toolCall()) {
 }
 
 describe('PI Agent durable event projector', () => {
+  it('binds context observations to their run and persists only measurement fields', () => {
+    const contextSnapshot = {
+      schemaVersion: 1 as const,
+      runId: base.runId,
+      model: 'test-model',
+      turn: 2,
+      observedAt: base.timestamp,
+      source: 'estimated' as const,
+      inputTokens: 60,
+      inputBudgetTokens: 850,
+      contextWindowTokens: 1000,
+      reservedOutputTokens: 100,
+      compacted: false,
+      prompt: SECRET,
+    };
+    const event: PiAgentEvent = {
+      ...base,
+      type: 'usage',
+      turn: 2,
+      usage: { inputTokens: 120, outputTokens: 5, totalTokens: 125, usageSource: 'estimated' },
+      totalUsage: { inputTokens: 220, outputTokens: 10, totalTokens: 230 },
+      contextSnapshot,
+    };
+    const projected = projectPiAgentEvent(event);
+    expect(projected).toMatchObject({
+      usage: { usageSource: 'estimated' },
+      totalUsage: { usageSource: 'provider' },
+      contextSnapshot: { runId: base.runId, inputTokens: 60, turn: 2 },
+    });
+    expect(JSON.stringify(projected)).not.toContain(SECRET);
+    expect(() =>
+      projectPiAgentEvent({ ...event, contextSnapshot: { ...contextSnapshot, runId: 'another-run' } })
+    ).toThrow('Invalid');
+  });
+
   it('persists only the explicit public approval projection and input hashes', () => {
     const projected = projectPiAgentEvent({
       ...base,

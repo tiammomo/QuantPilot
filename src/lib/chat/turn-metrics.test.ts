@@ -48,6 +48,10 @@ describe('PI Agent turn metrics', () => {
     expect(formatPiAgentDuration(3_660_000)).toBe('1 小时 1 分');
   });
 
+  it('retains valid cumulative accounting when an optional context measurement is malformed', () => {
+    expect(parsePiAgentTurnMetrics({ ...metrics(), contextSnapshot: { inputTokens: -1 } })).toEqual(metrics());
+  });
+
   it('formats token counts with locale grouping', () => {
     expect(formatPiAgentTokens(36_420)).toBe('36,420');
     expect(formatPiAgentTokens(0)).toBe('0');

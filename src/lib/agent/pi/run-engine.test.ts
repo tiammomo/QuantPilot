@@ -9,11 +9,9 @@ import type {
   PiAgentTokenUsage,
   PiAgentTool,
 } from '../types';
-import {
-  PiAgentRunEngine,
-  usageFromPi,
-  usageToPi,
-} from './run-engine';
+import { PiAgentRunEngine } from './run-engine';
+import { usageFromPi, usageToPi } from './token-usage';
+import { PiAgentContextManager } from '../context';
 
 type ProviderScript = readonly PiAgentModelEvent[];
 
@@ -795,6 +793,188 @@ describe('PiAgentRunEngine', () => {
 });
 
 describe('PI usage mapping', () => {
+  it('terminates invalid usage without throwing again while constructing the error response', async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: 'usage', usage: { inputTokens: 12, outputTokens: 5, totalTokens: 16 } },
+        { type: 'finish', reason: 'stop' },
+      ],
+    ]);
+    const engine = new PiAgentRunEngine({ provider, model: 'test-model', requireTerminalTool: false });
+    const result = await engine.run({ runId: 'invalid-usage', messages: initialMessages });
+    expect(result).toMatchObject({ status: 'failed', usage: { totalTokens: 0, usageSource: 'partial' } });
+  });
+
+  it('records the last prepared input separately from cumulative provider usage', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn([{ id: 'read-context', name: 'inspect', arguments: '{}' }], usage({ input: 100, output: 5 })),
+      [usage({ input: 120, output: 5 }), { type: 'finish', reason: 'stop' }],
+    ]);
+    const contextManager = new PiAgentContextManager({
+      contextWindowTokens: 1000,
+      reservedOutputTokens: 100,
+      maxInputTokens: 850,
+      tokenEstimator: (messages) => messages.length * 20,
+    });
+    const engine = new PiAgentRunEngine({
+      provider,
+      contextManager,
+      model: 'test-model',
+      requireTerminalTool: false,
+      tools: [
+        {
+          name: 'inspect',
+          description: 'Read fixture',
+          inputSchema: objectSchema(),
+          execute: async () => ({ ok: true, data: {} }),
+        },
+      ],
+    });
+    const events: PiAgentEvent[] = [];
+    const result = await engine.run({ runId: 'context-observation', messages: initialMessages }, (event) => {
+      events.push(event);
+    });
+    expect(result.status).toBe('completed');
+    expect(result.usage.inputTokens).toBe(220);
+    expect(result.contextSnapshot).toMatchObject({
+      schemaVersion: 1,
+      runId: 'context-observation',
+      model: 'test-model',
+      turn: 2,
+      source: 'estimated',
+      inputTokens: provider.requests[1].messages.length * 20,
+      inputBudgetTokens: 850,
+      contextWindowTokens: 1000,
+      reservedOutputTokens: 100,
+      compacted: false,
+      observedAt: expect.any(Number),
+    });
+    expect(events.filter((event) => event.type === 'prompt_prepared')).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject({ result: { contextSnapshot: result.contextSnapshot } });
+  });
+
+  it('does not interpret a successful response without usage as an exact zero-token request', async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: 'text_delta', delta: 'done' },
+        { type: 'finish', reason: 'stop' },
+      ],
+    ]);
+    const engine = new PiAgentRunEngine({ provider, model: 'test-model', requireTerminalTool: false });
+    const result = await engine.run({ runId: 'missing-usage', messages: initialMessages });
+    expect(result).toMatchObject({ status: 'completed', usage: { usageSource: 'estimated' } });
+    expect(result.usage.inputTokens).toBeGreaterThan(0);
+    expect(result.usage.outputTokens).toBeGreaterThan(0);
+    expect(result).not.toHaveProperty('contextSnapshot');
+  });
+
+  it('charges missing usage conservatively before allowing another model turn', async () => {
+    const provider = new ScriptedProvider([
+      toolTurn([{ id: 'read-budget', name: 'inspect', arguments: '{}' }]).filter((event) => event.type !== 'usage'),
+      [{ type: 'finish', reason: 'stop' }],
+    ]);
+    const engine = new PiAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireTerminalTool: false,
+      maxRunInputTokens: 1,
+      tools: [
+        {
+          name: 'inspect',
+          description: 'Read fixture',
+          inputSchema: objectSchema(),
+          execute: async () => ({ ok: true, data: {} }),
+        },
+      ],
+    });
+    const result = await engine.run({ runId: 'missing-usage-budget', messages: initialMessages });
+    expect(result.status).toBe('max_tokens');
+    expect(provider.requests).toHaveLength(1);
+    expect(result.usage).toMatchObject({ usageSource: 'estimated', cachedInputTokens: 0 });
+    expect(result.usage.cacheMissInputTokens).toBe(result.usage.inputTokens);
+  });
+
+  it.each(['estimated', 'cache_estimated', 'mixed', 'partial'] as const)(
+    'preserves %s provenance through serialized PI usage',
+    (usageSource) => {
+      const original = {
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+        cachedInputTokens: 4,
+        cacheMissInputTokens: 8,
+        usageSource,
+      };
+      expect(usageFromPi(JSON.parse(JSON.stringify(usageToPi(original))))).toEqual(original);
+    }
+  );
+
+  it.each([
+    ['estimated', 'estimated', 'estimated'],
+    [undefined, 'estimated', 'mixed'],
+    ['cache_estimated', undefined, 'cache_estimated'],
+    ['partial', undefined, 'partial'],
+  ] as const)('retains usage provenance across the real PI loop: %s + %s', async (first, second, expected) => {
+    const measured = (usageSource: PiAgentTokenUsage['usageSource']): PiAgentModelEvent => ({
+      type: 'usage',
+      usage: {
+        inputTokens: 20,
+        outputTokens: 5,
+        totalTokens: 25,
+        cachedInputTokens: 4,
+        cacheMissInputTokens: 16,
+        ...(usageSource ? { usageSource } : {}),
+      },
+    });
+    const provider = new ScriptedProvider([
+      toolTurn([{ id: 'read-1', name: 'inspect', arguments: '{}' }], measured(first)),
+      [{ type: 'text_delta', delta: 'done' }, measured(second), { type: 'finish', reason: 'stop' }],
+    ]);
+    const events: PiAgentEvent[] = [];
+    const engine = new PiAgentRunEngine({
+      provider,
+      model: 'test-model',
+      requireTerminalTool: false,
+      tools: [
+        {
+          name: 'inspect',
+          description: 'Read a fixture',
+          inputSchema: objectSchema(),
+          execute: async () => ({ ok: true, data: {} }),
+        },
+      ],
+    });
+    const result = await engine.run({ runId: 'usage-lineage', messages: initialMessages }, (event) => {
+      events.push(event);
+    });
+    expect(result).toMatchObject({ status: 'completed', usage: { totalTokens: 50, usageSource: expected } });
+    expect(events.filter((event) => event.type === 'usage')).toMatchObject([
+      { usage: first ? { usageSource: first } : {}, totalUsage: first ? { usageSource: first } : {} },
+      { totalUsage: { usageSource: expected } },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: 'run_finished', result: { usage: { usageSource: expected } } });
+  });
+
+  it.each([false, true])(
+    'preserves incomplete usage when the provider stream fails (usage received: %s)',
+    async (received) => {
+      const provider: PiAgentModelProvider = {
+        name: 'interrupted-fixture',
+        async *complete() {
+          yield { type: 'text_delta', delta: 'partial response' };
+          if (received) yield usage({ input: 12, output: 3 });
+          throw new Error('connection lost');
+        },
+      };
+      const engine = new PiAgentRunEngine({ provider, model: 'test-model', requireTerminalTool: false });
+      const result = await engine.run({ runId: 'interrupted-usage', messages: initialMessages });
+      expect(result).toMatchObject({
+        status: 'failed',
+        usage: { totalTokens: received ? 15 : 0, usageSource: 'partial' },
+      });
+    }
+  );
+
   it('maps cache reads and writes without undercounting full input', () => {
     const piUsage = {
       input: 6,

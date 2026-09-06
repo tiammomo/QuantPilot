@@ -5,6 +5,8 @@
  * tools, and product code should only exchange the types in this module.
  */
 
+import type { PiAgentContextSnapshot } from './context/usage-snapshot';
+
 export type Awaitable<T> = T | Promise<T>;
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -64,8 +66,8 @@ export interface PiAgentTokenUsage {
   cachedInputTokens?: number;
   cacheMissInputTokens?: number;
   reasoningTokens?: number;
-  /** Present when at least part of the usage had to be estimated locally. */
-  usageSource?: 'estimated' | 'cache_estimated' | 'mixed';
+  /** Present when usage is estimated, combines sources, or is incomplete. */
+  usageSource?: 'estimated' | 'cache_estimated' | 'mixed' | 'partial';
 }
 
 export type PiAgentFinishReason =
@@ -331,6 +333,7 @@ export interface PiAgentRunResult {
   output: string;
   turns: number;
   usage: PiAgentTokenUsage;
+  contextSnapshot?: PiAgentContextSnapshot;
   startedAt: number;
   finishedAt: number;
   terminalToolCall?: PiAgentToolCall;
@@ -347,6 +350,7 @@ export interface PiAgentRunEventResult {
   status: PiAgentRunStatus;
   turns: number;
   usage: PiAgentTokenUsage;
+  contextSnapshot?: PiAgentContextSnapshot;
   startedAt: number;
   finishedAt: number;
   error?: Pick<PiAgentRunError, 'code' | 'message'>;
@@ -451,6 +455,7 @@ export type PiAgentEvent =
       type: 'usage';
       usage: PiAgentTokenUsage;
       totalUsage: PiAgentTokenUsage;
+      contextSnapshot?: PiAgentContextSnapshot;
     })
   | (PiAgentTurnEventBase & {
       type: 'assistant_message';
@@ -489,6 +494,7 @@ export type PiAgentEvent =
     })
   | (PiAgentTurnEventBase & {
       type: 'prompt_prepared';
+      contextSnapshot?: PiAgentContextSnapshot;
       /** Hashes are over canonical internal JSON; no prompt content is exposed. */
       systemSha256: string;
       messagesSha256: string;

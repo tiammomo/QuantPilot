@@ -19,7 +19,6 @@ import type {
   TSchema,
   ThinkingLevel,
   ToolCall,
-  Usage,
 } from '@earendil-works/pi-ai';
 
 import type {
@@ -62,6 +61,8 @@ import type {
   PiAgentToolResult,
 } from '../types';
 import type { PiAgentRunEngineOptions } from './options';
+import type { PiAgentContextSnapshot } from '../context/usage-snapshot';
+import { EMPTY_USAGE, EMPTY_PI_USAGE, addUsage, usageFromPi, usageToPi, estimateUnreportedUsage } from './token-usage';
 export {
   PI_AGENT_CORE_PACKAGE,
   PI_AGENT_FRAMEWORK_VERSION,
@@ -113,29 +114,6 @@ function loadUpstreamPiRuntime(): Promise<PiAgentCoreRuntime & PiAiRuntime> {
   return upstreamRuntimePromise;
 }
 
-const EMPTY_USAGE: PiAgentTokenUsage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  totalTokens: 0,
-  cachedInputTokens: 0,
-  cacheMissInputTokens: 0,
-};
-
-const EMPTY_PI_USAGE: Usage = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    total: 0,
-  },
-};
-
 type EventDetails = PiAgentEvent extends infer Event
   ? Event extends PiAgentEvent
     ? Omit<Event, 'runId' | 'sequence' | 'eventId' | 'timestamp'>
@@ -172,6 +150,7 @@ interface ProviderTurnState {
   text: string;
   reasoning: string;
   usage: PiAgentTokenUsage;
+  usageReceived: boolean;
   responseId?: string;
   responseModel?: string;
   finishReason?: PiAgentFinishReason;
@@ -297,155 +276,6 @@ function toolFailure(
       message,
       ...(details === undefined ? {} : { details }),
     },
-  };
-}
-
-function addUsage(
-  left: PiAgentTokenUsage,
-  right: PiAgentTokenUsage,
-): PiAgentTokenUsage {
-  const cachedInputTokens =
-    (left.cachedInputTokens ?? 0) + (right.cachedInputTokens ?? 0);
-  const cacheMissInputTokens =
-    (left.cacheMissInputTokens ?? 0) + (right.cacheMissInputTokens ?? 0);
-  const reasoningTokens =
-    (left.reasoningTokens ?? 0) + (right.reasoningTokens ?? 0);
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    totalTokens: left.totalTokens + right.totalTokens,
-    cachedInputTokens,
-    cacheMissInputTokens,
-    ...(left.reasoningTokens === undefined && right.reasoningTokens === undefined
-      ? {}
-      : { reasoningTokens }),
-    ...(left.usageSource || right.usageSource
-      ? {
-          usageSource:
-            left.usageSource === right.usageSource
-              ? left.usageSource
-              : 'mixed' as const,
-        }
-      : {}),
-  };
-}
-
-function tokenCount(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative safe integer.`);
-  }
-  return value;
-}
-
-/**
- * PI reports non-cached input, cache reads and cache writes separately.
- * QuantPilot's historical inputTokens is the full provider input.
- */
-export function usageFromPi(usage: Usage): PiAgentTokenUsage {
-  const input = tokenCount(usage.input, 'PI input usage');
-  const output = tokenCount(usage.output, 'PI output usage');
-  const cacheRead = tokenCount(usage.cacheRead, 'PI cache-read usage');
-  const cacheWrite = tokenCount(usage.cacheWrite, 'PI cache-write usage');
-  const inputTokens = input + cacheRead + cacheWrite;
-  const totalTokens = inputTokens + output;
-  if (tokenCount(usage.totalTokens, 'PI total usage') !== totalTokens) {
-    throw new Error('PI total usage does not match its token breakdown.');
-  }
-  if (
-    usage.reasoning !== undefined &&
-    tokenCount(usage.reasoning, 'PI reasoning usage') > output
-  ) {
-    throw new Error('PI reasoning usage cannot exceed output usage.');
-  }
-  return {
-    inputTokens,
-    outputTokens: output,
-    totalTokens,
-    cachedInputTokens: cacheRead,
-    cacheMissInputTokens: input + cacheWrite,
-    ...(usage.reasoning === undefined
-      ? {}
-      : { reasoningTokens: usage.reasoning }),
-  };
-}
-
-export function usageToPi(usage: PiAgentTokenUsage): Usage {
-  const fullInput = tokenCount(
-    usage.inputTokens,
-    'QuantPilot input usage',
-  );
-  const output = tokenCount(
-    usage.outputTokens,
-    'QuantPilot output usage',
-  );
-  if (
-    tokenCount(usage.totalTokens, 'QuantPilot total usage') !==
-      fullInput + output
-  ) {
-    throw new Error(
-      'QuantPilot total usage does not match input plus output usage.',
-    );
-  }
-  let cacheRead = usage.cachedInputTokens === undefined
-    ? undefined
-    : tokenCount(
-        usage.cachedInputTokens,
-        'QuantPilot cached-input usage',
-      );
-  let cacheMiss = usage.cacheMissInputTokens === undefined
-    ? undefined
-    : tokenCount(
-        usage.cacheMissInputTokens,
-        'QuantPilot cache-miss usage',
-      );
-  if (cacheRead === undefined && cacheMiss === undefined) {
-    cacheRead = 0;
-    cacheMiss = fullInput;
-  } else if (cacheRead === undefined) {
-    if (cacheMiss! > fullInput) {
-      throw new Error(
-        'QuantPilot cache-miss usage cannot exceed full input usage.',
-      );
-    }
-    cacheRead = fullInput - cacheMiss!;
-  } else if (cacheMiss === undefined) {
-    if (cacheRead > fullInput) {
-      throw new Error(
-        'QuantPilot cached-input usage cannot exceed full input usage.',
-      );
-    }
-    cacheMiss = fullInput - cacheRead;
-  }
-  if (cacheRead === undefined || cacheMiss === undefined) {
-    throw new Error('QuantPilot usage normalization failed.');
-  }
-  if (cacheRead + cacheMiss !== fullInput) {
-    throw new Error(
-      'QuantPilot cached and cache-miss usage must equal full input usage.',
-    );
-  }
-  if (
-    usage.reasoningTokens !== undefined &&
-    tokenCount(
-      usage.reasoningTokens,
-      'QuantPilot reasoning usage',
-    ) > output
-  ) {
-    throw new Error(
-      'QuantPilot reasoning usage cannot exceed output usage.',
-    );
-  }
-  const totalTokens = fullInput + output;
-  return {
-    input: cacheMiss,
-    output,
-    cacheRead,
-    cacheWrite: 0,
-    ...(usage.reasoningTokens === undefined
-      ? {}
-      : { reasoning: usage.reasoningTokens }),
-    totalTokens,
-    cost: { ...EMPTY_PI_USAGE.cost },
   };
 }
 
@@ -742,7 +572,7 @@ function providerMessage(options: {
     model: request.model,
     ...(state.responseId ? { responseId: state.responseId } : {}),
     ...(state.responseModel ? { responseModel: state.responseModel } : {}),
-    usage: usageToPi(state.usage),
+    usage: usageToPi(state.usageReceived ? state.usage : { ...state.usage, usageSource: 'partial' }),
     stopReason,
     ...(stopReason === 'error'
       ? {
@@ -758,15 +588,24 @@ function providerErrorMessage(options: {
   request: PiAgentModelRequest;
   providerName: string;
   error: unknown;
+  usage?: PiAgentTokenUsage;
 }): AssistantMessage {
   const aborted = options.request.signal?.aborted === true;
+  let errorUsage = { ...EMPTY_PI_USAGE, cost: { ...EMPTY_PI_USAGE.cost } };
+  if (options.usage) {
+    try {
+      errorUsage = usageToPi(options.usage);
+    } catch {
+      errorUsage = usageToPi({ ...EMPTY_USAGE, usageSource: 'partial' });
+    }
+  }
   return {
     role: 'assistant',
     content: [],
     api: 'quantpilot-provider',
     provider: options.providerName,
     model: options.request.model,
-    usage: { ...EMPTY_PI_USAGE, cost: { ...EMPTY_PI_USAGE.cost } },
+    usage: errorUsage,
     stopReason: aborted ? 'aborted' : 'error',
     errorMessage: errorMessage(options.error),
     timestamp: Date.now(),
@@ -912,6 +751,7 @@ export class PiAgentRunEngine {
     let totalToolCalls = 0;
     let toolCallsThisTurn = 0;
     let usage: PiAgentTokenUsage = { ...EMPTY_USAGE };
+    let contextSnapshot: PiAgentContextSnapshot | undefined;
     let output = '';
     let successfulWorkspaceWrites = 0;
     let consecutiveReadOnlyTurns = 0;
@@ -1144,6 +984,7 @@ export class PiAgentRunEngine {
     ): AssistantMessageEventStream => {
       const stream = createAssistantMessageEventStream();
       void (async () => {
+        let providerState: ProviderTurnState | undefined;
         try {
           let providerMessages = toPiAgentMessages(context);
           const toolDefinitions = (context.tools ?? []).map((tool) => ({
@@ -1164,6 +1005,19 @@ export class PiAgentRunEngine {
             providerMessages = prepared.messages;
             preparedEstimate = prepared.estimate.preparedInputTokens;
             compactionApplied = prepared.compaction.applied;
+            contextSnapshot = {
+              schemaVersion: 1,
+              runId,
+              model: this.options.model,
+              turn,
+              observedAt: Date.now(),
+              source: 'estimated',
+              inputTokens: prepared.estimate.preparedInputTokens,
+              inputBudgetTokens: prepared.estimate.inputBudgetTokens,
+              contextWindowTokens: prepared.estimate.contextWindowTokens,
+              reservedOutputTokens: prepared.estimate.reservedOutputTokens,
+              compacted: compactionApplied,
+            };
             if (prepared.compaction.applied) {
               await emit({
                 type: 'context_compacted',
@@ -1211,6 +1065,7 @@ export class PiAgentRunEngine {
           await emit({
             type: 'prompt_prepared',
             turn,
+            ...(contextSnapshot ? { contextSnapshot } : {}),
             systemSha256: systemHash,
             messagesSha256: promptHash,
             toolsSha256: toolHash,
@@ -1290,6 +1145,7 @@ export class PiAgentRunEngine {
             text: '',
             reasoning: '',
             usage: { ...EMPTY_USAGE },
+            usageReceived: false,
             toolCalls: new Map(),
           };
           const partial: AssistantMessage = {
@@ -1303,12 +1159,22 @@ export class PiAgentRunEngine {
             timestamp: Date.now(),
           };
           stream.push({ type: 'start', partial });
+          providerState = state;
 
           for await (const modelEvent of this.options.provider.complete(
             providerRequest,
           )) {
             await this.consumeProviderEvent(modelEvent, turn, state, emit);
             if (modelEvent.type === 'text_delta') output += modelEvent.delta;
+          }
+          if (!state.usageReceived && state.finishReason) {
+            state.usage = estimateUnreportedUsage(
+              preparedEstimate,
+              state.text,
+              state.reasoning,
+              state.toolCalls.size ? JSON.stringify([...state.toolCalls.values()]) : '',
+            );
+            state.usageReceived = true;
           }
           const message = providerMessage({
             request: providerRequest,
@@ -1341,6 +1207,7 @@ export class PiAgentRunEngine {
             request: providerRequest,
             providerName: this.options.provider.name,
             error,
+            ...(providerState ? { usage: { ...providerState.usage, usageSource: 'partial' as const } } : {}),
           });
           stream.push({
             type: 'error',
@@ -1619,6 +1486,7 @@ export class PiAgentRunEngine {
                   turn,
                   usage: turnUsage,
                   totalUsage: usage,
+                  ...(contextSnapshot ? { contextSnapshot } : {}),
                 });
                 await emit({
                   type: 'assistant_message',
@@ -1859,6 +1727,7 @@ export class PiAgentRunEngine {
       turns: turn,
       usage,
       startedAt,
+      ...(contextSnapshot ? { contextSnapshot } : {}),
       finishedAt: Date.now(),
       ...(terminalToolCall ? { terminalToolCall } : {}),
       ...(terminalResult ? { terminalResult } : {}),
@@ -1870,6 +1739,7 @@ export class PiAgentRunEngine {
         status: result.status,
         turns: result.turns,
         usage: result.usage,
+        ...(result.contextSnapshot ? { contextSnapshot: result.contextSnapshot } : {}),
         startedAt: result.startedAt,
         finishedAt: result.finishedAt,
         ...(result.error
@@ -1951,6 +1821,7 @@ export class PiAgentRunEngine {
       }
       case 'usage':
         state.usage = modelEvent.usage;
+        state.usageReceived = true;
         break;
       case 'finish':
         state.finishReason = modelEvent.reason;

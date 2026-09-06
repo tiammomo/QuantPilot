@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { createPiAgentOperationId } from '../core/operation-id';
+import { parsePiAgentContextSnapshot } from '../context/usage-snapshot';
 import type {
   PiAgentEvent,
   PiAgentTokenUsage,
@@ -275,10 +276,17 @@ function projectUsage(usage: PiAgentTokenUsage): RuntimeJsonObject {
     ...(usage.reasoningTokens === undefined
       ? {}
       : { reasoningTokens: usage.reasoningTokens }),
-    ...(usage.usageSource === undefined
-      ? {}
-      : { usageSource: usage.usageSource }),
+    usageSource: usage.usageSource ?? 'provider',
   };
+}
+
+function projectContextSnapshot(value: unknown, runId: string, turn: number): RuntimeJsonObject {
+  if (value === undefined) return {};
+  const snapshot = parsePiAgentContextSnapshot(value);
+  if (!snapshot || snapshot.runId !== runId || snapshot.turn > turn) {
+    throw new Error('Invalid PI Agent context usage snapshot.');
+  }
+  return { contextSnapshot: { ...snapshot, model: safeName(snapshot.model, 'model') } };
 }
 
 function projectToolBase(event: {
@@ -400,6 +408,7 @@ export function projectPiAgentEvent(event: PiAgentEvent): RuntimeJsonObject | nu
         turn: event.turn,
         usage: projectUsage(event.usage),
         totalUsage: projectUsage(event.totalUsage),
+        ...projectContextSnapshot(event.contextSnapshot, event.runId, event.turn),
       };
       break;
     case 'assistant_message': {
@@ -470,6 +479,7 @@ export function projectPiAgentEvent(event: PiAgentEvent): RuntimeJsonObject | nu
         toolSetChanged: event.toolSetChanged,
         compactionApplied: event.compactionApplied,
         requestLocalControlSuffix: event.requestLocalControlSuffix,
+        ...projectContextSnapshot(event.contextSnapshot, event.runId, event.turn),
       };
       break;
     case 'convergence_prompt':
@@ -577,6 +587,7 @@ export function projectPiAgentEvent(event: PiAgentEvent): RuntimeJsonObject | nu
         status: event.result.status,
         turns: event.result.turns,
         usage: projectUsage(event.result.usage),
+        ...projectContextSnapshot(event.result.contextSnapshot, event.runId, event.result.turns),
         startedAt: event.result.startedAt,
         finishedAt: event.result.finishedAt,
         ...(event.result.error === undefined

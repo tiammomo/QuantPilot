@@ -1,7 +1,7 @@
 import { expect, test, type Page } from 'playwright/test';
 import type { QuantGenerationTerminalSnapshot } from '../../src/lib/quant/generation-terminal';
 
-async function openWorkspace(page: Page, accepted = true, activeCount = 0) {
+async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnMetrics?: unknown) {
   let snapshot: QuantGenerationTerminalSnapshot = {
     requestId: 'request-1',
     status: 'ready',
@@ -66,7 +66,21 @@ async function openWorkspace(page: Page, accepted = true, activeCount = 0) {
       }
       json = { hasActiveRequests: activeCount > 0, activeCount };
     } else if (path.endsWith('/agent/approvals')) json = { success: true, data: [] };
-    else if (path.endsWith('/messages')) json = { messages: [], pagination: { hasMore: false }, totalCount: 0 };
+    else if (path.endsWith('/messages')) json = {
+      messages: turnMetrics ? [{
+        id: 'result-message',
+        projectId: 'preview-fixture',
+        role: 'assistant',
+        messageType: 'chat',
+        content: '研究已完成，结果可供复盘。',
+        requestId: 'request-1',
+        createdAt: '2026-09-06T00:00:00.000Z',
+        cliSource: 'pi',
+        metadata: { isMissionFinal: true, turnMetrics },
+      }] : [],
+      pagination: { hasMore: false },
+      totalCount: turnMetrics ? 1 : 0,
+    };
     else if (path.endsWith('/stream')) {
       await route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' });
       return;
@@ -181,6 +195,48 @@ test('can retry a failed publish and releases loading when deployment is immedia
   await expect(page.getByText('Published successfully')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Update', exact: true })).toBeEnabled();
   expect(fixture.deployments).toBe(2);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('restores historical context estimates separately from cumulative token usage', async ({ page, isMobile }) => {
+  const fixture = await openWorkspace(page, true, 0, {
+    schemaVersion: 1,
+    elapsedMs: 12_000,
+    agentRunCount: 2,
+    modelTurnCount: 4,
+    inputTokens: 1200,
+    outputTokens: 100,
+    totalTokens: 1300,
+    cachedInputTokens: 200,
+    cacheMissInputTokens: 1000,
+    reasoningTokens: 0,
+    tokenAccounting: 'estimated',
+    contextSnapshot: {
+      schemaVersion: 1,
+      runId: 'last-run',
+      model: 'test-model',
+      turn: 2,
+      observedAt: 1_780_000_000_000,
+      source: 'estimated',
+      inputTokens: 600,
+      inputBudgetTokens: 800,
+      contextWindowTokens: 1000,
+      reservedOutputTokens: 100,
+      compacted: true,
+    },
+  });
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    await expect(preview(page)).toBeVisible();
+    if (isMobile)
+      await page
+        .getByRole('navigation', { name: '移动端工作区视图' })
+        .getByRole('button', { name: '对话', exact: true })
+        .click();
+    await expect(page.getByText('Tokens 约 1,300', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('末次上下文预估')).toHaveText('末次上下文约 600 / 800 Token（输入预算，已压缩）');
+  }
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

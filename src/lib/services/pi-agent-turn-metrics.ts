@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/client';
+import { parsePiAgentContextSnapshot } from '@/lib/agent/context/usage-snapshot';
 import {
   PI_AGENT_TURN_METRICS_SCHEMA_VERSION,
   type PiAgentTokenAccounting,
@@ -8,25 +9,31 @@ import {
 const MAX_RELATED_REQUEST_IDS = 64;
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'reconciling', 'waiting']);
 
-type UsageSource = 'estimated' | 'cache_estimated' | 'mixed' | undefined;
+type UsageSource = 'provider' | 'estimated' | 'cache_estimated' | 'mixed' | 'partial' | undefined;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
-function usageSourceFromEvent(event: {
-  eventType: string;
-  payload: unknown;
-} | undefined): UsageSource {
+function usageSourceFromEvent(
+  event:
+    | {
+        eventType: string;
+        payload: unknown;
+      }
+    | undefined
+): UsageSource {
   const payload = asRecord(event?.payload);
   if (!payload) return undefined;
-  const usage = asRecord(
-    event?.eventType === 'usage' ? payload.totalUsage : payload.usage,
-  );
+  const usage = asRecord(event?.eventType === 'usage' ? payload.totalUsage : payload.usage);
   const source = usage?.usageSource;
-  return source === 'estimated' || source === 'cache_estimated' || source === 'mixed'
+  return source === 'provider' ||
+    source === 'estimated' ||
+    source === 'cache_estimated' ||
+    source === 'mixed' ||
+    source === 'partial'
     ? source
     : undefined;
 }
@@ -39,38 +46,33 @@ function safeSum(values: readonly number[], label: string): number {
   return result;
 }
 
-function tokenAccountingForRuns(runs: Array<{
-  status: string;
-  totalTokens: number;
-  events: Array<{ eventType: string; payload: unknown }>;
-}>): PiAgentTokenAccounting {
-  if (
-    runs.some((run) =>
-      ACTIVE_RUN_STATUSES.has(run.status) || run.status === 'interrupted'
-    )
-  ) {
+function tokenAccountingForRuns(
+  runs: Array<{
+    status: string;
+    totalTokens: number;
+    events: Array<{ eventType: string; payload: unknown }>;
+  }>
+): PiAgentTokenAccounting {
+  if (runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status) || run.status === 'interrupted')) {
     return 'partial';
   }
 
-  const sources = runs
-    .filter((run) => run.totalTokens > 0)
-    .map((run) => usageSourceFromEvent(run.events[0]));
+  if (
+    runs.some((run) => {
+      const source = usageSourceFromEvent(run.events[0]);
+      return source === 'partial' || (run.totalTokens > 0 && source === undefined);
+    })
+  )
+    return 'partial';
+
+  const sources = runs.filter((run) => run.totalTokens > 0).map((run) => usageSourceFromEvent(run.events[0]));
   if (sources.length === 0) return 'provider';
   if (sources.some((source) => source === 'mixed')) return 'mixed';
 
   const estimatedCount = sources.filter((source) => source === 'estimated').length;
-  const unknownPositiveCount = sources.filter((source) => source === undefined).length;
   if (estimatedCount === sources.length) return 'estimated';
   if (estimatedCount > 0) return 'mixed';
 
-  // Missing usage provenance on a positive legacy/interrupted run means the
-  // durable numeric total is useful but cannot be claimed as provider-complete.
-  if (
-    unknownPositiveCount > 0 &&
-    runs.some((run) => run.totalTokens > 0 && run.events.length === 0)
-  ) {
-    return 'partial';
-  }
   return 'provider';
 }
 
@@ -80,10 +82,9 @@ export async function collectPiAgentTurnMetrics(params: {
   relatedRequestIds?: Iterable<string>;
   now?: Date;
 }): Promise<PiAgentTurnMetrics> {
-  const requestIds = Array.from(new Set([
-    params.requestId,
-    ...(params.relatedRequestIds ? Array.from(params.relatedRequestIds) : []),
-  ]));
+  const requestIds = Array.from(
+    new Set([params.requestId, ...(params.relatedRequestIds ? Array.from(params.relatedRequestIds) : [])])
+  );
   if (requestIds.length > MAX_RELATED_REQUEST_IDS) {
     throw new Error('PI Agent turn metrics request lineage is unexpectedly large.');
   }
@@ -98,7 +99,9 @@ export async function collectPiAgentTurnMetrics(params: {
         projectId: params.projectId,
         requestId: { in: requestIds },
       },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
         status: true,
         turnCount: true,
         inputTokens: true,
@@ -126,23 +129,42 @@ export async function collectPiAgentTurnMetrics(params: {
     throw new Error('PI Agent turn elapsed time exceeded the safe integer range.');
   }
 
+  const latestRun = runs[0];
+  const context = parsePiAgentContextSnapshot(asRecord(latestRun?.events[0]?.payload)?.contextSnapshot);
+
   return {
     schemaVersion: PI_AGENT_TURN_METRICS_SCHEMA_VERSION,
     elapsedMs,
     agentRunCount: runs.length,
-    modelTurnCount: safeSum(runs.map((run) => run.turnCount), 'model turn count'),
-    inputTokens: safeSum(runs.map((run) => run.inputTokens), 'input token'),
-    outputTokens: safeSum(runs.map((run) => run.outputTokens), 'output token'),
-    totalTokens: safeSum(runs.map((run) => run.totalTokens), 'total token'),
+    modelTurnCount: safeSum(
+      runs.map((run) => run.turnCount),
+      'model turn count'
+    ),
+    inputTokens: safeSum(
+      runs.map((run) => run.inputTokens),
+      'input token'
+    ),
+    outputTokens: safeSum(
+      runs.map((run) => run.outputTokens),
+      'output token'
+    ),
+    totalTokens: safeSum(
+      runs.map((run) => run.totalTokens),
+      'total token'
+    ),
     cachedInputTokens: safeSum(
       runs.map((run) => run.cachedInputTokens),
-      'cached input token',
+      'cached input token'
     ),
     cacheMissInputTokens: safeSum(
       runs.map((run) => run.cacheMissInputTokens),
-      'cache-miss input token',
+      'cache-miss input token'
     ),
-    reasoningTokens: safeSum(runs.map((run) => run.reasoningTokens), 'reasoning token'),
+    reasoningTokens: safeSum(
+      runs.map((run) => run.reasoningTokens),
+      'reasoning token'
+    ),
     tokenAccounting: tokenAccountingForRuns(runs),
+    ...(context && context.runId === latestRun?.id ? { contextSnapshot: context } : {}),
   };
 }
