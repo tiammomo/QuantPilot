@@ -1,6 +1,7 @@
 import path from 'path';
 import { ensureBaselineEvidenceFiles } from '@/lib/quant/evidence';
-import { readTextFile } from './files';
+import { readWorkspaceFileBounded, readWorkspaceJsonBounded } from '@/lib/data-agent/workspace-read';
+import { assessQuantEvidence } from '@/lib/domains/finance/evidence-quality';
 import { type QuantValidationCheck } from './contracts';
 import { asRecord, hasAnyKeyDeep } from './inputs';
 
@@ -16,16 +17,13 @@ async function readEvidenceJson(
   relativePath: string
 ): Promise<EvidenceJsonResult> {
   const absolutePath = path.join(projectPath, relativePath);
-  const raw = await readTextFile(absolutePath);
-  if (!raw) {
-    return { ok: false, error: `未找到或为空：${relativePath}`, absolutePath };
-  }
   try {
-    return { ok: true, parsed: JSON.parse(raw), raw, absolutePath };
-  } catch (error) {
+    const artifact = await readWorkspaceJsonBounded(projectPath, relativePath, 8 * 1024 * 1024);
+    return { ok: true, parsed: artifact.value, raw: JSON.stringify(artifact.value), absolutePath };
+  } catch {
     return {
       ok: false,
-      error: `${relativePath} JSON 解析失败：${error instanceof Error ? error.message : String(error)}`,
+      error: `${relativePath} 缺失、超限或不是工作空间内可安全读取的 JSON 文件。`,
       absolutePath,
     };
   }
@@ -73,6 +71,14 @@ export async function checkEvidenceFiles(
   }
 
   const qualityRecord = asRecord(quality.parsed);
+  const assessment = assessQuantEvidence(sources.parsed, quality.parsed);
+  errors.push(...assessment.failures);
+  for (const artifactPath of assessment.artifactPaths) {
+    try {
+      const artifact = await readWorkspaceFileBounded(projectPath, artifactPath, 8 * 1024 * 1024);
+      if (!artifact.bytes) errors.push(`来源产物为空：${artifactPath}`);
+    } catch { errors.push(`来源产物缺失、超限或路径不安全：${artifactPath}`); }
+  }
   const qualityStatus = typeof qualityRecord?.status === 'string' ? qualityRecord.status : null;
   if (!qualityStatus || !['ok', 'warning', 'error'].includes(qualityStatus)) {
     errors.push('evidence/data_quality.json 必须包含 status，取值为 ok、warning 或 error。');
@@ -93,9 +99,10 @@ export async function checkEvidenceFiles(
     };
   }
 
-  const warningSummary = qualityStatus === 'warning' ? '数据质量存在警告，页面应展示限制说明。' : undefined;
+  const hasWarnings = qualityStatus === 'warning' || assessment.warnings.length > 0;
+  const warningSummary = hasWarnings ? '数据质量或来源时间存在警告，页面应展示限制说明。' : undefined;
   return {
-    status: qualityStatus === 'error' ? 'failed' : qualityStatus === 'warning' ? 'warning' : 'passed',
+    status: qualityStatus === 'error' ? 'failed' : hasWarnings ? 'warning' : 'passed',
     summary: baseline.created
       ? `已根据最终数据自动生成数据信源渠道和质量证据文件，状态：${qualityStatus}。`
       : warningSummary ?? '已找到数据信源渠道和质量证据文件。',
@@ -106,6 +113,7 @@ export async function checkEvidenceFiles(
       sourceCount: Array.isArray(sourceEntries) ? sourceEntries.length : 0,
       baselineCreated: baseline.created,
       baselineReason: baseline.reason,
+      evidenceWarnings: assessment.warnings,
     },
   };
 }

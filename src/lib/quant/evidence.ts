@@ -1,5 +1,5 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { readWorkspaceJsonBounded } from '@/lib/data-agent/workspace-read';
+import { writeWorkspaceJsonAtomic } from '@/lib/data-agent/workspace-files';
 import { appendQuantWorkspaceEvent, ensureQuantWorkspace } from '@/lib/domains/finance/workspace';
 
 type JsonRecord = Record<string, unknown>;
@@ -44,11 +44,10 @@ function asRecord(value: unknown): JsonRecord | null {
   return value as JsonRecord;
 }
 
-async function readJsonRecord(filePath: string): Promise<JsonRecord | null> {
+async function readJsonRecord(projectPath: string, relativePath: string): Promise<JsonRecord | null> {
   try {
-    const content = await fs.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(content);
-    return asRecord(parsed);
+    const artifact = await readWorkspaceJsonBounded(projectPath, relativePath, 8 * 1024 * 1024);
+    return asRecord(artifact.value);
   } catch {
     return null;
   }
@@ -516,10 +515,8 @@ export async function ensureBaselineEvidenceFiles(
 ): Promise<BaselineEvidenceResult> {
   await ensureQuantWorkspace(projectPath);
 
-  const sourcesPath = path.join(projectPath, SOURCES_RELATIVE_PATH);
-  const qualityPath = path.join(projectPath, DATA_QUALITY_RELATIVE_PATH);
-  const existingSources = await readJsonRecord(sourcesPath);
-  const existingQuality = await readJsonRecord(qualityPath);
+  const existingSources = await readJsonRecord(projectPath, SOURCES_RELATIVE_PATH);
+  const existingQuality = await readJsonRecord(projectPath, DATA_QUALITY_RELATIVE_PATH);
 
   if (!options.force && isUsableSourcesEvidence(existingSources) && isUsableQualityEvidence(existingQuality)) {
     const sourceCount = Array.isArray(existingSources.sources) ? existingSources.sources.length : undefined;
@@ -527,7 +524,7 @@ export async function ensureBaselineEvidenceFiles(
     return { created: false, status, sourceCount };
   }
 
-  const finalData = await readJsonRecord(path.join(projectPath, FINAL_DATA_RELATIVE_PATH));
+  const finalData = await readJsonRecord(projectPath, FINAL_DATA_RELATIVE_PATH);
   if (!finalData) {
     return {
       created: false,
@@ -535,7 +532,7 @@ export async function ensureBaselineEvidenceFiles(
     };
   }
 
-  const runPlan = await readJsonRecord(path.join(projectPath, '.data-agent', 'finance-run-plan.json'));
+  const runPlan = await readJsonRecord(projectPath, '.data-agent/finance-run-plan.json');
   const now = new Date().toISOString();
   const runId = pickString(runPlan?.runId, runPlan?.run_id, finalData.runId, finalData.generatedAt, now) ?? now;
   const symbol = pickString(finalData.symbol, asRecord(finalData.quote)?.symbol, 'UNKNOWN') ?? 'UNKNOWN';
@@ -598,10 +595,9 @@ export async function ensureBaselineEvidenceFiles(
     limitations,
   };
 
-  await fs.mkdir(path.dirname(sourcesPath), { recursive: true });
   await Promise.all([
-    fs.writeFile(sourcesPath, `${JSON.stringify(sourcesEvidence, null, 2)}\n`, 'utf8'),
-    fs.writeFile(qualityPath, `${JSON.stringify(dataQualityEvidence, null, 2)}\n`, 'utf8'),
+    writeWorkspaceJsonAtomic(projectPath, SOURCES_RELATIVE_PATH, sourcesEvidence),
+    writeWorkspaceJsonAtomic(projectPath, DATA_QUALITY_RELATIVE_PATH, dataQualityEvidence),
   ]);
 
   await appendQuantWorkspaceEvent(projectPath, {

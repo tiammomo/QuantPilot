@@ -36,8 +36,31 @@ describe('PI Agent typed quant and terminal tools', () => {
     await fs.rm(workspace, { recursive: true, force: true });
   });
 
+  it.each([
+    ['not JSON', 'QUANT_API_INVALID_JSON'],
+    ['{"symbol":"000001","bars":[]}', 'QUANT_API_DATA_INVALID'],
+    ['{"symbol":"600519","bars":[],"data_quality":{"status":"error"}}', 'QUANT_API_DATA_INVALID'],
+  ])('rejects HTTP 200 with unusable response: %s', async (body, code) => {
+    const tool = createQuantApiGetTool({ fetchImpl: async () => new Response(body) });
+    expect(await invoke(tool, { path: '/api/v1/quotes/history/600519' })).toMatchObject({ ok: false, error: { code } });
+  });
+
+  it('binds query and complete response bytes independently from display truncation', async () => {
+    const body = JSON.stringify({ symbol: '600519', reports: Array.from({ length: 100 }, (_, index) => ({ index, text: 'x'.repeat(100) })) });
+    const tool = createQuantApiGetTool({ maxOutputChars: 2000, fetchImpl: async () => new Response(body) });
+    const left = await invoke(tool, { path: '/api/v1/fundamentals/financials/600519', query: { limit: 100, period: 'annual' } });
+    const right = await invoke(tool, { path: '/api/v1/fundamentals/financials/600519', query: { period: 'annual', limit: 100 } });
+    expect(left).toMatchObject({ ok: true, data: { truncated: true, receipt: {
+      responseSha256: `sha256:${createHash('sha256').update(body).digest('hex')}`,
+    } } });
+    if (left.ok && right.ok) {
+      const receipt = (left.data as { receipt: { querySha256: string } }).receipt;
+      expect(right.data).toMatchObject({ receipt: { querySha256: receipt.querySha256 } });
+    }
+  });
+
   it('uses GET against only the fixed local API and URL-encodes query values', async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('{"ok":true}', {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response('{"symbol":"600519","bars":[]}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
     }));
@@ -46,8 +69,7 @@ describe('PI Agent typed quant and terminal tools', () => {
       path: '/api/v1/quotes/history/600519',
       query: { symbol: '600519.SH & test', limit: 20, adjusted: true },
     });
-    expect(result).toMatchObject({ ok: true, data: { status: 200 } });
-    if (result.ok) expect(result.content).toBe('{"ok":true}');
+    expect(result).toMatchObject({ ok: true, data: { status: 200, assessment: { status: 'warning', usable: false }, receipt: { operationId: 'GET /api/v1/quotes/history/600519' } } });
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [requestUrl, init] = fetchImpl.mock.calls[0] as unknown as [URL | RequestInfo, RequestInit | undefined];
     expect(String(requestUrl)).toBe('http://127.0.0.1:8000/api/v1/quotes/history/600519?symbol=600519.SH+%26+test&limit=20&adjusted=true');
@@ -61,7 +83,7 @@ describe('PI Agent typed quant and terminal tools', () => {
       data_quality: { status: 'ok', warnings: [] },
       bars: Array.from({ length: 240 }, (_, index) => ({
         sequence: index,
-        date: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
+        date: new Date(Date.UTC(2026, 0, 1 + index)).toISOString().slice(0, 10),
         open: 10 + index / 100,
         high: 11 + index / 100,
         low: 9 + index / 100,
@@ -122,11 +144,11 @@ describe('PI Agent typed quant and terminal tools', () => {
     });
 
     expect(result).toMatchObject({
-      ok: true,
-      data: { truncated: true, outputStrategy: 'response_byte_limit' },
+      ok: false,
+      error: { code: 'QUANT_API_INCOMPLETE_RESPONSE' },
     });
-    if (!result.ok || result.content === undefined) {
-      throw new Error('Expected successful bounded quant API result with content');
+    if (result.ok || result.content === undefined) {
+      throw new Error('Expected bounded recovery hint with failed quant API result');
     }
     expect(result.content.length).toBeLessThanOrEqual(1_000);
     const content = JSON.parse(result.content);

@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { assessQuantDashboardData } from '@/lib/domains/finance/data-quality';
 import { validateQuantArtifactContracts } from '@/lib/quant/artifact-contracts';
 import { type QuantValidationCheck } from './contracts';
 import {
@@ -41,10 +42,7 @@ export async function checkFinalDataFile(
     .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
     .map((entry) => path.join(finalDir, entry.name));
 
-  const candidates = [
-    ...(await fileExists(preferredPath) ? [preferredPath] : []),
-    ...jsonFiles.filter((filePath) => filePath !== preferredPath),
-  ];
+  const candidates = await fileExists(preferredPath) ? [preferredPath] : jsonFiles;
 
   if (candidates.length === 0) {
     return {
@@ -63,6 +61,11 @@ export async function checkFinalDataFile(
 
     try {
       const parsed = JSON.parse(raw) as unknown;
+      const invalidData = assessQuantDashboardData(parsed).filter(assessment => assessment.status === 'failed');
+      if (invalidData.length) {
+        errors.push(`行情数据不一致：${invalidData.flatMap(item => item.issues.map(issue => `${issue.code}@${issue.path}`)).join('、')}`);
+        continue;
+      }
       const runPlan = await readRunPlan(projectPath);
       const plannedSymbols = extractPlannedSymbols(runPlan);
       const fetchedSymbols = extractFetchedSymbols(parsed);

@@ -97,6 +97,7 @@ export interface DataAgentSourceReceipt {
   observedAt: string;
   asOf?: string;
   fetchedAt: string;
+  fetchedAtOrigin?: 'source' | 'observed';
   querySha256: string;
   responseSha256?: string;
 }

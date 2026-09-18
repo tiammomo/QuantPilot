@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { assessQuantDataResponse } from '@/lib/domains/finance/data-quality';
 import { type JsonRecord, asRecord } from './values';
 
 const MARKET_API_BASE_URL = process.env.QUANTPILOT_MARKET_API_URL ?? 'http://127.0.0.1:8000';
@@ -34,6 +35,15 @@ export async function fetchJson(
     const record = asRecord(parsed);
     if (!record) {
       throw new Error(`${endpoint} 未返回 JSON 对象。`);
+    }
+    const request = new URL(endpoint, MARKET_API_BASE_URL);
+    const assessment = assessQuantDataResponse({
+      path: request.pathname,
+      query: Object.fromEntries(request.searchParams),
+      payload: record,
+    });
+    if (assessment.status === 'failed') {
+      throw new Error(`行情响应未通过数据检查：${assessment.issues.map(issue => `${issue.code}@${issue.path}`).join('、')}`);
     }
     return record;
   } finally {
