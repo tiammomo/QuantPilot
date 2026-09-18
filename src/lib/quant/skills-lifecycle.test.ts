@@ -81,7 +81,9 @@ describe('Skill lifecycle: isolated drafts, immutable releases and trusted deplo
     expect((await readSkillCatalogState(root)).active).toBe(activeBefore);
     expect((await admin.readSkillFile(id)).draft).toBe(true);
     expect((await compile(root)).skills[0].version).toBe('0.5.0');
-  }, 30_000);
+    // Executes real packaging and all Python behavior contracts before rejecting
+    // the invalid capsule; use the same budget as the full publication case.
+  }, 60_000);
 
   it('publishes and rolls back complete behavior while pinned projects keep their executable version', async () => {
     const { root, workspace, admin } = await fixture();
