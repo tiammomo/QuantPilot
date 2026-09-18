@@ -72,7 +72,7 @@ async function validateTemplate(entry: TemplateEntry, tmpDir: string): Promise<{
         version: '0.1.0',
         scripts: { build: 'next build' },
         dependencies: {
-          next: '^16.2.6',
+          next: '^16.3.5',
           react: '^19.0.0',
           'react-dom': '^19.0.0',
           '@types/react': '^19.0.0',

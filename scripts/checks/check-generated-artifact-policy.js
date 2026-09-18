@@ -63,7 +63,7 @@ async function createBaseProject(projectPath) {
   });
   await writeJson(path.join(projectPath, 'package.json'), {
     scripts: { build: 'next build' },
-    dependencies: { next: '^16.2.6', react: '^19.2.6', 'react-dom': '^19.2.6' },
+    dependencies: { next: '^16.3.5', react: '^19.2.6', 'react-dom': '^19.2.6' },
   });
 }
 

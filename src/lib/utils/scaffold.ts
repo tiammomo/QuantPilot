@@ -585,7 +585,7 @@ export async function scaffoldBasicNextApp(
       lint: 'next lint',
     },
     dependencies: {
-      next: '^16.2.6',
+      next: '^16.3.5',
       react: '^19.2.6',
       'react-dom': '^19.2.6',
     },
@@ -594,7 +594,7 @@ export async function scaffoldBasicNextApp(
       '@types/react': '^19.2.15',
       '@types/node': '^22.19.19',
       eslint: '^9.17.0',
-      'eslint-config-next': '^16.2.6',
+      'eslint-config-next': '^16.3.5',
     },
   };
 
