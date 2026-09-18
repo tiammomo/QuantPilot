@@ -11,7 +11,7 @@ description: Compute deterministic technical, return, volatility, drawdown, volu
 
 1. 校验标的、周期、复权、时区、排序、重复日期和样本长度。
 2. 只在相同周期与复权口径下计算收益、均线、波动率和回撤。
-3. 多标的先按日期内连接收益序列，再计算相关性并报告 overlap。
+3. 多标的先按相同起止日期内连接收益区间，再计算相关性并报告 overlap。
 4. 组合/对比任务同时计算流动性；趋势或调仓问题再生成 trend template。
 5. 写入 final data，并记录公式、窗口、样本数、缺失字段和 warnings。
 
@@ -37,3 +37,11 @@ python3 scripts/trend_template.py - < dashboard-data.json
 - 继承平台阶段；只贡献指标、窗口、样本量、复权/缺失口径、结果和限制。
 - 不输出隐藏推理、完整工具参数、占位进度或重复 Todo。
 - 不混用不同周期或复权，不在样本不足时给确定性趋势，不隐藏相关性 overlap。
+
+## 本轮执行与验收边界
+
+相关性按相同起点和终点的收益区间配对，披露 overlap；少于三个共同区间或零方差留空。重复标的、乱序日期及非有限价格拒绝计算；最近窗口量缺失时不压缩时间轴补算。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。
+
+[validate_indicator_bars.py](scripts/validate_indicator_bars.py) 为三个指标脚本共用的有序、有限数值校验；可通过 `--input bars.json` 单独检查 bars 数组。

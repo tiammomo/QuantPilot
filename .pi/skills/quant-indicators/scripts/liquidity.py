@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import sys
+from validate_indicator_bars import validate_bars
 from pathlib import Path
 from typing import Any
 
@@ -54,10 +55,10 @@ def get_bars(asset: JsonRecord) -> list[JsonRecord]:
     for key in ("bars", "data", "items"):
         bars = kline.get(key)
         if isinstance(bars, list):
-            return [item for item in bars if isinstance(item, dict)]
+            return validate_bars(bars)
     bars = asset.get("bars") or asset.get("klines") or asset.get("candles")
     if isinstance(bars, list):
-        return [item for item in bars if isinstance(item, dict)]
+        return validate_bars(bars)
     return []
 
 
@@ -74,8 +75,8 @@ def name_of(asset: JsonRecord, index: int) -> str:
 def turnover_proxy(asset: JsonRecord, latest_amount: float | None, avg_amount: float | None) -> float | None:
     quote = as_record(asset.get("quote")) or {}
     market_cap = numeric(quote.get("float_market_cap")) or numeric(quote.get("market_cap"))
-    amount = latest_amount or avg_amount
-    if not market_cap or not amount:
+    amount = latest_amount if latest_amount is not None else avg_amount
+    if market_cap is None or market_cap <= 0 or amount is None:
         return None
     return amount / market_cap * 100
 
@@ -100,7 +101,9 @@ def liquidity_for_asset(asset: JsonRecord, index: int) -> JsonRecord:
 
     amihud_values = [daily_return / amount for daily_return, amount in return_pairs if amount > 0]
     amihud = mean(amihud_values)
-    latest_amount = numeric(quote.get("amount")) or (amounts[-1] if amounts else None)
+    latest_amount = numeric(quote.get("amount"))
+    if latest_amount is None:
+        latest_amount = numeric(recent[-1].get("amount")) if recent else None
     avg_amount20 = mean(amounts)
     avg_volume20 = mean(volumes)
     turnover = turnover_proxy(asset, latest_amount, avg_amount20)
@@ -110,6 +113,8 @@ def liquidity_for_asset(asset: JsonRecord, index: int) -> JsonRecord:
         warnings.append("K 线样本少于 20 条，流动性均值稳定性较弱。")
     if avg_amount20 is None:
         warnings.append("缺少成交额字段，无法计算 20 日平均成交额。")
+    if len(amounts) != len(recent) or len(volumes) != len(recent):
+        warnings.append("部分成交量/成交额缺失，均值仅基于有效样本。")
     if amihud is None:
         warnings.append("缺少连续收盘价或成交额，无法计算 Amihud 非流动性。")
 
@@ -127,6 +132,8 @@ def liquidity_for_asset(asset: JsonRecord, index: int) -> JsonRecord:
         "symbol": symbol_of(asset, index),
         "name": name_of(asset, index),
         "sample_size": len(bars),
+        "amount_samples_20d": len(amounts),
+        "volume_samples_20d": len(volumes),
         "latest_amount": round_or_none(latest_amount, 2),
         "avg_amount_20d": round_or_none(avg_amount20, 2),
         "avg_volume_20d": round_or_none(avg_volume20, 2),

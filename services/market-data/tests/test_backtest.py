@@ -83,3 +83,43 @@ def test_supported_strategy_backtests_return_summary(
 def test_unknown_strategy_is_rejected() -> None:
     with pytest.raises(ValueError, match="暂不支持"):
         build_strategy_backtest(sample_kline(), strategy_id="unknown_strategy")
+
+
+@pytest.mark.parametrize("initial_cash", [Decimal("1"), Decimal("100000")])
+def test_skill_validator_accepts_current_backend_response(initial_cash: Decimal) -> None:
+    """Keep the bundled skill aligned with real API fields, units and closed trades."""
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from quantpilot_market_data.backtest import build_ma_crossover_backtest
+
+    result = build_ma_crossover_backtest(
+        sample_kline(), fast_window=10, slow_window=30, initial_cash=initial_cash, fee_bps=5,
+    )
+    root = Path(__file__).resolve().parents[3]
+    helper = root / ".pi/skills/quant-backtest/scripts/validate_backtest.py"
+    checked = subprocess.run(
+        [sys.executable, str(helper), "--input", "-"], input=result.model_dump_json(),
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert json.loads(checked.stdout)["ok"] is True
+
+
+def test_skill_market_validator_accepts_nullable_backend_fields() -> None:
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    payload = sample_kline().model_dump_json()
+    root = Path(__file__).resolve().parents[3]
+    helper = root / ".pi/skills/quant-market-data/scripts/validate_market_bars.py"
+    checked = subprocess.run(
+        [sys.executable, str(helper), "--input", "-"], input=payload,
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert json.loads(checked.stdout)["ok"] is True

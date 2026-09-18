@@ -9,6 +9,7 @@ import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 
 
@@ -65,6 +66,24 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     if not payload.get("source") and not payload.get("provider"):
         warnings.append("source/provider is missing")
 
+    as_of = None
+    if payload.get("as_of") is not None:
+        raw_as_of = payload["as_of"]
+        try:
+            if not isinstance(raw_as_of, str):
+                raise ValueError()
+            as_of = datetime.fromisoformat(raw_as_of.replace("Z", "+00:00"))
+        except ValueError:
+            errors.append("as_of must be ISO-8601")
+    quality = payload.get("data_quality")
+    if quality is not None:
+        if not isinstance(quality, dict) or quality.get("status") not in {"ok", "warning", "error", "success", "failed"}:
+            errors.append("data_quality must declare a recognized status")
+        elif quality["status"] in {"error", "failed"}:
+            errors.append("data_quality declares failed market data")
+        elif quality["status"] == "warning":
+            warnings.append("upstream data_quality declares warnings")
+
     bars = payload.get("bars")
     if not isinstance(bars, list) or not bars:
         return errors + ["bars must be a non-empty array"], warnings, stats
@@ -84,6 +103,18 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
         elif parsed_time is None:
             errors.append(f"{prefix} timestamp is not ISO-8601: {raw_time!r}")
         else:
+            if as_of is not None:
+                if len(raw_time) == 10 and as_of.tzinfo is not None:
+                    try:
+                        zone = ZoneInfo(payload.get("timezone") or "")
+                        if parsed_time.date() > as_of.astimezone(zone).date():
+                            errors.append(f"{prefix} date exceeds as_of in market timezone")
+                    except (ValueError, ZoneInfoNotFoundError):
+                        errors.append("daily bars with timestamp as_of require a valid market timezone")
+                elif (as_of.tzinfo is None) != (parsed_time.tzinfo is None):
+                    errors.append(f"{prefix} timezone differs from as_of")
+                elif parsed_time > as_of:
+                    errors.append(f"{prefix} timestamp exceeds as_of")
             aware = parsed_time.tzinfo is not None
             if previous_aware is not None and aware != previous_aware:
                 errors.append(f"{prefix} mixes timezone-aware and naive timestamps")
@@ -105,11 +136,14 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
             if values["low"] > min(values["open"], values["high"], values["close"]):
                 errors.append(f"{prefix}.low is above another OHLC value")
         for field in ("volume", "amount", "turnover"):
-            if field in bar:
+            if field in bar and bar[field] is not None:
                 number = finite_number(bar[field])
                 if number is None or number < 0:
                     errors.append(f"{prefix}.{field} must be a finite non-negative number")
 
+    for field in ("volume", "amount", "turnover"):
+        if any(isinstance(bar, dict) and bar.get(field) is None for bar in bars):
+            warnings.append(f"{field} is incomplete; missing observations are not zero")
     if raw_times:
         stats.update({"first_ts": raw_times[0], "last_ts": raw_times[-1]})
     summary = payload.get("summary")
@@ -118,7 +152,7 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     elif not isinstance(summary, dict):
         errors.append("summary must be an object")
     else:
-        if summary.get("row_count") != len(bars):
+        if isinstance(summary.get("row_count"), bool) or summary.get("row_count") != len(bars):
             errors.append("summary.row_count does not match bars length")
         if raw_times and summary.get("first_ts") != raw_times[0]:
             errors.append("summary.first_ts does not match the first bar")

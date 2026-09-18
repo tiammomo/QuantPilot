@@ -42,60 +42,7 @@ evidence/data_quality.json
 
 如果当前任务已有 `.data-agent/finance-run-plan.json`，证据文件中的 `runId` 应与当前 run plan 的 `runId` 保持一致。
 
-## sources.json 结构建议
-
-```json
-{
-  "schemaVersion": 1,
-  "runId": "request_id_or_run_id",
-  "created_at": "2026-05-23T10:00:00.000Z",
-  "sources": [
-    {
-      "dataset": "realtime_quote",
-      "symbol": "600519",
-      "name": "贵州茅台",
-      "source": "eastmoney",
-      "endpoint": "GET /api/v1/quotes/realtime/600519",
-      "artifact_path": "data_file/raw/quote-600519.json",
-      "as_of": "2026-05-22T15:00:00+08:00",
-      "fetched_at": "2026-05-23T10:00:00.000Z",
-      "status": "success"
-    }
-  ]
-}
-```
-
-## data_quality.json 结构建议
-
-```json
-{
-  "schemaVersion": 1,
-  "runId": "request_id_or_run_id",
-  "status": "ok",
-  "created_at": "2026-05-23T10:00:00.000Z",
-  "datasets": [
-    {
-      "dataset": "daily_kline",
-      "symbol": "600519",
-      "row_count": 120,
-      "source": "eastmoney",
-      "fetched_at": "2026-05-23T10:00:00.000Z",
-      "missing_fields": [],
-      "warnings": []
-    }
-  ],
-  "checks": [
-    {
-      "id": "kline_sample_length",
-      "status": "ok",
-      "summary": "已获取 120 条日 K 数据，满足当前看板要求。"
-    }
-  ],
-  "limitations": [
-    "实时行情可能存在交易所延迟，结论仅用于分析辅助。"
-  ]
-}
-```
+结构示例与字段定义统一维护在 [evidence-contract.md](references/evidence-contract.md)，不要在项目内另建竞争合同。
 
 ## 工作流程
 
@@ -125,3 +72,9 @@ evidence/data_quality.json
 - 不要只在聊天里说明数据质量，必须写入 evidence 文件。
 - 不要修改 `.data-agent/**`；计划、事件、状态和验证报告由平台维护。
 - 不要把 token、cookie、authorization header 或其他敏感信息写入 evidence。
+
+## 本轮执行与验收边界
+
+critical_fields 本身也参与缺失检查，无须重复列入 required_fields。获取时点必须为可解析 ISO 日期；来源、时间和原始产物没有证据时保留缺口。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。

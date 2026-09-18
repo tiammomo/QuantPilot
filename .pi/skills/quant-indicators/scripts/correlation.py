@@ -8,6 +8,8 @@ import json
 import math
 import sys
 from collections.abc import Iterable
+from datetime import datetime, timezone
+from validate_indicator_bars import validate_bars
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +47,10 @@ def get_bars(asset: JsonRecord) -> list[JsonRecord]:
     for key in ("bars", "data", "items"):
         bars = kline.get(key)
         if isinstance(bars, list):
-            return [item for item in bars if isinstance(item, dict)]
+            return validate_bars(bars)
     bars = asset.get("bars") or asset.get("klines") or asset.get("candles")
     if isinstance(bars, list):
-        return [item for item in bars if isinstance(item, dict)]
+        return validate_bars(bars)
     return []
 
 
@@ -58,25 +60,18 @@ def symbol_of(asset: JsonRecord, index: int) -> str:
     return str(raw)
 
 
-def close_returns(bars: Iterable[JsonRecord]) -> dict[str, float]:
-    ordered: list[tuple[str, float]] = []
-    for index, bar in enumerate(bars):
-        close = numeric(bar.get("close"))
-        if close is None or close <= 0:
-            continue
-        date = str(bar.get("date") or bar.get("time") or index)
-        ordered.append((date, close))
+def close_returns(bars: Iterable[JsonRecord]) -> dict[tuple[str, str], float]:
+    ordered = []
+    for bar in validate_bars(list(bars)):
+        raw = bar.get("date") or bar.get("time") or bar.get("timestamp") or bar.get("ts")
+        timestamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.astimezone(timezone.utc)
+        ordered.append((timestamp.isoformat(), float(bar["close"])))
+    returns = {}
+    for (previous_date, previous_close), (current_date, current_close) in zip(ordered[:-1], ordered[1:]):
+        returns[(previous_date, current_date)] = math.log(current_close) - math.log(previous_close)
 
-    ordered.sort(key=lambda item: item[0])
-    dates = [date for date, _ in ordered]
-    duplicates = sorted({date for date in dates if dates.count(date) > 1})
-    if duplicates:
-        raise ValueError(f"存在重复 K 线时间键：{', '.join(duplicates[:5])}")
-
-    returns: dict[str, float] = {}
-    for (current_date, current_close), (_, previous_close) in zip(ordered[1:], ordered[:-1], strict=False):
-        if previous_close > 0:
-            returns[current_date] = math.log(current_close / previous_close)
     return returns
 
 
@@ -95,10 +90,29 @@ def pearson(left: list[float], right: list[float]) -> float | None:
 
 
 def build_correlation(data: JsonRecord) -> JsonRecord:
-    series: dict[str, dict[str, float]] = {}
+    series: dict[str, dict[tuple[str, str], float]] = {}
     sample_lengths: dict[str, int] = {}
+    seen = set()
+    declared_periods, declared_adjustments = set(), set()
+    for asset in get_assets(data):
+        metadata = as_record(asset.get("kline")) or as_record(asset.get("history")) or asset
+        period = metadata.get("period", metadata.get("timeframe", data.get("period")))
+        adjustment = metadata.get("adjustment", data.get("adjustment"))
+        if period is not None:
+            if not isinstance(period, str):
+                raise ValueError("period must be a string")
+            declared_periods.add("daily" if period in {"daily", "1d", "day"} else period)
+        if adjustment is not None:
+            if not isinstance(adjustment, str):
+                raise ValueError("adjustment must be a string")
+            declared_adjustments.add(adjustment)
+    if len(declared_periods) > 1 or len(declared_adjustments) > 1:
+        raise ValueError("correlation requires matching periods and adjustments")
     for index, asset in enumerate(get_assets(data)):
         symbol = symbol_of(asset, index)
+        if symbol in seen:
+            raise ValueError(f"duplicate asset symbol: {symbol}")
+        seen.add(symbol)
         returns = close_returns(get_bars(asset))
         if returns:
             series[symbol] = returns
@@ -130,15 +144,21 @@ def build_correlation(data: JsonRecord) -> JsonRecord:
         key=lambda item: abs(item["correlation"]) if isinstance(item.get("correlation"), (int, float)) else -1,
         reverse=True,
     )
+    warnings = []
+    if len(symbols) < 2:
+        warnings.append("相关性计算至少需要两个有历史 K 线的标的。")
+    if any(pair["correlation"] is None for pair in pairs):
+        warnings.append("部分标的缺少三个相同起止区间的收益，或收益方差为零。")
     return {
+        "alignment": "identical_return_intervals",
         "method": "pearson_log_return",
         "symbols": symbols,
         "sample_lengths": sample_lengths,
         "matrix": matrix,
         "top_pairs": pairs[:10],
         "data_quality": {
-            "status": "ok" if len(symbols) >= 2 else "warning",
-            "warnings": [] if len(symbols) >= 2 else ["相关性计算至少需要两个有历史 K 线的标的。"],
+            "status": "warning" if warnings else "ok",
+            "warnings": warnings,
         },
     }
 

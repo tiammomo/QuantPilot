@@ -88,3 +88,9 @@ description: Use this skill when designing, refactoring, reviewing, or polishing
 - loading、empty、error、disabled、pending、long text 和分页状态可用。
 - 导航入口、页面标题、按钮文案和 URL 语义一致。
 - `npm run lint`、`npm run type-check` 通过；大改后补 `npm run build` 或 smoke。
+
+## 本轮执行与验收边界
+
+状态矩阵只是提交者的合同声明，不能替代浏览器证据。核验请求失败或项目切换中清除旧成功状态；详情弹窗需焦点管理、Escape 关闭与返回触发入口。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。

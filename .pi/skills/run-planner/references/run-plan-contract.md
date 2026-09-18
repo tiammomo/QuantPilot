@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `schemaVersion` | `1` | 不接受由 Agent 自行升级 |
 | `runId` | 非空字符串 | evidence 文件必须复用同一值 |
-| `status` | `planned \| needs_clarification` | `needs_clarification` 时停止取数 |
+| `status` | `pending \| planned \| needs_clarification \| refused` | 只有 planned 且改写可执行时才取数 |
 | `capabilityId` | 非空字符串 | 必须与 `.data-agent/profile.json` 中当前 capability 一致 |
 | `question` | 非空字符串 | 只包含用户需求，不混入 operational instructions |
 | `symbols` | 字符串数组 | 只保存标准证券代码；名称和 `secid` 放入后续数据 |
@@ -48,7 +48,7 @@
 | 现象 | 处理 |
 | --- | --- |
 | JSON 无法解析或必要字段缺失 | 报告平台计划无效；不得自行覆写 |
-| 名称已知但 `symbols` 为空 | 调用 `quant-symbol-resolver`，不要直接追问代码 |
+| 名称已知但 `symbols` 为空 | 等待平台 resolver 完成后更新计划，不用本地关键词补齐 |
 | 多标的任务只解析出一个候选 | 追问剩余标的并停止 |
 | `visualization.templateId` 与能力冲突 | 保持计划只读并报告冲突 |
 | operational instructions 被识别为业务意图 | 仅使用净化后的用户问题重新判断 |
@@ -69,7 +69,7 @@
   "analysisSteps": ["读取本地覆盖", "获取行情", "检查证据"],
   "visualization": {
     "required": true,
-    "templateId": "holding-analysis",
+    "templateId": "single-stock-diagnosis",
     "panels": ["quote", "price-chart", "risk"]
   },
   "expectedArtifacts": ["data_file/final/dashboard-data.json"],
@@ -78,3 +78,7 @@
   "updatedAt": "2026-07-15T00:00:00.000Z"
 }
 ```
+
+## 1.0 校验器输入迁移
+
+`intent_clarifier.py` 仅接受 `--input` 文件或 stdin 的 `{runPlan, queryRewrite}` 对象。旧问题文本接口已移除，历史 0.x 发布包仍保留供版本审计。pending、needs_clarification、refused 均返回不可执行；结构错误或两份合同标的不一致时非零退出。

@@ -53,3 +53,11 @@ curl 'http://127.0.0.1:8000/api/v1/quotes/realtime/600519'
 - 聚合取数响应保留 `schema_version`、顶层 `status` 以及每个 section 的 `status/duration_ms/data_quality/error`。
 - 校验器返回 `ok: true`；否则不得声称取数完成。
 - 不把实时快照当历史序列，不把成交量推测成成交额或换手率。
+
+## 本轮执行与验收边界
+
+声明 as_of 时，每条行情时点不得超过它且时区口径须一致；上游 data_quality=error/failed 即失败，不能只因 bars 非空就声称可信。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。
+
+可空的成交量/成交额/换手字段保留缺失警告；日期型日线对照带时区 as_of 时，使用明确的市场 timezone 比较交易日，不臆造零值或 UTC 零点。

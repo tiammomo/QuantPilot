@@ -87,6 +87,12 @@ def validate(payload: Any, expected_template: str | None, expected_symbols: list
     required = visualization.get("required_components")
     rendered = visualization.get("rendered_components")
     missing = visualization.get("missing_components")
+    for field, value in (("required_components", required), ("rendered_components", rendered), ("missing_components", missing)):
+        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+            errors.append(f"visualization.{field} must be a string array")
+    if isinstance(rendered, list) and isinstance(missing, list):
+        if set(item for item in rendered if isinstance(item, str)) & set(item for item in missing if isinstance(item, str)):
+            errors.append("a component cannot be both rendered and missing")
     if isinstance(required, list) and isinstance(rendered, list):
         required_set = {item for item in required if isinstance(item, str)}
         accounted = {item for item in rendered if isinstance(item, str)}

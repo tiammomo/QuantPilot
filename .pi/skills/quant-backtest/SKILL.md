@@ -38,3 +38,11 @@ python3 scripts/validate_backtest.py --input data_file/raw/<run_id>/backtest.jso
 - 结果同时包含 `summary`、非空 `equity_curve`、`trades` 与 `data_quality`。
 - 校验器返回 `ok: true`，摘要与曲线末值一致。
 - 明确披露滑点、停牌、涨跌停、分红再投资和冲击成本是否建模。
+
+## 本轮执行与验收边界
+
+逐点回撤必须等于净值相对当时历史峰值的变化；不能仅验证摘要和曲线中的回撤字段彼此一致。收益、末值、交易数和时间边界一并核验。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。
+
+当前 API 的 `*_pct` 按百分数转换后检查，trade_count 只计已平仓，收益以 initial_cash 为分母；保留未平仓明细。后端真实计算输出亦纳入合同回归。

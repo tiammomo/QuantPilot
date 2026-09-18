@@ -185,6 +185,11 @@ def validate(payload: Any) -> dict[str, Any]:
     elif safety_decision == "refuse":
         errors.append("safety.decision=refuse requires refused status")
 
+    if strategy == "llm_unavailable" and status in {"ready", "partial"}:
+        errors.append("unavailable LLM cannot produce an executable rewrite")
+    if not isinstance(payload.get("broadUniverse"), bool):
+        errors.append("broadUniverse must be a boolean")
+
     return {
         "valid": not errors,
         "errors": errors,

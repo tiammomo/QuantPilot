@@ -78,6 +78,10 @@ def name_of(asset: JsonRecord, index: int) -> str:
     return str(asset.get("name") or quote.get("name") or symbol_of(asset, index))
 
 
+def first_present(*values):
+    return next((value for value in values if value is not None), None)
+
+
 def infer_base_metrics(asset: JsonRecord) -> tuple[JsonRecord, list[str]]:
     quote = as_record(asset.get("quote")) or {}
     reports = get_reports(asset)
@@ -85,35 +89,14 @@ def infer_base_metrics(asset: JsonRecord) -> tuple[JsonRecord, list[str]]:
     summary = get_fundamental_summary(asset)
     warnings: list[str] = []
 
-    price = numeric(quote.get("price")) or numeric(asset.get("price"))
-    market_cap = (
-        numeric(quote.get("market_cap"))
-        or numeric(quote.get("total_market_cap"))
-        or numeric(summary.get("market_cap"))
-    )
-    eps = (
-        numeric(summary.get("eps_ttm"))
-        or numeric(summary.get("eps"))
-        or first_numeric(reports, ("eps", "basic_eps", "diluted_eps"))
-    )
-    pe = (
-        numeric(quote.get("pe_ttm"))
-        or numeric(quote.get("pe"))
-        or numeric(summary.get("pe_ttm"))
-        or numeric(summary.get("pe"))
-    )
-    pb = numeric(quote.get("pb")) or numeric(summary.get("pb"))
-    roe = numeric(summary.get("roe")) or numeric(summary.get("weighted_roe")) or first_numeric(reports, ("weighted_roe", "roe"))
-    revenue = (
-        numeric(summary.get("latest_revenue"))
-        or numeric(latest_report.get("revenue"))
-        or numeric(latest_report.get("operating_revenue"))
-    )
-    net_profit = (
-        numeric(summary.get("latest_parent_net_profit"))
-        or numeric(latest_report.get("parent_net_profit"))
-        or numeric(latest_report.get("net_profit"))
-    )
+    price = first_present(numeric(quote.get("price")), numeric(asset.get("price")))
+    market_cap = first_present(numeric(quote.get("market_cap")), numeric(quote.get("total_market_cap")), numeric(summary.get("market_cap")))
+    eps = first_present(numeric(summary.get("eps_ttm")), numeric(summary.get("eps")), first_numeric(reports, ("eps", "basic_eps", "diluted_eps")))
+    pe = first_present(numeric(quote.get("pe_ttm")), numeric(quote.get("pe")), numeric(summary.get("pe_ttm")), numeric(summary.get("pe")))
+    pb = first_present(numeric(quote.get("pb")), numeric(summary.get("pb")))
+    roe = first_present(numeric(summary.get("roe")), numeric(summary.get("weighted_roe")), first_numeric(reports, ("weighted_roe", "roe")))
+    revenue = first_present(numeric(summary.get("latest_revenue")), numeric(latest_report.get("revenue")), numeric(latest_report.get("operating_revenue")))
+    net_profit = first_present(numeric(summary.get("latest_parent_net_profit")), numeric(latest_report.get("parent_net_profit")), numeric(latest_report.get("net_profit")))
 
     if pe is None and price is not None and eps is not None and eps > 0:
         pe = price / eps
@@ -149,7 +132,7 @@ def build_scenarios(metrics: JsonRecord) -> list[JsonRecord]:
     price = numeric(metrics.get("price"))
     eps = numeric(metrics.get("eps"))
     pe = numeric(metrics.get("pe_ttm"))
-    if price is None or eps is None or eps <= 0 or pe is None or pe <= 0:
+    if price is None or price <= 0 or eps is None or eps <= 0 or pe is None or pe <= 0:
         return []
 
     cases = [

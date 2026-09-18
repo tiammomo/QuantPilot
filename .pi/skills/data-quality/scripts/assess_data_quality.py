@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 import re
 import sys
@@ -83,7 +84,7 @@ def assess_dataset(item: Any, index: int) -> tuple[dict[str, Any], dict[str, Any
     critical_fields = strings(item.get("critical_fields"), f"datasets[{index}].critical_fields")
     available_fields = strings(item.get("available_fields"), f"datasets[{index}].available_fields")
     missing_fields = strings(item.get("missing_fields"), f"datasets[{index}].missing_fields")
-    missing_fields = list(dict.fromkeys([*missing_fields, *(field for field in required_fields if field not in available_fields)]))
+    missing_fields = list(dict.fromkeys([*missing_fields, *(field for field in [*required_fields, *critical_fields] if field not in available_fields)]))
     warnings = strings(item.get("warnings"), f"datasets[{index}].warnings")
 
     source = optional_string(item, "source")
@@ -91,6 +92,18 @@ def assess_dataset(item: Any, index: int) -> tuple[dict[str, Any], dict[str, Any
     artifact_path = optional_string(item, "artifact_path")
     fetched_at = optional_string(item, "fetched_at")
     as_of = optional_string(item, "as_of") or optional_string(item, "quote_time")
+    for field, timestamp in (("fetched_at", fetched_at), ("as_of", as_of)):
+        if timestamp is not None:
+            try:
+                datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError as error:
+                raise ValueError(f"datasets[{index}].{field} must be ISO-8601") from error
+    if fetched_at and as_of:
+        fetched_time = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+        as_of_time = datetime.fromisoformat(as_of.replace("Z", "+00:00"))
+        if fetched_time.tzinfo is not None and as_of_time.tzinfo is not None and as_of_time > fetched_time:
+            warnings.append("数据时点晚于获取时间，请核对时钟或未来数据泄漏。")
+            missing_fields.append("valid_as_of")
     if source is None:
         missing_fields.append("source")
         warnings.append("缺少可验证的数据来源。")

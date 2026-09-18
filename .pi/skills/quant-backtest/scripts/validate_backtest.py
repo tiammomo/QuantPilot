@@ -13,7 +13,7 @@ from typing import Any
 
 
 TIME_KEYS = ("ts", "date", "datetime", "timestamp")
-EPSILON = 1e-8
+EPSILON = 2e-6
 
 
 def emit(payload: dict[str, Any], code: int) -> int:
@@ -58,6 +58,36 @@ def row_time(row: dict[str, Any]) -> tuple[str | None, datetime | None]:
     return (raw, parse_iso(raw)) if isinstance(raw, str) else (None, None)
 
 
+def normalize_api_response(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Map current BacktestResponse percentage units without mutating source evidence."""
+    summary = payload.get("summary")
+    canonical = isinstance(summary, dict) and ("start_date" in summary or "total_return_pct" in summary)
+    if not canonical:
+        return payload, False
+    def ratio(value):
+        parsed = number(value)
+        return parsed / 100 if parsed is not None else None
+    parameters = payload.get("parameters")
+    parameters = dict(parameters) if isinstance(parameters, dict) else {}
+    for key in ("fast_window", "slow_window", "fee_bps", "period", "adjustment"):
+        if key in payload:
+            numeric_key = key in {"fast_window", "slow_window", "fee_bps"}
+            same_value = number(parameters.get(key)) == number(payload[key]) if numeric_key else parameters.get(key) == payload[key]
+            if key in parameters and not same_value:
+                raise ValueError(f"parameters.{key} conflicts with the response")
+            parameters[key] = payload[key]
+    curve = payload.get("equity_curve")
+    trades = payload.get("trades")
+    normalized = {**payload, "parameters": parameters,
+        "summary": {**summary, "start": summary.get("start_date"), "end": summary.get("end_date"),
+            "initial_equity": summary.get("initial_cash"),
+            "strategy_return": ratio(summary.get("total_return_pct")),
+            "max_drawdown": ratio(summary.get("max_drawdown_pct"))},
+        "equity_curve": [{**row, "drawdown": ratio(row.get("drawdown_pct"))} if isinstance(row, dict) else row for row in curve] if isinstance(curve, list) else curve,
+        "trades": [{**row, "entry_ts": row.get("entry_date"), "exit_ts": row.get("exit_date")} if isinstance(row, dict) else row for row in trades] if isinstance(trades, list) else trades}
+    return normalized, True
+
+
 def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -65,6 +95,10 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     if not isinstance(payload, dict):
         return ["root must be a JSON object"], warnings, stats
 
+    try:
+        payload, canonical = normalize_api_response(payload)
+    except ValueError as error:
+        return [str(error)], warnings, stats
     parameters = payload.get("parameters")
     if not isinstance(parameters, dict):
         errors.append("parameters must be an object")
@@ -111,6 +145,9 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     if trade_count is None or trade_count < 0:
         errors.append("summary.trade_count must be a non-negative integer")
 
+    initial_equity = number(summary.get("initial_equity"))
+    if "initial_equity" in summary and (initial_equity is None or initial_equity <= 0):
+        errors.append("summary.initial_cash must be finite and positive")
     curve = payload.get("equity_curve")
     curve_equities: list[float] = []
     curve_drawdowns: list[float] = []
@@ -118,6 +155,7 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     if not isinstance(curve, list) or not curve:
         errors.append("equity_curve must be a non-empty array")
     else:
+        peak_equity = initial_equity or 0.0
         previous: datetime | None = None
         previous_aware: bool | None = None
         for index, row in enumerate(curve):
@@ -146,6 +184,11 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
                 errors.append(f"{prefix}.drawdown must be between -1 and 0")
             else:
                 curve_drawdowns.append(drawdown)
+                if equity is not None and equity > 0:
+                    peak_equity = max(peak_equity, equity)
+                    expected_drawdown = equity / peak_equity - 1
+                    if not math.isclose(drawdown, expected_drawdown, rel_tol=EPSILON, abs_tol=EPSILON):
+                        errors.append(f"{prefix}.drawdown does not match running peak equity")
             position = number(row.get("position"))
             if position not in {0.0, 1.0}:
                 errors.append(f"{prefix}.position must be 0 or 1")
@@ -186,7 +229,7 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
     if not isinstance(data_quality, dict):
         errors.append("data_quality must be an object")
     else:
-        if not data_quality.get("source") and not data_quality.get("provider"):
+        if not data_quality.get("source") and not data_quality.get("provider") and not payload.get("source"):
             errors.append("data_quality requires source/provider")
         limitations = data_quality.get("limitations")
         if not isinstance(limitations, list) or not limitations:
@@ -194,22 +237,23 @@ def validate(payload: Any) -> tuple[list[str], list[str], dict[str, Any]]:
         if not payload.get("localBarsCoverage") and not data_quality.get("localBarsCoverage"):
             warnings.append("localBarsCoverage is missing")
 
-    if trade_count is not None and trade_count != len(trades):
-        errors.append("summary.trade_count does not match trades length")
+    expected_trades = sum(isinstance(trade, dict) and trade.get("status") == "closed" for trade in trades) if canonical else len(trades)
+    if trade_count is not None and trade_count != expected_trades:
+        errors.append("summary.trade_count does not match the contract trade count")
     if curve_equities and final_equity is not None and not math.isclose(curve_equities[-1], final_equity, rel_tol=EPSILON, abs_tol=EPSILON):
         errors.append("summary.final_equity does not match the last curve equity")
     if curve_drawdowns and max_drawdown is not None and not math.isclose(min(curve_drawdowns), max_drawdown, rel_tol=EPSILON, abs_tol=EPSILON):
         errors.append("summary.max_drawdown does not match the curve minimum")
     if curve_equities and strategy_return is not None:
-        implied_return = curve_equities[-1] / curve_equities[0] - 1
-        if not math.isclose(implied_return, strategy_return, rel_tol=1e-7, abs_tol=1e-7):
+        implied_return = curve_equities[-1] / (initial_equity or curve_equities[0]) - 1
+        if not math.isclose(implied_return, strategy_return, rel_tol=EPSILON, abs_tol=EPSILON):
             errors.append("summary.strategy_return does not match first/last curve equity")
     if curve_times and start is not None and curve_times[0] != start:
         errors.append("summary.start does not match the first curve timestamp")
     if curve_times and end is not None and curve_times[-1] != end:
         errors.append("summary.end does not match the last curve timestamp")
 
-    stats.update({"curve_points": len(curve) if isinstance(curve, list) else 0, "trade_count": len(trades), "start": curve_times[0] if curve_times else None, "end": curve_times[-1] if curve_times else None})
+    stats.update({"curve_points": len(curve) if isinstance(curve, list) else 0, "trade_count": expected_trades, "start": curve_times[0] if curve_times else None, "end": curve_times[-1] if curve_times else None})
     return errors, warnings, stats
 
 

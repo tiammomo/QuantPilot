@@ -133,7 +133,7 @@ def rank_candidates(payload: dict[str, Any]) -> dict[str, Any]:
         item for item in exposed
         if (item["match_rank"], item["asset_rank"], item["market_rank"]) == top_key
     ]
-    ambiguous = len(tied) > 1
+    ambiguous = len(tied) > 1 or top["match_rank"] > 0
     return {
         "schemaVersion": 1,
         "query": query.strip(),

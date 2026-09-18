@@ -33,7 +33,7 @@ const scripts = fs.readdirSync(skillsDir, { withFileTypes: true })
 
 if (scripts.length === 0) fail('no deterministic skill scripts found');
 
-const env = { ...process.env, PYTHONPYCACHEPREFIX: pycacheDir };
+const env = { ...process.env, PYTHONPYCACHEPREFIX: pycacheDir, PYTHONDONTWRITEBYTECODE: '1' };
 const pythonScripts = scripts.filter((script) => script.endsWith('.py'));
 if (pythonScripts.length > 0) {
   const compile = spawnSync(pythonCommand, ['-m', 'py_compile', ...pythonScripts], {
@@ -82,5 +82,10 @@ for (const script of scripts) {
   }
 }
 
+const contracts = spawnSync(pythonCommand, ['tests/skills/test_contracts.py'], {
+  cwd: root, env, encoding: 'utf8', timeout: 120_000,
+});
+if (contracts.status !== 0) fail('Skill behavioral contracts failed', contracts);
+process.stdout.write(contracts.stderr || contracts.stdout);
 fs.rmSync(pycacheDir, { recursive: true, force: true });
 console.log(`[skill-scripts] ok: ${scripts.length} executable scripts passed syntax and --help checks`);

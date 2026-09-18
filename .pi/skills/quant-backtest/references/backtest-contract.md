@@ -12,7 +12,14 @@
 - 明确成交价格、滑点、停牌、涨跌停、分红再投资和冲击成本假设。
 - 未建模项必须进入 `data_quality.limitations[]`，不能只留在自然语言结论。
 
-## 最小结果结构
+## 当前 API 与内部检查结构
+
+当前 `BacktestResponse` 保留根级 fast_window、slow_window、fee_bps、period、adjustment；summary 使用 start_date/end_date、initial_cash、total_return_pct、max_drawdown_pct；曲线使用 drawdown_pct，交易使用 entry_date/exit_date。
+
+校验器在内存中将百分数除以 100，再核对峰值和收益；不修改原始证据。当前 API 的 trade_count 只统计 closed，open 交易仍保留。比例容差 2e-6 覆盖 API 百分数四位小数及净值六位小数的舍入。根级参数与 parameters 重复字段有冲突时拒绝校验。
+
+下面为兼容的内部比率结构，仅用于离线旧证据检查；该结构 trade_count 按全部交易计数：
+
 
 ```json
 {

@@ -59,3 +59,9 @@ The validator performs no network calls and writes no files. A non-zero exit mea
 - Do not retry `TARGET_NOT_FOUND` unchanged. Retry infrastructure failures only when the issue is marked retryable.
 
 Complete this skill when the rewrite status, resolved target set, period, focus, capability, output intent, and clarification state are internally consistent. Data retrieval and dashboard generation belong to subsequent skills.
+
+## 本轮执行与验收边界
+
+`llm_unavailable` 与 ready/partial 不能同时成立；broadUniverse 必须是明确布尔值。校验不通过时返回平台，不用本地规则补齐语义。
+
+附带 Python 脚本供平台维护和离线验收使用；模型只调用当前 capsule 声明且运行时提供的 typed tools。脚本通过不等同于模型研究任务通过。

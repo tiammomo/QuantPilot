@@ -9,7 +9,7 @@ import math
 import re
 import sys
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -77,7 +77,7 @@ def normalized_number(value: Any) -> int | float | None:
         number = Decimal(text) * multiplier
     except InvalidOperation:
         return None
-    if not number.is_finite():
+    if not number.is_finite() or (number and number.adjusted() > 308):
         return None
     if negative:
         number = -number
@@ -95,6 +95,8 @@ def normalize_images(value: Any) -> list[dict[str, Any]]:
         sha256 = item.get("sha256")
         if not isinstance(path, str) or not path.strip():
             raise ValueError(f"images[{index}].path must be a non-empty string")
+        if path.startswith(("/", "\\")) or "\\" in path or "\x00" in path or ":" in path or ".." in PurePosixPath(path).parts:
+            raise ValueError(f"images[{index}].path must stay inside the workspace")
         if not isinstance(sha256, str) or not HASH_PATTERN.fullmatch(sha256):
             raise ValueError(f"images[{index}].sha256 must be a 64-character hex digest")
         result.append({
@@ -102,8 +104,8 @@ def normalize_images(value: Any) -> list[dict[str, Any]]:
             "sha256": sha256.lower(),
             "name": item.get("name") if isinstance(item.get("name"), str) else None,
             "mimeType": item.get("mimeType") if isinstance(item.get("mimeType"), str) else None,
-            "width": item.get("width") if isinstance(item.get("width"), int) else None,
-            "height": item.get("height") if isinstance(item.get("height"), int) else None,
+            "width": item.get("width") if type(item.get("width")) is int and item["width"] > 0 else None,
+            "height": item.get("height") if type(item.get("height")) is int and item["height"] > 0 else None,
         })
     return result
 

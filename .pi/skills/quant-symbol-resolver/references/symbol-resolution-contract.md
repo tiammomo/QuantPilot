@@ -65,7 +65,7 @@ curl -G 'http://127.0.0.1:8000/api/v1/symbols/resolve' \
 
 ```json
 {
-  "original_query": "茅台",
+  "original_query": "贵州茅台",
   "symbol": "600519",
   "name": "贵州茅台",
   "asset_type": "stock",
@@ -88,3 +88,7 @@ curl -G 'http://127.0.0.1:8000/api/v1/symbols/resolve' \
 | 代码与名称相互冲突 | 不自动覆盖用户代码；展示冲突并确认 |
 | provider 超时 | 标记解析失败，不把本地别名推断冒充 API 结果 |
 | 名称含“股份”“证券”“公司” | 将其视为名称组成，不视为泛词 |
+
+## 辅助排序的置信边界
+
+排序脚本只有唯一最高优先级的精确名称/代码匹配才返回 resolved；单个子串、前缀或无匹配候选仍返回 ambiguous，需平台 resolver 核验身份或澄清。排序第一不是身份证据，平台已核验的别名解析也不应被本地词表重做。

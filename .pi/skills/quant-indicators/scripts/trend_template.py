@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import sys
+from validate_indicator_bars import validate_bars
 from pathlib import Path
 from typing import Any
 
@@ -72,10 +73,10 @@ def get_bars(asset: JsonRecord) -> list[JsonRecord]:
     for key in ("bars", "data", "items"):
         bars = kline.get(key)
         if isinstance(bars, list):
-            return [item for item in bars if isinstance(item, dict)]
+            return validate_bars(bars)
     bars = asset.get("bars") or asset.get("klines") or asset.get("candles")
     if isinstance(bars, list):
-        return [item for item in bars if isinstance(item, dict)]
+        return validate_bars(bars)
     return []
 
 
@@ -128,7 +129,6 @@ def classify_trend(latest: float | None, ma20: float | None, ma60: float | None,
 def trend_for_asset(asset: JsonRecord, index: int) -> JsonRecord:
     bars = get_bars(asset)
     closes = [value for value in (numeric(bar.get("close")) for bar in bars) if value is not None and value > 0]
-    volumes = [value for value in (numeric(bar.get("volume")) for bar in bars) if value is not None and value >= 0]
     warnings: list[str] = []
     if len(closes) < 60:
         warnings.append("K 线少于 60 条，趋势模板稳定性较弱。")
@@ -138,8 +138,12 @@ def trend_for_asset(asset: JsonRecord, index: int) -> JsonRecord:
     ma60 = moving_average(closes, 60)
     return_20d = (latest / closes[-21] - 1) * 100 if len(closes) >= 21 and latest is not None else None
     drawdown = max_drawdown(closes[-120:])
-    avg_volume20 = moving_average(volumes, 20)
-    volume_ratio = volumes[-1] / avg_volume20 if volumes and avg_volume20 else None
+    recent_volumes = [numeric(bar.get("volume")) for bar in bars[-20:]]
+    complete_volumes = len(recent_volumes) == 20 and all(value is not None for value in recent_volumes)
+    avg_volume20 = mean(recent_volumes) if complete_volumes else None
+    volume_ratio = recent_volumes[-1] / avg_volume20 if avg_volume20 else None
+    if not complete_volumes:
+        warnings.append("最近 20 条成交量不完整，量比留空。")
     state, score, reasons = classify_trend(latest, ma20, ma60, drawdown)
 
     return {
