@@ -17,13 +17,15 @@
 | `prisma/` | PostgreSQL 主业务 schema |
 | `sqls/` | PostgreSQL / TimescaleDB 初始化 SQL |
 | `scripts/` | 开发、构建、检查、数据库、评测和 skills 脚本 |
-| `.pi/skills/` | 当前 Agent 的 source-first 编译输入，受 registry/lock、版本与 SHA-256 完整性校验；workspace `.pi/skills/` 只是项目初始化参考镜像 |
+| `.pi/skills/` | 内置基线的 source-first 编译输入，受 registry/lock、版本与 SHA-256 完整性校验；workspace `.pi/skills/` 只是项目初始化参考镜像 |
 | `docs/` | 项目知识、教学和排障 |
 | `data/projects/` | 本地生成工作空间，默认不提交 |
 
 详细边界见 [项目结构与分层边界](../project-structure.md)。
 
 ## 分层思维
+
+Skills 的仓库修改更新内置基线；在线草稿、发布与项目固定版本保存在独立持久化目录，遵循 [Skills 治理](../skills-governance.md)。
 
 QuantPilot 不是单纯的前端项目，也不是单纯的数据服务。改代码前先判断这次变更属于哪一层：
 

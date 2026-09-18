@@ -2,7 +2,7 @@
 
 QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + PI Agent runtime capsule”的方式管理。目标是让每个 Skill 的能力边界、版本、变更、打包产物、运行时投影和安装结果都可追溯。
 
-仓库根目录的 `.pi/**` 是唯一 Skill 权威源和 PI Agent 受信编译输入；完整性由 registry/lock、版本与 SHA-256 校验提供，目前没有密码学签名。生成工作空间的 `.pi/skills/` 是可检查的参考镜像，不是执行发现源，Agent 不会改写该镜像。
+仓库根目录 `.pi/**` 和 `config/pi-agent-skill-capsules.json` 提供内置发布基线。在线维护使用平台独立持久化目录中的草稿、不可变完整快照和原子生效指针；PI Agent 按平台保存的项目版本记录编译，未固定的旧项目使用平台当前发布版。完整性由版本、registry/lock、快照 manifest 与 SHA-256 校验提供，目前没有密码学签名。工作空间 `.pi/skills/` 是参考镜像，不能通过修改镜像或安装收据选择可执行内容。
 
 如果是第一次学习或修改 skill，先读 [Skills 编写与迭代教程](learning/07-skills-authoring.md)。本文偏治理规范，教程会更详细解释 skill 是什么、怎么写、怎么发布、怎么把用户反馈沉淀成长期规则。
 
@@ -23,7 +23,7 @@ QuantPilot 的 skills 采用“少量规范 Skill ID + tgz 包发布 + PI Agent 
 
 | 路径 | 作用 |
 | --- | --- |
-| `.pi/skills.registry.json` | 唯一能力注册表，记录核心 Skill、版本、边界、输入输出、脚本和验证规则 |
+| `.pi/skills.registry.json` | 内置能力注册表；在线完整快照同时保存该表、lock 和运行规则 |
 | `.pi/skills.changelog.json` | 权威版本变更记录 |
 | `.pi/skills.lock.json` | 打包锁，记录源目录 hash、压缩包 hash、文件数和版本 |
 | `.pi/skills/<skill-id>/` | 完整源码技能包，必须包含 `SKILL.md`、`references/`、`scripts/`、`agents/openai.yaml`；按需包含 `assets/` |
@@ -115,15 +115,30 @@ http://localhost:3000/skills
 
 推荐流程：
 
-1. 在 `/skills` 中选择需要维护的核心 skill。
-2. 在线编辑 `SKILL.md`、`scripts/`、`references/`，或上传 `.zip`、`.tgz`、`.tar.gz`。
-3. 确认输入输出、禁止事项、脚本契约和验证方式都写清楚。
-4. 填写 semver 版本号、发布摘要和变更点。
-5. 生成发布前 diff。
-6. 点击发布后，平台会更新 registry、changelog、tgz 包和 lock。
-7. 运行 `npm run check:skills`，必要时再跑相关 benchmark 或生成项目验证。
+1. 在 Studio 中选择技能。源码、references、scripts 与 `agents/openai.yaml` 均在独立草稿中编辑。
+2. 用虚拟文件 `skill.definition.json` 编辑输入、输出、验证规则、资源清单和状态；用 `skill.runtime.json` 编辑阶段、工具依赖、执行步骤和 reference 选择。虚拟文件不会混入分发包。
+3. 保存时提交读取到的 revision；过期修改返回 HTTP 409，编辑器保留未提交文本，不能静默覆盖另一个编辑者。
+4. 上传 zip/tgz/tar.gz 只生成草稿。确认文件与运行规则 Diff 后，填写高于所有历史发布版的规范版本号、摘要和变更点。
+5. 发布把目标技能合入当前发布目录的隔离候选，执行包、registry/lock、脚本行为和 runtime capsule 检查，再封存完整快照、原子切换平台生效指针。
+6. 回退恢复该技能的源码、包、完整注册信息和运行规则。其他技能与项目固定版本不变。有草稿时需先发布或明确放弃草稿。
 
-工作台的上传发布会限制到已登记核心 skill，并拒绝路径穿越、软链接、硬链接和异常文件数量。发布或打包失败时会回滚 registry、changelog、lock 和压缩包；上传包失败时会回滚源码目录。
+只具有旧 tgz、没有历史运行规则的版本标记为不支持完整回退；系统不会拿当前规则冒充历史行为。第一次在线维护会保存当时所有内置技能的完整基线。操作者来自认证上下文；历史未记录的操作者显示未登记。
+
+在线编辑和平台发布需要 `platform.settings.manage`；已认证浏览器还须通过同源校验。没有认证会话的本地管理仍按 `QUANTPILOT_ADMIN_TOKEN` 与开发环境回环限制处理。
+
+### 持久化与故障恢复
+
+`QUANTPILOT_SKILLS_STATE_DIR` 默认为 `./data/skill-catalog`，生产须配置在不可变代码发布目录之外，所有处理相同项目的 Web/Worker 实例共享该目录并纳入备份。它包含：
+
+- `state.json`：当前发布、草稿、项目安装和维护事件的唯一提交点，使用临时文件、fsync 和 rename 更新。
+- `images/<sha256>/`：源码、包、注册信息、lock、changelog 与运行规则的完整快照；执行前核验 manifest 和选中技能的内容。
+- 文件系统写锁：序列化维护；只自动回收本机已确认退出进程的锁，无法确认的锁保持拒绝写入。
+
+发布失败不切换生效指针；进程退出后未提交候选不会用于执行。安装先准备整批文件，再替换受管集合及收据；中断日志在下次安装时恢复。非受管技能保留，同名冲突拒绝覆盖；覆盖已修改受管文件需明确勾选。
+
+旧项目首次固定版本时，仅接管与平台可信基线版本和内容哈希均一致的旧镜像；安装收据不能自行声明个人技能属于平台。无法核验的同名目录须由项目维护者先保留副本并移出安装位置。
+
+成功维护后清理超过 7 天且未被任何发布、草稿、项目版本或上次安装引用的快照。发布历史与在用版本不会自动删除。代码更新不会自动覆盖在线生效目录或项目固定版本；仓库改动需按发布流程成为在线版本，不能直接替换持久化 state。
 
 ## 命令行修改流程
 
@@ -140,7 +155,7 @@ npm run package:skills -- <skill-id>
 npm run check:skills
 ```
 
-如果修改影响 PI Agent 的执行顺序、阶段、工具依赖或 reference 选择，还必须同步更新 `config/pi-agent-skill-capsules.json`。纯背景说明、长示例和平台脚本说明不应复制进 capsule。
+命令行修改内置基线时，如果影响 PI Agent 的执行顺序、阶段、工具依赖或 reference 选择，还必须同步更新 `config/pi-agent-skill-capsules.json`；在线维护通过 `skill.runtime.json` 编辑同一合同。纯背景说明、长示例和平台脚本说明不应复制进 capsule。
 
 Workspace 回答展示由 `workspaceResponseContract` 统一治理。所有 Skill 继承同一套五阶段协议，只贡献本领域可验证事实、真实缺口和下一步；不得各自复制识别表、重启阶段编号或输出占位式执行文案。该共享合同是平台展示元数据，不进入模型的 capsule 文本，因此同步 12 个核心 Skill 不会产生 12 份重复 Token。
 
@@ -201,12 +216,12 @@ npm run package:skills -- <skill-id>
 
 ## Skill 压缩包
 
-项目初始化镜像与 Agent 执行编译顺序：
+内置基线与完整发布快照内部的编译顺序：
 
 1. registry 按 capability 选择核心 skills，lock 必须同时匹配版本和可用输入的 SHA-256。
 2. 编译器优先读取仓库根目录 `.pi/skills/<skill-id>` 并校验 source hash 与文件数。
 3. 只有 source 不存在时，才回退读取 `.pi/skill-packages/<skill-id>.tgz`；除 package hash 外，还会拒绝链接/特殊条目和超限内容，并验证包内 `path + content` 树与 source lock 完全一致。
-4. 创建项目时，编译器把 capability 的完整受检 Skill 集合及显式附加 Skill 安装为 `<workspace>/.pi/skills/` 参考镜像；安装集合不受单次执行 phase 裁剪。创建服务只以安装成功或抛错作为结果，不把 receipt 注入 Agent。
+4. 创建项目时，平台把 capability 的完整受检 Skill 集合及显式附加 Skill 安装为 `<workspace>/.pi/skills/` 参考镜像，并在受信持久化目录固定执行版本；安装集合不受单次执行 phase 裁剪，不把 receipt 当作执行授权。
 5. 每次 Agent 执行重新按第 1～3 步验证受信输入，再按 phase、附件、标的解析、template/variant 和当前 typed-tool 名称选择 capsule。
 6. 稳定 Kernel 只接收 skill manifest；动态 user task 依次接收 Task Packet、完整的原子 Skill Capsules 和标为 untrusted data 的 initial dashboard contract。reference 由编译器按 Markdown 二级标题精确注入，模型不再读取相对 reference 路径。
 
@@ -242,7 +257,17 @@ npm run package:skills -- <skill-id>
 | 未安装 | 没有该技能目录 |
 | 无法核验 | 收据无效、符号链接、特殊文件或无有效版本依据 |
 
-切换项目或核验失败时不沿用上一次成功状态。项目 `.pi/skills` 是可检查的参考副本；运行时仍只编译平台可信根源，市场不会自动改写已有项目。新建/初始化项目沿用现有安装器。
+切换项目、Agent 或核验失败时不沿用上一次成功状态。选择项目和 Agent 后，可安装所选完整版本、卸载、覆盖本地修改或回退上次安装集合；写入需要 `project.update` 和 `quant.data.read`，版本令牌不一致返回 409。平台发版不会自动升级已固定的项目。
+
+| Agent | 项目安装目录 | 执行保证 |
+| --- | --- | --- |
+| PI Agent | `.pi/skills` | 平台独立记录固定快照；运行时不信任工作区收据；缺少所需技能时明确失败 |
+| Claude Code | `.claude/skills` | 标准技能文件安装与哈希核验；外部工具接入、会话重载和真实运行需在该 Agent 中验证 |
+| Codex | `.agents/skills` | 标准技能文件安装与哈希核验；外部工具接入、会话重载和真实运行需在该 Agent 中验证 |
+
+外部 Agent 的目录约定来自 [Claude 官方文档](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview) 与 [OpenAI 官方文档](https://developers.openai.com/codex/skills/)。文件安装成功不表示 QuantPilot 的 typed tools 自动出现在外部 Agent 中。
+
+`GET /api/skills?view=studio` 提供受管理权限保护的草稿和维护记录；`POST /api/skills` 管理草稿、发布与回退；`POST /api/skills/installations` 管理项目安装。旧版永久禁用的“应用”按钮已删除，操作统一收敛到市场。
 
 兼容性与执行编译器共用工具集合判定，要求全部必需工具与至少一组完整备选工具；平台开发技能单独标注。完整性、兼容性、离线脚本通过率和模型任务完成率属于不同证据，不相互替代。
 

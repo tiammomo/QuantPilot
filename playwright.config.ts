@@ -7,6 +7,7 @@ loadProjectEnvironment();
 // independent of local accounts, research data and external services.
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,
@@ -17,6 +18,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:3107',
     trace: 'retain-on-failure',
+    extraHTTPHeaders: { 'x-quantpilot-admin-token': 'isolated-skills-browser-test' },
     screenshot: 'only-on-failure',
     launchOptions: { executablePath: process.env.QUANTPILOT_CHROMIUM_EXECUTABLE_PATH || undefined },
   },
@@ -35,6 +37,8 @@ export default defineConfig({
       QUANTPILOT_KNOWLEDGE_ENABLED: '0',
       DATABASE_URL: 'postgresql://unused:unused@127.0.0.1:1/unused?connect_timeout=1',
       PROJECTS_DIR: './tmp/e2e-product-health-projects',
+      QUANTPILOT_SKILLS_STATE_DIR: './tmp/e2e-skills-state',
+      QUANTPILOT_ADMIN_TOKEN: 'isolated-skills-browser-test',
     },
   },
 });

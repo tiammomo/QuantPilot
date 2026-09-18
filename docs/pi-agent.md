@@ -33,7 +33,7 @@ QuantPilot 使用开源 `@earendil-works/pi-agent-core@0.82.1` 作为唯一 Agen
 | Generation Orchestration | `src/lib/quant/generation-queue.ts`、`src/lib/services/pi-agent-generation-lease-*.ts`、`src/lib/services/pi-agent-worker-capacity.ts`、`src/lib/services/pi-agent-worker-registry.ts` | 用户排队/运行结构配额、按 actor 公平 claim、数据库全局 Worker 槽位、进程注册/心跳/集群配置一致性，以及跨进程串行化 planning/data-prefetch、Agent execution 与 manual validation |
 | Mission Graph | `src/lib/agent/mission/`、`src/lib/services/pi-agent-mission-*.ts` | 编译受信 MissionSpec、物化阶段节点、冻结 candidate version、验证证据并通过 CAS 事务提交产品完成态 |
 | Tools | `src/lib/agent/tools/` | 通用文件/结构化读取、版本化语义编辑、文件批量提交、结果提交和安全策略；业务 artifact handle、alias、字段优先级由 Domain Pack 注入 |
-| Skills | `src/lib/agent/skills/`、`config/pi-agent-skill-capsules.json` | registry/version/SHA-256 完整性校验；按 phase、附件、标的解析、模板和当前 typed tools 投影原子 runtime capsule，并精确注入所需 reference 片段；项目初始化只配置 workspace 参考镜像 |
+| Skills | `src/lib/agent/skills/`、`config/pi-agent-skill-capsules.json` | 从平台项目版本记录选择完整快照并核验；按 phase、附件、标的解析、模板和 typed tools 投影 capsule 与 reference；workspace 只保存参考镜像，维护流程见 [Skills 治理](skills-governance.md) |
 | 产品接入 | `src/lib/services/cli/pi-agent.ts` | 历史上下文、消息持久化、实时事件、用户取消和执行阶段终态 |
 | HTTP 接入 | `src/app/api/chat/[project_id]/act/route.ts` | 请求合同、权限、幂等、附件、配额接纳和调度响应；不承载金融规划或 Agent 执行实现 |
 | 金融准备 | `src/lib/quant/finance-act-preparation.ts`、`src/lib/quant/chat-act-support.ts`、`src/lib/domains/finance/agent-tools/` | Query Rewrite、run plan、真实数据预取、受治理知识准备、Mission 创建，以及金融行情/看板/图片/JSON artifact typed tool 投影 |
@@ -221,7 +221,7 @@ network namespace 内只启用 loopback，不存在宿主或外网路由。previ
 
 PI Agent loop 直接采用上游开源运行时，QuantPilot 只在明确的 Provider、Tool、Event 和治理边界上扩展。当前实现与能力边界以本文、[PI Agent 采用与治理边界](pi-agent-migration.md)、[生成工作空间契约](generated-workspace-contract.md) 和受版本控制的质量门为准。
 
-仓库 `.pi/skills` 是受 registry/lock/hash 校验的唯一 PI Agent Skill 编译输入；不读取其他 Agent 的 Skill 源目录或别名。历史数据库事实只用于审计，不参与当前 PI Agent 执行控制流。
+仓库 `.pi/skills` 是受 registry/lock/hash 校验的内置 PI Agent Skill 编译基线；不读取其他 Agent 的 Skill 源目录或别名。历史数据库事实只用于审计，不参与当前 PI Agent 执行控制流。
 
 PI Agent 执行前必须把 `prisma/schema.prisma` 中的 durable Agent runtime 表、项目级 generation lease、generation job/outbox 和三张 Mission/evidence 表、`user_requests(id, project_id)` 复合唯一约束、每项目唯一 active Mission/job slot、AgentRun `build_revision`、严格 workspace identity 以及全部关联外键一并应用到 PostgreSQL，并生成对应 Prisma Client。只读 catalog readiness 的当前契约版本是 `20260722000300_enforce_agent_run_workspace_identity`；它同时检查 `agent_runs.workspace_key` 没有默认值，并存在已验证的 `sha256:<64 hex>` check constraint。本地开发与生产启动都执行非破坏性的版本化 `prisma migrate deploy`，并通过 readiness 后才接收运行。
 

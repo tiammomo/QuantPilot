@@ -389,3 +389,7 @@ npm run check:production -- --env-file /secure/path/quantpilot.env
 4. 确认 `.env.local` 没有被外部进程环境变量覆盖；容器编排环境优先级最高。
 5. Memory 显示 `disabled` 时先看 `ENABLED`，显示 `unavailable` 才继续查 URL、契约、token 和 production-ready。
 6. 配置变更后重启所属服务，并查看运行治理中心或 [故障排查](troubleshooting.md)。
+
+## Skills 持久化目录
+
+`QUANTPILOT_SKILLS_STATE_DIR` 默认为 `./data/skill-catalog`。本地可直接使用默认目录；生产使用独立持久化路径（例如 `/var/lib/quantpilot/skill-catalog`），由 Web 与 Worker 共享，随业务存储备份，不能随代码制品清理。该目录保存在线草稿、完整版本、项目固定记录与操作事件；初始化种子来自仓库内置 `.pi/**` 及运行规则。详细流程见 [Skills 治理](skills-governance.md)。在线校验需要本机 Node、Python 3 和 tar；standalone 制品必须包含平台校验脚本和技能行为用例。

@@ -16,7 +16,7 @@
 | 数据库入口 | `src/lib/db/`、`prisma/` | Prisma 管理的主业务表 |
 | 市场数据服务 | `services/market-data/` | 行情、K 线、财务、公告、补数、基础组件和回测 API |
 | SQL 初始化 | `sqls/` | `quant` schema、TimescaleDB hypertable、股票池和基础组件表 |
-| Skills 权威源 | 仓库根目录 `.pi/skills/` | 当前 Agent 编译源；受 registry/lock、版本与 SHA-256 完整性校验，source 优先、tgz fallback。项目初始化另配置 workspace `.pi/skills/` 参考镜像，但执行阶段不从镜像发现能力 |
+| Skills 版本 | `.pi/skills/` 与 `QUANTPILOT_SKILLS_STATE_DIR` | 仓库提供基线，持久化目录保存草稿、完整发布快照和项目版本；执行按平台固定版本核验，不从 workspace 镜像发现能力 |
 | 生成工作空间 | `data/projects/` | 每个 AI 生成项目的源码、数据、证据和验证报告 |
 | 本地基础设施 | `docker-compose.yml`、`deploy/observability/` | TimescaleDB、Redis、Loki、Grafana 和 Alloy |
 | 脚本 | `scripts/` | 启动、构建、检查、数据库迁移、评测和 skill 打包 |
@@ -99,6 +99,8 @@ Redis 是短期缓存，不是事实库。缓存丢了不应该影响长期研�
 ## Skills 组件
 
 Skills 是 Agent 的项目内能力手册。它们不是简单提示词，而是包含执行顺序、数据契约、禁止事项和修复策略。
+
+在线维护按草稿、校验、完整快照发布流转；项目单独选择执行版本，支持安装、卸载和回退。详见 [Skills 治理](skills-governance.md)。
 
 | Skill 类型 | 例子 | 作用 |
 | --- | --- | --- |

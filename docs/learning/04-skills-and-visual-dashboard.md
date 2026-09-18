@@ -6,7 +6,9 @@
 
 ## Skills 在链路中的位置
 
-Skills 是 Agent 的本地能力包。仓库根目录 `.pi/skills/` 是受 registry/lock、版本与 SHA-256 完整性校验的唯一编译源，目前没有密码学签名；加载顺序是 source 优先、受校验 tgz fallback。项目初始化会把校验后的参考镜像配置到生成工作空间 `.pi/skills/`；Agent 执行阶段仍从仓库输入只读编译本次上下文，不从 workspace 镜像发现能力，也不重新安装镜像。
+在线维护使用隔离草稿、完整快照与项目固定版本，流程见 [Skills 治理](../skills-governance.md)。
+
+Skills 是 Agent 的本地能力包。仓库根目录 `.pi/skills/` 是受 registry/lock、版本与 SHA-256 完整性校验的内置编译基线，目前没有密码学签名；加载顺序是 source 优先、受校验 tgz fallback。项目初始化会把校验后的参考镜像配置到生成工作空间 `.pi/skills/`；Agent 执行阶段按平台固定版本记录只读编译本次上下文，不从 workspace 镜像发现能力，也不重新安装镜像。
 
 可以把 skill 理解成“给 Agent 的专业工作手册”。模型本身知道很多通用知识，但它不知道 QuantPilot 当前有哪些数据源、页面契约、验证规则和审美要求。Skill 把这些项目内规则写下来，让每次生成更稳定。
 

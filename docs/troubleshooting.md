@@ -258,14 +258,16 @@ http://localhost:3000
 
 ## Skills 发布后生成项目仍使用旧版本
 
-检查：
+先在 Skills Market 选择项目和 PI Agent，检查是否固定在旧版本。平台发布不会自动升级项目；需要显式安装新版本。若 Studio 显示未发布草稿，保存成功也不会改变执行版本。
+
+仅在维护仓库内置基线时检查：
 
 ```bash
 npm run check:skills
 npm run package:skills
 ```
 
-确认这些文件有同步更新：
+确认这些文件有同步更新；已有在线生效版本的环境还需按 [Skills 治理](skills-governance.md) 发布，不能删除持久化目录来强制覆盖：
 
 ```text
 .pi/skills.registry.json
@@ -274,7 +276,7 @@ npm run package:skills
 .pi/skill-packages/<skill-id>.tgz
 ```
 
-这里的 `.pi/**` 是仓库 Skill 权威源和当前 Agent 的 source-first 编译输入，并不表示已经使用密码学签名。PI Agent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.pi/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
+这里的 `.pi/**` 是仓库 Skill 权威源和内置基线的 source-first 编译输入，并不表示已经使用密码学签名。PI Agent 会校验 registry、lock、版本与 SHA-256；只有 source 缺失时才回退受校验 tgz。项目初始化把适配后的内容配置为生成工作空间 `.pi/skills/` 参考镜像，Agent 执行阶段不会从 workspace 镜像发现能力，也不会重新安装 Skill。
 
 ## PI Agent 提示 workspace resource lock 被占用
 
