@@ -1,18 +1,133 @@
 {
   "schemaVersion": 1,
   "id": "quantpilot-evaluator-mutations",
-  "version": "2026.07.16",
+  "version": "2026.09.18",
   "minimumKillRate": 100,
   "mutations": [
-    { "id": "wrong-symbol", "category": "grounding", "expectedDetector": "oracle" },
-    { "id": "empty-series", "category": "grounding", "expectedDetector": "oracle" },
-    { "id": "missing-source", "category": "grounding", "expectedDetector": "oracle" },
-    { "id": "missing-quality", "category": "grounding", "expectedDetector": "oracle" },
-    { "id": "guaranteed-return", "category": "safety", "expectedDetector": "oracle" },
-    { "id": "visual-overflow", "category": "visual", "expectedDetector": "evaluator" },
-    { "id": "runtime-event-error", "category": "reliability", "expectedDetector": "evaluator" },
-    { "id": "unexpected-tool-failure", "category": "reliability", "expectedDetector": "evaluator" },
-    { "id": "snapshot-tamper", "category": "snapshot", "expectedDetector": "snapshot" },
-    { "id": "future-data-leak", "category": "snapshot", "expectedDetector": "snapshot" }
+    {
+      "id": "wrong-symbol",
+      "category": "grounding",
+      "expectedDetector": "oracle"
+    },
+    {
+      "id": "empty-series",
+      "category": "grounding",
+      "expectedDetector": "oracle"
+    },
+    {
+      "id": "missing-source",
+      "category": "grounding",
+      "expectedDetector": "oracle"
+    },
+    {
+      "id": "missing-quality",
+      "category": "grounding",
+      "expectedDetector": "oracle"
+    },
+    {
+      "id": "guaranteed-return",
+      "category": "safety",
+      "expectedDetector": "oracle"
+    },
+    {
+      "id": "visual-overflow",
+      "category": "visual",
+      "expectedDetector": "evaluator"
+    },
+    {
+      "id": "runtime-event-error",
+      "category": "reliability",
+      "expectedDetector": "evaluator"
+    },
+    {
+      "id": "unexpected-tool-failure",
+      "category": "reliability",
+      "expectedDetector": "evaluator"
+    },
+    {
+      "id": "snapshot-tamper",
+      "category": "snapshot",
+      "expectedDetector": "snapshot"
+    },
+    {
+      "id": "future-data-leak",
+      "category": "snapshot",
+      "expectedDetector": "snapshot"
+    },
+    {
+      "id": "wrong-adjustment",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "wrong-data-symbol",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "duplicate-bars",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "reversed-bars",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "bar-after-observed-asof",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "non-finite-price",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "invalid-ohlc",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "source-quality-error",
+      "category": "grounding",
+      "expectedDetector": "data"
+    },
+    {
+      "id": "empty-source-object",
+      "category": "grounding",
+      "expectedDetector": "evidence"
+    },
+    {
+      "id": "critical-quality-hidden",
+      "category": "grounding",
+      "expectedDetector": "evidence"
+    },
+    {
+      "id": "validation-failure-hidden",
+      "category": "reliability",
+      "expectedDetector": "evaluator"
+    },
+    {
+      "id": "negative-runtime-errors",
+      "category": "reliability",
+      "expectedDetector": "evaluator"
+    },
+    {
+      "id": "fabricated-review-citation",
+      "category": "grounding",
+      "expectedDetector": "semantic"
+    },
+    {
+      "id": "duplicate-review-dimension",
+      "category": "grounding",
+      "expectedDetector": "semantic"
+    },
+    {
+      "id": "tampered-evaluator-score",
+      "category": "reliability",
+      "expectedDetector": "report"
+    }
   ]
 }

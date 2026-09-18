@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyEvalEvaluator } from './evaluators';
+import { applyEvalEvaluator, isCurrentEvaluation } from './evaluators';
 
 function result() {
   return {
@@ -22,6 +22,33 @@ function result() {
 }
 
 describe('evaluation strategy dispatch', () => {
+  it.each([
+    { validation: { checks: [{ id: 'next_build', status: 'failed' }] } },
+    { validation: { status: 'failed' } },
+    { artifacts: { status: 'failed' } },
+    { artifacts: { oracle: { passed: true, checks: [{ passed: false, severity: 'error' }] } } },
+    { failures: ['unresolved failure'] },
+    { eventAudit: { errorCount: -1 } },
+    { eventAudit: { errorCount: '0' } },
+    { agentExecution: { tools: { unexpectedFailureCount: Number.NaN } } },
+  ])('rejects contradictory aggregate success: %j', override => {
+    expect(applyEvalEvaluator({ evaluatorId: 'rule-strict', mode: 'contract', result: { ...result(), ...override } }))
+      .toMatchObject({ hardGatePassed: false, passed: false });
+  });
+
+  it.each(['score', 'weight', 'duplicate', 'rubric', 'status', 'verdict'])(
+    'rejects a tampered report field: %s', field => {
+      const evaluation = applyEvalEvaluator({ evaluatorId: 'rule-strict', mode: 'contract', result: result() });
+      expect(isCurrentEvaluation(evaluation)).toBe(true);
+      if (field === 'score') evaluation.score = 1;
+      if (field === 'weight') evaluation.dimensions[0].weight = 99;
+      if (field === 'duplicate') evaluation.dimensions[0] = evaluation.dimensions[1];
+      if (field === 'rubric') evaluation.rubricVersion = 'unsupported';
+      if (field === 'status') evaluation.dimensions[0].status = 'failed';
+      if (field === 'verdict') evaluation.hardGatePassed = false;
+      expect(isCurrentEvaluation(evaluation)).toBe(false);
+    }
+  );
   it('applies the strict rule rubric with all score dimensions', () => {
     const evaluation = applyEvalEvaluator({
       evaluatorId: 'rule-strict',

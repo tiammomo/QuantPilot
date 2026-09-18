@@ -252,6 +252,8 @@
         "platform-core",
         "quant-core",
         "agent-runtime",
+        "data-agent-core",
+        "finance-domain",
         "platform-navigation-ui",
         "ui-kit"
       ],
@@ -853,6 +855,54 @@
         "maxLines": 800,
         "targetLines": 800,
         "nextAction": "保持数值引擎、实验契约与离线复跑分离；实验不得重新取实时数据，新增策略必须通过复跑回归。"
+      },
+      {
+        "path": "src/lib/data-agent/workspace-read.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/domains/finance/data-quality.ts",
+        "maxLines": 250,
+        "targetLines": 250,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/domains/finance/evidence-quality.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/domains/finance/agent-tools/quant-api.ts",
+        "maxLines": 350,
+        "targetLines": 350,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/domains/finance/agent-tools/quant-api-output.ts",
+        "maxLines": 300,
+        "targetLines": 300,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/eval/deterministic-gate.ts",
+        "maxLines": 150,
+        "targetLines": 150,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/eval/review-evidence.ts",
+        "maxLines": 200,
+        "targetLines": 200,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/lib/eval/agent-reviewer.ts",
+        "maxLines": 300,
+        "targetLines": 300,
+        "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
       }
     ]
   }

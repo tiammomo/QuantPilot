@@ -8,6 +8,7 @@ import {
 } from './e2e-attestation';
 import { LOCAL_QWEN_MODEL_ID } from '@/lib/constants/models';
 import { isCurrentEvaluation } from './evaluators';
+import { assessDeterministicGate } from './deterministic-gate';
 import { buildEvalQualitySummary } from './scoring';
 import { buildEvalTraceDiagnostics } from './trace-diagnostics';
 
@@ -252,6 +253,10 @@ export function attestEvalReport(
     const evaluation = record(result.evaluation);
     if (!isCurrentEvaluation(evaluation)) {
       problems.push(`${caseId} 缺少当前版本的 evaluator 结果`);
+    }
+    const observedGate = assessDeterministicGate({ ...result, passed: true, failures: [] });
+    if (evaluation.hardGatePassed === true && !observedGate.passed) {
+      problems.push(`${caseId} evaluator 成功与底层检查冲突：${observedGate.failures.join('、')}`);
     }
     if (evaluation.evaluatorId !== evaluator.id ||
       evaluation.evaluatorVersion !== evaluator.version ||

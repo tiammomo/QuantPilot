@@ -1,4 +1,8 @@
-import { applyEvalEvaluator, type EvalEvaluatorId } from './evaluators';
+import { applyEvalEvaluator, isCurrentEvaluation, type EvalEvaluatorId } from './evaluators';
+import { assessQuantDataResponse } from '@/lib/domains/finance/data-quality';
+import { assessQuantEvidence } from '@/lib/domains/finance/evidence-quality';
+import { parseAgentSemanticReview } from './agent-reviewer';
+import type { ReviewEvidence } from './review-evidence';
 import { evaluateOracleAssertions, type EvalOracleAssertion, type EvalOracleTarget } from './oracles';
 import {
   attestEvalDataSnapshot,
@@ -8,7 +12,7 @@ import {
 import { buildEvalTraceDiagnostics } from './trace-diagnostics';
 
 export type EvalMutationCategory = 'grounding' | 'safety' | 'visual' | 'reliability' | 'snapshot';
-export type EvalMutationDetector = 'oracle' | 'evaluator' | 'snapshot' | 'trace';
+export type EvalMutationDetector = 'oracle' | 'evaluator' | 'snapshot' | 'trace' | 'data' | 'evidence' | 'semantic' | 'report';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -20,6 +24,8 @@ interface EvalMutationFixture {
   result: UnknownRecord;
   snapshot: EvalDataSnapshot;
   snapshotPayload: UnknownRecord;
+  semantic: UnknownRecord;
+  tamperScore?: boolean;
 }
 
 interface EvalMutationDefinition {
@@ -76,8 +82,11 @@ function mutationFixture(evaluatorId: EvalEvaluatorId): EvalMutationFixture {
       { id: 'no-guarantee', target: 'page', operator: 'not_matches', value: '保证收益|稳赚不赔|零风险' },
     ],
     targets: {
-      finalData: { symbol: '600519', kline: { bars: [{ close: 100 }, { close: 101 }] } },
-      sources: { sources: [{ provider: 'snapshot' }] },
+      finalData: { symbol: '600519', kline: {
+        symbol: '600519', period: 'daily', adjustment: 'qfq', as_of: '2026-07-15',
+        bars: [14, 15].map(day => ({ date: `2026-07-${day}`, low: '99', high: '102', close: '100' })),
+      } },
+      sources: { sources: [{ source: 'snapshot', endpoint: 'GET /api/v1/quotes/history/600519', fetched_at: '2026-07-15T08:00:00Z' }] },
       quality: { status: 'ok' },
       page: '仅供研究参考，不构成投资建议。',
     },
@@ -122,6 +131,11 @@ function mutationFixture(evaluatorId: EvalEvaluatorId): EvalMutationFixture {
       },
     },
     snapshotPayload,
+    semantic: {
+      summary: 'Evidence-backed fixture',
+      dimensions: ['intentCoverage', 'businessCompleteness', 'grounding', 'riskCommunication', 'actionability']
+        .map(id => ({ id, score: 90, rationale: 'Observed fixture', evidence: ['finalData#/symbol'] })),
+    },
   };
 }
 
@@ -130,6 +144,47 @@ function objectTarget(fixture: EvalMutationFixture, target: EvalOracleTarget): U
 }
 
 const MUTATIONS: EvalMutationDefinition[] = [
+  ...[
+    ['wrong-adjustment', (data: UnknownRecord) => { data.adjustment = 'none'; }],
+    ['wrong-data-symbol', (data: UnknownRecord) => { data.symbol = '000001'; }],
+    ['duplicate-bars', (data: UnknownRecord) => { const bars = data.bars as UnknownRecord[]; bars[1].date = bars[0].date; }],
+    ['reversed-bars', (data: UnknownRecord) => { (data.bars as unknown[]).reverse(); }],
+    ['bar-after-observed-asof', (data: UnknownRecord) => { data.as_of = '2026-07-14'; }],
+    ['non-finite-price', (data: UnknownRecord) => { (data.bars as UnknownRecord[])[0].close = 'NaN'; }],
+    ['invalid-ohlc', (data: UnknownRecord) => { (data.bars as UnknownRecord[])[0].close = '200'; }],
+    ['source-quality-error', (data: UnknownRecord) => { data.data_quality = { status: 'error' }; }],
+  ].map(([id, mutate]) => ({
+    id: id as string, name: `行情一致性：${id}`, category: 'grounding' as const, expectedDetector: 'data' as const,
+    mutate: (fixture: EvalMutationFixture) => (mutate as (data: UnknownRecord) => void)(objectTarget(fixture, 'finalData').kline as UnknownRecord),
+  })),
+  {
+    id: 'empty-source-object', name: '空来源对象冒充证据', category: 'grounding', expectedDetector: 'evidence',
+    mutate: fixture => { objectTarget(fixture, 'sources').sources = [{}]; },
+  },
+  {
+    id: 'critical-quality-hidden', name: '总体成功掩盖关键数据错误', category: 'grounding', expectedDetector: 'evidence',
+    mutate: fixture => { objectTarget(fixture, 'quality').datasets = [{ status: 'error', critical: true }]; },
+  },
+  {
+    id: 'validation-failure-hidden', name: '总体成功掩盖底层验证失败', category: 'reliability', expectedDetector: 'evaluator',
+    mutate: fixture => { (fixture.result.validation as UnknownRecord).checks = [{ id: 'next_build', status: 'failed' }]; },
+  },
+  {
+    id: 'negative-runtime-errors', name: '非法错误计数伪装为无错误', category: 'reliability', expectedDetector: 'evaluator',
+    mutate: fixture => { (fixture.result.eventAudit as UnknownRecord).errorCount = -1; },
+  },
+  {
+    id: 'fabricated-review-citation', name: '语义高分引用不存在的数据', category: 'grounding', expectedDetector: 'semantic',
+    mutate: fixture => { (fixture.semantic.dimensions as UnknownRecord[])[2].evidence = ['sources#/invented']; },
+  },
+  {
+    id: 'duplicate-review-dimension', name: '重复评分维度掩盖缺项', category: 'grounding', expectedDetector: 'semantic',
+    mutate: fixture => { (fixture.semantic.dimensions as UnknownRecord[])[0].id = 'grounding'; },
+  },
+  {
+    id: 'tampered-evaluator-score', name: '报告总分与评分维度不一致', category: 'reliability', expectedDetector: 'report',
+    mutate: fixture => { fixture.tamperScore = true; },
+  },
   {
     id: 'wrong-symbol',
     name: '标的身份被替换',
@@ -218,6 +273,19 @@ function evaluateFixture(fixture: EvalMutationFixture) {
     mode: fixture.mode,
     result: fixture.result,
   });
+  if (fixture.tamperScore) evaluation.score = evaluation.score === 0 ? 100 : 0;
+  const data = assessQuantDataResponse({
+    path: '/api/v1/quotes/history/600519', query: { adjustment: 'qfq', period: 'daily' },
+    payload: objectTarget(fixture, 'finalData').kline,
+  });
+  const evidence = assessQuantEvidence(fixture.targets.sources, fixture.targets.quality);
+  const semantic = parseAgentSemanticReview(JSON.stringify(fixture.semantic), null,
+    { provider: 'openai', model: 'mutation-fixture' }, Object.fromEntries(
+      ['finalData', 'sources', 'quality', 'runPlan'].map(id => [id, {
+        path: `${id}.json`, sha256: `sha256:${'a'.repeat(64)}`, bytes: 100, truncated: false,
+        value: { symbol: '600519' },
+      }]),
+    ) as ReviewEvidence);
   const snapshot = attestEvalDataSnapshot(fixture.snapshot, fixture.snapshotPayload, {
     expectedCaseId: fixture.snapshot.caseId,
     now: new Date('2026-07-16T00:00:00.000Z'),
@@ -227,7 +295,11 @@ function evaluateFixture(fixture: EvalMutationFixture) {
   if (!evaluation.passed) detectedBy.push('evaluator');
   if (!snapshot.passed) detectedBy.push('snapshot');
   if (trace.primaryFailureStage) detectedBy.push('trace');
-  return { oracle, evaluation, snapshot, trace, detectedBy };
+  if (data.status === 'failed') detectedBy.push('data');
+  if (!evidence.passed) detectedBy.push('evidence');
+  if (semantic.evidenceValidation?.status !== 'verified') detectedBy.push('semantic');
+  if (!isCurrentEvaluation(evaluation)) detectedBy.push('report');
+  return { oracle, evaluation, snapshot, trace, data, evidence, semantic, detectedBy };
 }
 
 export function runEvalMutationSuite(
@@ -235,7 +307,7 @@ export function runEvalMutationSuite(
   now = new Date(),
 ): EvalMutationReport {
   const baseline = evaluateFixture(mutationFixture(evaluatorId));
-  const baselinePassed = baseline.oracle.passed && baseline.evaluation.passed && baseline.snapshot.passed;
+  const baselinePassed = baseline.detectedBy.length === 0;
   const results = MUTATIONS.map((mutation): EvalMutationResult => {
     const fixture = clone(mutationFixture(evaluatorId));
     mutation.mutate(fixture);
@@ -248,7 +320,11 @@ export function runEvalMutationSuite(
       expectedDetector: mutation.expectedDetector,
       killed,
       detectedBy: evaluated.detectedBy,
-      problems: [...evaluated.oracle.failures, ...evaluated.snapshot.problems],
+      problems: [...evaluated.oracle.failures, ...evaluated.snapshot.problems,
+        ...evaluated.data.issues.filter(issue => issue.severity === 'error').map(issue => `${issue.code}@${issue.path}`),
+        ...evaluated.evidence.failures, ...(evaluated.semantic.evidenceValidation?.issues ?? []),
+        ...evaluated.evaluation.checks.filter(check => check.status === 'failed').map(check => check.summary),
+      ],
       primaryFailureStage: evaluated.trace.primaryFailureStage,
     };
   });

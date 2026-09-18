@@ -1,3 +1,5 @@
+import { assessDeterministicGate } from './deterministic-gate';
+
 export type EvalTraceStageId = 'intent' | 'planning' | 'data' | 'artifact' | 'visual' | 'runtime' | 'acceptance';
 export type EvalTraceStageStatus = 'passed' | 'warning' | 'failed' | 'unknown';
 
@@ -47,6 +49,7 @@ export function buildEvalTraceDiagnostics(
   mode: 'contract' | 'e2e',
 ): EvalTraceDiagnostics {
   const result = record(value);
+  const gate = assessDeterministicGate({ ...result, passed: true, failures: [] });
   const checks = checksFromResult(result);
   const failures = Array.isArray(result.failures) ? result.failures.map(String) : [];
   const artifacts = record(result.artifacts);
@@ -71,7 +74,7 @@ export function buildEvalTraceDiagnostics(
       ? 'passed'
       : 'unknown';
   const dataChecks = stageFromChecks(checks, ['final_data_file', 'evidence_files', 'market_proxy']);
-  const dataStatus: EvalTraceStageStatus = oracle.passed === false
+  const dataStatus: EvalTraceStageStatus = gate.failures.includes('oracle_failed')
     ? 'failed'
     : oracle.warning === true
       ? 'warning'
@@ -86,7 +89,8 @@ export function buildEvalTraceDiagnostics(
   const unexpectedToolFailures = Number(tools.unexpectedFailureCount ?? 0);
   const eventErrors = Number(eventAudit.errorCount ?? 0);
   const eventWarnings = Number(eventAudit.warningCount ?? 0);
-  const runtimeStatus: EvalTraceStageStatus = unexpectedToolFailures > 0 || eventErrors > 0
+  const invalidCounters = gate.failures.some(failure => failure.endsWith('_count_invalid'));
+  const runtimeStatus: EvalTraceStageStatus = invalidCounters || unexpectedToolFailures > 0 || eventErrors > 0
     ? 'failed'
     : eventWarnings > 0
       ? 'warning'

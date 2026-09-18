@@ -219,6 +219,13 @@ function execution(id: string) {
 }
 
 describe('eval report attestation', () => {
+  it('rejects a success flag that contradicts observed validation failures', () => {
+    const report = baseReport('contract');
+    Object.assign(report.results[0], { validation: { checks: [{ id: 'next_build', status: 'failed' }] } });
+    const attestation = attestEvalReport(report, options);
+    expect(attestation.passed).toBe(false);
+    expect(attestation.problems.some(problem => problem.includes('底层检查冲突'))).toBe(true);
+  });
   it('accepts a complete current-build deterministic contract report', () => {
     expect(attestEvalReport(baseReport('contract'), options)).toMatchObject({
       passed: true,

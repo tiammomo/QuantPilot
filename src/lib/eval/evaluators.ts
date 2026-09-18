@@ -5,6 +5,7 @@ import {
   type EvalScoreDimension,
   type EvalScoreDimensionId,
 } from './scoring';
+import { assessDeterministicGate } from './deterministic-gate';
 
 export type EvalEvaluatorId = 'rule-strict' | 'agent-review' | 'visual-contract';
 
@@ -38,6 +39,12 @@ export interface EvalSemanticReview {
   score: number;
   summary: string;
   dimensions: EvalSemanticReviewDimension[];
+  evidenceValidation?: {
+    status: 'verified' | 'failed';
+    issues: string[];
+    artifactHashes: Record<string, string>;
+    truncatedArtifacts: string[];
+  };
   usage: {
     inputTokens: number;
     outputTokens: number;
@@ -96,8 +103,8 @@ const DEFAULT_WEIGHTS: Record<EvalScoreDimensionId, number> = {
 export const EVAL_EVALUATOR_DEFINITIONS: EvalEvaluatorDefinition[] = [
   {
     id: 'rule-strict',
-    version: '2.1.0',
-    rubricVersion: 'quantpilot-rule-rubric-v3',
+    version: '2.2.0',
+    rubricVersion: 'quantpilot-rule-rubric-v4',
     name: '强规则评测器',
     description: '确定性检查产物、数据证据、运行链路、事实 oracle 与安全约束。',
     supportedModes: ['contract', 'e2e'],
@@ -106,8 +113,8 @@ export const EVAL_EVALUATOR_DEFINITIONS: EvalEvaluatorDefinition[] = [
   },
   {
     id: 'agent-review',
-    version: '2.1.0',
-    rubricVersion: 'quantpilot-agent-review-v2',
+    version: '2.2.0',
+    rubricVersion: 'quantpilot-agent-review-v3',
     name: 'Agent 评测器',
     description: '在确定性硬门之后执行版本化语义审阅，评价意图、业务完整性、依据、风险与行动建议。',
     supportedModes: ['e2e'],
@@ -124,8 +131,8 @@ export const EVAL_EVALUATOR_DEFINITIONS: EvalEvaluatorDefinition[] = [
   },
   {
     id: 'visual-contract',
-    version: '2.1.0',
-    rubricVersion: 'quantpilot-visual-rubric-v3',
+    version: '2.2.0',
+    rubricVersion: 'quantpilot-visual-rubric-v4',
     name: '视觉契约评测器',
     description: '强化多视口、可访问性、资源加载、布局和金融图表表达检查。',
     supportedModes: ['contract', 'e2e'],
@@ -201,11 +208,8 @@ export function applyEvalEvaluator(input: {
   const usage = record(agentExecution.usage);
   const tools = record(agentExecution.tools);
   const repairAttempts = number(result.repairAttempts);
-  const hardGatePassed = result.passed === true &&
-    oracle.passed !== false &&
-    (result.visualCheck == null || visualCheck.passed === true) &&
-    number(eventAudit.errorCount) === 0 &&
-    number(tools.unexpectedFailureCount) === 0;
+  const gate = assessDeterministicGate(result);
+  const hardGatePassed = gate.passed;
 
   const contractScore = statusScore(checkStatuses(result, [
     'artifact_policy',
@@ -264,8 +268,9 @@ export function applyEvalEvaluator(input: {
       checks.push({
         id: 'semantic_review',
         name: '语义审阅',
-        status: semanticReview.verdict,
-        summary: semanticReview.summary,
+        status: semanticReview.evidenceValidation?.status === 'verified' ? semanticReview.verdict : 'failed',
+        summary: semanticReview.evidenceValidation?.status === 'verified'
+          ? semanticReview.summary : '语义审阅缺少可验证的证据引用。',
       });
       checks.push({
         id: 'reviewer_independence',
@@ -279,8 +284,8 @@ export function applyEvalEvaluator(input: {
       taskScore = Math.round(((byId.get('intentCoverage') ?? 0) +
         (byId.get('businessCompleteness') ?? 0) +
         (byId.get('actionability') ?? 0)) / 3);
-      groundingScore = byId.get('grounding') ?? 0;
-      safetyScore = Math.round((safetyScore + (byId.get('riskCommunication') ?? 0)) / 2);
+      groundingScore = Math.min(groundingScore, byId.get('grounding') ?? 0);
+      safetyScore = Math.min(safetyScore, byId.get('riskCommunication') ?? 0);
     }
   } else if (definition.id === 'visual-contract') {
     checks.push({
@@ -296,7 +301,7 @@ export function applyEvalEvaluator(input: {
       id: 'strict_contract',
       name: '强规则复核',
       status: hardGatePassed ? 'passed' : 'failed',
-      summary: hardGatePassed ? '确定性硬门全部通过。' : `确定性硬门发现 ${failures.length} 项失败。`,
+      summary: hardGatePassed ? '确定性硬门全部通过。' : `确定性硬门失败：${gate.failures.join('、')}。`,
     });
   }
 
@@ -327,15 +332,26 @@ export function applyEvalEvaluator(input: {
 
 export function isCurrentEvaluation(value: unknown): boolean {
   const evaluation = record(value);
-  if (!EVAL_EVALUATOR_DEFINITIONS.some((item) =>
-    item.id === evaluation.evaluatorId && item.version === evaluation.evaluatorVersion)) {
-    return false;
-  }
-  if (!EVAL_SCORE_DIMENSION_IDS.every((id) =>
-    Array.isArray(evaluation.dimensions) && evaluation.dimensions.some((item) => record(item).id === id))) {
-    return false;
-  }
+  const definition = EVAL_EVALUATOR_DEFINITIONS.find(item =>
+    item.id === evaluation.evaluatorId && item.version === evaluation.evaluatorVersion);
+  if (!definition || evaluation.rubricVersion !== definition.rubricVersion) return false;
+  if (!Array.isArray(evaluation.dimensions) || evaluation.dimensions.length !== EVAL_SCORE_DIMENSION_IDS.length) return false;
+  const dimensions = evaluation.dimensions.map(record);
+  if (new Set(dimensions.map(item => item.id)).size !== EVAL_SCORE_DIMENSION_IDS.length) return false;
+  if (!EVAL_SCORE_DIMENSION_IDS.every(id => {
+    const dimension = dimensions.find(item => item.id === id);
+    return dimension && typeof dimension.score === 'number' && Number.isInteger(dimension.score)
+      && dimension.score >= 0 && dimension.score <= 100
+      && dimension.weight === definition.dimensionWeights[id]
+      && dimension.status === statusFromScore(dimension.score);
+  })) return false;
+  if (!Array.isArray(evaluation.checks) || !evaluation.checks.length) return false;
+  const checks = evaluation.checks.map(record);
+  if (checks.some(check => !['passed', 'warning', 'failed'].includes(String(check.status)))) return false;
+  const expectedPassed = evaluation.hardGatePassed === true && checks.every(check => check.status !== 'failed');
   return resultScore({ evaluation }) === evaluation.score &&
+    weightedDimensionScore(evaluation.dimensions as EvalScoreDimension[]) === evaluation.score &&
+    evaluation.passed === expectedPassed &&
     typeof evaluation.hardGatePassed === 'boolean' &&
     typeof evaluation.passed === 'boolean';
 }

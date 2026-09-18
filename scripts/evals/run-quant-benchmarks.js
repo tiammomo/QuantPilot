@@ -78,6 +78,7 @@ const { buildEvalQualitySummary } = jiti('../../src/lib/eval/scoring.ts');
 const { buildEvalTraceDiagnostics } = jiti('../../src/lib/eval/trace-diagnostics.ts');
 const { evalSnapshotPayloadSha256 } = jiti('../../src/lib/eval/snapshot-contract.ts');
 const { inspectBacktestArtifact } = jiti('../../src/lib/eval/backtest-artifact.ts');
+const { assessDeterministicGate } = jiti('../../src/lib/eval/deterministic-gate.ts');
 const { normalizedPromptHash } = jiti('../../src/lib/eval/dataset-contract.ts');
 
 const CUSTOM_LANE_BUDGETS = createPiAgentPhaseGraph({
@@ -2450,7 +2451,7 @@ async function applySelectedEvaluator(testCase, result, options) {
   result.traceDiagnostics = buildEvalTraceDiagnostics(result, evaluationMode);
   let semanticReview = null;
   let reviewError = null;
-  if (evaluator.requiresSemanticReview && result.passed === true && result.projectPath) {
+  if (evaluator.requiresSemanticReview && assessDeterministicGate(result).passed && result.projectPath) {
     try {
       semanticReview = await reviewAgentWorkspace({
         projectPath: result.projectPath,
