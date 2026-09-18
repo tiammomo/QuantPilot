@@ -1,4 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { assessSkillCompatibility } from './compatibility';
+import { isCanonicalSkillId, readSkillsInstallReceipt } from './workspace-integrity';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
@@ -118,6 +120,7 @@ function parseRegistry(value: unknown): PiAgentSkillsRegistry {
       throw new Error(`PI Agent Skills registry coreSkills[${index}] 无效。`);
     }
     assertString(raw.id, `coreSkills[${index}].id`);
+    if (!isCanonicalSkillId(raw.id)) throw new Error('PI Agent Skill ID 不合法。');
     assertString(raw.name, `coreSkills[${index}].name`);
     assertString(raw.version, `coreSkills[${index}].version`);
     assertString(raw.boundary, `coreSkills[${index}].boundary`);
@@ -801,10 +804,7 @@ async function installSkills(params: {
   await fs.mkdir(skillsDirectory, { recursive: true });
 
   const requested = new Set(params.skills.map((skill) => skill.registry.id));
-  const previousReceipt = await fs.readFile(
-    path.join(runtimeDirectory, 'installed-skills.json'),
-    'utf8',
-  ).then((content) => JSON.parse(content) as unknown).catch(() => null);
+  const previousReceipt = await readSkillsInstallReceipt(runtimeDirectory);
   const previouslyManaged = isRecord(previousReceipt) && previousReceipt.runtime === 'PI Agent' &&
     isRecord(previousReceipt.skills)
     ? Object.keys(previousReceipt.skills)
@@ -887,11 +887,11 @@ async function installSkills(params: {
       packageSha256: skill.lock.packageSha256 ?? null,
     }])),
   };
-  await fs.writeFile(
-    path.join(runtimeDirectory, 'installed-skills.json'),
-    `${JSON.stringify(receipt, null, 2)}\n`,
-    'utf8',
-  );
+  const receiptPath = path.join(runtimeDirectory, `.installed-skills-${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+    await fs.rename(receiptPath, path.join(runtimeDirectory, 'installed-skills.json'));
+  } finally { await fs.rm(receiptPath, { force: true }); }
   return receipt;
 }
 
@@ -1027,8 +1027,7 @@ export async function compilePiAgentSkills(
       throw new Error(`PI Agent Skill ${skillId} 不允许在 ${selection.phase} 阶段加载。`);
     }
     if (options.availableToolNames) {
-      const availableTools = new Set(options.availableToolNames);
-      const missingTools = capsule.requiresTools.filter((toolName) => !availableTools.has(toolName));
+      const { missingTools, missingAlternative } = assessSkillCompatibility(capsule, selection.phase, options.availableToolNames);
       if (missingTools.length > 0) {
         throw new Error(
           `PI Agent Skill ${skillId} 与当前工具面不兼容，缺少：${missingTools.join('、')}。`,
@@ -1036,8 +1035,7 @@ export async function compilePiAgentSkills(
       }
       const alternatives = capsule.requiresOneOfToolSets ?? [];
       if (
-        alternatives.length > 0 &&
-        !alternatives.some((toolSet) => toolSet.every((toolName) => availableTools.has(toolName)))
+        missingAlternative
       ) {
         throw new Error(
           `PI Agent Skill ${skillId} 与当前工具面不兼容，至少需要一组完整替代工具：${alternatives

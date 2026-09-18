@@ -903,6 +903,18 @@
         "maxLines": 300,
         "targetLines": 300,
         "nextAction": "保持取数、证据读取、上下文投影和评测验收的独立职责；新增规则需有可拦截的反例。"
+      },
+      {
+        "path": "src/app/skills/SkillsManagementClient.tsx",
+        "maxLines": 1200,
+        "targetLines": 800,
+        "nextAction": "市场已独立；继续拆分 Studio 状态与动作，不恢复重复编辑浮层。"
+      },
+      {
+        "path": "src/components/quant/skills-market.tsx",
+        "maxLines": 500,
+        "targetLines": 350,
+        "nextAction": "仅负责内置发现和只读核验；新增写入或详情复杂度时提取独立组件。"
       }
     ]
   }

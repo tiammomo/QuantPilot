@@ -17,12 +17,9 @@ import {
   RefreshCcw,
   Search,
   TriangleAlert,
-  Upload,
   ArrowLeft,
   ArrowRight,
-  Calendar,
   XCircle,
-  X,
   Sparkles,
   Package,
   GitBranch,
@@ -33,16 +30,10 @@ import {
   Workflow,
   Target,
   ImageIcon,
-  Pencil,
   LayoutGrid,
   Wrench,
-  ArrowUpRight,
   Boxes,
-  CircleGauge,
-  Layers3,
-  Rocket,
   ScanSearch,
-  ShieldCheck,
   ListTree,
   Maximize2,
   Minimize2,
@@ -86,6 +77,8 @@ import {
 } from "@/lib/quant/skills-management-api";
 import { cn } from "@/lib/utils";
 import type { SkillHealthStatus } from "@/lib/quant/skills-dashboard";
+
+import { SkillsMarket } from "@/components/quant/skills-market";
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 
@@ -178,28 +171,8 @@ const SKILL_COLORS: Record<string, { bg: string; ring: string; text: string }> =
   "dashboard-visualization": { bg: "bg-lime-50", ring: "ring-lime-100", text: "text-lime-600" },
 };
 
-type CatalogSkillItem = SkillsPayload["skills"][number];
-type SkillDialogTab = "features" | "delivery";
-
-const FEATURED_SKILL_IDS = [
-  "dashboard-visualization",
-  "quant-market-data",
-  "platform-ui-product-design",
-];
-
 function clampSkillListWidth(width: number) {
   return Math.min(SKILL_LIST_MAX_WIDTH, Math.max(SKILL_LIST_MIN_WIDTH, width));
-}
-
-function formatSkillDate(value: string | null | undefined) {
-  if (!value) return "更新时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-}
-
-function joinSkillItems(values: string[], fallback = "未配置") {
-  return values.filter(Boolean).join("、") || fallback;
 }
 
 function SkillScopeBadge({ scope }: { scope: SkillScope }) {
@@ -218,81 +191,10 @@ function SkillScopeBadge({ scope }: { scope: SkillScope }) {
   );
 }
 
-function buildFeatureRows(skill: CatalogSkillItem) {
-  return [
-    { category: "能力域", capability: SCOPE_LABELS[skill.scope] },
-    { category: "任务定位", capability: skill.boundary },
-    { category: "输入范围", capability: joinSkillItems(skill.inputs) },
-    { category: "输出产物", capability: joinSkillItems(skill.outputs) },
-    { category: "验证规则", capability: joinSkillItems(skill.validation) },
-    {
-      category: "扩展能力",
-      capability: joinSkillItems(
-        [
-          ...skill.endpoints.map((endpoint) => `接口 ${endpoint}`),
-          ...skill.scripts.map((script) => `脚本 ${script}`),
-        ],
-        "无额外接口或脚本"
-      ),
-    },
-  ];
-}
-
-function buildInstallRows(skill: CatalogSkillItem) {
-  return [
-    { category: "源码目录", capability: skill.source.path },
-    { category: "主说明文件", capability: skill.source.skillFilePath },
-    {
-      category: "技能包",
-      capability: skill.package.exists ? `${skill.package.path}，${formatBytes(skill.package.size)}` : "尚未生成技能包",
-    },
-    {
-      category: "文件组成",
-      capability: `${skill.source.fileCount} 个文件，${skill.source.referenceFileCount} 个引用文件，${skill.source.scriptFileCount} 个脚本，${skill.source.assetFileCount} 个资源`,
-    },
-    {
-      category: "版本来源",
-      capability: skill.changelog.currentRelease?.summary ?? "暂无当前版本发布说明",
-    },
-  ];
-}
-
-function getSkillReadiness(skill: CatalogSkillItem) {
-  const checks = [
-    skill.health.status === "ok",
-    skill.package.exists,
-    Boolean(skill.changelog.currentRelease),
-    skill.validation.length > 0,
-    skill.inputs.length > 0 && skill.outputs.length > 0,
-  ];
-  const completed = checks.filter(Boolean).length;
-  return {
-    completed,
-    total: checks.length,
-    percentage: Math.round((completed / checks.length) * 100),
-  };
-}
-
-function getSkillHighlights(skill: CatalogSkillItem) {
-  const candidates = [...skill.outputs, ...skill.inputs, ...skill.scripts.map((script) => `脚本 ${script}`)];
-  return Array.from(new Set(candidates.filter(Boolean))).slice(0, 3);
-}
-
 export default function SkillsManagementClient({ initialData }: { initialData: SkillsPayload }) {
   // ── State ─────────────────────────────────────────────────
   const [payload, setPayload] = useState<SkillsPayload>(initialData);
   const [viewMode, setViewMode] = useState<"catalog" | "editor">("catalog");
-  const [catalogSelectedId, setCatalogSelectedId] = useState<string | null>(null);
-  const [catalogDialogTab, setCatalogDialogTab] = useState<SkillDialogTab>("features");
-  const [editDialogSkillId, setEditDialogSkillId] = useState<string | null>(null);
-  const [editDialogSource, setEditDialogSource] = useState<SourceState | null>(null);
-  const [editDialogDraft, setEditDialogDraft] = useState("");
-  const [editDialogFilePath, setEditDialogFilePath] = useState("SKILL.md");
-  const [editDialogFileQuery, setEditDialogFileQuery] = useState("");
-  const [editDialogExpandedPaths, setEditDialogExpandedPaths] = useState<Set<string>>(new Set());
-  const [editDialogLoading, setEditDialogLoading] = useState(false);
-  const [editDialogSaving, setEditDialogSaving] = useState(false);
-  const [editDialogDirty, setEditDialogDirty] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(initialData.skills[0]?.id ?? null);
   const [isVersionManagerOpen, setIsVersionManagerOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -327,7 +229,6 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   const [isEditorWrapping, setIsEditorWrapping] = useState(true);
   const [isResizingSkillList, setIsResizingSkillList] = useState(false);
   const activeSourceRequest = useRef(0);
-  const activeEditDialogRequest = useRef(0);
   const editorTextareaRef = useRef<HTMLTextAreaElement>(null);
   const skillListResize = useRef({ startX: 0, startWidth: SKILL_LIST_DEFAULT_WIDTH });
 
@@ -343,18 +244,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     });
   }, [payload.skills, query, filter, scopeFilter]);
 
-  const featuredSkills = useMemo(() => {
-    const preferred = FEATURED_SKILL_IDS
-      .map((id) => payload.skills.find((skill) => skill.id === id))
-      .filter((skill): skill is CatalogSkillItem => Boolean(skill));
-    const fallback = payload.skills.filter((skill) => !preferred.some((item) => item.id === skill.id));
-    return [...preferred, ...fallback].slice(0, 3);
-  }, [payload.skills]);
-  const healthyRate = payload.totals.total > 0
-    ? Math.round((payload.totals.ok / payload.totals.total) * 100)
-    : 0;
-  const packagedCount = payload.skills.filter((skill) => skill.package.exists).length;
-  const validationRuleCount = payload.skills.reduce((total, skill) => total + skill.validation.length, 0);
+
 
   const selectedSkill =
     filteredSkills.find((s) => s.id === selectedId) ??
@@ -367,9 +257,9 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
   const sourceDirty = Boolean(source && source.skillId === selectedSkillId && sourceDraft !== source.content);
   const confirmUnsavedNavigation = useCallback(() => {
-    if (!sourceDirty && !editDialogDirty) return true;
+    if (!sourceDirty) return true;
     return window.confirm("当前文件有未保存修改，确定离开 Skills 吗？");
-  }, [editDialogDirty, sourceDirty]);
+  }, [sourceDirty]);
   const writeSkillsUrl = useCallback((nextMode: "catalog" | "editor", skillId: string | null, historyMode: "push" | "replace" = "push") => {
     const url = new URL(window.location.href);
     if (nextMode === "editor") {
@@ -606,14 +496,14 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
   // ── Effects ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!sourceDirty && !editDialogDirty) return;
+    if (!sourceDirty) return;
     const protectUnsavedChanges = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", protectUnsavedChanges);
     return () => window.removeEventListener("beforeunload", protectUnsavedChanges);
-  }, [editDialogDirty, sourceDirty]);
+  }, [sourceDirty]);
 
   useEffect(() => {
     const applyLocation = () => {
@@ -640,14 +530,15 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
   useEffect(() => {
     setSourceActionMenu(null);
-    if (!selectedSkillId) return;
     activeSourceRequest.current += 1;
+    if (viewMode !== "editor" || !selectedSkillId) { setSource(null); setSourceDraft(""); setIsLoadingSource(false); return; }
     setSource(null); setSourceDraft(""); setSelectedFilePath("SKILL.md"); setSourceFileQuery("");
     setExpandedSourcePaths(new Set(dirPathsKey ? dirPathsKey.split("\n") : []));
     setIsLoadingSource(false);
     setReleaseVersion(selectedSkillVersion); setReleaseSummary(""); setReleaseChanges(""); setUploadFile(null); setDiffData(null); setIsDraggingUpload(false);
     void loadSource(selectedSkillId, "SKILL.md");
-  }, [loadSource, dirPathsKey, selectedSkillId, selectedSkillVersion]);
+    return () => { activeSourceRequest.current += 1; };
+  }, [loadSource, dirPathsKey, selectedSkillId, selectedSkillVersion, viewMode]);
 
   useEffect(() => {
     if (!sourceActionMenu) return;
@@ -655,23 +546,12 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     const t = window.setTimeout(() => { canClose = true; }, 250);
     const close = () => { if (canClose) setSourceActionMenu(null); };
     window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", () => setSourceActionMenu(null));
-    window.addEventListener("keydown", () => setSourceActionMenu(null));
-    return () => { clearTimeout(t); window.removeEventListener("scroll", close, true); };
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", close);
+    return () => { clearTimeout(t); window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); window.removeEventListener("keydown", close); };
   }, [sourceActionMenu]);
 
   useEffect(() => { if (isVersionManagerOpen) setSourceActionMenu(null); }, [isVersionManagerOpen]);
-
-  useEffect(() => {
-    if (!catalogSelectedId) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setCatalogSelectedId(null);
-      }
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [catalogSelectedId]);
 
   useEffect(() => {
     if (isSkillListCollapsed) setIsResizingSkillList(false);
@@ -734,122 +614,6 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     textarea.scrollTop = Math.max(0, (lineIndex - 2) * lineHeight);
   }, []);
 
-  // ── Edit Dialog ──────────────────────────────────────────────
-  const editDialogSkill = editDialogSkillId
-    ? payload.skills.find((s) => s.id === editDialogSkillId) ?? null
-    : null;
-  const editDialogSourceTree = useMemo(
-    () => (editDialogSkill ? buildSourceTree(editDialogSkill.source.files, editDialogSkill.source.directories) : []),
-    [editDialogSkill]
-  );
-  const visibleEditDialogSourceTree = useMemo(
-    () => filterSourceTree(editDialogSourceTree, editDialogFileQuery),
-    [editDialogSourceTree, editDialogFileQuery]
-  );
-
-  useEffect(() => {
-    if (!editDialogSkill) return;
-    setEditDialogExpandedPaths((prev) => {
-      const next = new Set(prev);
-      editDialogSkill.source.directories.forEach((directory) => {
-        if (editDialogFileQuery.trim() || editDialogFilePath.startsWith(`${directory.path}/`)) {
-          next.add(directory.path);
-        }
-      });
-      return next;
-    });
-  }, [editDialogSkill, editDialogFilePath, editDialogFileQuery]);
-
-  const loadEditDialogFile = useCallback(async (skillId: string, filePath = "SKILL.md") => {
-    const reqId = activeEditDialogRequest.current + 1;
-    activeEditDialogRequest.current = reqId;
-    setEditDialogLoading(true);
-    try {
-      const result = await readSkillFile(skillId, filePath);
-      if (activeEditDialogRequest.current !== reqId) return;
-      setEditDialogSource(result);
-      setEditDialogDraft(result.content);
-      setEditDialogFilePath(result.filePath);
-      setEditDialogDirty(false);
-    } catch (error) {
-      if (activeEditDialogRequest.current !== reqId) return;
-      setEditDialogSource(null);
-      setEditDialogDraft("// 加载失败");
-      showToast({ type: "error", message: error instanceof Error ? error.message : String(error) });
-    } finally {
-      if (activeEditDialogRequest.current === reqId) setEditDialogLoading(false);
-    }
-  }, [showToast]);
-
-  const openEditDialog = useCallback((skillId: string) => {
-    const skill = payload.skills.find((s) => s.id === skillId);
-    activeEditDialogRequest.current += 1;
-    setEditDialogSkillId(skillId);
-    setEditDialogSource(null);
-    setEditDialogDraft("");
-    setEditDialogFilePath("SKILL.md");
-    setEditDialogFileQuery("");
-    setEditDialogExpandedPaths(new Set(skill?.source.directories.map((directory) => directory.path) ?? []));
-    setEditDialogDirty(false);
-    void loadEditDialogFile(skillId, "SKILL.md");
-  }, [loadEditDialogFile, payload.skills]);
-
-  const selectEditDialogFile = useCallback((file: SourceFile) => {
-    if (!editDialogSkillId) return;
-    if (!file.editable) {
-      showToast({ type: "error", message: "该文件不支持在线编辑，可通过完整编辑器或上传压缩包更新。" });
-      return;
-    }
-    if (editDialogDirty && !window.confirm("当前文件有未保存修改，确定切换文件吗？")) return;
-    void loadEditDialogFile(editDialogSkillId, file.path);
-  }, [editDialogDirty, editDialogSkillId, loadEditDialogFile, showToast]);
-
-  const toggleEditDialogDirectory = useCallback((filePath: string) => {
-    setEditDialogExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(filePath)) next.delete(filePath);
-      else next.add(filePath);
-      return next;
-    });
-  }, []);
-
-  const saveEditDialog = useCallback(async () => {
-    if (!editDialogSkillId || !editDialogSource) return;
-    setEditDialogSaving(true);
-    try {
-      const next = await saveSkillFile({ skillId: editDialogSkillId, filePath: editDialogSource.filePath, content: editDialogDraft });
-      setEditDialogSource(next);
-      setEditDialogDraft(next.content);
-      setEditDialogFilePath(next.filePath);
-      setEditDialogDirty(false);
-      showToast({ type: "success", message: `${next.filePath} 已保存。` });
-      await refreshDashboard();
-    } catch (error) {
-      showToast({ type: "error", message: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setEditDialogSaving(false);
-    }
-  }, [editDialogSkillId, editDialogSource, editDialogDraft, showToast]);
-
-  const closeEditDialog = useCallback(() => {
-    if (editDialogDirty && !window.confirm("有未保存的更改，确定关闭吗？")) return;
-    activeEditDialogRequest.current += 1;
-    setEditDialogSkillId(null);
-    setEditDialogSource(null);
-    setEditDialogDraft("");
-    setEditDialogFilePath("SKILL.md");
-    setEditDialogFileQuery("");
-    setEditDialogExpandedPaths(new Set());
-    setEditDialogLoading(false);
-    setEditDialogDirty(false);
-  }, [editDialogDirty]);
-
-  const catalogSkill = catalogSelectedId
-    ? payload.skills.find((s) => s.id === catalogSelectedId) ?? null
-    : null;
-
-  // ── Render ───────────────────────────────────────────────────
-  const pendingCount = payload.totals.warning + payload.totals.error;
   const isSkillRailHidden = isSkillListCollapsed || isStudioFocusMode;
 
   return (
@@ -920,16 +684,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
               <span className="font-bold tabular-nums">{payload.totals.total}</span>
               <span className="text-muted-foreground">核心技能</span>
             </div>
-            <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/15 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span className="font-bold tabular-nums">{healthyRate}% 健康</span>
-            </div>
-            {pendingCount > 0 && (
-              <div className="flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs text-amber-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                <span className="font-semibold tabular-nums">{pendingCount}</span>
-              </div>
-            )}
+
           </div>
 
           <div className="h-4 w-px bg-border hidden md:block" />
@@ -946,195 +701,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
 
       {/* Main content */}
       {viewMode === "catalog" ? (
-        <main className="platform-content flex-1 overflow-y-auto" role="main">
-          <div className="mx-auto w-full max-w-[1520px] space-y-8 px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
-            {/* Market overview */}
-            <section className="border-y border-border/70 bg-card/45">
-              <div className="grid gap-5 px-1 py-6 sm:px-2 sm:py-7 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-10">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
-                    <span className={cn("h-2 w-2 rounded-full", pendingCount > 0 ? "bg-amber-500" : "bg-emerald-500")} />
-                    <span>{pendingCount > 0 ? `${pendingCount} 项需要处理` : "能力注册表运行正常"}</span>
-                    <span aria-hidden="true" className="text-border">/</span>
-                    <span>最近扫描 {formatTime(payload.generatedAt)}</span>
-                  </div>
-                  <h1 className="mt-3 text-2xl font-bold tracking-[-0.025em] text-foreground sm:text-3xl">Skills Market</h1>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    浏览和维护 QuantPilot 的研究能力。每个 Skill 都提供适用边界、输入输出、验证规则与交付状态。
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
-                  <Button
-                    className="h-10 gap-2 rounded-lg px-4 font-semibold shadow-none"
-                    onClick={() => document.getElementById("skill-catalog")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  >
-                    浏览全部技能
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" className="h-10 gap-2 rounded-lg bg-background px-4 font-semibold shadow-none" onClick={() => changeViewMode("editor")}>
-                    <Wrench className="h-4 w-4" />
-                    打开 Studio
-                  </Button>
-                </div>
-              </div>
-
-              <dl className="grid grid-cols-2 border-t border-border/70 sm:grid-cols-4">
-                <div className="px-3 py-4 sm:px-5">
-                  <dt className="text-xs text-muted-foreground">可用技能</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{payload.totals.ok}<span className="ml-1 text-xs font-normal text-muted-foreground">/ {payload.totals.total}</span></dd>
-                </div>
-                <div className="border-l border-border/70 px-3 py-4 sm:px-5">
-                  <dt className="text-xs text-muted-foreground">稳定版本</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{payload.totals.stable}</dd>
-                </div>
-                <div className="border-t border-border/70 px-3 py-4 sm:border-l sm:border-t-0 sm:px-5">
-                  <dt className="text-xs text-muted-foreground">交付包就绪</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{packagedCount}</dd>
-                </div>
-                <div className="border-l border-t border-border/70 px-3 py-4 sm:border-t-0 sm:px-5">
-                  <dt className="text-xs text-muted-foreground">验证规则</dt>
-                  <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{validationRuleCount}</dd>
-                </div>
-              </dl>
-            </section>
-
-            {/* Curated skills */}
-            <section aria-labelledby="featured-skills-title">
-              <div className="mb-4 flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-black tracking-[0.18em] text-primary">CURATED CAPABILITIES</p>
-                  <h2 id="featured-skills-title" className="mt-1 text-xl font-black tracking-tight text-foreground sm:text-2xl">精选能力</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">覆盖当前最关键的数据、体验与看板交付链路。</p>
-                </div>
-                <span className="hidden items-center gap-1.5 text-xs font-semibold text-muted-foreground sm:inline-flex"><Sparkles className="h-3.5 w-3.5 text-primary" />基于项目核心链路精选</span>
-              </div>
-              <div className="grid gap-3 lg:grid-cols-3">
-                {featuredSkills.map((skill, index) => {
-                  const Icon = SKILL_ICONS[skill.id] ?? Package;
-                  const colors = SKILL_COLORS[skill.id] ?? { bg: "bg-slate-50", ring: "ring-slate-100", text: "text-slate-600" };
-                  const readiness = getSkillReadiness(skill);
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      onClick={() => { setCatalogDialogTab("features"); setCatalogSelectedId(skill.id); }}
-                      className="group relative overflow-hidden rounded-2xl border border-border/70 bg-card p-5 text-left shadow-[0_18px_45px_-38px_hsl(var(--shadow-color)/0.65)] transition-all hover:-translate-y-1 hover:border-primary/25 hover:shadow-[0_26px_55px_-34px_hsl(var(--primary)/0.35)]"
-                    >
-                      <div className="absolute right-4 top-3 text-[40px] font-black leading-none text-muted/60" aria-hidden="true">0{index + 1}</div>
-                      <div className="relative flex items-start gap-4">
-                        <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1", colors.bg, colors.ring)}><Icon className={cn("h-5 w-5", colors.text)} /></span>
-                        <div className="min-w-0 flex-1 pr-8">
-                          <div className="flex items-center gap-2"><SkillScopeBadge scope={skill.scope} /><span className="text-[10px] font-bold text-emerald-600">{readiness.percentage}% 就绪</span></div>
-                          <h3 className="mt-2 truncate text-base font-black text-foreground">{skill.name}</h3>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{skill.boundary}</p>
-                        </div>
-                      </div>
-                      <div className="relative mt-4 flex items-center gap-3 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-                        <span>v{skill.version}</span><span>{skill.validation.length} 条验证</span><span>{skill.source.fileCount} 个文件</span>
-                        <ArrowUpRight className="ml-auto h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Search and catalog */}
-            <section id="skill-catalog" className="scroll-mt-4" aria-labelledby="skill-catalog-title">
-              <div className="rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-[0_18px_50px_-42px_hsl(var(--shadow-color)/0.55)] backdrop-blur sm:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <p className="text-[10px] font-black tracking-[0.18em] text-primary">EXPLORE THE REGISTRY</p>
-                    <h2 id="skill-catalog-title" className="mt-1 text-xl font-black tracking-tight text-foreground sm:text-2xl">探索全部技能</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">按能力域与运行状态快速找到合适的工作流组件。</p>
-                  </div>
-                  <div className="relative w-full lg:w-[390px]">
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索名称、能力、输入输出或脚本…" aria-label="搜索 Skills Market" className="h-11 rounded-xl border-border/70 bg-background/80 pl-10 pr-4 text-sm shadow-sm" />
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3 border-t border-border/60 pt-4">
-                  <div className="platform-nav-scroll flex items-center gap-1 overflow-x-auto pb-1">
-                    <span className="mr-2 shrink-0 text-[10px] font-black tracking-[0.12em] text-muted-foreground">状态</span>
-                    {FILTER_CHIPS.map((chip) => {
-                      const isActive = filter === chip.id;
-                      return (
-                        <button key={chip.id} type="button" onClick={() => setFilter(chip.id)} className={cn("flex shrink-0 items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-all", isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-                          {chip.icon && <chip.icon className="h-3 w-3" />}{chip.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="platform-nav-scroll flex items-center gap-1 overflow-x-auto pb-1">
-                    <span className="mr-2 shrink-0 text-[10px] font-black tracking-[0.12em] text-muted-foreground">能力域</span>
-                    {SCOPE_CHIPS.map((chip) => {
-                      const isActive = scopeFilter === chip.id;
-                      return <button key={chip.id} type="button" onClick={() => setScopeFilter(chip.id)} className={cn("shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition-all", isActive ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>{chip.label}</button>;
-                    })}
-                    <span className="ml-auto shrink-0 pl-4 text-xs font-semibold tabular-nums text-muted-foreground">{filteredSkills.length} / {payload.totals.total}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {filteredSkills.map((skill) => {
-                  const Icon = SKILL_ICONS[skill.id] ?? Package;
-                  const colors = SKILL_COLORS[skill.id] ?? { bg: "bg-slate-50", ring: "ring-slate-100", text: "text-slate-600" };
-                  const config = statusConfig[skill.health.status];
-                  const StatusIcon = config.icon;
-                  const readiness = getSkillReadiness(skill);
-                  const highlights = getSkillHighlights(skill);
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      aria-label={`查看 ${skill.name} 技能详情`}
-                      onClick={() => { setCatalogDialogTab("features"); setCatalogSelectedId(skill.id); }}
-                      className={cn("group relative flex min-h-[270px] flex-col overflow-hidden rounded-[20px] border bg-card p-5 text-left shadow-[0_16px_46px_-40px_hsl(var(--shadow-color)/0.7)] transition-all hover:-translate-y-1 hover:border-primary/25 hover:shadow-[0_28px_60px_-38px_hsl(var(--primary)/0.35)]", catalogSkill?.id === skill.id ? "border-primary/35 ring-2 ring-primary/10" : "border-border/70")}
-                    >
-                      <span className="absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-gradient-to-r from-primary via-orange-400 to-transparent transition-transform duration-300 group-hover:scale-x-100" aria-hidden="true" />
-                      <div className="flex items-start justify-between gap-4">
-                        <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ring-1 transition-transform duration-300 group-hover:scale-105", colors.bg, colors.ring)}><Icon className={cn("h-5 w-5", colors.text)} /></span>
-                        <span className={cn("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold", config.bg, config.text, config.border)}><StatusIcon className="h-3 w-3" />{statusLabels[skill.health.status]}</span>
-                      </div>
-                      <div className="mt-4 flex min-w-0 items-center gap-2">
-                        <SkillScopeBadge scope={skill.scope} />
-                        <span className="truncate font-mono text-[10px] text-muted-foreground">{skill.id}</span>
-                      </div>
-                      <h3 className="mt-2 text-lg font-black tracking-tight text-foreground">{skill.name}</h3>
-                      <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted-foreground">{skill.boundary}</p>
-                      {highlights.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-1.5">
-                          {highlights.map((item) => <span key={item} className="max-w-full truncate rounded-md bg-muted/70 px-2 py-1 text-[10px] font-medium text-muted-foreground">{item}</span>)}
-                        </div>
-                      )}
-                      <div className="mt-auto flex items-end gap-4 border-t border-border/60 pt-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground"><span>交付就绪度</span><span className="tabular-nums text-foreground">{readiness.completed}/{readiness.total}</span></div>
-                          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-gradient-to-r from-primary to-orange-400" style={{ width: `${readiness.percentage}%` }} /></div>
-                        </div>
-                        <span className="flex items-center gap-1 text-xs font-bold text-foreground">查看能力<ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" /></span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {filteredSkills.length === 0 && (
-                <div className="mt-5 rounded-2xl border border-dashed border-border bg-card/60"><EmptyState title="没有匹配的技能" description="尝试其他关键词，或清除当前状态与能力域筛选。" className="mx-auto max-w-sm border-0 py-16" /></div>
-              )}
-            </section>
-
-            <section className="flex flex-col gap-4 rounded-[22px] border border-border/70 bg-foreground px-5 py-6 text-background sm:flex-row sm:items-center sm:justify-between sm:px-7">
-              <div className="flex items-start gap-4">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-background/10"><Rocket className="h-5 w-5" /></span>
-                <div><p className="text-[10px] font-black tracking-[0.16em] text-background/60">BUILD WITH CONFIDENCE</p><h2 className="mt-1 text-lg font-black">需要调整技能边界或发布新版本？</h2><p className="mt-1 text-sm text-background/65">进入 Studio 管理源码、验证差异、打包并发布。</p></div>
-              </div>
-              <Button variant="secondary" className="h-10 shrink-0 gap-2 rounded-xl font-bold" onClick={() => changeViewMode("editor")}><Layers3 className="h-4 w-4" />打开 Skills Studio</Button>
-            </section>
-          </div>
-        </main>
+        <SkillsMarket refreshKey={payload.generatedAt} onOpenStudio={enterEditor} />
       ) : (
       <div className="platform-content relative flex flex-1 overflow-hidden" role="main">
         {isSkillListCollapsed && !isStudioFocusMode && (
@@ -1575,247 +1142,6 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
       />
 
       {/* Skill Detail Dialog */}
-      {catalogSkill && (() => {
-        const rows = catalogDialogTab === "features"
-          ? buildFeatureRows(catalogSkill)
-          : buildInstallRows(catalogSkill);
-        const DetailIcon = SKILL_ICONS[catalogSkill.id] ?? Package;
-        const detailColors = SKILL_COLORS[catalogSkill.id] ?? { bg: "bg-slate-50", ring: "ring-slate-100", text: "text-slate-600" };
-        const readiness = getSkillReadiness(catalogSkill);
-        const updateDate =
-          catalogSkill.changelog.currentRelease?.date ??
-          catalogSkill.package.updatedAt ??
-          catalogSkill.source.files.find((file) => file.path === "SKILL.md")?.updatedAt;
-
-        return (
-          <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-[5px] sm:items-center sm:p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="skill-detail-title"
-            onClick={() => setCatalogSelectedId(null)}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
-              transition={{ duration: 0.16 }}
-              className="flex max-h-[94dvh] w-full max-w-[880px] flex-col overflow-hidden rounded-t-[28px] border border-border/80 bg-card shadow-[0_36px_100px_-30px_rgba(0,0,0,0.65)] sm:max-h-[90dvh] sm:rounded-[28px]"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="mx-auto mt-2.5 h-1 w-12 shrink-0 rounded-full bg-border sm:hidden" />
-              <div className="relative shrink-0 overflow-hidden border-b border-border/70 px-5 pb-5 pt-4 sm:px-7 sm:pb-6 sm:pt-6">
-                <div className="absolute inset-0 -z-10 bg-gradient-to-br from-primary/10 via-transparent to-blue-500/10" />
-                <div className="flex items-start gap-4">
-                  <span className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-[18px] ring-1 sm:h-16 sm:w-16", detailColors.bg, detailColors.ring)}>
-                    <DetailIcon className={cn("h-6 w-6 sm:h-7 sm:w-7", detailColors.text)} />
-                  </span>
-                  <div className="min-w-0 flex-1 pt-0.5">
-                    <div className="flex flex-wrap items-center gap-2"><SkillScopeBadge scope={catalogSkill.scope} /><span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600"><ShieldCheck className="h-3 w-3" />项目内置</span></div>
-                    <h2 id="skill-detail-title" className="mt-2 text-xl font-black leading-tight tracking-tight text-foreground sm:text-2xl">{catalogSkill.name}</h2>
-                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold text-muted-foreground sm:text-sm">
-                      <span className="font-mono">{catalogSkill.id}</span><span className="text-border">/</span><span>QuantPilot Core</span>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogSelectedId(null)}
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/70 bg-card/80 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
-                    aria-label="关闭技能详情"
-                    title="关闭"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <p className="mt-4 max-w-3xl text-sm leading-6 text-muted-foreground sm:text-[15px] sm:leading-7">{catalogSkill.boundary}</p>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-6">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-                  {[
-                    { label: "当前版本", value: `v${catalogSkill.version}`, icon: GitBranch },
-                    { label: "交付就绪度", value: `${readiness.percentage}%`, icon: CircleGauge },
-                    { label: "验证规则", value: `${catalogSkill.validation.length} 条`, icon: ShieldCheck },
-                    { label: "源码组成", value: `${catalogSkill.source.fileCount} 文件`, icon: FileText },
-                  ].map((item) => (
-                    <div key={item.label} className="rounded-xl border border-border/60 bg-muted/35 p-3 sm:p-3.5">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground"><item.icon className="h-3.5 w-3.5 text-primary" />{item.label}</div>
-                      <p className="mt-1.5 text-sm font-black tabular-nums text-foreground">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />更新于 {formatSkillDate(updateDate)}</span>
-                  <span className="inline-flex items-center gap-1.5"><Package className="h-3.5 w-3.5" />{catalogSkill.package.exists ? `交付包 ${formatBytes(catalogSkill.package.size)}` : "交付包待生成"}</span>
-                  <span className="inline-flex items-center gap-1.5"><History className="h-3.5 w-3.5" />{catalogSkill.changelog.releaseCount} 个历史版本</span>
-                </div>
-
-                <div className="mt-6 grid grid-cols-2 rounded-xl border border-border/70 bg-muted/50 p-1">
-                  {[
-                    { id: "features" as const, label: "能力说明", icon: Sparkles },
-                    { id: "delivery" as const, label: "交付信息", icon: Package },
-                  ].map((tab) => (
-                    <button key={tab.id} type="button" onClick={() => setCatalogDialogTab(tab.id)} className={cn("flex h-10 items-center justify-center gap-2 rounded-lg text-sm font-bold transition-all", catalogDialogTab === tab.id ? "bg-card text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:text-foreground")}>
-                      <tab.icon className={cn("h-4 w-4", catalogDialogTab === tab.id && "text-primary")} />{tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-4 overflow-hidden rounded-2xl border border-border/70">
-                  <div className="hidden grid-cols-[180px_minmax(0,1fr)] border-b border-border/70 bg-muted/45 px-5 py-3 text-xs font-black text-foreground sm:grid">
-                    <span>{catalogDialogTab === "features" ? "能力类别" : "交付项目"}</span><span>{catalogDialogTab === "features" ? "具体说明" : "当前状态"}</span>
-                  </div>
-                  <div className="divide-y divide-border/70">
-                    {rows.map((row) => (
-                      <div key={row.category} className="grid gap-1 px-4 py-3.5 sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-0 sm:px-5 sm:py-4">
-                        <div className="text-xs font-black leading-6 text-foreground sm:text-sm">{row.category}</div>
-                        <div className="break-words text-xs leading-6 text-muted-foreground sm:text-sm sm:text-foreground/80">{row.capability}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-border/70 bg-card/95 px-5 py-4 backdrop-blur sm:flex-row sm:justify-end sm:px-7">
-                <Button variant="outline" onClick={() => { if (enterEditor(catalogSkill.id)) setCatalogSelectedId(null); }} className="h-10 gap-2 rounded-xl px-4 text-sm"><Wrench className="h-4 w-4" />在 Studio 中打开</Button>
-                <Button onClick={() => { const skillId = catalogSkill.id; setCatalogSelectedId(null); void openEditDialog(skillId); }} className="h-10 gap-2 rounded-xl px-4 text-sm font-bold"><Pencil className="h-4 w-4" />快速编辑 SKILL.md</Button>
-              </div>
-            </motion.div>
-          </div>
-        );
-      })()}
-
-      {/* Skill Edit Dialog */}
-      {editDialogSkill && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="skill-edit-dialog-title"
-        >
-          <div className="flex h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-[24px] border border-border/70 bg-card shadow-2xl sm:h-[85vh] sm:rounded-2xl">
-            {/* Dialog Header */}
-            <div className="flex items-center justify-between gap-2 border-b px-3 py-3 sm:px-5 sm:py-3.5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                  <Pencil className="h-4 w-4 text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <h2 id="skill-edit-dialog-title" className="truncate text-sm font-bold text-foreground">编辑 {editDialogSkill.name}</h2>
-                  <p className="truncate text-[11px] text-muted-foreground">{editDialogSource?.filePath ?? editDialogFilePath} · v{editDialogSkill.version}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {editDialogDirty && (
-                  <span className="hidden items-center gap-1 text-xs text-amber-600 sm:flex">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    未保存
-                  </span>
-                )}
-                <Button
-                  size="sm"
-                  onClick={saveEditDialog}
-                  disabled={editDialogSaving || editDialogLoading || !editDialogDirty || !editDialogSource}
-                  className="gap-1.5 text-xs"
-                >
-                  {editDialogSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                  <span className="hidden sm:inline">保存</span>
-                </Button>
-                <button
-                  type="button"
-                  onClick={closeEditDialog}
-                  className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  aria-label="关闭"
-                >
-                  <XCircle className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Dialog Body */}
-            <div className="flex flex-1 overflow-hidden">
-              {/* File tree sidebar */}
-              <div className="hidden w-[280px] shrink-0 flex-col border-r bg-muted/20 md:flex">
-                <div className="flex items-center justify-between border-b px-3 py-2">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                    <FolderTree className="h-3.5 w-3.5" />
-                    文件树
-                  </div>
-                  <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {editDialogSkill.source.fileCount} 个文件
-                  </span>
-                </div>
-                <div className="border-b p-2">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={editDialogFileQuery}
-                      onChange={(event) => setEditDialogFileQuery(event.target.value)}
-                      aria-label="搜索快速编辑文件"
-                      placeholder="搜索文件..."
-                      className="h-7 border-border/60 bg-card pl-7 text-xs"
-                    />
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-1.5">
-                  <SourceTree
-                    nodes={visibleEditDialogSourceTree}
-                    selectedFilePath={editDialogFilePath}
-                    expandedPaths={editDialogExpandedPaths}
-                    deletingFolderPath={null}
-                    deletingFilePath={null}
-                    creatingFolderBasePath={null}
-                    openMenuPath={null}
-                    showActions={false}
-                    onToggleDirectory={toggleEditDialogDirectory}
-                    onSelectFile={selectEditDialogFile}
-                  />
-                </div>
-              </div>
-
-              {/* Editor */}
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
-                  <span className="min-w-0 truncate font-mono">{editDialogSource?.filePath ?? editDialogFilePath}</span>
-                  {editDialogSource && <span className="text-border">·</span>}
-                  {editDialogSource && <span>{formatBytes(editDialogSource.size)}</span>}
-                  {editDialogSource?.updatedAt && (
-                    <>
-                      <span className="text-border">·</span>
-                      <span>{formatTime(editDialogSource.updatedAt)}</span>
-                    </>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="ml-auto h-6 px-2 text-xs"
-                    onClick={() => editDialogSkillId && loadEditDialogFile(editDialogSkillId, editDialogFilePath)}
-                    disabled={editDialogLoading || !editDialogSkillId}
-                    aria-label="刷新当前文件"
-                    title="刷新当前文件"
-                  >
-                    {editDialogLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
-                  </Button>
-                </div>
-                {editDialogLoading ? (
-                  <div className="flex-1 p-4"><Skeleton className="h-full w-full rounded-lg" /></div>
-                ) : (
-                  <Textarea
-                    value={editDialogDraft}
-                    onChange={(e) => { setEditDialogDraft(e.target.value); setEditDialogDirty(true); }}
-                    aria-label={`编辑 ${editDialogSource?.filePath ?? editDialogFilePath}`}
-                    spellCheck={false}
-                    className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-xs leading-5 shadow-none focus-visible:ring-0"
-                    placeholder="选择一个可编辑文件..."
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Toast */}
       <AnimatePresence>
         {toast && (

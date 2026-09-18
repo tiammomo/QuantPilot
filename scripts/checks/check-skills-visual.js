@@ -41,9 +41,8 @@ async function inspectProfile(browser, profile) {
       return problems;
     }
     const market = page.locator('main:visible');
-    await market.getByText('QUANTPILOT SKILLS MARKET', { exact: true }).waitFor({ state: 'visible' });
-    await market.getByRole('heading', { name: '精选能力' }).waitFor({ state: 'visible' });
-    await market.getByRole('heading', { name: '探索全部技能' }).waitFor({ state: 'attached' });
+    await market.getByRole('heading', { name: '选择研究能力，核验交付版本' }).waitFor({ state: 'visible' });
+    await market.getByRole('button', { name: '查看 运行规划', exact: true }).waitFor({ state: 'visible' });
 
     const marketLayout = await page.evaluate(() => ({
       width: window.innerWidth,
@@ -65,8 +64,8 @@ async function inspectProfile(browser, profile) {
     await firstSkill.click();
     const dialog = page.getByRole('dialog', { name: /运行规划|数据注册|标的解析|图片提取|行情数据/ });
     await dialog.waitFor({ state: 'visible' });
-    await dialog.getByRole('button', { name: '交付信息' }).click();
-    await dialog.getByText('源码目录', { exact: true }).waitFor({ state: 'visible' });
+    await dialog.getByRole('heading', { name: '运行兼容性' }).waitFor({ state: 'visible' });
+    await dialog.getByRole('heading', { name: '版本记录' }).waitFor({ state: 'attached' });
     const dialogLayout = await page.evaluate(() => {
       const dialogNode = document.querySelector('[role="dialog"]');
       const rect = dialogNode?.getBoundingClientRect();

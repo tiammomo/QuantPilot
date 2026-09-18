@@ -1,56 +1,13 @@
-import fs from 'fs/promises';
-import path from 'path';
 import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-
-type JsonRecord = Record<string, unknown>;
-
-const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
-const REGISTRY_PATH = path.join(ROOT, '.pi', 'skills.registry.json');
-const PACKAGE_DIR = path.join(ROOT, '.pi', 'skill-packages');
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function assertSafeSkillId(skillId: string) {
-  if (!/^[a-z0-9][a-z0-9-]{1,80}$/.test(skillId)) {
-    throw new Error('skillId 不合法。');
-  }
-}
-
-function isInside(parent: string, candidate: string): boolean {
-  const relative = path.relative(parent, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-async function readJson(filePath: string): Promise<JsonRecord> {
-  const content = await fs.readFile(filePath, 'utf8');
-  const parsed = JSON.parse(content);
-  return isRecord(parsed) ? parsed : {};
-}
-
-async function resolvePackagePath(skillId: string) {
-  assertSafeSkillId(skillId);
-  const registry = await readJson(REGISTRY_PATH);
-  const coreSkills = Array.isArray(registry.coreSkills) ? registry.coreSkills : [];
-  const exists = coreSkills.some((skill) => isRecord(skill) && skill.id === skillId);
-  if (!exists) {
-    throw new Error(`未找到核心 skill：${skillId}`);
-  }
-
-  const packagePath = path.join(PACKAGE_DIR, `${skillId}.tgz`);
-  if (!isInside(PACKAGE_DIR, packagePath)) {
-    throw new Error('压缩包路径不安全。');
-  }
-  return packagePath;
-}
+import { isCanonicalSkillId } from '@/lib/agent/skills/workspace-integrity';
+import { readVerifiedSkillPackage } from '@/lib/quant/skills-market';
 
 export async function GET(
   request: Request,
-  context: { params: Promise<{ skillId: string }> }
+  context: { params: Promise<{ skillId: string }> },
 ) {
   try {
     await requireAction({
@@ -58,26 +15,28 @@ export async function GET(
       action: 'quant.data.read',
     });
     const { skillId } = await context.params;
-    const packagePath = await resolvePackagePath(skillId);
-    const buffer = await fs.readFile(packagePath);
-    return new NextResponse(buffer, {
+    if (!isCanonicalSkillId(skillId))
+      return NextResponse.json(
+        { success: false, error: '技能 ID 无效。' },
+        { status: 400, headers: { 'Cache-Control': 'private, no-store' } },
+      );
+    const artifact = await readVerifiedSkillPackage(skillId);
+    return new NextResponse(new Uint8Array(artifact.content), {
       headers: {
         'Content-Type': 'application/gzip',
-        'Content-Disposition': `attachment; filename="${skillId}.tgz"`,
-        'Cache-Control': 'no-store',
+        'Content-Disposition': `attachment; filename="${skillId}-${artifact.version}.tgz"`,
+        'Cache-Control': 'private, no-store',
+        'X-Skill-Version': artifact.version,
+        'X-Content-SHA256': artifact.sha256,
       },
     });
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
-      { status: 404 }
+      { success: false, error: '技能未发布或完整性校验失败，暂不可下载。' },
+      { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
     );
   }
 }
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

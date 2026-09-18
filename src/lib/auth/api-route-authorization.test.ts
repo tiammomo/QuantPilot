@@ -75,6 +75,7 @@ describe('API route authorization coverage', () => {
       'src/app/api/settings/cli-status/route.ts': ['quant.data.read'],
       'src/app/api/settings/global/route.ts': ['quant.data.read', 'platform.settings.manage'],
       'src/app/api/skills/[skillId]/package/route.ts': ['quant.data.read'],
+      'src/app/api/skills/market/route.ts': ['quant.data.read', 'project.read'],
       'src/app/api/skills/route.ts': ['quant.data.read', 'platform.settings.manage'],
       'src/app/api/tokens/route.ts': ['platform.tokens.manage'],
       'src/app/api/tokens/[...segments]/route.ts': ['platform.tokens.manage'],
