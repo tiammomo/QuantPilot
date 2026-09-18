@@ -7,6 +7,8 @@ import {
   assertManagedWorkspaceExists,
 } from '@/lib/data-agent/workspace-path';
 import { getProjectById } from '@/lib/services/project';
+import { SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
+import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
 import { getSkillsMarketData } from '@/lib/quant/skills-market';
 
 export async function GET(request: Request) {
@@ -15,8 +17,11 @@ export async function GET(request: Request) {
       headers: request.headers,
       action: 'quant.data.read',
     });
-    const projectId = new URL(request.url).searchParams.get('projectId');
-    let project: { id: string; workspace: string } | undefined;
+    const query = new URL(request.url).searchParams;
+    const projectId = query.get('projectId');
+    const target = query.get('target') ?? 'pi-agent';
+    if (!Object.hasOwn(SKILL_AGENT_TARGETS, target)) return NextResponse.json({ success: false, error: '不支持的 Agent。' }, { status: 400 });
+    let project: { id: string; workspace: string; target?: SkillAgentTarget } | undefined;
     if (projectId !== null) {
       try {
         if (assertManagedProjectId(projectId) !== projectId) throw new Error();
@@ -39,6 +44,7 @@ export async function GET(request: Request) {
         );
       project = {
         id: projectId,
+        ...(query.has('target') ? { target: target as SkillAgentTarget } : {}),
         workspace: await assertManagedWorkspaceExists(
           projectId,
           record.repoPath,

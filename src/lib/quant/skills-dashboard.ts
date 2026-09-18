@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
+import { resolveActiveSkillCatalog } from '@/lib/agent/skills/catalog-images';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -9,6 +10,8 @@ export type SkillHealthStatus = 'ok' | 'warning' | 'error';
 export type SkillScope = 'workflow' | 'quant' | 'input' | 'evidence' | 'platform' | 'visualization';
 
 export interface SkillRelease {
+  actor?: string | null;
+  completeSnapshot?: boolean;
   version: string;
   date: string;
   summary: string;
@@ -49,6 +52,7 @@ interface SkillsLockFile extends JsonRecord {
 }
 
 export interface SkillItem {
+  editing?: { revision: string; hasDraft: boolean; updatedBy: string | null };
   id: string;
   name: string;
   version: string;
@@ -149,7 +153,8 @@ export interface SkillSourceDirectory {
   updatedAt: string | null;
 }
 
-const ROOT = path.resolve(/*turbopackIgnore: true*/ process.cwd());
+export async function getSkillsDashboardData(repositoryRoot?: string): Promise<SkillsDashboardData> {
+const ROOT = repositoryRoot ?? await resolveActiveSkillCatalog(process.cwd());
 const SKILLS_DIR = path.join(ROOT, '.pi', 'skills');
 const REGISTRY_PATH = path.join(ROOT, '.pi', 'skills.registry.json');
 const CHANGELOG_PATH = path.join(ROOT, '.pi', 'skills.changelog.json');
@@ -387,7 +392,7 @@ function hasValidAgentMetadata(source: string, skillId: string): boolean {
   }
 }
 
-export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
+async function inspect(): Promise<SkillsDashboardData> {
   const [registry, changelog, lock] = await Promise.all([
     readJson(REGISTRY_PATH),
     readJsonAs(CHANGELOG_PATH, { schemaVersion: 1, skills: {} } as JsonRecord),
@@ -600,4 +605,7 @@ export async function getSkillsDashboardData(): Promise<SkillsDashboardData> {
       packageFormat: lock.packageFormat ?? String(policy.packageFormat ?? 'tgz'),
     },
   };
+}
+
+return inspect();
 }

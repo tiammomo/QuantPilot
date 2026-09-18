@@ -1,4 +1,4 @@
-export { compilePiAgentSkills, installPiAgentSkillsForWorkspace } from './compiler';
+export { compilePiAgentSkills, installPiAgentSkillsForWorkspace, validateSkillCatalogMetadata } from './compiler';
 export type {
   CompilePiAgentSkillsOptions,
   CompilePiAgentSkillsResult,

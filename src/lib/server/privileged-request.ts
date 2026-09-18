@@ -53,7 +53,7 @@ function effectiveRequestOrigin(request: Request, requestUrl: URL): string {
  * - Without a token only a loopback request is accepted in non-strict development.
  * - Production and strict degradation mode fail closed.
  */
-export function assertPrivilegedMutation(request: Request): void {
+export function assertSameOriginMutation(request: Request): void {
   const requestUrl = new URL(request.url);
   const effectiveOrigin = effectiveRequestOrigin(request, requestUrl);
   const origin = request.headers.get('origin');
@@ -78,6 +78,21 @@ export function assertPrivilegedMutation(request: Request): void {
       throw new PrivilegedRequestError('管理请求必须来自同源页面。', 403);
     }
   }
+}
+
+/** A permission-checked browser session still needs CSRF protection, not a second shared admin credential. */
+export function assertAuthorizedSkillMutation(request: Request, context: { session: unknown; localSystemAdmin: boolean }): void {
+  if (context.session && !context.localSystemAdmin) {
+    if (!request.headers.get('origin')) throw new PrivilegedRequestError('浏览器写入请求缺少 Origin。', 403);
+    assertSameOriginMutation(request);
+    return;
+  }
+  assertPrivilegedMutation(request);
+}
+
+export function assertPrivilegedMutation(request: Request): void {
+  assertSameOriginMutation(request);
+  const requestUrl = new URL(request.url);
 
   const expected = process.env.QUANTPILOT_ADMIN_TOKEN?.trim() ?? '';
   const provided = requestToken(request);

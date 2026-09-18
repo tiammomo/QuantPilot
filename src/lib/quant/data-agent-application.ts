@@ -12,7 +12,7 @@ import {
   writeWorkspaceFileAtomic,
   writeWorkspaceJsonAtomic,
 } from '@/lib/data-agent';
-import { installPiAgentSkillsForWorkspace } from '@/lib/agent/skills';
+import { deployProjectSkills } from './skills-deployment';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildQuantProjectSettings,
@@ -117,10 +117,10 @@ const financeAdapter: DataAgentApplicationAdapter = {
         '',
       ),
     ]);
-    await installPiAgentSkillsForWorkspace(input.projectPath, {
-      capabilityId: capability.id,
-      capability: getFinanceSkillCapabilityDescriptor(capability.id),
-      additionalSkillIds: ['platform-ui-product-design'],
+    await deployProjectSkills({
+      workspace: input.projectPath, target: 'pi-agent', action: 'initialize',
+      skillIds: [...new Set([...getFinanceSkillCapabilityDescriptor(capability.id).requiredSkillIds, 'platform-ui-product-design'])],
+      expectedRevision: null, actor: 'project-initialization',
     });
     return {
       settings: {

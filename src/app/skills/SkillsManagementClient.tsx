@@ -70,6 +70,7 @@ import {
   diffSkillVersion,
   fetchSkillsDashboard,
   publishSkillVersion,
+  discardSkillDraft,
   readSkillFile,
   rollbackSkillVersion,
   saveSkillFile,
@@ -244,8 +245,6 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     });
   }, [payload.skills, query, filter, scopeFilter]);
 
-
-
   const selectedSkill =
     filteredSkills.find((s) => s.id === selectedId) ??
     payload.skills.find((s) => s.id === selectedId) ??
@@ -253,7 +252,6 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     null;
   const selectedSkillId = selectedSkill?.id ?? null;
   const selectedSkillVersion = selectedSkill?.version ?? "";
-  const dirPathsKey = selectedSkill?.source.directories.map((d) => d.path).join("\n") ?? "";
 
   const sourceDirty = Boolean(source && source.skillId === selectedSkillId && sourceDraft !== source.content);
   const confirmUnsavedNavigation = useCallback(() => {
@@ -316,6 +314,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     return next;
   }
 
+  useEffect(() => {
+    if (viewMode === "editor") fetchSkillsDashboard().then(setPayload).catch((error) => showToast({ type: "error", message: error.message }));
+  }, [viewMode, showToast]);
+
   // ── Source loading ───────────────────────────────────────────
   const loadSource = useCallback(async (skillId: string, filePath = "SKILL.md") => {
     const reqId = activeSourceRequest.current + 1;
@@ -336,7 +338,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   }, [showToast]);
 
   function selectSourceFile(file: SourceFile) {
-    if (!selectedSkill) return;
+    if (!selectedSkill || isSavingSource) return;
     if (!file.editable) { showToast({ type: "error", message: "该文件不支持在线编辑，可通过上传压缩包更新。" }); return; }
     if (sourceDirty && !window.confirm("当前文件有未保存修改，确定切换文件吗？")) return;
     setSelectedFilePath(file.path);
@@ -344,6 +346,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
   }
 
   function selectSkill(skillId: string) {
+    if (isSavingSource) return;
     if (skillId === selectedSkillId) return;
     if (sourceDirty && !window.confirm("当前文件有未保存修改，确定切换 skill 吗？")) return;
     setSelectedId(skillId);
@@ -361,15 +364,25 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     setSourceActionMenu({ ...menu, x: r.right, y: r.bottom } as SourceTreeActionMenu);
   }
 
+  function applyMutationPayload(next: SkillsPayload) {
+    setPayload(next);
+    setSource((previous) => {
+      const editing = next.skills.find((skill) => skill.id === previous?.skillId)?.editing;
+      return previous && editing ? { ...previous, revision: editing.revision, draft: editing.hasDraft } : previous;
+    });
+  }
+
   // ── File operations ──────────────────────────────────────────
   async function saveSource() {
     if (!selectedSkill || !source) return;
+    const requestId = activeSourceRequest.current;
     setIsSavingSource(true);
     try {
-      const next = await saveSkillFile({ skillId: selectedSkill.id, filePath: source.filePath, content: sourceDraft });
-      setSource(next); setSourceDraft(next.content); setDiffData(null);
+      const next = await saveSkillFile({ skillId: selectedSkill.id, expectedRevision: source.revision, filePath: source.filePath, content: sourceDraft });
+      if (activeSourceRequest.current !== requestId) return;
+      setSource(next); setSourceDraft((value) => value === sourceDraft ? next.content : value); setDiffData(null);
       await refreshDashboard();
-      showToast({ type: "success", message: "文件已保存。" });
+      showToast({ type: "success", message: "草稿已保存，已发布版本不受影响。" });
     } catch (error) {
       showToast({ type: "error", message: error instanceof Error ? error.message : String(error) });
     } finally { setIsSavingSource(false); }
@@ -383,7 +396,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!fp) return;
     setCreatingFolderBasePath(basePath ?? "__root__");
     try {
-      const next = await saveSkillFile({ skillId: selectedSkill.id, filePath: fp, content: fp.endsWith(".py") ? "#!/usr/bin/env python3\n" : fp.endsWith(".json") ? "{}\n" : "" });
+      const next = await saveSkillFile({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", filePath: fp, content: fp.endsWith(".py") ? "#!/usr/bin/env python3\n" : fp.endsWith(".json") ? "{}\n" : "" });
       setSource(next); setSourceDraft(next.content); setSelectedFilePath(next.filePath); setDiffData(null);
       await refreshDashboard();
       if (basePath) setExpandedSourcePaths((prev) => new Set([...prev, basePath]));
@@ -399,8 +412,8 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!fp) return;
     setCreatingFolderBasePath(basePath ?? "__root__");
     try {
-      const next = await createSkillFolder({ skillId: selectedSkill.id, folderPath: fp });
-      setPayload(next); setDiffData(null);
+      const next = await createSkillFolder({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", folderPath: fp });
+      applyMutationPayload(next); setDiffData(null);
       setExpandedSourcePaths((prev) => new Set([...prev, fp, ...(basePath ? [basePath] : [])]));
       showToast({ type: "success", message: "文件夹已创建。" });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
@@ -414,8 +427,8 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!window.confirm(`确定删除 ${tf.path} 吗？`)) return;
     setDeletingFilePath(tf.path);
     try {
-      const next = await deleteSkillFile({ skillId: selectedSkill.id, filePath: tf.path });
-      setPayload(next); setDiffData(null);
+      const next = await deleteSkillFile({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", filePath: tf.path });
+      applyMutationPayload(next); setDiffData(null);
       if (selectedFilePath === tf.path) { setSelectedFilePath("SKILL.md"); setSource(null); setSourceDraft(""); await loadSource(selectedSkill.id, "SKILL.md"); }
       showToast({ type: "success", message: "文件已删除。" });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
@@ -427,8 +440,8 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!window.confirm(`确定删除文件夹 ${folder.path} 及其中所有文件吗？`)) return;
     setDeletingFolderPath(folder.path);
     try {
-      const next = await deleteSkillFolder({ skillId: selectedSkill.id, folderPath: folder.path });
-      setPayload(next); setDiffData(null);
+      const next = await deleteSkillFolder({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", folderPath: folder.path });
+      applyMutationPayload(next); setDiffData(null);
       if (selectedFilePath === folder.path || selectedFilePath.startsWith(`${folder.path}/`)) { setSelectedFilePath("SKILL.md"); setSource(null); setSourceDraft(""); await loadSource(selectedSkill.id, "SKILL.md"); }
       showToast({ type: "success", message: "文件夹已删除。" });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
@@ -441,12 +454,21 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!window.confirm(`确认发布 ${selectedSkill.id} v${releaseVersion}？\n变更：+${diffData.totals.added} ~${diffData.totals.modified} -${diffData.totals.deleted}`)) return;
     setIsPublishing(true);
     try {
-      const next = await publishSkillVersion({ skillId: selectedSkill.id, version: releaseVersion, summary: releaseSummary, changes: releaseChanges, status: selectedSkill.status });
-      setPayload(next); setReleaseSummary(""); setReleaseChanges(""); setDiffData(null);
+      const next = await publishSkillVersion({ skillId: selectedSkill.id, expectedRevision: diffData.revision, version: releaseVersion, summary: releaseSummary, changes: releaseChanges });
+      applyMutationPayload(next); setReleaseSummary(""); setReleaseChanges(""); setDiffData(null);
       setReleaseVersion(next.skills.find((s) => s.id === selectedSkill.id)?.version ?? releaseVersion);
-      showToast({ type: "success", message: "版本已发布。" });
+      await loadSource(selectedSkill.id, selectedFilePath);
+      showToast({ type: "success", message: "完整版本已发布，已固定版本的项目保持原版本。" });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
     finally { setIsPublishing(false); }
+  }
+
+  async function discardDraft() {
+    if (!selectedSkill || !window.confirm("放弃当前技能的草稿？已发布版本保持不变。")) return;
+    try {
+      const next = await discardSkillDraft({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "" });
+      applyMutationPayload(next); setDiffData(null); await loadSource(selectedSkill.id, "SKILL.md");
+    } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
   }
 
   async function loadVersionDiff() {
@@ -466,8 +488,8 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!window.confirm(`确认回退 ${selectedSkill.id} 到 v${version}？`)) return;
     setRollingBackVersion(version);
     try {
-      const next = await rollbackSkillVersion({ skillId: selectedSkill.id, version });
-      setPayload(next); setDiffData(null); setReleaseSummary(""); setReleaseChanges(""); setReleaseVersion(version);
+      const next = await rollbackSkillVersion({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", version });
+      applyMutationPayload(next); setDiffData(null); setReleaseSummary(""); setReleaseChanges(""); setReleaseVersion(version);
       await loadSource(selectedSkill.id, "SKILL.md");
       showToast({ type: "success", message: `已回退到 v${version}。` });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
@@ -485,10 +507,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     if (!selectedSkill || !uploadFile) return;
     setIsUploading(true);
     try {
-      const next = await uploadSkillPackage({ skillId: selectedSkill.id, version: releaseVersion, summary: releaseSummary, changes: releaseChanges, status: selectedSkill.status, file: uploadFile });
-      setPayload(next); setUploadFile(null); setDiffData(null); setSelectedFilePath("SKILL.md");
+      const next = await uploadSkillPackage({ skillId: selectedSkill.id, expectedRevision: selectedSkill.editing?.revision ?? source?.revision ?? "", file: uploadFile });
+      applyMutationPayload(next); setUploadFile(null); setDiffData(null); setSelectedFilePath("SKILL.md");
       await loadSource(selectedSkill.id, "SKILL.md");
-      showToast({ type: "success", message: "上传包已发布为新版本。" });
+      showToast({ type: "success", message: "上传包已保存为草稿，请确认 Diff 后发布。" });
     } catch (error) { showToast({ type: "error", message: error instanceof Error ? error.message : String(error) }); }
     finally { setIsUploading(false); }
   }
@@ -533,12 +555,12 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
     activeSourceRequest.current += 1;
     if (viewMode !== "editor" || !selectedSkillId) { setSource(null); setSourceDraft(""); setIsLoadingSource(false); return; }
     setSource(null); setSourceDraft(""); setSelectedFilePath("SKILL.md"); setSourceFileQuery("");
-    setExpandedSourcePaths(new Set(dirPathsKey ? dirPathsKey.split("\n") : []));
+    setExpandedSourcePaths(new Set());
     setIsLoadingSource(false);
     setReleaseVersion(selectedSkillVersion); setReleaseSummary(""); setReleaseChanges(""); setUploadFile(null); setDiffData(null); setIsDraggingUpload(false);
     void loadSource(selectedSkillId, "SKILL.md");
     return () => { activeSourceRequest.current += 1; };
-  }, [loadSource, dirPathsKey, selectedSkillId, selectedSkillVersion, viewMode]);
+  }, [loadSource, selectedSkillId, selectedSkillVersion, viewMode]);
 
   useEffect(() => {
     if (!sourceActionMenu) return;
@@ -929,10 +951,10 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
                   {source && (
                     <span className={cn("hidden items-center gap-1 text-xs sm:flex", sourceDirty ? "text-amber-600" : "text-emerald-600")}>
                       <span className={cn("h-1.5 w-1.5 rounded-full", sourceDirty ? "animate-pulse bg-amber-500" : "bg-emerald-500")} />
-                      {sourceDirty ? "未保存" : "已同步"}
+                      {sourceDirty ? "未保存" : source?.draft ? "草稿已保存" : "已发布版本"}
                     </span>
                   )}
-                  <Button variant="outline" size="sm" onClick={() => setIsVersionManagerOpen(true)} className="gap-1.5 text-xs">
+                  <Button variant="outline" size="sm" aria-label="版本管理" onClick={() => setIsVersionManagerOpen(true)} className="gap-1.5 text-xs">
                     <History className="h-3.5 w-3.5" />
                     <span className="hidden sm:inline">版本管理</span><span className="sm:hidden">版本</span>
                   </Button>
@@ -1122,6 +1144,7 @@ export default function SkillsManagementClient({ initialData }: { initialData: S
         onLoadDiff={loadVersionDiff}
         onPublish={publishVersion}
         onRollback={rollbackVersion}
+        onDiscardDraft={discardDraft}
         onUpload={uploadPackage}
         onPackageDrop={handlePackageDrop}
         onPackageDragOver={handlePackageDragOver}

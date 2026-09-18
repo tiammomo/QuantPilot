@@ -6,6 +6,8 @@ export type SourceDirectory = SkillsPayload['skills'][number]['source']['directo
 export type SourceKind = SourceFile['kind'];
 
 export type SourceState = {
+  revision: string;
+  draft: boolean;
   skillId: string;
   filePath: string;
   content: string;
@@ -29,6 +31,7 @@ export type SkillDiffFile = {
 };
 
 export type SkillDiffData = {
+  revision: string;
   skillId: string;
   baseVersion: string | null;
   basePackagePath: string | null;

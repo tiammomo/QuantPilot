@@ -1,5 +1,4 @@
 import {
-  CheckCircle2,
   Diff,
   Download,
   History,
@@ -38,6 +37,7 @@ export function SkillsVersionManagerDialog({
   onLoadDiff,
   onPublish,
   onRollback,
+  onDiscardDraft,
   onUpload,
   onPackageDrop,
   onPackageDragOver,
@@ -64,6 +64,7 @@ export function SkillsVersionManagerDialog({
   onLoadDiff: () => void;
   onPublish: () => void;
   onRollback: (version: string) => void;
+  onDiscardDraft: () => void;
   onUpload: () => void;
   onPackageDrop: (event: React.DragEvent<HTMLLabelElement>) => void;
   onPackageDragOver: (event: React.DragEvent<HTMLLabelElement>) => void;
@@ -73,7 +74,7 @@ export function SkillsVersionManagerDialog({
   if (!open || !selectedSkill) return null;
 
   return (
-    <div className="fixed inset-0 z-50 max-w-full overflow-x-hidden bg-black/20 p-3 backdrop-blur-sm sm:p-4">
+    <div role="dialog" aria-modal="true" aria-label="技能版本管理" className="fixed inset-0 z-50 max-w-full overflow-x-hidden bg-black/20 p-3 backdrop-blur-sm sm:p-4">
       <div className="mx-auto flex h-full max-h-[calc(100vh-32px)] max-w-7xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b px-4 py-4 sm:gap-4 sm:px-6 sm:py-5">
           <div className="flex items-center gap-4">
@@ -90,6 +91,7 @@ export function SkillsVersionManagerDialog({
           <button
             type="button"
             onClick={onClose}
+            disabled={isPublishing || isUploading || Boolean(rollingBackVersion)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-slate-950"
             aria-label="关闭版本管理"
           >
@@ -99,6 +101,11 @@ export function SkillsVersionManagerDialog({
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           <div className="min-w-0 px-4 py-4 sm:px-6 sm:py-5">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm">
+              <span>{selectedSkill.editing?.hasDraft ? `存在未发布草稿 · 最近编辑：${selectedSkill.editing.updatedBy}` : '当前没有未发布草稿'}</span>
+              {selectedSkill.editing?.hasDraft && <Button variant="outline" size="sm" onClick={onDiscardDraft} disabled={isPublishing || isUploading || Boolean(rollingBackVersion)}>放弃草稿</Button>}
+              <span className="text-xs text-muted-foreground">已固定版本的项目需在市场中单独升级。</span>
+            </div>
             <div className="max-w-full overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[920px] text-left text-sm">
                 <thead className="bg-muted/40 text-xs font-semibold text-slate-500">
@@ -136,7 +143,7 @@ export function SkillsVersionManagerDialog({
                               )}
                             </div>
                           </td>
-                          <td className="px-4 py-4 text-muted-foreground">QuantPilot</td>
+                          <td className="px-4 py-4 text-muted-foreground">{release.actor || "历史记录未登记"}</td>
                           <td className="px-4 py-4 text-muted-foreground">{release.date}</td>
                           <td className="px-4 py-4">
                             <div className="flex justify-end gap-2 whitespace-nowrap">
@@ -145,7 +152,8 @@ export function SkillsVersionManagerDialog({
                                 size="sm"
                                 variant="secondary"
                                 onClick={() => onRollback(release.version)}
-                                disabled={current || !release.snapshot?.exists || rollingBackVersion === release.version}
+                                disabled={current || !release.completeSnapshot || Boolean(rollingBackVersion) || isPublishing || isUploading || Boolean(selectedSkill.editing?.hasDraft)}
+                                title={!release.completeSnapshot ? "仅有源码包，缺少完整运行规则快照" : undefined}
                               >
                                 {rollingBackVersion === release.version ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -173,10 +181,6 @@ export function SkillsVersionManagerDialog({
                                   </>
                                 )}
                               </Button>
-                              <Button type="button" size="sm" disabled>
-                                <CheckCircle2 className="h-4 w-4" />
-                                应用
-                              </Button>
                             </div>
                           </td>
                         </tr>
@@ -199,7 +203,7 @@ export function SkillsVersionManagerDialog({
                   <Rocket className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <h3 className="text-base font-semibold">发布新版本</h3>
-                    <p className="text-xs text-muted-foreground">更新 registry、changelog、lock 和压缩包。</p>
+                    <p className="text-xs text-muted-foreground">验证源码、运行规则和脚本后激活完整快照。</p>
                   </div>
                 </div>
                 <div className="grid gap-3">
@@ -249,12 +253,12 @@ export function SkillsVersionManagerDialog({
                   type="button"
                   className="mt-4 w-full"
                   onClick={onPublish}
-                  disabled={isPublishing || sourceDirty || isLoadingDiff || !diffData}
+                  disabled={isPublishing || isUploading || Boolean(rollingBackVersion) || sourceDirty || isLoadingDiff || !diffData?.changed}
                 >
                   {isPublishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />}
                   确认 Diff 后发布
                 </Button>
-                {sourceDirty && <p className="mt-2 text-xs text-amber-600">先保存源码，再发布版本。</p>}
+                {sourceDirty && <p className="mt-2 text-xs text-amber-600">先保存草稿，再确认差异并发布。</p>}
                 {!sourceDirty && !diffData && <p className="mt-2 text-xs text-muted-foreground">发布前需要先生成 Diff。</p>}
               </Card>
 
@@ -353,10 +357,10 @@ export function SkillsVersionManagerDialog({
                   variant="outline"
                   className="mt-4 w-full"
                   onClick={onUpload}
-                  disabled={isUploading || !uploadFile || !releaseVersion || !releaseSummary || !releaseChanges}
+                  disabled={isUploading || isPublishing || Boolean(rollingBackVersion) || sourceDirty || !uploadFile}
                 >
                   {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                  上传并发布为当前版本
+                  上传到草稿
                 </Button>
               </Card>
             </div>
@@ -365,7 +369,7 @@ export function SkillsVersionManagerDialog({
         </div>
 
         <div className="border-t bg-muted/40 p-4">
-          <Button type="button" variant="secondary" className="w-full" onClick={onClose}>
+          <Button type="button" variant="secondary" className="w-full" onClick={onClose} disabled={isPublishing || isUploading || Boolean(rollingBackVersion)}>
             关闭
           </Button>
         </div>

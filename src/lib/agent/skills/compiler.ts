@@ -1,6 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { resolveRuntimeSkillCatalog } from './catalog-images';
 import { assessSkillCompatibility } from './compatibility';
-import { isCanonicalSkillId, readSkillsInstallReceipt } from './workspace-integrity';
+import { installSkillAssets } from './workspace-install';
+import { isCanonicalSkillId } from './workspace-integrity';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { JSON_SCHEMA, load as loadYaml } from 'js-yaml';
@@ -124,6 +126,9 @@ function parseRegistry(value: unknown): PiAgentSkillsRegistry {
     assertString(raw.name, `coreSkills[${index}].name`);
     assertString(raw.version, `coreSkills[${index}].version`);
     assertString(raw.boundary, `coreSkills[${index}].boundary`);
+    for (const field of ['inputs', 'outputs', 'scripts', 'references', 'endpoints', 'validation']) {
+      if (raw[field] !== undefined) assertStringArray(raw[field], `coreSkills[${index}].${field}`);
+    }
     if (!['stable', 'planned', 'deprecated'].includes(String(raw.status))) {
       throw new Error(`PI Agent Skills registry 中 ${raw.id} 的 status 无效。`);
     }
@@ -133,6 +138,11 @@ function parseRegistry(value: unknown): PiAgentSkillsRegistry {
     seen.add(raw.id);
   }
   return value as unknown as PiAgentSkillsRegistry;
+}
+
+export function validateSkillCatalogMetadata(registry: unknown, capsules: unknown): void {
+  parseRegistry(registry);
+  parseCapsuleRegistry(capsules);
 }
 
 function parseLock(value: unknown): PiAgentSkillsLock {
@@ -781,118 +791,28 @@ async function installSkills(params: {
   capabilityId: string | null;
   skills: LoadedSkill[];
 }): Promise<PiAgentSkillsInstallReceipt> {
-  const requestedWorkspace = path.resolve(params.workspace);
-  const workspace = await fs.realpath(requestedWorkspace).catch((error) => {
-    throw new Error(
-      `PI Agent Skills workspace 必须是已存在目录：${error instanceof Error ? error.message : String(error)}`,
-    );
-  });
-  if (!(await fs.stat(workspace)).isDirectory()) {
-    throw new Error(`PI Agent Skills workspace 不是目录：${requestedWorkspace}`);
-  }
-  const runtimeDirectory = path.join(workspace, PI_AGENT_DIRECTORY);
-  const skillsDirectory = path.join(runtimeDirectory, 'skills');
-  for (const candidate of [runtimeDirectory, skillsDirectory]) {
-    const stat = await fs.lstat(candidate).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    });
-    if (stat?.isSymbolicLink()) {
-      throw new Error(`PI Agent Skills 运行目录不允许符号链接：${candidate}`);
-    }
-  }
-  await fs.mkdir(skillsDirectory, { recursive: true });
-
-  const requested = new Set(params.skills.map((skill) => skill.registry.id));
-  const previousReceipt = await readSkillsInstallReceipt(runtimeDirectory);
-  const previouslyManaged = isRecord(previousReceipt) && previousReceipt.runtime === 'PI Agent' &&
-    isRecord(previousReceipt.skills)
-    ? Object.keys(previousReceipt.skills)
-    : [];
-  for (const skillId of previouslyManaged) {
-    if (!requested.has(skillId)) {
-      await fs.rm(path.join(skillsDirectory, skillId), { recursive: true, force: true });
-    }
-  }
-
-  for (const skill of params.skills) {
-    const destination = path.join(skillsDirectory, skill.registry.id);
-    const stagingRoot = await fs.mkdtemp(path.join(runtimeDirectory, '.skill-install-'));
-    const stagedDestination = path.join(stagingRoot, skill.registry.id);
-    let keepStagingForRecovery = false;
-    try {
-      if (skill.sourceDirectory) {
-        await fs.cp(skill.sourceDirectory, stagedDestination, { recursive: true, errorOnExist: true });
-      } else if (skill.packagePath) {
-        await assertSafePackageEntries(
-          skill.packagePath,
-          skill.registry.id,
-          skill.lock.sourceSha256,
-          skill.lock.fileCount,
-        );
-        await tar.x({
-          file: skill.packagePath,
-          cwd: stagingRoot,
-          preserveOwner: false,
-          preservePaths: false,
-          strict: true,
-          filter: (_entryPath, entry) =>
-            'type' in entry && ['File', 'Directory'].includes(String(entry.type)),
-        });
-      }
-      await assertCompleteInstalledSkillDirectory(stagedDestination, skill.registry);
-      await fs.writeFile(path.join(stagedDestination, 'SKILL.md'), skill.markdown, 'utf8');
-      const previousStat = await fs.lstat(destination).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') return null;
-        throw error;
-      });
-      if (previousStat?.isSymbolicLink()) {
-        throw new Error(`PI Agent Skill 目标目录不允许符号链接：${destination}`);
-      }
-      const backupDestination = path.join(stagingRoot, '.previous');
-      if (previousStat) await fs.rename(destination, backupDestination);
-      try {
-        await fs.rename(stagedDestination, destination);
-      } catch (error) {
-        if (previousStat) {
-          try {
-            await fs.rename(backupDestination, destination);
-          } catch (restoreError) {
-            keepStagingForRecovery = true;
-            throw new AggregateError(
-              [error, restoreError],
-              `PI Agent Skill ${skill.registry.id} 替换与恢复均失败；备份保留在 ${backupDestination}`,
-            );
-          }
+  const receipt = await installSkillAssets({
+    workspace: params.workspace, target: 'pi-agent', capabilityId: params.capabilityId,
+    assets: params.skills.map((skill) => ({
+      id: skill.registry.id,
+      claim: { version: skill.registry.version, source: skill.source,
+        sourceSha256: skill.lock.sourceSha256 ?? null, packageSha256: skill.lock.packageSha256 ?? null },
+      prepare: async (destination: string) => {
+        if (skill.sourceDirectory) {
+          await fs.cp(skill.sourceDirectory, destination, { recursive: true, errorOnExist: true });
+        } else if (skill.packagePath) {
+          await assertSafePackageEntries(skill.packagePath, skill.registry.id, skill.lock.sourceSha256, skill.lock.fileCount);
+          await tar.x({ file: skill.packagePath, cwd: path.dirname(destination), preserveOwner: false,
+            preservePaths: false, strict: true,
+            filter: (_entryPath, entry) => 'type' in entry && ['File', 'Directory'].includes(String(entry.type)),
+          });
         }
-        throw error;
-      }
-    } finally {
-      if (!keepStagingForRecovery) {
-        await fs.rm(stagingRoot, { recursive: true, force: true });
-      }
-    }
-  }
-
-  const receipt: PiAgentSkillsInstallReceipt = {
-    schemaVersion: 1,
-    runtime: 'PI Agent',
-    installedAt: new Date().toISOString(),
-    capabilityId: params.capabilityId,
-    skillsDirectory: path.relative(workspace, skillsDirectory).replaceAll(path.sep, '/'),
-    skills: Object.fromEntries(params.skills.map((skill) => [skill.registry.id, {
-      version: skill.registry.version,
-      source: skill.source,
-      sourceSha256: skill.lock.sourceSha256 ?? null,
-      packageSha256: skill.lock.packageSha256 ?? null,
-    }])),
-  };
-  const receiptPath = path.join(runtimeDirectory, `.installed-skills-${randomUUID()}.tmp`);
-  try {
-    await fs.writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-    await fs.rename(receiptPath, path.join(runtimeDirectory, 'installed-skills.json'));
-  } finally { await fs.rm(receiptPath, { force: true }); }
-  return receipt;
+        await assertCompleteInstalledSkillDirectory(destination, skill.registry);
+        await fs.writeFile(path.join(destination, 'SKILL.md'), skill.markdown, 'utf8');
+      },
+    })),
+  });
+  return { ...receipt, runtime: 'PI Agent', skills: receipt.skills as PiAgentSkillsInstallReceipt['skills'] };
 }
 
 function selectRequestedSkillIds(
@@ -959,7 +879,8 @@ function selectRequestedSkillIds(
 export async function compilePiAgentSkills(
   options: CompilePiAgentSkillsOptions = {},
 ): Promise<CompilePiAgentSkillsResult> {
-  const root = path.resolve(options.repositoryRoot ?? process.cwd());
+  const catalog = await resolveRuntimeSkillCatalog(path.resolve(options.repositoryRoot ?? process.cwd()), options.runtimeWorkspace);
+  const root = catalog.root;
   const registryPath = resolveFromRoot(
     root,
     options.registryPath ?? path.join(PI_AGENT_DIRECTORY, 'skills.registry.json'),
@@ -1001,6 +922,10 @@ export async function compilePiAgentSkills(
     }
   }
   const selection = selectRequestedSkillIds(registry, capsuleRegistry, options);
+  if (catalog.deployment) {
+    const missing = selection.requested.filter((id) => !catalog.deployment!.skillIds.includes(id));
+    if (missing.length) throw new Error(`项目固定的技能集合缺少 ${missing.join('、')}，请在 Skills Market 安装后重试。`);
+  }
   if (selection.requested.length === 0) {
     throw new Error('PI Agent Skills 未选择任何 skill。');
   }

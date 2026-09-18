@@ -137,6 +137,8 @@ export interface PiAgentSkillCapabilityDescriptor {
 export interface CompilePiAgentSkillsOptions {
   /** Repository containing the configured registry/lock inputs. */
   repositoryRoot?: string;
+  /** Resolve executable versions from the platform-owned deployment, never workspace receipts. */
+  runtimeWorkspace?: string;
   /** Domain-owned, product-neutral capability projection. */
   capability?: PiAgentSkillCapabilityDescriptor | null;
   /** Stable label retained in receipts when explicit skill IDs are supplied. */

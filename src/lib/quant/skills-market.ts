@@ -1,3 +1,7 @@
+import { deploymentKey, readSkillCatalogState, type SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
+import { resolveActiveSkillCatalog, resolveSkillCatalogImage } from '@/lib/agent/skills/catalog-images';
+import { SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
+import { readSkillMetadata } from './skills-publication';
 import {
   readWorkspaceJsonBounded,
   readWorkspaceFileBounded,
@@ -12,9 +16,14 @@ import { inspectSkillInstallation } from "./skills-installation-status";
 export async function getSkillsMarketData(project?: {
   id: string;
   workspace: string;
+  target?: SkillAgentTarget;
 }) {
-  const dashboard = await getSkillsDashboardData();
-  const root = process.cwd();
+  const state = await readSkillCatalogState(process.cwd());
+  const root = state.active ? await resolveSkillCatalogImage(process.cwd(), state.active) : process.cwd();
+  const dashboard = await getSkillsDashboardData(root);
+  const target = project?.target ?? 'pi-agent';
+  const deployment = project ? state.deployments[deploymentKey(project.workspace, target)] : undefined;
+  const pinned = deployment ? await readSkillMetadata(await resolveSkillCatalogImage(process.cwd(), deployment.revision)) : null;
   const { value } = await readWorkspaceJsonBounded(
     root,
     "config/pi-agent-skill-capsules.json",
@@ -46,7 +55,9 @@ export async function getSkillsMarketData(project?: {
         skill.status === "stable",
       packageSha256: skill.lock.packageSha256,
       releases: skill.changelog.releases.map(
-        ({ version, date, summary, changes }) => ({
+        ({ version, date, summary, changes, actor }) => ({
+          actor,
+          installable: state.releases.some((release) => release.skillId === skill.id && release.version === version) || (!state.active && version === skill.version),
           version,
           date,
           summary,
@@ -74,6 +85,7 @@ export async function getSkillsMarketData(project?: {
   });
   return {
     generatedAt: dashboard.generatedAt,
+    targets: Object.entries(SKILL_AGENT_TARGETS).map(([id, adapter]) => ({ id, ...adapter })),
     skills,
     capabilities: QUANT_CAPABILITIES.map(({ id, name, status }) => ({
       id,
@@ -83,9 +95,14 @@ export async function getSkillsMarketData(project?: {
     project: project
       ? {
           id: project.id,
+          target,
+          deployment: deployment ? { id: deployment.id, revision: deployment.revision, skillIds: deployment.skillIds,
+            updatedAt: deployment.updatedAt, actor: deployment.actor, canRollback: Boolean(deployment.previous) } : null,
+          execution: target === 'pi-agent' ? deployment ? 'pinned' as const : 'platform-current' as const : 'external-unverified' as const,
           ...(await inspectSkillInstallation(
             project.workspace,
-            dashboard.skills,
+            dashboard.skills, target,
+            pinned && deployment ? { skillIds: deployment.skillIds, lock: pinned.lock } : undefined,
           )),
         }
       : null,
@@ -95,7 +112,8 @@ export async function getSkillsMarketData(project?: {
 export type SkillsMarketData = Awaited<ReturnType<typeof getSkillsMarketData>>;
 export type SkillsMarketSkill = SkillsMarketData["skills"][number];
 export async function readVerifiedSkillPackage(skillId: string) {
-  const data = await getSkillsDashboardData();
+  const root = await resolveActiveSkillCatalog(process.cwd());
+  const data = await getSkillsDashboardData(root);
   const skill = data.skills.find((item) => item.id === skillId);
   if (
     !skill ||
@@ -106,7 +124,7 @@ export async function readVerifiedSkillPackage(skillId: string) {
     throw new Error("技能未发布或完整性校验失败，暂不可下载。");
   }
   const artifact = await readWorkspaceFileBounded(
-    process.cwd(),
+    root,
     skill.package.path,
     5 * 1024 * 1024,
   );

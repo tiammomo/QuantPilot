@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
+import { createSkillsAdministration } from '@/lib/quant/skills-admin';
+import { SkillConflictError } from '@/lib/agent/skills/catalog-store';
 import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
-import { assertPrivilegedMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
+import { assertAuthorizedSkillMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
 export async function GET(request: Request) {
   try {
@@ -11,9 +13,11 @@ export async function GET(request: Request) {
       headers: request.headers,
       action: 'quant.data.read',
     });
+    const studio = new URL(request.url).searchParams.get('view') === 'studio';
+    if (studio) await requireAction({ headers: request.headers, action: 'platform.settings.manage' });
     const response = NextResponse.json({
       success: true,
-      data: await getSkillsDashboardData(),
+      data: studio ? await createSkillsAdministration().getStudioData() : await getSkillsDashboardData(),
     });
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
@@ -49,12 +53,12 @@ function parseChanges(value: unknown): string[] {
 export async function POST(request: Request) {
   const contentType = request.headers.get('content-type') ?? '';
   try {
-    await requireAction({
+    const context = await requireAction({
       headers: request.headers,
       action: 'platform.settings.manage',
     });
-    assertPrivilegedMutation(request);
-    const skillsAdmin = await import('@/lib/quant/skills-admin');
+    assertAuthorizedSkillMutation(request, context);
+    const skillsAdmin = createSkillsAdministration();
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData();
       const action = String(form.get('action') ?? '');
@@ -67,10 +71,8 @@ export async function POST(request: Request) {
       }
       const data = await skillsAdmin.uploadSkillPackage({
         skillId: String(form.get('skillId') ?? ''),
-        version: String(form.get('version') ?? ''),
-        summary: String(form.get('summary') ?? ''),
-        changes: parseChanges(form.get('changes')),
-        status: String(form.get('status') ?? '') || null,
+        expectedRevision: String(form.get('expectedRevision') ?? ''),
+        actor: context.actorUserId,
         file,
       });
       return NextResponse.json({ success: true, data });
@@ -78,6 +80,10 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const action = String(body.action ?? '');
+    const mutation = { expectedRevision: String(body.expectedRevision ?? ''), actor: context.actorUserId };
+    if (action === 'discard-draft') {
+      return NextResponse.json({ success: true, data: await skillsAdmin.discardDraft({ skillId: String(body.skillId ?? ''), ...mutation }) });
+    }
     if (action === 'read-source') {
       const source = await skillsAdmin.readSkillSource(String(body.skillId ?? ''));
       return NextResponse.json({ success: true, data: source });
@@ -91,6 +97,7 @@ export async function POST(request: Request) {
     }
     if (action === 'save-source') {
       const source = await skillsAdmin.saveSkillSource({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         filePath: 'SKILL.md',
         content: String(body.skillMd ?? body.content ?? ''),
@@ -99,6 +106,7 @@ export async function POST(request: Request) {
     }
     if (action === 'save-file') {
       const source = await skillsAdmin.saveSkillFile({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         filePath: String(body.filePath ?? 'SKILL.md'),
         content: String(body.content ?? ''),
@@ -107,6 +115,7 @@ export async function POST(request: Request) {
     }
     if (action === 'delete-file') {
       const data = await skillsAdmin.deleteSkillFile({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         filePath: String(body.filePath ?? ''),
       });
@@ -114,6 +123,7 @@ export async function POST(request: Request) {
     }
     if (action === 'create-folder') {
       const data = await skillsAdmin.createSkillFolder({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         folderPath: String(body.folderPath ?? ''),
       });
@@ -121,6 +131,7 @@ export async function POST(request: Request) {
     }
     if (action === 'delete-folder') {
       const data = await skillsAdmin.deleteSkillFolder({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         folderPath: String(body.folderPath ?? ''),
       });
@@ -132,16 +143,17 @@ export async function POST(request: Request) {
     }
     if (action === 'publish-version') {
       const data = await skillsAdmin.publishSkillVersion({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         version: String(body.version ?? ''),
         summary: String(body.summary ?? ''),
         changes: parseChanges(body.changes),
-        status: typeof body.status === 'string' ? body.status : null,
       });
       return NextResponse.json({ success: true, data });
     }
     if (action === 'rollback-version') {
       const data = await skillsAdmin.rollbackSkillVersion({
+        ...mutation,
         skillId: String(body.skillId ?? ''),
         version: String(body.version ?? ''),
       });
@@ -151,7 +163,7 @@ export async function POST(request: Request) {
     return errorResponse('不支持的 action。');
   } catch (error) {
     if (error instanceof AuthorizationError) return authErrorResponse(error);
-    return errorResponse(error, error instanceof PrivilegedRequestError ? error.status : 400);
+    return errorResponse(error, error instanceof PrivilegedRequestError || error instanceof SkillConflictError ? error.status : 400);
   }
 }
 

@@ -2,8 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   hashSkillDirectory,
-  readSkillsInstallReceipt,
 } from "@/lib/agent/skills/workspace-integrity";
+import { readSkillAssetsReceipt, SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
+import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
+import type { PiAgentSkillsLock } from '@/lib/agent/skills';
 import type { SkillItem } from "./skills-dashboard";
 
 export type SkillInstallationState =
@@ -23,11 +25,13 @@ export interface SkillInstallationStatus {
 export async function inspectSkillInstallation(
   workspace: string,
   skills: SkillItem[],
+  target: SkillAgentTarget = 'pi-agent',
+  trusted?: { skillIds: string[]; lock: PiAgentSkillsLock },
 ) {
-  const runtime = path.join(workspace, ".pi");
-  let receipt: Record<string, unknown> | null;
+  const runtime = path.join(workspace, SKILL_AGENT_TARGETS[target].directory);
+  let receipt: Awaited<ReturnType<typeof readSkillAssetsReceipt>>;
   try {
-    receipt = await readSkillsInstallReceipt(runtime);
+    receipt = await readSkillAssetsReceipt(workspace, target);
   } catch {
     return {
       receiptStatus: "invalid" as const,
@@ -72,6 +76,10 @@ export async function inspectSkillInstallation(
           typeof claim.sourceSha256 !== "string"
         )
           result.state = "unverified";
+        else if (trusted && (!trusted.skillIds.includes(skill.id) ||
+          trusted.lock.skills[skill.id]?.version !== claim.version ||
+          trusted.lock.skills[skill.id]?.sourceSha256 !== actual.hash ||
+          trusted.lock.skills[skill.id]?.packageSha256 !== claim.packageSha256)) result.state = "modified";
         else if (actual.hash !== claim.sourceSha256) result.state = "modified";
         else {
           result.installedVersion = claim.version;

@@ -1,5 +1,7 @@
 "use client";
 
+import { SkillsInstallationActions } from './skills-installation-actions';
+import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Package, Search, ShieldCheck, X } from "lucide-react";
@@ -53,6 +55,7 @@ export function SkillsMarket({
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
+  const [target, setTarget] = useState<SkillAgentTarget>("pi-agent");
   const [projectError, setProjectError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -84,7 +87,7 @@ export function SkillsMarket({
     setLoading(true);
     setError("");
     fetchData<SkillsMarketData>(
-      `/api/skills/market${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`,
+      `/api/skills/market${projectId ? `?projectId=${encodeURIComponent(projectId)}${target === "pi-agent" ? "" : `&target=${target}`}` : ""}`,
       controller.signal,
     )
       .then((value) => {
@@ -97,7 +100,7 @@ export function SkillsMarket({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [refreshKey, projectId, retry]);
+  }, [refreshKey, projectId, target, retry]);
 
   const filtered = useMemo(
     () =>
@@ -128,7 +131,7 @@ export function SkillsMarket({
   const selected = data?.skills.find((skill) => skill.id === selectedId);
   // Never display the previous project's receipt while a new request is pending or failed.
   const installation =
-    !loading && !error && data?.project?.id === projectId ? data.project : null;
+    !loading && !error && data?.project?.id === projectId && (data.project.target ?? "pi-agent") === target ? data.project : null;
   const installed = (id: string) =>
     installation?.skills.find((skill) => skill.skillId === id);
   const reset = () => {
@@ -171,6 +174,7 @@ export function SkillsMarket({
                 </option>
               ))}
             </select>
+            {projectId && <label className="flex items-center gap-2 text-sm">安装到 Agent<select aria-label="安装到 Agent" className={selectClass} value={target} onChange={(event) => setTarget(event.target.value as SkillAgentTarget)}>{(data?.targets ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}</select></label>}
             <Button
               variant="outline"
               size="sm"
@@ -186,7 +190,7 @@ export function SkillsMarket({
           )}
           {projectId && (
             <p className="mt-3 text-xs text-muted-foreground">
-              项目内文件是参考副本；实际执行使用平台可信技能。
+              {target !== "pi-agent" ? "外部 Agent 安装状态；实际运行尚未验证。" : installation?.execution === "pinned" ? "执行版本已固定；安装目录是可检查的参考副本。" : "尚未固定执行版本，任务使用平台当前发布版。"}
               {installation?.installedAt
                 ? `最近安装：${new Date(installation.installedAt).toLocaleString("zh-CN")}`
                 : ""}
@@ -408,6 +412,7 @@ export function SkillsMarket({
                         ? ` · v${installed(selected.id)!.installedVersion}`
                         : ""}
                     </p>
+                    <SkillsInstallationActions key={`${projectId}:${target}:${selected.id}`} projectId={projectId} target={target} skill={selected} project={installation} disabled={loading || Boolean(error) || !installation} onChanged={() => setRetry((value) => value + 1)} />
                   </div>
                 )}
                 <div>

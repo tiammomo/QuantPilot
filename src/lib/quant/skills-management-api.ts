@@ -9,7 +9,7 @@ async function parseSkillsResponse<T>(response: Response, fallbackMessage: strin
 }
 
 export async function fetchSkillsDashboard(): Promise<SkillsPayload> {
-  const response = await fetch('/api/skills', { cache: 'no-store' });
+  const response = await fetch('/api/skills?view=studio', { cache: 'no-store' });
   return parseSkillsResponse<SkillsPayload>(response, '刷新 skills 状态失败');
 }
 
@@ -28,12 +28,14 @@ export function readSkillFile(skillId: string, filePath: string): Promise<Source
 
 export function saveSkillFile(params: {
   skillId: string;
+  expectedRevision: string;
   filePath: string;
   content: string;
 }): Promise<SourceState> {
   return postSkillsJson<SourceState>({
     action: 'save-file',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     filePath: params.filePath,
     content: params.content,
   });
@@ -41,51 +43,57 @@ export function saveSkillFile(params: {
 
 export function createSkillFolder(params: {
   skillId: string;
+  expectedRevision: string;
   folderPath: string;
 }): Promise<SkillsPayload> {
   return postSkillsJson<SkillsPayload>({
     action: 'create-folder',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     folderPath: params.folderPath,
   });
 }
 
 export function deleteSkillFile(params: {
   skillId: string;
+  expectedRevision: string;
   filePath: string;
 }): Promise<SkillsPayload> {
   return postSkillsJson<SkillsPayload>({
     action: 'delete-file',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     filePath: params.filePath,
   });
 }
 
 export function deleteSkillFolder(params: {
   skillId: string;
+  expectedRevision: string;
   folderPath: string;
 }): Promise<SkillsPayload> {
   return postSkillsJson<SkillsPayload>({
     action: 'delete-folder',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     folderPath: params.folderPath,
   });
 }
 
 export function publishSkillVersion(params: {
   skillId: string;
+  expectedRevision: string;
   version: string;
   summary: string;
   changes: string;
-  status: string;
 }): Promise<SkillsPayload> {
   return postSkillsJson<SkillsPayload>({
     action: 'publish-version',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     version: params.version,
     summary: params.summary,
     changes: params.changes,
-    status: params.status,
   });
 }
 
@@ -95,32 +103,32 @@ export function diffSkillVersion(skillId: string): Promise<SkillDiffData> {
 
 export function rollbackSkillVersion(params: {
   skillId: string;
+  expectedRevision: string;
   version: string;
 }): Promise<SkillsPayload> {
   return postSkillsJson<SkillsPayload>({
     action: 'rollback-version',
     skillId: params.skillId,
+    expectedRevision: params.expectedRevision,
     version: params.version,
   });
 }
 
 export function uploadSkillPackage(params: {
   skillId: string;
-  version: string;
-  summary: string;
-  changes: string;
-  status: string;
+  expectedRevision: string;
   file: File;
 }): Promise<SkillsPayload> {
   const form = new FormData();
   form.set('action', 'upload-package');
   form.set('skillId', params.skillId);
-  form.set('version', params.version);
-  form.set('summary', params.summary);
-  form.set('changes', params.changes);
-  form.set('status', params.status);
+  form.set('expectedRevision', params.expectedRevision);
   form.set('file', params.file);
   return fetch('/api/skills', { method: 'POST', body: form }).then((response) =>
     parseSkillsResponse<SkillsPayload>(response, '上传失败')
   );
+}
+
+export function discardSkillDraft(params: { skillId: string; expectedRevision: string }): Promise<SkillsPayload> {
+  return postSkillsJson<SkillsPayload>({ action: 'discard-draft', ...params });
 }

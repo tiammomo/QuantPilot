@@ -876,6 +876,7 @@ async function executePiAgentPhase(
     const availableToolNames = tools.map((tool) => tool.name);
     const [skillBundle, taskPrompt, history] = await raceWithAbort(Promise.all([
       compilePiAgentSkills({
+        runtimeWorkspace: workspace,
         // Runtime work is always a generated financial workspace. Falling
         // back to the default quant capability avoids the compiler's broad
         // "all stable skills" mode, which includes platform-only UI guidance.
