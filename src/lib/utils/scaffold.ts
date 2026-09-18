@@ -102,6 +102,7 @@ function shouldRefreshScaffoldFile(filePath: string, existing: string): boolean 
     return (
       existing.includes('next/navigation-types/navigation') ||
       !existing.includes('import "./.next/types/routes.d.ts";') ||
+      !existing.includes('import "./.next/types/root-params.d.ts";') ||
       !existing.includes('// NOTE: This file should not be edited')
     );
   }
@@ -623,6 +624,7 @@ export async function scaffoldBasicNextApp(
     `/// <reference types="next" />
 /// <reference types="next/image-types/global" />
 import "./.next/types/routes.d.ts";
+import "./.next/types/root-params.d.ts";
 
 // NOTE: This file should not be edited
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.

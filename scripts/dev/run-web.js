@@ -25,6 +25,7 @@ const nextEnvStableContent = `/// <reference types="next" />
 /// <reference types="next/image-types/global" />
 /// <reference types="next/navigation-types/compat/navigation" />
 import "./.next/types/routes.d.ts";
+import "./.next/types/root-params.d.ts";
 
 // NOTE: This file should not be edited
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
@@ -339,6 +340,10 @@ async function restoreStableNextEnv() {
     if (devRoutes) {
       await fs.mkdir(path.dirname(nextBuildRouteTypesFile), { recursive: true });
       await fs.writeFile(nextBuildRouteTypesFile, devRoutes, 'utf8');
+    }
+    const devRootParams = await fs.readFile(path.join(rootDir, '.next', 'dev', 'types', 'root-params.d.ts'), 'utf8').catch(() => '');
+    if (devRootParams) {
+      await fs.writeFile(path.join(rootDir, '.next', 'types', 'root-params.d.ts'), devRootParams, 'utf8');
     }
 
     const current = await fs.readFile(nextEnvFile, 'utf8').catch(() => '');

@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { writeAppTypeDeclarations } from 'next/dist/lib/typescript/writeAppTypeDeclarations';
 import { afterEach, describe, expect, it } from 'vitest';
 import { restoreQuantDashboardTemplate, scaffoldBasicNextApp } from './scaffold';
 import {
@@ -208,6 +209,7 @@ describe('restoreQuantDashboardTemplate', () => {
 
   it('normalizes the platform TypeScript config before read-only sandbox execution', async () => {
     const projectPath = await createProject();
+    await fs.writeFile(path.join(projectPath, 'next-env.d.ts'), '/// <reference types="next" />\nimport "./.next/types/routes.d.ts";\n// NOTE: This file should not be edited\n');
     const tsconfigPath = path.join(projectPath, 'tsconfig.json');
     await fs.writeFile(tsconfigPath, JSON.stringify({
       compilerOptions: { jsx: 'preserve', strict: true },
@@ -232,5 +234,10 @@ describe('restoreQuantDashboardTemplate', () => {
     ]));
     expect(nextEnv).toContain('import "./.next/types/routes.d.ts";');
     expect(nextEnv).not.toContain('next/navigation-types/navigation');
+    await writeAppTypeDeclarations({
+      baseDir: projectPath, distDir: '.next', imageImportsEnabled: true,
+      hasAppDir: true, hasPagesDir: false, strictRouteTypes: false, typedRoutes: false,
+    });
+    await expect(fs.readFile(path.join(projectPath, 'next-env.d.ts'), 'utf8')).resolves.toBe(nextEnv);
   });
 });
