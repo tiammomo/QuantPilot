@@ -14,6 +14,7 @@ const os = require('os');
 const { promisify } = require('util');
 const { buildStableCss } = require('./build-stable-css');
 const { withNextArtifactLock } = require('../shared/next-artifact-lock');
+const { stageStandaloneDependencies } = require('./standalone-dependencies');
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.join(__dirname, '..', '..');
@@ -153,6 +154,7 @@ async function prepareStandaloneRuntime() {
   ]);
 
   await fs.access(path.join(standaloneDir, 'server.js'));
+  await stageStandaloneDependencies(rootDir, standaloneDir);
   const standaloneRootEntries = await fs.readdir(standaloneDir);
   await Promise.all(
     standaloneRootEntries
@@ -168,6 +170,19 @@ async function prepareStandaloneRuntime() {
   // tree keeps the artifact self-contained; it contains build output only.
   await fs.rm(serverTarget, { recursive: true, force: true });
   await fs.cp(serverSource, serverTarget, { recursive: true, force: true });
+
+  // Turbopack emits hashed external-package aliases outside the server tree.
+  // Preserve their relative links so moving the release cannot resolve modules
+  // through the build checkout or lose those runtime aliases.
+  const aliasesSource = path.join(rootDir, '.next', 'node_modules');
+  const aliasesTarget = path.join(standaloneDir, '.next', 'node_modules');
+  if (await fs.stat(aliasesSource).then(() => true, (error) => {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  })) {
+    await fs.rm(aliasesTarget, { recursive: true, force: true });
+    await fs.cp(aliasesSource, aliasesTarget, { recursive: true, verbatimSymlinks: true });
+  }
 
   await fs.rm(publicTarget, { recursive: true, force: true });
   await fs.cp(publicSource, publicTarget, {

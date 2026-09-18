@@ -21,6 +21,9 @@ const tracingExcludes = [
   './services/**/.venv/**',
   './services/**/.ruff_cache/**',
   './coverage/**',
+  './test-results/**',
+  './playwright-report/**',
+  './*.tsbuildinfo',
   './dist/**',
   './build/**',
   './out/**',
@@ -39,6 +42,9 @@ const tracePluginIgnores = [
   '**/.ruff_cache/**',
   '**/data/**',
   '**/tmp/**',
+  '**/test-results/**',
+  '**/playwright-report/**',
+  '**/*.tsbuildinfo',
   '**/services/market-data/.venv/**',
   '**/services/**/.venv/**',
   '**/services/**/.ruff_cache/**',
@@ -57,6 +63,9 @@ const nextConfig = {
     '@prisma/client',
     'prisma',
     'ws',
+    // Publication scripts execute in Node outside the Next bundle.
+    'js-yaml',
+    'tar',
   ],
   // 关闭 critters 的 CSS 优化，避免构建时缺少可选依赖。
   experimental: {
@@ -84,6 +93,10 @@ const nextConfig = {
       './scripts/checks/check-skills-registry.js',
       './scripts/checks/check-skill-scripts.js',
       './tests/skills/test_contracts.py',
+      './node_modules/js-yaml/**',
+      './node_modules/tar/**',
+      // Turbopack can omit runtime entries referenced by shared API chunks.
+      './node_modules/next/dist/compiled/next-server/*.runtime.prod.js',
       './scripts/security/**',
     ],
   },
