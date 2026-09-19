@@ -207,6 +207,7 @@ interface QuantGenerationQueuedParams<T> {
   selectedModel?: string | null;
   executionEnvelope?: unknown;
   maxAttempts?: number;
+  stage?: "planning_data_prefetch" | "agent_execution";
   completeOnTaskSuccess?: boolean;
   completeOnTaskFailure?: boolean;
   task: QueueTask<T>;
@@ -283,17 +284,22 @@ export async function enqueueQuantGeneration(params: Omit<
     selectedModel: params.selectedModel,
     executionEnvelope: params.executionEnvelope,
     maxAttempts: params.maxAttempts,
+    stage: params.stage,
   });
-  await projectDurableQueue(params.projectPath, params.projectId, {
-    reconcileExpired: false,
-  });
-  await appendLifecycleEvent({
-    projectPath: params.projectPath,
-    requestId: params.requestId,
-    eventType: "generation_queued",
-    status: "pending",
-    summary: "生成任务已进入 PostgreSQL durable dispatch，等待独立 Worker。",
-  });
+  // The durable acknowledgement is the transaction above. Disposable workspace
+  // projections must not reject an already accepted job or fail its request.
+  try {
+    await projectDurableQueue(params.projectPath, params.projectId, { reconcileExpired: false });
+    await appendLifecycleEvent({
+      projectPath: params.projectPath,
+      requestId: params.requestId,
+      eventType: "generation_queued",
+      status: "pending",
+      summary: "生成任务已进入 PostgreSQL durable dispatch，等待独立 Worker。",
+    });
+  } catch (error) {
+    console.warn("[GenerationDispatch] Queued job projection will be recovered on read:", error);
+  }
 }
 
 async function executeQuantGenerationDispatch<T>(

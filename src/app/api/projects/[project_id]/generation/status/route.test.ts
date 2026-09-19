@@ -6,10 +6,14 @@ const mocks = vi.hoisted(() => ({
   readValidation: vi.fn(),
   readAcceptedMission: vi.fn(),
   getPreviewStatus: vi.fn(),
+  listJobs: vi.fn(),
 }));
 
 vi.mock('@/lib/services/project', () => ({
   getProjectById: mocks.getProjectById,
+}));
+vi.mock('@/lib/services/pi-agent-generation-dispatch-store', () => ({
+  listPiAgentGenerationJobs: mocks.listJobs, reconcileExpiredPiAgentGenerationJobs: vi.fn(async () => []),
 }));
 
 vi.mock('@/lib/quant/generation-state', () => ({
@@ -86,6 +90,7 @@ const acceptedMission = {
 describe('generation status acceptance gate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.listJobs.mockResolvedValue([]);
     mocks.getProjectById.mockResolvedValue({
       id: 'project-1',
       repoPath: '/tmp/project-1',
@@ -100,6 +105,24 @@ describe('generation status acceptance gate', () => {
       port: 4100,
       logs: [],
     });
+  });
+
+  it('restores a queued request before preparation replaces the old accepted workspace state', async () => {
+    mocks.readAcceptedMission.mockResolvedValue(acceptedMission);
+    mocks.listJobs.mockResolvedValue([{ projectId: 'project-1', requestId: 'queued-request',
+      status: 'pending', stage: 'planning_data_prefetch', queuedAt: new Date('2026-09-19'), cliPreference: 'pi', errorMessage: null }]);
+    const response = await GET(new Request('http://localhost'), context);
+    expect((await response.json()).data).toMatchObject({ requestId: 'queued-request', status: 'running', terminal: false,
+      activeStep: 'planning', stepSummary: '研究请求已保存，等待 Worker 执行。', previewUrl: null });
+  });
+
+  it('closes a preparation failure even when no generation projection was written', async () => {
+    mocks.readGeneration.mockResolvedValue(null);
+    mocks.listJobs.mockResolvedValue([{ projectId: 'project-1', requestId: 'failed-request',
+      status: 'failed', stage: 'planning_data_prefetch', queuedAt: new Date(), cliPreference: 'pi', errorMessage: 'profile changed' }]);
+    const response = await GET(new Request('http://localhost'), context);
+    expect((await response.json()).data).toMatchObject({ requestId: 'failed-request', status: 'failed', terminal: true,
+      errorMessage: 'profile changed', previewUrl: null });
   });
 
   it('fails closed when the current PI Agent request has no accepted receipt', async () => {

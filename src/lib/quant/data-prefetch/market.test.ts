@@ -12,6 +12,24 @@ afterEach(async () => {
 });
 
 describe('backtest experiment artifacts', () => {
+  it('discards an upstream response received after cancellation before writing evidence', async () => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-cancel-quote-'));
+    projects.push(projectPath);
+    let cancelled = false;
+    const assertActive = async () => { if (cancelled) throw new Error('cancelled'); };
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      cancelled = true;
+      return Response.json({ symbol: '510300', price: '3.9' });
+    }));
+    const rawFiles: string[] = [];
+    await expect(fetchSymbolDataset({
+      projectPath, runId: 'cancelled', symbol: '510300', rawFiles, warnings: [], assertActive,
+      plan: { dataRequirements: [] } as unknown as QuantRunPlan,
+    })).rejects.toThrow('cancelled');
+    expect(rawFiles).toEqual([]);
+    expect(await fs.readdir(projectPath)).toEqual([]);
+  });
+
   it('reuses validated batch quotes in both the final data and raw evidence', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-batch-quote-'));
     projects.push(projectPath);

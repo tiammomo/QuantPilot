@@ -19,7 +19,6 @@ import {
 import { PRODUCT_CLI_ID } from "@/lib/constants/cli";
 import { streamManager } from "@/lib/services/stream";
 import { generateProjectId } from "@/lib/utils";
-import fs from "fs/promises";
 import { ImageAssetError } from "@/lib/server/image-assets";
 import {
   ChatActContractError,
@@ -55,50 +54,18 @@ import {
 } from "@/lib/quota";
 import { readQuantRunPlan } from "@/lib/domains/finance/workspace";
 import { createWorkspaceProgressPublisher } from "@/lib/quant/workspace-progress";
-import { shouldEscalateStalledRepair } from "@/lib/quant/repair-convergence";
 import { buildClarificationContinuation } from "@/lib/domains/finance/intent";
-import {
-  incrementQuantGenerationRepairAttempt,
-  readQuantGenerationState,
-  updateQuantGenerationStep,
-} from "@/lib/quant/generation-state";
-import {
-  finishQuantGenerationQueueItem,
-  enqueueQuantGeneration,
-  startQuantGenerationQueued,
-} from "@/lib/quant/generation-queue";
+import { startQuantGenerationQueued } from "@/lib/quant/generation-queue";
 import { validatePiAgentIngressInput } from "@/lib/agent/input-policy";
-import { classifyPiAgentExecutionError } from "@/lib/services/pi-agent-execution-error";
 import { PiAgentGenerationLeaseError } from "@/lib/services/pi-agent-generation-lease-store";
-import { refreshPiAgentCandidateWorkspace } from "@/lib/services/pi-agent-candidate";
-import type { PiAgentCandidateSubmission } from "@/lib/agent/mission";
-import {
-  claimQuantPiAgentMissionVerification,
-  refreshPiAgentMissionContext,
-  sealQuantPiAgentMissionCandidate,
-  verifyAndRecordQuantPiAgentMission,
-  type PiAgentMissionContext,
-} from "@/lib/services/pi-agent-mission-control";
-import {
-  cancelPiAgentMission,
-  failPiAgentMission,
-  markPiAgentMissionRepairing,
-  readPiAgentAcceptedMissionSnapshot,
-} from "@/lib/services/pi-agent-mission-store";
-import {
-  startPersistentValidatedPreview,
-  type ValidatedGenerationPreview,
-} from "@/lib/quant/generation-preview";
+import { type PiAgentMissionContext } from "@/lib/services/pi-agent-mission-control";
+import { failPiAgentMission } from "@/lib/services/pi-agent-mission-store";
 import { recallPersonalization } from "@/lib/platform/memory";
 import { detectPersonalMemoryCandidate } from "@/lib/platform/memory/candidate";
-import {
-  persistAcceptedGovernedKnowledgeUse,
-  recordGovernedKnowledgeUsage,
-} from "@/lib/platform/knowledge";
-import { recordContextAcceptance } from "@/lib/platform/context/use-manifest";
 import { createFinanceGenerationEnvelope } from "@/lib/quant/finance-generation-executor";
 import { createApplicationGenerationRuntime } from "@/lib/quant/generation-runtime";
 import { prepareFinanceActGeneration } from "@/lib/quant/finance-act-preparation";
+import { enqueueFinanceResearchRequest } from "@/lib/quant/finance-research-request";
 import {
   resolveProjectRoot,
 } from "@/lib/quant/chat-act-support";
@@ -375,6 +342,20 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const capabilityId = body.capabilityId;
     const capabilitySelectionSource = body.capabilitySelectionSource;
 
+    if (process.env.PI_AGENT_DISPATCH_MODE === "worker") {
+      const accepted = await enqueueFinanceResearchRequest({
+        projectId: project_id, projectPath, requestId, finalInstruction, displayInstruction,
+        imageAttachmentInstruction, attachmentContextPath, selectedModel,
+        isInitialPrompt: body.isInitialPrompt, conversationId: conversationId ?? null,
+        actorUserId, memorySubjectId: actionContext.actorUserId, capabilityId,
+        capabilitySelectionSource, processedImages,
+      });
+      return NextResponse.json({
+        success: true, status: "queued", message: "Research request queued",
+        requestId, userMessageId: accepted.userMessageId, conversationId: conversationId ?? null,
+      }, { status: 202 });
+    }
+
     await ensureProjectLlmConfiguration({
       projectId: project_id,
       projectName: project.name,
@@ -572,7 +553,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       publishWorkspaceProgress,
     });
     if (preparation.response) {
-      return preparation.response;
+      return NextResponse.json(preparation.response.body, { status: preparation.response.status });
     }
     const {
       missionContext,
@@ -638,28 +619,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       requestId,
       capabilityId: plannedRunPlan.capabilityId,
     });
-
-    if (process.env.PI_AGENT_DISPATCH_MODE === "worker") {
-      await enqueueQuantGeneration({
-        projectPath,
-        projectId: project_id,
-        requestId,
-        instruction: effectiveInstruction,
-        cliPreference,
-        selectedModel,
-        executionEnvelope,
-        maxAttempts: 3,
-      });
-      return NextResponse.json({
-        success: true,
-        message: "AI execution queued",
-        requestId,
-        missionId: queuedMission.id,
-        generationId: queuedMission.generationId,
-        userMessageId: userMessage.id,
-        conversationId: conversationId ?? null,
-      });
-    }
 
     const queuedGeneration = await startQuantGenerationQueued({
       projectPath,

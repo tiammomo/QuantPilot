@@ -41,13 +41,23 @@ function readyCatalog(): PiAgentSchemaCatalog {
     PI_AGENT_SCHEMA_EXPECTATIONS.checkConstraints.map((constraint) => ({
       tableName: constraint.tableName,
       constraintName: constraint.constraintName,
-      definition: `CHECK ((workspace_key ~ '${constraint.definitionIncludes[1]}'::text))`,
+      definition: `CHECK (${constraint.definitionIncludes.join(' ')})`,
       validated: true,
     }));
   return { columns, indexes, foreignKeys, checkConstraints };
 }
 
 describe('PI Agent schema readiness', () => {
+  it('rejects a database that still limits jobs to post-preparation stages', () => {
+    const catalog = readyCatalog();
+    catalog.checkConstraints = catalog.checkConstraints.map(constraint =>
+      constraint.tableName === 'agent_generation_jobs'
+        ? { ...constraint, definition: "CHECK (stage IN ('agent_execution', 'automatic_validation', 'completed'))" }
+        : constraint);
+    expect(evaluatePiAgentSchemaCatalog(catalog)).toMatchObject({ ready: false, issues: [
+      expect.objectContaining({ code: 'INVALID_CHECK_CONSTRAINT', objectName: 'public.agent_generation_jobs.agent_generation_jobs_stage_check' }),
+    ] });
+  });
   it('accepts the complete durable runtime and Mission Graph catalog contract', () => {
     expect(evaluatePiAgentSchemaCatalog(readyCatalog())).toEqual({
       ready: true,
@@ -55,7 +65,7 @@ describe('PI Agent schema readiness', () => {
       issues: [],
     });
     expect(PI_AGENT_SCHEMA_CONTRACT_VERSION).toBe(
-      '20260723000400_worker_registry_and_observability'
+      '20260919110000_generation_preparation_stage'
     );
   });
 

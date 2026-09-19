@@ -5,7 +5,7 @@
 ## 当前部署边界
 
 - Web、market-data、PostgreSQL/TimescaleDB、Redis 和 Loki 必须在受控内网通信；只由 HTTPS 反向代理公开 Web。
-- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `PI_AGENT_DISPATCH_MODE=worker` 时，独立 generation worker 先注册 `agent_worker_instances` 进程租约并取得 `agent_worker_slots` 全局容量，再按 actor 公平 claim、heartbeat、执行、验证和提交终态。所有实例必须配置相同 `PI_AGENT_WORKER_GLOBAL_CONCURRENCY`，且单进程并发不能超过它；存活实例配置不一致时，新 Worker 会失败关闭。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，新 attempt 从当前持久化状态重新规划。
+- generation pipeline 使用 PostgreSQL job/outbox 在 HTTP 响应前持久化；生产 `PI_AGENT_DISPATCH_MODE=worker` 时，独立 generation worker 先注册 `agent_worker_instances` 进程租约并取得 `agent_worker_slots` 全局容量，再按 actor 公平 claim、heartbeat、执行、验证和提交终态。所有实例必须配置相同 `PI_AGENT_WORKER_GLOBAL_CONCURRENCY`，且单进程并发不能超过它；存活实例配置不一致时，新 Worker 会失败关闭。Worker 异常退出后，过期 attempt 会在 fencing 校验后进入指数退避的 `retry_wait`，准备检查点后的新 attempt 从固化执行输入继续；准备检查点之前的中断不自动重试，需用户发起新请求。
 - `PROJECTS_DIR` 必须是持久化、可读写的文件系统，且与数据库备份保持同一恢复点。
 - 生产密钥由 secret manager 或 root-only `EnvironmentFile` 注入，不写入镜像、standalone 目录、日志或 Git。
 
@@ -131,3 +131,9 @@ npm run db:restore:release -- \
 - 法务/隐私负责人确认服务条款、隐私政策、Cookie/日志/审计保留、第三方模型与行情数据处理说明。
 - 运维负责人确认 SLO、告警联系人、容量、RPO/RTO、回滚和恢复演练。
 - 发布负责人保存 commit SHA、CI 链接、评测报告、备份 manifest 和上线验收记录。
+
+### 研究准备 Worker 升级
+
+`20260919110000_generation_preparation_stage` 只扩展任务阶段 CHECK 约束，不修改业务行。按 schema release 先备份、执行 `npm run prisma:deploy`，再以同一 revision 更新 Web 与 generation Worker。就绪检查要求新阶段约束，未迁移时不得切流。切换前停止旧 Web 接收新研究并等待旧任务结束，避免旧 Worker 领取新的 preparation 信封。
+
+回滚代码前停止新 Web 接收请求并排空 preparation 任务；旧 Worker 无法识别该信封。保留扩展约束即可兼容旧代码，无需恢复数据库或删除研究数据。无法排空时先取消指定任务并确认租约释放，再切换旧版本。

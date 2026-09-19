@@ -21,6 +21,7 @@ export async function fetchScreenerSeedSymbols(params: {
   plan: QuantRunPlan;
   rawFiles: string[];
   warnings: string[];
+  assertActive?: () => Promise<void>;
 }): Promise<{ symbols: string[]; screener: JsonRecord | null }> {
   const mode = screenerModeForQuestion(params.plan.question);
   const limit = screenerLimitForQuestion(params.plan.question);
@@ -37,6 +38,7 @@ export async function fetchScreenerSeedSymbols(params: {
     {},
     { timeoutMs: SCREENER_FETCH_TIMEOUT_MS }
   );
+  await params.assertActive?.();
   const rawPath = path.join(params.projectPath, 'data_file', 'raw', params.runId, 'a-share-screener.json');
   await writeJson(rawPath, screener);
   params.rawFiles.push(path.relative(params.projectPath, rawPath).replaceAll(path.sep, '/'));
@@ -144,7 +146,15 @@ export async function fetchSymbolDataset(params: {
   rawFiles: string[];
   warnings: string[];
   quote?: JsonRecord;
+  assertActive?: () => Promise<void>;
 }): Promise<JsonRecord> {
+  const fetchDatasetJson = async (endpoint: string) => {
+    await params.assertActive?.();
+    const response = await fetchJson(endpoint);
+    await params.assertActive?.();
+    return response;
+  };
+  await params.assertActive?.();
   const symbolRawDir = path.join(params.projectPath, 'data_file', 'raw', params.runId, params.symbol);
   const historyLimit = inferHistoryLimit(params.plan);
   const quoteEndpoint = `/api/v1/quotes/realtime/${params.symbol}`;
@@ -155,7 +165,7 @@ export async function fetchSymbolDataset(params: {
   if (params.quote && !batchQuoteUsable) {
     params.warnings.push(`${params.symbol} 批量行情不可用，已尝试单独获取。`);
   }
-  const quote = batchQuoteUsable ? params.quote! : await fetchJson(quoteEndpoint);
+  const quote = batchQuoteUsable ? params.quote! : await fetchDatasetJson(quoteEndpoint);
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
   const quotePath = path.join(symbolRawDir, 'quote.json');
   await writeJson(quotePath, quote);
@@ -170,11 +180,12 @@ export async function fetchSymbolDataset(params: {
 
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/quotes/history/'))) {
     try {
-      kline = await fetchJson(`/api/v1/quotes/history/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`);
+      kline = await fetchDatasetJson(`/api/v1/quotes/history/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`);
       const filePath = path.join(symbolRawDir, 'kline-daily-qfq.json');
       await writeJson(filePath, kline);
       params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 历史 K 线预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -185,20 +196,21 @@ export async function fetchSymbolDataset(params: {
     params.plan.requestedCapabilityId === 'asset_comparison'
   ) {
     try {
-      technicalIndicators = await fetchJson(
+      technicalIndicators = await fetchDatasetJson(
         `/api/v1/indicators/technical/${params.symbol}?period=daily&adjustment=qfq&limit=${historyLimit}`
       );
       const filePath = path.join(symbolRawDir, 'technical-indicators.json');
       await writeJson(filePath, technicalIndicators);
       params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 技术指标预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
   if (params.plan.dataRequirements.some((endpoint) => endpoint.includes('/backtests/ma-crossover/'))) {
     try {
-      backtest = await fetchJson(
+      backtest = await fetchDatasetJson(
         `/api/v1/backtests/ma-crossover/${params.symbol}?fast_window=20&slow_window=60&period=daily&adjustment=qfq&limit=250&fee_bps=5`
       );
       const experiment = asRecord(backtest.experiment);
@@ -223,6 +235,7 @@ export async function fetchSymbolDataset(params: {
         };
       }
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 均线突破回测预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -232,11 +245,12 @@ export async function fetchSymbolDataset(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/fundamentals/financials/'))
   ) {
     try {
-      financials = await fetchJson(`/api/v1/fundamentals/financials/${params.symbol}?limit=8`);
+      financials = await fetchDatasetJson(`/api/v1/fundamentals/financials/${params.symbol}?limit=8`);
       const filePath = path.join(symbolRawDir, 'financials.json');
       await writeJson(filePath, financials);
       params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 财务摘要预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -246,11 +260,12 @@ export async function fetchSymbolDataset(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/indicators/fundamental/'))
   ) {
     try {
-      fundamentalIndicators = await fetchJson(`/api/v1/indicators/fundamental/${params.symbol}?limit=8`);
+      fundamentalIndicators = await fetchDatasetJson(`/api/v1/indicators/fundamental/${params.symbol}?limit=8`);
       const filePath = path.join(symbolRawDir, 'fundamental-indicators.json');
       await writeJson(filePath, fundamentalIndicators);
       params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 财务衍生指标预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -260,11 +275,12 @@ export async function fetchSymbolDataset(params: {
     params.plan.dataRequirements.some((endpoint) => endpoint.includes('/events/announcements/'))
   ) {
     try {
-      announcements = await fetchJson(`/api/v1/events/announcements/${params.symbol}?limit=20`);
+      announcements = await fetchDatasetJson(`/api/v1/events/announcements/${params.symbol}?limit=20`);
       const filePath = path.join(symbolRawDir, 'announcements.json');
       await writeJson(filePath, announcements);
       params.rawFiles.push(path.relative(params.projectPath, filePath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       params.warnings.push(`${params.symbol} 公告事件预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }

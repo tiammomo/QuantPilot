@@ -71,6 +71,19 @@ async function buildRewrite(params: {
 }
 
 describe('writeInitialRunPlan', () => {
+  it('keeps the prior plan when cancellation or a lost lease rejects the new model result', async () => {
+    const projectPath = await createProject();
+    const instruction = '分析贵州茅台';
+    const queryRewrite = await buildRewrite({ query: instruction, targets: ['贵州茅台'], symbolByTarget: { 贵州茅台: '600519' } });
+    await writeInitialRunPlan({ projectPath, instruction, requestId: 'previous', queryRewrite });
+    const planPath = path.join(projectPath, '.data-agent', 'finance-run-plan.json');
+    const previous = await fs.readFile(planPath, 'utf8');
+    await expect(writeInitialRunPlan({ projectPath, instruction, requestId: 'cancelled', queryRewrite,
+      assertActive: async () => { throw new Error('lease lost'); },
+    })).rejects.toThrow('lease lost');
+    expect(await fs.readFile(planPath, 'utf8')).toBe(previous);
+  });
+
   it('persists the LLM rewrite and authoritative resolver symbol in the run plan', async () => {
     const projectPath = await createProject();
     const query = '大位科技这个股票怎么样';

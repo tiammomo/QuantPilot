@@ -30,6 +30,38 @@ export type QuantGenerationTerminalGenerationInput = {
 
 type GenerationStateInput = QuantGenerationTerminalGenerationInput;
 
+/** Durable dispatch remains authoritative before a workspace projection exists. */
+export function reconcileGenerationDispatchState(
+  generation: (NonNullable<GenerationStateInput> & { createdAt?: string }) | null,
+  job: {
+    projectId: string; requestId: string; status: string; stage: string;
+    queuedAt: Date; cliPreference: string | null; errorMessage: string | null;
+  } | null,
+): GenerationStateInput {
+  if (!job) return generation;
+  const sameRequest = generation?.requestId === job.requestId;
+  // Inline preparation can precede its own job; an older job cannot replace it.
+  if (!sameRequest && generation?.createdAt && Date.parse(generation.createdAt) > job.queuedAt.getTime()) return generation;
+  const base = {
+    projectId: job.projectId, requestId: job.requestId, cliPreference: job.cliPreference,
+    ...(sameRequest ? generation : null),
+  };
+  if (['failed', 'interrupted', 'cancelled'].includes(job.status)) return {
+    ...base, status: job.status === 'cancelled' ? 'cancelled' : 'failed',
+    error: { message: job.errorMessage ?? '研究任务已中断，请重新发起。' },
+  };
+  if (job.status === 'completed') return sameRequest ? generation : {
+    ...base, status: 'failed', error: { message: '研究已结束，但结果状态缺失，请检查任务记录。' },
+  };
+  if (sameRequest && generation?.status === 'running' && job.status === 'running') return generation;
+  const activeStep = job.stage === 'planning_data_prefetch' ? 'planning' : 'agent_execution';
+  return {
+    ...base, status: 'running', activeStep,
+    steps: [{ id: activeStep, summary: job.status === 'running'
+      ? '正在准备研究上下文与执行输入。' : '研究请求已保存，等待 Worker 执行。' }],
+  };
+}
+
 type ValidationReportInput = Pick<
   QuantValidationReport,
   'runId' | 'status' | 'passed' | 'checks'

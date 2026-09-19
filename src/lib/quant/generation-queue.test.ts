@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => {
     withGenerationLease: vi.fn(async <T>(input: { task: () => Promise<T> }) =>
       input.task(),
     ),
+    enqueue: vi.fn(),
     finishJob: vi.fn(),
     cancelJob: vi.fn(),
   };
@@ -86,6 +87,7 @@ vi.mock("@/lib/services/pi-agent-generation-dispatch-store", () => {
   }
   return {
     PiAgentGenerationDispatchError: DispatchError,
+    enqueuePiAgentGenerationJob: mocks.enqueue,
     listPiAgentGenerationJobs: vi.fn(async (projectId: string) =>
       [...mocks.jobs.values()].filter((job) => job.projectId === projectId),
     ),
@@ -194,6 +196,7 @@ vi.mock("@/lib/services/pi-agent-generation-dispatch-session", async () => {
 });
 
 import {
+  enqueueQuantGeneration,
   markQuantGenerationQueueCancelled,
   QuantGenerationCancelledError,
   readQuantGenerationQueue,
@@ -228,6 +231,16 @@ afterEach(async () => {
 });
 
 describe("generation durable dispatch projection", () => {
+  it("does not reject a committed job when the workspace projection cannot be written", async () => {
+    const projectPath = await createProject();
+    const blocked = path.join(projectPath, 'not-a-directory');
+    await fs.writeFile(blocked, 'fixture');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(enqueueQuantGeneration({ projectPath: blocked, projectId: 'project', requestId: 'request',
+      instruction: 'Research', stage: 'planning_data_prefetch', maxAttempts: 1 })).resolves.toBeUndefined();
+    expect(mocks.enqueue).toHaveBeenCalledWith(expect.objectContaining({ stage: 'planning_data_prefetch', maxAttempts: 1 }));
+  });
+
   it("claims a durable job before delegating project exclusivity to the generation lease", async () => {
     const projectPath = await createProject();
     const projectId = `project-${Date.now()}`;

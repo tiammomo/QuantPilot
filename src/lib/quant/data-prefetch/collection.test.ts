@@ -7,6 +7,31 @@ vi.mock('./market', () => ({ fetchSymbolDataset: vi.fn() }));
 afterEach(() => vi.resetAllMocks());
 
 describe('bounded symbol collection', () => {
+  it('drains in-flight symbols on cancellation without starting another symbol', async () => {
+    const finish = new Map<string, () => void>();
+    let cancelled = false;
+    const assertActive = async () => { if (cancelled) throw new Error('cancelled'); };
+    vi.mocked(fetchSymbolDataset).mockImplementation(async params => {
+      await new Promise<void>(resolve => finish.set(params.symbol, resolve));
+      await params.assertActive?.();
+      return { symbol: params.symbol };
+    });
+    let settled = false;
+    const pending = collectSymbolDatasets({
+      projectPath: '/unused', runId: 'run', plan: {} as QuantRunPlan,
+      symbols: ['A', 'B', 'C'], quotes: new Map(), assertActive,
+    }).catch(error => { settled = true; return error; });
+    await vi.waitFor(() => expect(finish.size).toBe(2));
+    cancelled = true;
+    finish.get('A')!();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    expect(finish.has('C')).toBe(false);
+    finish.get('B')!();
+    expect(await pending).toMatchObject({ message: 'cancelled' });
+    expect(fetchSymbolDataset).toHaveBeenCalledTimes(2);
+  });
+
   it('runs at most two symbols, isolates failures and keeps requested evidence order', async () => {
     const finish = new Map<string, () => void>();
     let active = 0;

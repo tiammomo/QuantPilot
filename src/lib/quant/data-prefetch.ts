@@ -37,7 +37,9 @@ export async function prefetchQuantDataForRunPlan(params: {
   projectPath: string;
   plan: QuantRunPlan;
   onProgress?: (progress: PrefetchProgress) => Promise<void>;
+  assertActive?: () => Promise<void>;
 }): Promise<PrefetchResult> {
+  await params.assertActive?.();
   if (
     params.plan.status === 'needs_clarification' ||
     params.plan.status === 'refused' ||
@@ -65,10 +67,12 @@ export async function prefetchQuantDataForRunPlan(params: {
         plan: params.plan,
         rawFiles,
         warnings,
+        assertActive: params.assertActive,
       });
       symbols = screenerSeed.symbols;
       screenerData = screenerSeed.screener;
     } catch (error) {
+      await params.assertActive?.();
       warnings.push(`选股接口预取失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -130,6 +134,7 @@ export async function prefetchQuantDataForRunPlan(params: {
         method: 'POST',
         body: JSON.stringify({ symbols }),
       });
+      await params.assertActive?.();
       const quoteRows = Array.isArray(batchQuotes.quotes) ? batchQuotes.quotes : [];
       for (const row of quoteRows) {
         const record = asRecord(row);
@@ -142,6 +147,7 @@ export async function prefetchQuantDataForRunPlan(params: {
       await writeJson(batchPath, batchQuotes);
       rawFiles.push(path.relative(params.projectPath, batchPath).replaceAll(path.sep, '/'));
     } catch (error) {
+      await params.assertActive?.();
       warnings.push(`批量实时行情预取失败，降级为逐只获取：${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -153,7 +159,9 @@ export async function prefetchQuantDataForRunPlan(params: {
     symbols,
     quotes: quoteMap,
     onProgress: params.onProgress,
+    assertActive: params.assertActive,
   });
+  await params.assertActive?.();
   rawFiles.push(...collected.rawFiles);
   warnings.push(...collected.warnings);
   const assets = collected.assets;

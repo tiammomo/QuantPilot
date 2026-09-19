@@ -11,6 +11,7 @@ import {
   listClaimablePiAgentGenerationJobs,
   PiAgentGenerationDispatchError,
   reconcileExpiredPiAgentGenerationJobs,
+  readClaimedPiAgentGenerationJob,
 } from '../../src/lib/services/pi-agent-generation-dispatch-store';
 import { PiAgentWorkerCapacitySession } from '../../src/lib/services/pi-agent-worker-capacity';
 import { PiAgentWorkerRegistrySession } from '../../src/lib/services/pi-agent-worker-registry';
@@ -93,13 +94,14 @@ async function executeJob(
       requestId: job.requestId,
       attemptCount: session.claim.attemptCount,
     }));
+    const claimedJob = await readClaimedPiAgentGenerationJob(session.fence);
     await session.run(() => runtime.execute({
       jobId: job.id,
       projectId: job.projectId,
       requestId: job.requestId,
-      selectedModel: job.selectedModel,
-      cliPreference: job.cliPreference,
-      executionEnvelope: job.executionEnvelope,
+      selectedModel: claimedJob.selectedModel,
+      cliPreference: claimedJob.cliPreference,
+      executionEnvelope: claimedJob.executionEnvelope,
     }));
     const current = await getPiAgentGenerationJob(job.projectId, job.requestId);
     if (current?.status === 'running') {

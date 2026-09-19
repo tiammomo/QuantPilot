@@ -24,6 +24,9 @@ import {
   finishPiAgentGenerationJob,
   heartbeatPiAgentGenerationJob,
   reconcileExpiredPiAgentGenerationJobs,
+  checkpointPiAgentGenerationPreparation,
+  readClaimedPiAgentGenerationJob,
+  listClaimablePiAgentGenerationJobs,
 } from '@/lib/services/pi-agent-generation-dispatch-store';
 import type { AgentRunRecord, AgentWriteFence, CreateAgentRunInput } from './types';
 
@@ -288,6 +291,72 @@ describe.skipIf(!TEST_DATABASE_URL)('PrismaAgentRuntimeRepository (PostgreSQL in
       { sequence: 2, eventType: 'generation_claimed' },
       { sequence: 3, eventType: 'generation_completed' },
     ]);
+  });
+
+  it('recovers prepared inputs under a new fence and never accepts an old checkpoint', async () => {
+    const projectId = await createProject('preparation-checkpoint');
+    const requestId = uniqueId('request:preparation');
+    await clientA.userRequest.create({ data: { id: requestId, projectId, instruction: 'Prepare research.', status: 'processing' } });
+    await enqueuePiAgentGenerationJob({ projectId, requestId, instruction: 'Prepare research.',
+      stage: 'planning_data_prefetch', maxAttempts: 1, executionEnvelope: { phase: 'preparation' } });
+    const first = await claimPiAgentGenerationJob({ projectId, requestId, leaseOwner: uniqueId('worker:first'), leaseTtlMs: 120_000 });
+    const prepared = { phase: 'execution', inputs: { plan: 'immutable-plan', evidence: 'immutable-evidence' } };
+    await checkpointPiAgentGenerationPreparation({ fence: first, executionEnvelope: prepared });
+    await expect(readClaimedPiAgentGenerationJob(first)).resolves.toMatchObject({
+      stage: 'agent_execution', maxAttempts: 3, executionEnvelope: prepared,
+    });
+    await expect(checkpointPiAgentGenerationPreparation({ fence: first, executionEnvelope: {} }))
+      .rejects.toMatchObject({ code: 'GENERATION_DISPATCH_STAGE_CONFLICT' });
+    await clientA.agentGenerationJob.update({ where: { id: first.jobId }, data: { leaseExpiresAt: new Date(0) } });
+    vi.stubEnv('PI_AGENT_DISPATCH_MODE', 'worker');
+    try {
+      await expect(reconcileExpiredPiAgentGenerationJobs({ projectId })).resolves.toEqual([
+        expect.objectContaining({ status: 'retry_wait', requestId }),
+      ]);
+      await clientA.agentGenerationJob.update({ where: { id: first.jobId }, data: { availableAt: new Date(0) } });
+      const second = await claimPiAgentGenerationJob({ projectId, requestId, leaseOwner: uniqueId('worker:replacement'), leaseTtlMs: 120_000 });
+      await expect(readClaimedPiAgentGenerationJob(second)).resolves.toMatchObject({ executionEnvelope: prepared, attemptCount: 2 });
+      await expect(readClaimedPiAgentGenerationJob(first)).rejects.toMatchObject({ code: 'GENERATION_DISPATCH_LEASE_LOST' });
+      await expect(checkpointPiAgentGenerationPreparation({ fence: first, executionEnvelope: {} }))
+        .rejects.toMatchObject({ code: 'GENERATION_DISPATCH_LEASE_LOST' });
+      await finishPiAgentGenerationJob({ projectId, requestId, status: 'failed', errorMessage: 'handler validation failed', fence: second });
+      await expect(clientA.userRequest.findUnique({ where: { id: requestId } })).resolves.toMatchObject({ status: 'failed', errorMessage: 'handler validation failed' });
+      expect(await clientA.agentGenerationOutboxEvent.count({ where: { projectId, eventType: 'generation_preparation_completed' } })).toBe(1);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('does not automatically repeat uncheckpointed preparation after a worker crash', async () => {
+    const projectId = await createProject('preparation-interruption');
+    const requestId = uniqueId('request:unprepared');
+    await clientA.userRequest.create({ data: { id: requestId, projectId, instruction: 'Prepare once.', status: 'processing' } });
+    await enqueuePiAgentGenerationJob({ projectId, requestId, instruction: 'Prepare once.',
+      stage: 'planning_data_prefetch', maxAttempts: 1, executionEnvelope: { phase: 'preparation' } });
+    const claim = await claimPiAgentGenerationJob({ projectId, requestId, leaseOwner: uniqueId('worker:preparation'), leaseTtlMs: 120_000 });
+    await clientA.agentGenerationJob.update({ where: { id: claim.jobId }, data: { leaseExpiresAt: new Date(0) } });
+    vi.stubEnv('PI_AGENT_DISPATCH_MODE', 'worker');
+    try {
+      await expect(reconcileExpiredPiAgentGenerationJobs({ projectId })).resolves.toEqual([
+        expect.objectContaining({ status: 'interrupted', requestId }),
+      ]);
+    } finally { vi.unstubAllEnvs(); }
+    await expect(clientA.userRequest.findUnique({ where: { id: requestId } })).resolves.toMatchObject({ status: 'failed' });
+  });
+
+  it('waits for a cancelled preparation to release its workspace before listing the next job', async () => {
+    const projectId = await createProject('preparation-drain');
+    const requestId = uniqueId('request:draining');
+    const nextRequest = uniqueId('request:next');
+    await clientA.userRequest.createMany({ data: [requestId, nextRequest].map(id => ({ id, projectId, instruction: 'Research.' })) });
+    await enqueuePiAgentGenerationJob({ projectId, requestId, instruction: 'Research.', stage: 'planning_data_prefetch' });
+    const claim = await claimPiAgentGenerationJob({ projectId, requestId, leaseOwner: uniqueId('worker:draining'), leaseTtlMs: 120_000 });
+    const lease = await claimPiAgentGenerationLease({ projectId, requestId, stage: 'planning_data_prefetch',
+      operationId: uniqueId('operation'), leaseOwner: uniqueId('lease'), leaseTtlMs: 120_000 });
+    await cancelPiAgentGenerationJob({ projectId, requestId });
+    await expect(checkpointPiAgentGenerationPreparation({ fence: claim, executionEnvelope: {} })).rejects.toThrow();
+    await enqueuePiAgentGenerationJob({ projectId, requestId: nextRequest, instruction: 'Next research.' });
+    expect((await listClaimablePiAgentGenerationJobs(200)).some(job => job.requestId === nextRequest)).toBe(false);
+    await releasePiAgentGenerationLease({ fence: lease });
+    expect((await listClaimablePiAgentGenerationJobs(200)).some(job => job.requestId === nextRequest)).toBe(true);
   });
 
   it('rejects credentials before a dispatch envelope can reach PostgreSQL', async () => {

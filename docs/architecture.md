@@ -5,21 +5,21 @@ QuantPilot 是通用 Data Agent 平台上的第一个金融应用。核心链路
 ```mermaid
 flowchart LR
   U[用户问题/图片] --> W[Next.js 工作台 :3000]
-  W --> D[Data Agent Profile]
+  W --> J[(Generation Job / Outbox)]
+  J --> WK[独立 Data Agent Worker]
+  WK --> D[Data Agent Profile]
   D --> Q[LLM-first Task / Query Rewrite]
   D --> F[Finance Domain Pack]
   F --> Q
   Q --> MP[ModelPort / Qwen 或受控直连]
   Q --> M[证券 Resolver / 市场数据 :8000]
-  Q --> J[(Generation Job / Outbox)]
-  J --> WK[独立 Data Agent Worker]
   WK --> G[Domain Handler / Mission -> Agent Governance]
   W --> DB[(PostgreSQL / TimescaleDB :5432)]
   G --> R[PI Agent Runtime]
   G --> DB
   F --> S[Finance Skills / Tools / Validators]
   S --> R
-  W --> K[Agent Knowledge Platform / AKEP]
+  WK --> K[Agent Knowledge Platform / AKEP]
   R --> MP
   W --> M
   W --> SC[服务目录 config/service-catalog.json]
@@ -53,14 +53,14 @@ flowchart LR
 
 ## 主链路
 
-1. 用户输入问题，必要时上传截图。
+1. 用户输入问题，必要时上传截图。Worker 模式下，Web 只完成鉴权、配额、附件与请求持久化；准备信封和 job/outbox 提交后即返回 HTTP 202。独立 Worker 取得容量和 dispatch 租约，再在项目 generation lease 与 workspace lock 内执行下列准备步骤。
 2. 平台使用项目当前模型生成通用 `.data-agent/task.json` 与金融 `.data-agent/finance-query-rewrite.json`；模型负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
 3. 模型未配置、超时、失败或输出缺少原文字面证据时返回 `llm_unavailable` 并停止；不执行关键词降级。
 4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后同时生成 `.data-agent/plan.json` 和金融 `.data-agent/finance-run-plan.json`。
 5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据；Memory Recall 与 Knowledge Preparation 随 generation envelope 固化，执行时不重复检索。
 6. 平台根据 run plan 调用 `8000` 后端获取真实数据。
 7. 数据、来源和质量报告写入工作空间。
-8. Web 在返回排队成功前持久化 schema v3 Data Agent generation envelope 与 job/outbox；独立 Worker 先取得数据库全局容量槽，再按 actor 公平顺序 claim Job。普通成员最多保留 4 个待执行请求、同时运行 2 个 Job；同一 Project 始终单写。inline 模式仍经过同一 registry，并按 Profile ID 分派 handler，同时核对组合哈希与 Consumer/Tenant/Project/Workspace/Request scope。
+8. Worker 以当前 dispatch fence 事务保存包含 Mission、Memory/Knowledge 快照的最终 schema v3 envelope，将 job 从 `planning_data_prefetch` 推进到 `agent_execution`，再进入生成。接管者读取 claim 后的数据库信封，跳过已完成的准备；未完成准备的进程崩溃会封存为 interrupted，需新请求重试，避免自动重复计费。普通成员最多保留 4 个待执行请求、同时运行 2 个 Job。inline 模式保留兼容入口，不具备 HTTP 提前确认的保证。
 9. Agent 通过 ModelPort 使用默认 Qwen，并结合 Skills、真实数据和有界知识 capsule 生成 Next.js 候选看板，以 `candidate_complete` 结束本次物理执行。
 10. Mission Graph 为当前 candidate version 冻结 candidate receipt，平台执行自动验证、产物契约检查和视觉检查。
 11. EvidenceVerifier 核对 MissionSpec、subject manifest、必需检查和持久预览 HTTP 就绪证据；失败时进入修复并产生新的 candidate version。
@@ -104,11 +104,11 @@ PI Agent `0.82.1` 是 QuantPilot 的进程内开源 Agent loop，不启动 Agent
 | 用户排队 | 普通成员最多 4 个 `pending/retry_wait` generation job | 创建请求时返回结构化配额错误，不生成悬空请求 |
 | 用户运行 | 普通成员最多 2 个 `running` generation job | Worker 暂不 claim，该 job 保持可重试的排队状态 |
 | 平台执行 | 所有 Worker 共享数据库槽位池；每进程并发不得超过全局容量 | 没有槽位时 Worker 不 claim job，不靠单进程内存估算集群容量 |
-| Workspace 写入 | 同一 Project 同时只允许一个 active Mission / running generation | 当前采用快速失败并返回 `409`，避免两个任务覆盖同一套源码和证据 |
+| Workspace 写入 | 同一 Project 同时只允许一个 active Mission / running generation | Worker 模式等待当前项目租约释放后领取下一任务；inline 入口冲突返回 `409` |
 
 用户配额直接根据数据库中的 Job/UserRequest 状态计算，不创建会因 TTL 提前失效的“并发预留”。Worker 启动后先写 `agent_worker_instances` 注册租约；同一池中已有存活进程时，新进程的全局容量配置必须一致，否则失败关闭。槽位使用独立 lease、heartbeat 和 fencing；只有槽位租约与 generation job dispatch lease 均失效后才能安全接管。待执行 Job 先按 actor 内排序，再按 actor 的队列轮次公平领取，避免一个用户的大批任务长期占住共享 Worker。运行治理中心从 registry、slot 和 queue 三组数据库事实判断是否存在“有任务但无消费者”、心跳过期、容量漂移或 Job/slot 不一致。
 
-Workspace 当前是“可持续演进的项目工作区”，不是每个 Job 的临时目录，也不是 Worker 的私有目录。因此同一 Workspace 不做隐式并行或静默串行排队；调用方必须等当前 Mission 完成、失败或取消后再提交下一次写入。未来如需同项目并行研究，应新增 branch/snapshot workspace 身份并在验证后显式合并，而不是放宽现有单写约束。
+Workspace 当前是“可持续演进的项目工作区”，不是每个 Job 的临时目录，也不是 Worker 的私有目录。因此同一 Workspace 不做隐式并行；Worker 模式显式返回 queued 并串行领取，取消后的在途取数结束、generation lease 释放后才领取下一任务。未来如需同项目并行研究，应新增 branch/snapshot workspace 身份并在验证后显式合并，而不是放宽现有单写约束。
 
 ## Agent 与 Mission 完成边界
 

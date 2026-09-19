@@ -495,6 +495,7 @@ export async function writeInitialRunPlan(params: {
   previousPlan?: QuantRunPlan | null;
   queryRewrite?: QuantQueryRewriteResult;
   llmModel?: string | null;
+  assertActive?: () => Promise<void>;
 }) {
   await ensureQuantWorkspace(params.projectPath);
   const profileSelection = await readDataAgentProfile(params.projectPath);
@@ -669,6 +670,7 @@ export async function writeInitialRunPlan(params: {
     now,
     selectionSource,
   );
+  await params.assertActive?.();
   await Promise.all([
     writeWorkspaceJsonAtomic(
       params.projectPath,

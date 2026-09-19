@@ -334,6 +334,7 @@ export async function enqueuePiAgentGenerationJob(input: {
   selectedModel?: string | null;
   executionEnvelope?: unknown;
   maxAttempts?: number;
+  stage?: "planning_data_prefetch" | "agent_execution";
 }): Promise<AgentGenerationJob> {
   assertIdentifier(input.projectId, "projectId");
   assertIdentifier(input.requestId, "requestId");
@@ -396,6 +397,7 @@ export async function enqueuePiAgentGenerationJob(input: {
         cliPreference: input.cliPreference ?? null,
         selectedModel: input.selectedModel ?? null,
         maxAttempts,
+        stage: input.stage ?? "agent_execution",
         availableAt: now,
         queuedAt: now,
         status: cancelled ? "cancelled" : "pending",
@@ -676,6 +678,48 @@ export async function heartbeatPiAgentGenerationJob(input: {
   });
 }
 
+/** Read after claiming: a list result may predate a preparation checkpoint. */
+export async function readClaimedPiAgentGenerationJob(
+  fence: PiAgentGenerationDispatchFence,
+): Promise<AgentGenerationJob> {
+  return prisma.$transaction(async tx => {
+    const current = await lockJob(tx, fence.projectId, fence.requestId);
+    if (!current) throw new PiAgentGenerationDispatchError("GENERATION_DISPATCH_NOT_FOUND", "Generation job is missing.");
+    if (current.status === "cancelled") {
+      throw new PiAgentGenerationDispatchError("GENERATION_DISPATCH_CANCELLED", "Generation job was cancelled.");
+    }
+    assertFence(current, fence, await databaseNow(tx));
+    return current;
+  });
+}
+
+/** Commit prepared inputs before running the Agent; a replacement worker skips preparation. */
+export async function checkpointPiAgentGenerationPreparation(input: {
+  fence: PiAgentGenerationDispatchFence;
+  executionEnvelope: unknown;
+}): Promise<void> {
+  const envelope = normalizeEnvelope(input.executionEnvelope);
+  await prisma.$transaction(async tx => {
+    const current = await lockJob(tx, input.fence.projectId, input.fence.requestId);
+    if (!current) throw new PiAgentGenerationDispatchError("GENERATION_DISPATCH_NOT_FOUND", "Generation job is missing.");
+    const now = await databaseNow(tx);
+    assertFence(current, input.fence, now);
+    if (current.stage !== "planning_data_prefetch") {
+      throw new PiAgentGenerationDispatchError("GENERATION_DISPATCH_STAGE_CONFLICT", "Preparation was already checkpointed.");
+    }
+    await tx.agentGenerationJob.update({
+      where: { id: current.id },
+      data: {
+        executionEnvelope: envelope, stage: "agent_execution", maxAttempts: 3,
+        version: { increment: 1 }, eventSequence: { increment: 1 },
+      },
+    });
+    await appendOutboxEvent(tx, current, "generation_preparation_completed", {
+      status: "running", stage: "agent_execution", recoveryMode: "prepared_inputs",
+    }, now);
+  });
+}
+
 export async function finishPiAgentGenerationJob(input: {
   projectId: string;
   requestId: string;
@@ -757,6 +801,20 @@ export async function finishPiAgentGenerationJob(input: {
       },
       now,
     );
+    // Handler validation can fail before domain code starts. Commit the request
+    // failure with the fenced job outcome so the browser cannot remain busy.
+    if (input.status === "failed" || input.status === "interrupted") {
+      await tx.userRequest.updateMany({
+        where: {
+          id: input.requestId, projectId: input.projectId,
+          status: { in: ["pending", "processing"] },
+        },
+        data: {
+          status: "failed", completedAt: now,
+          errorMessage: input.errorMessage ?? input.errorCode ?? "Generation failed.",
+        },
+      });
+    }
     return tx.agentGenerationJob.findUniqueOrThrow({
       where: { id: current.id },
     });
@@ -1092,6 +1150,12 @@ export async function listClaimablePiAgentGenerationJobs(
        AND "request"."project_id" = "job"."project_id"
       WHERE "job"."status" IN ('pending', 'retry_wait')
         AND "job"."available_at" <= clock_timestamp()
+        AND NOT EXISTS (
+          SELECT 1 FROM "agent_generation_leases" AS "lease"
+          WHERE "lease"."project_id" = "job"."project_id"
+            AND "lease"."status" = 'held'
+            AND "lease"."lease_expires_at" > clock_timestamp()
+        )
     )
     SELECT "id"
     FROM ranked

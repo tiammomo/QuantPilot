@@ -7,11 +7,13 @@ import { projectRouteAction } from '@/lib/auth/project-route-action';
 import {
   deriveQuantGenerationTerminalSnapshot,
   requiresPiAgentMissionAcceptance,
+  reconcileGenerationDispatchState,
 } from '@/lib/quant/generation-terminal';
 import { readQuantGenerationState } from '@/lib/quant/generation-state';
 import { readQuantValidationReport } from "@/lib/quant/validation/reports";
 import { readPiAgentAcceptedMissionSnapshot } from '@/lib/services/pi-agent-mission-store';
 import { getProjectById } from '@/lib/services/project';
+import { listPiAgentGenerationJobs, reconcileExpiredPiAgentGenerationJobs } from '@/lib/services/pi-agent-generation-dispatch-store';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -40,11 +42,14 @@ export async function GET(_request: Request, { params }: RouteContext) {
           process.env.PROJECTS_DIR || './data/projects',
           project_id,
         );
-    const [{ previewManager }, generation, validation] = await Promise.all([
+    const [{ previewManager }, projectedGeneration, validation, jobs] = await Promise.all([
       import('@/lib/services/preview'),
       readQuantGenerationState(projectPath),
       readQuantValidationReport(projectPath),
+      reconcileExpiredPiAgentGenerationJobs({ projectId: project_id })
+        .then(() => listPiAgentGenerationJobs(project_id, 1)),
     ]);
+    const generation = reconcileGenerationDispatchState(projectedGeneration, jobs[0] ?? null);
     const preview = await previewManager.getReconciledStatus(
       project_id,
       project.previewUrl,

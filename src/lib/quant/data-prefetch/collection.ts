@@ -17,6 +17,7 @@ export async function collectSymbolDatasets(params: {
   symbols: string[];
   quotes: Map<string, JsonRecord>;
   onProgress?: (progress: PrefetchProgress) => Promise<void>;
+  assertActive?: () => Promise<void>;
 }) {
   let next = 0;
   let completed = 0;
@@ -26,6 +27,7 @@ export async function collectSymbolDatasets(params: {
   async function worker() {
     while (next < params.symbols.length) {
       const index = next++;
+      if (params.assertActive) await params.assertActive();
       const symbol = params.symbols[index];
       const result = { asset: null as JsonRecord | null, rawFiles: [] as string[], warnings: [] as string[] };
       try {
@@ -37,9 +39,11 @@ export async function collectSymbolDatasets(params: {
           rawFiles: result.rawFiles,
           warnings: result.warnings,
           quote: params.quotes.get(symbol),
+          assertActive: params.assertActive,
         });
         succeeded += 1;
       } catch (error) {
+        await params.assertActive?.();
         result.warnings.push(`${symbol} 预取失败：${error instanceof Error ? error.message : String(error)}`);
       }
       results[index] = result;
@@ -52,7 +56,11 @@ export async function collectSymbolDatasets(params: {
       await reporting;
     }
   }
-  await Promise.all(Array.from({ length: Math.min(2, params.symbols.length) }, worker));
+  // Do not release the workspace while another symbol still has an in-flight
+  // response. Each worker checks cancellation before writing that response.
+  const workers = await Promise.allSettled(Array.from({ length: Math.min(2, params.symbols.length) }, worker));
+  const failed = workers.find(result => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
   // Completion order must never change the primary asset or evidence ordering.
   return {
     assets: results.flatMap(result => result.asset ? [result.asset] : []),

@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import { collectPiAgentTurnMetrics } from "@/lib/services/pi-agent-turn-metrics";
 import { createMessage } from "@/lib/services/message";
 import { serializeMessage } from "@/lib/serializers/chat";
@@ -72,10 +70,11 @@ export interface FinanceActPreparationInput {
   userMessageId: string;
   relatedAgentRequestIds: ReadonlySet<string>;
   publishWorkspaceProgress: WorkspaceProgressPublisher;
+  assertActive?: () => Promise<void>;
 }
 
 export interface FinanceActPreparationResult {
-  response: NextResponse | null;
+  response: { status: number; body: Record<string, unknown> } | null;
   missionContext: PiAgentMissionContext | null;
   usePrefetchedSelectionDashboard: boolean;
   governedKnowledgePreparation: GovernedKnowledgePreparation | null;
@@ -83,6 +82,20 @@ export interface FinanceActPreparationResult {
 }
 
 export async function prepareFinanceActGeneration(
+  input: FinanceActPreparationInput,
+): Promise<FinanceActPreparationResult> {
+  return runQuantGenerationStage({
+    projectPath: input.projectPath,
+    projectId: input.projectId,
+    requestId: input.requestId,
+    stage: "planning_data_prefetch",
+    lockWorkspace: true,
+    task: () => prepareFinanceActGenerationUnderLease(input),
+  });
+}
+
+/** Caller holds the planning generation lease and workspace resource lock. */
+export async function prepareFinanceActGenerationUnderLease(
   input: FinanceActPreparationInput,
 ): Promise<FinanceActPreparationResult> {
   const {
@@ -111,13 +124,8 @@ export async function prepareFinanceActGeneration(
   let governedKnowledgePreparation: GovernedKnowledgePreparation | null = null;
   let governedKnowledgeTaskCategory = "quant-research";
 
-  const clarificationResponse = await runQuantGenerationStage({
-    projectPath,
-    projectId: project_id,
-    requestId,
-    stage: "planning_data_prefetch",
-    lockWorkspace: true,
-    task: async () => {
+  const clarificationResponse = await (async () => {
+      await input.assertActive?.();
       const generationState = await startQuantGenerationRun({
         projectPath,
         projectId: project_id,
@@ -134,14 +142,14 @@ export async function prepareFinanceActGeneration(
           stage: 5,
           cancelledReason: "请求在规划开始前已暂停。",
         });
-        return NextResponse.json({
+        return { status: 200, body: {
           success: true,
           status: "cancelled",
           message: "Generation request was cancelled before planning",
           requestId,
           userMessageId: userMessageId,
           conversationId: conversationId ?? null,
-        });
+        } };
       }
       let queryRewriteToolCallId: string | undefined;
       let runPlannerToolCallId: string | undefined;
@@ -210,6 +218,7 @@ export async function prepareFinanceActGeneration(
           hasImageAttachments: processedImageCount > 0,
           previousPlan: previousRunPlan,
           llmModel: selectedModel,
+          assertActive: input.assertActive,
         });
 
         const queryRewriteUsage = runPlan.queryRewrite?.execution.llm.usage;
@@ -260,6 +269,7 @@ export async function prepareFinanceActGeneration(
           });
         }
 
+        await input.assertActive?.();
         await publishQuantPipelineToolMessage({
           projectId: project_id,
           requestId,
@@ -308,6 +318,7 @@ export async function prepareFinanceActGeneration(
         });
         runPlannerToolCallId = undefined;
 
+        await input.assertActive?.();
         if (runPlan.status === "refused" && runPlan.refusal) {
           await updateQuantGenerationStep({
             projectPath,
@@ -351,7 +362,7 @@ export async function prepareFinanceActGeneration(
               metadata: { code: runPlan.refusal.code },
             },
           });
-          return NextResponse.json({
+          return { status: 200, body: {
             success: true,
             status: "intent_refused",
             message: runPlan.refusal.message,
@@ -360,7 +371,7 @@ export async function prepareFinanceActGeneration(
             assistantMessageId: assistantMessage.id,
             conversationId: conversationId ?? null,
             refusal: runPlan.refusal,
-          });
+          } };
         }
 
         if (
@@ -430,7 +441,7 @@ export async function prepareFinanceActGeneration(
             },
           });
 
-          return NextResponse.json({
+          return { status: 200, body: {
             success: true,
             status: "intent_clarification_required",
             message: "Need clarification before agent execution",
@@ -439,9 +450,10 @@ export async function prepareFinanceActGeneration(
             assistantMessageId: assistantMessage.id,
             conversationId: conversationId ?? null,
             clarification: runPlan.clarification,
-          });
+          } };
         }
 
+        await input.assertActive?.();
         governedKnowledgePreparation = await prepareGovernedKnowledge({
           requestId,
           scope: projectIntegrationScope,
@@ -455,6 +467,7 @@ export async function prepareFinanceActGeneration(
           runPlan.requestedCapabilityId ??
           runPlan.capabilityId ??
           "quant-research";
+        await input.assertActive?.();
         await writeGovernedKnowledgeEvidence({
           projectPath,
           requestId,
@@ -571,7 +584,9 @@ export async function prepareFinanceActGeneration(
         const prefetch = await prefetchQuantDataForRunPlan({
           projectPath,
           plan: runPlan,
+          assertActive: input.assertActive,
           onProgress: async (progress) => {
+            await input.assertActive?.();
             await updateQuantGenerationStep({
               projectPath,
               projectId: project_id,
@@ -583,6 +598,7 @@ export async function prepareFinanceActGeneration(
             });
           },
         });
+        await input.assertActive?.();
         if (quotaActorUserId && !prefetch.skipped) {
           const dataUnits = Math.max(1, prefetch.rawFiles?.length ?? 0);
           await recordQuotaUsage({
@@ -839,6 +855,9 @@ export async function prepareFinanceActGeneration(
           });
           queryRewriteQuotaReservationId = null;
         }
+        // Cancellation or a lost dispatch lease must not publish a late failure
+        // over a newer request or continue into generation.
+        await input.assertActive?.();
         console.error(
           "[API] Failed to prepare QuantPilot run plan or data prefetch:",
           error,
@@ -952,8 +971,9 @@ export async function prepareFinanceActGeneration(
             },
           },
         });
-        return NextResponse.json(
-          {
+        return {
+          status: missionProjectBusy ? 409 : 503,
+          body: {
             success: false,
             error: missionProjectBusy
               ? "MISSION_PROJECT_BUSY"
@@ -963,12 +983,10 @@ export async function prepareFinanceActGeneration(
             retryable: typedPreparationError?.retryable ?? false,
             requestId,
           },
-          { status: missionProjectBusy ? 409 : 503 },
-        );
+        };
       }
       return null;
-    },
-  });
+  })();
   if (clarificationResponse) {
     return {
       response: clarificationResponse,

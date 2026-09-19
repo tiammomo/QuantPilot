@@ -8,7 +8,7 @@
  */
 
 export const PI_AGENT_SCHEMA_CONTRACT_VERSION =
-  '20260723000400_worker_registry_and_observability' as const;
+  '20260919110000_generation_preparation_stage' as const;
 
 export interface PiAgentSchemaQueryClient {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): PromiseLike<T>;
@@ -635,6 +635,11 @@ const EXPECTED_FOREIGN_KEYS: readonly ExpectedForeignKey[] = [
 
 const EXPECTED_CHECK_CONSTRAINTS: readonly ExpectedCheckConstraint[] = [
   {
+    tableName: 'agent_generation_jobs',
+    constraintName: 'agent_generation_jobs_stage_check',
+    definitionIncludes: ['stage', 'planning_data_prefetch', 'agent_execution', 'automatic_validation', 'completed'],
+  },
+  {
     tableName: 'agent_runs',
     constraintName: 'agent_runs_workspace_key_sha256_check',
     definitionIncludes: ['workspace_key', '^sha256:[0-9a-f]{64}$'],
@@ -803,7 +808,7 @@ JOIN pg_catalog.pg_namespace AS table_namespace
   ON table_namespace.oid = table_info.relnamespace
 WHERE constraint_info.contype = 'c'
   AND table_namespace.nspname = 'public'
-  AND table_info.relname IN ('agent_runs')
+  AND table_info.relname IN ('agent_runs', 'agent_generation_jobs')
 ORDER BY table_info.relname, constraint_info.conname
 `;
 

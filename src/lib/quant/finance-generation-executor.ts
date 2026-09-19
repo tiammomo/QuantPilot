@@ -185,14 +185,14 @@ function governedKnowledgePreparation(
   return preparation as unknown as GovernedKnowledgePreparation;
 }
 
-export function createFinanceGenerationEnvelope(
-  payload: FinanceGenerationPayload,
+export function createFinanceGenerationEnvelope<TPayload = FinanceGenerationPayload>(
+  payload: TPayload,
   input: {
     projectId: string;
     requestId: string;
     capabilityId: string;
   },
-): DataAgentGenerationEnvelope<FinanceGenerationPayload> {
+): DataAgentGenerationEnvelope<TPayload> {
   const application = getApplicationDataAgentCatalog().resolve(
     QUANTPILOT_AGENT_PROFILE_ID,
     input.capabilityId,
@@ -217,9 +217,9 @@ export function createFinanceGenerationEnvelope(
   };
 }
 
-export function parseFinanceGenerationEnvelope(
+export function assertRegisteredFinanceComposition(
   envelope: DataAgentGenerationEnvelope,
-): FinanceGenerationPayload {
+): void {
   const application = getApplicationDataAgentCatalog().resolve(
     envelope.composition.profile.id,
     envelope.composition.capability.id,
@@ -240,6 +240,12 @@ export function parseFinanceGenerationEnvelope(
       "Finance generation composition does not match the registered profile.",
     );
   }
+}
+
+export function parseFinanceGenerationEnvelope(
+  envelope: DataAgentGenerationEnvelope,
+): FinanceGenerationPayload {
+  assertRegisteredFinanceComposition(envelope);
   const payload = record(envelope.payload, "finance generation payload");
   if (payload.cliPreference !== "pi") {
     throw new Error("Finance generation only supports the PI Agent runtime.");
