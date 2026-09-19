@@ -29,7 +29,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SubNav, subNavPanelId, subNavTabId } from "@/components/layout/SubNav";
-import { formatCompactDate as formatDate } from "@/components/quant/console-primitives";
+import { formatCompactDate as formatDate } from "@/components/ui/console";
 import { cn } from "@/lib/utils";
 import type {
   StrategyAutoFillIngestionStartResult,

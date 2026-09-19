@@ -56,7 +56,8 @@ description: Use this skill when designing, refactoring, reviewing, or polishing
 ## 组件使用地图
 
 - 基础控件：`src/components/ui/button.tsx`、`badge.tsx`、`card.tsx`、`input.tsx`、`label.tsx`、`select.tsx`、`separator.tsx`、`sheet.tsx`、`textarea.tsx`、`alert-dialog.tsx`。
-- 量化控制台 primitive：`src/components/quant/console-primitives.tsx`、`eval-console-primitives.tsx`、`eval-console-shell.tsx`、`workspace-console-primitives.tsx`。
+- 通用控制台组件：`src/components/ui/console.tsx`；领域控制台组件位于 `src/components/quant/` 下的 `eval-console-primitives.tsx`、`eval-console-shell.tsx`、`workspace-console-primitives.tsx`。
+- 技能管理界面：`src/app/skills/` 与 `src/components/skills/`；浏览器请求和类型合同位于 `src/lib/skills/client.ts`、`contracts.ts`。
 - 复杂业务组件：评测视图在 `src/components/quant/eval-*-view.tsx`，设置在 `src/components/settings/**`，聊天在 `src/components/chat/**`。
 - class 合并统一使用 `cn()` from `src/lib/utils`；不要手写重复 class 拼接工具。
 

@@ -2,12 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createSkillsAdministration } from './skills-admin';
-import { deployProjectSkills } from './skills-deployment';
+import { createSkillsAdministration } from './administration';
+import { deployProjectSkills } from './deployment';
 import { compilePiAgentSkills } from '@/lib/agent/skills';
 import { readSkillCatalogState, deploymentKey } from '@/lib/agent/skills/catalog-store';
 import { resolveRuntimeSkillCatalog, stageSkillCatalog } from '@/lib/agent/skills/catalog-images';
-import { readSkillMetadata, assertNewSkillVersion } from './skills-publication';
+import { readSkillMetadata, assertNewSkillVersion } from './publication';
 import { hashSkillDirectory } from '@/lib/agent/skills/workspace-integrity';
 
 const repository = process.cwd();

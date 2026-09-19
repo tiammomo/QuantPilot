@@ -36,7 +36,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { formatCompactDate as formatDate } from "@/components/quant/console-primitives";
+import { formatCompactDate as formatDate } from "@/components/ui/console";
 import { cn } from "@/lib/utils";
 import type { WorkspaceHealthDashboard, WorkspaceHealthItem } from "@/lib/quant/workspace-health";
 import type { GenerationObservabilityDashboard } from "@/lib/quant/generation-observability";

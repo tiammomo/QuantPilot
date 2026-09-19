@@ -13,7 +13,7 @@ import {
   PrivilegedRequestError,
 } from "@/lib/server/privileged-request";
 import { SkillConflictError } from "@/lib/agent/skills/catalog-store";
-import { deployProjectSkills } from "@/lib/quant/skills-deployment";
+import { deployProjectSkills } from "@/lib/skills/deployment";
 
 const schema = z
   .object({

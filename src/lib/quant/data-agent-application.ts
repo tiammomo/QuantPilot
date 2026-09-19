@@ -12,7 +12,7 @@ import {
   writeWorkspaceFileAtomic,
   writeWorkspaceJsonAtomic,
 } from '@/lib/data-agent';
-import { deployProjectSkills } from './skills-deployment';
+import { deployProjectSkills } from '../skills/deployment';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import {
   buildQuantProjectSettings,

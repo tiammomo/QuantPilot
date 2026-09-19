@@ -27,7 +27,7 @@ import {
   hashSkillDirectory,
   isCanonicalSkillId,
 } from "@/lib/agent/skills/workspace-integrity";
-import { readSkillMetadata, replaceSkillInCatalog } from "./skills-publication";
+import { readSkillMetadata, replaceSkillInCatalog } from "./publication";
 
 export interface SkillDeploymentRequest {
   workspace: string;

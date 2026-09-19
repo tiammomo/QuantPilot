@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getSkillsMarketData, readVerifiedSkillPackage } from './skills-market';
+import { getSkillsMarketData, readVerifiedSkillPackage } from './market';
 import { installPiAgentSkillsForWorkspace } from '@/lib/agent/skills/compiler';
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });

@@ -77,7 +77,8 @@
         "@/components/ui/skeleton",
         "@/components/ui/textarea",
         "@/components/ui/theme-toggle",
-        "@/contexts/ThemeContext"
+        "@/contexts/ThemeContext",
+        "@/components/ui/console"
       ]
     },
     {
@@ -133,7 +134,8 @@
         "platform-navigation-ui",
         "quant-core",
         "shared-kernel",
-        "ui-kit"
+        "ui-kit",
+        "skills-management"
       ],
       "publicSurface": []
     },
@@ -334,9 +336,7 @@
         "src/app/strategy-platform/**",
         "src/app/research-reports/**",
         "src/app/business-knowledge/**",
-        "src/components/quant/skills-*.tsx",
         "src/components/quant/workspace-*.tsx",
-        "src/components/quant/console-primitives.tsx",
         "src/components/chat/**",
         "src/lib/utils/scaffold*.ts",
         "src/lib/services/preview-stop-intent*.ts"
@@ -352,24 +352,16 @@
         "platform-core",
         "platform-navigation-ui",
         "shared-kernel",
-        "ui-kit"
+        "ui-kit",
+        "skills-management"
       ],
       "publicSurface": [
         "@/app/api/projects/[project_id]/memory/route-error",
         "@/components/chat/question-composer",
-        "@/components/quant/console-primitives",
-        "@/components/quant/skills-market",
-        "@/components/quant/skills-source-tree",
-        "@/components/quant/skills-version-manager-dialog",
         "@/components/quant/workspace-console-primitives",
         "@/lib/quant/capability-center",
         "@/lib/quant/generation-observability",
         "@/lib/quant/generation-state",
-        "@/lib/quant/skills-admin",
-        "@/lib/quant/skills-dashboard",
-        "@/lib/quant/skills-deployment",
-        "@/lib/quant/skills-management-api",
-        "@/lib/quant/skills-market",
         "@/lib/quant/strategies",
         "@/lib/quant/validation/contracts",
         "@/lib/quant/validation/recovery",
@@ -551,6 +543,52 @@
         "@/lib/chat/tool-activity",
         "@/lib/motion"
       ]
+    },
+    {
+      "id": "skills-management",
+      "name": "技能管理",
+      "summary": "内置技能市场、源码维护、版本发布及多 Agent 安装的应用服务。",
+      "owner": "agent",
+      "paths": [
+        "src/lib/skills/**"
+      ],
+      "dependsOn": [
+        "agent-runtime",
+        "data-agent-core",
+        "finance-domain",
+        "shared-kernel"
+      ],
+      "publicSurface": [
+        "@/lib/skills/administration",
+        "@/lib/skills/client",
+        "@/lib/skills/contracts",
+        "@/lib/skills/dashboard",
+        "@/lib/skills/deployment",
+        "@/lib/skills/installation-status",
+        "@/lib/skills/market"
+      ]
+    },
+    {
+      "id": "skills-ui",
+      "name": "技能界面",
+      "summary": "技能发现、编辑和安装的页面及交互组件。",
+      "owner": "frontend",
+      "paths": [
+        "src/app/skills/**",
+        "src/components/skills/**"
+      ],
+      "dependsOn": [
+        "agent-runtime",
+        "shared-kernel",
+        "skills-management",
+        "ui-kit",
+        "platform-navigation-ui"
+      ],
+      "publicSurface": [
+        "@/components/skills/market",
+        "@/components/skills/source-tree",
+        "@/components/skills/version-manager-dialog"
+      ]
     }
   ],
   "rules": {
@@ -654,16 +692,24 @@
         "reason": "UI 直接使用 Lucide 图标，不恢复重复图标库和兼容包装。"
       },
       {
-        "path": "src/lib/quant/skills-registry.*",
-        "reason": "运行时只消费 PI Agent 的规范 Skills 注册表与锁定包，不恢复无调用方的内置降级注册表。"
-      },
-      {
         "path": "src/lib/agent/index.ts",
         "reason": "调用方直接导入领域 public surface，不恢复未使用且重复导出的聚合入口。"
       },
       {
         "path": "src/types/fernet.d.ts",
         "reason": "加密已使用现有服务合同，不恢复没有依赖和调用方的 ambient module。"
+      },
+      {
+        "path": "src/components/quant/console-primitives.tsx",
+        "reason": "Skills 管理与界面已迁到独立模块；通用控制台原语归属 ui-kit，禁止恢复旧转发入口。"
+      },
+      {
+        "path": "src/lib/quant/skills-*",
+        "reason": "Skills 管理与界面已迁到独立模块，不保留旧路径转发。"
+      },
+      {
+        "path": "src/components/quant/skills-*",
+        "reason": "Skills 管理与界面已迁到独立模块，不保留旧路径转发。"
       }
     ],
     "forbiddenContent": [
@@ -765,9 +811,9 @@
       },
       {
         "path": "services/market-data/src/quantpilot_market_data/api.py",
-        "maxLines": 1540,
-        "targetLines": 700,
-        "nextAction": "收敛为 app factory 和 router 注册；业务 endpoint 必须进入 routers/，use case 必须进入 services/。"
+        "maxLines": 220,
+        "targetLines": 200,
+        "nextAction": "仅保留 app factory、生命周期与依赖注入；所有端点进入 routers，业务进入 services。"
       },
       {
         "path": "src/app/strategy-platform/StrategyPlatformClient.tsx",
@@ -1154,10 +1200,58 @@
         "nextAction": "市场已独立；继续拆分 Studio 状态与动作，不恢复重复编辑浮层。"
       },
       {
-        "path": "src/components/quant/skills-market.tsx",
+        "path": "src/components/skills/market.tsx",
         "maxLines": 500,
         "targetLines": 350,
         "nextAction": "仅负责内置发现和只读核验；新增写入或详情复杂度时提取独立组件。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/history.py",
+        "maxLines": 450,
+        "targetLines": 450,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/batch.py",
+        "maxLines": 250,
+        "targetLines": 250,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/autofill.py",
+        "maxLines": 160,
+        "targetLines": 160,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/autofill_run.py",
+        "maxLines": 625,
+        "targetLines": 625,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/snapshots.py",
+        "maxLines": 240,
+        "targetLines": 240,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/support.py",
+        "maxLines": 400,
+        "targetLines": 400,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/jobs.py",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
+      },
+      {
+        "path": "services/market-data/src/quantpilot_market_data/services/ingestion/tasks.py",
+        "maxLines": 100,
+        "targetLines": 100,
+        "nextAction": "保持补数用例、状态控制与任务生命周期的独立职责；不能将业务迁回 app factory。"
       }
     ]
   }

@@ -1,7 +1,7 @@
 import { deploymentKey, readSkillCatalogState, type SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
 import { resolveActiveSkillCatalog, resolveSkillCatalogImage } from '@/lib/agent/skills/catalog-images';
 import { SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
-import { readSkillMetadata } from './skills-publication';
+import { readSkillMetadata } from './publication';
 import {
   readWorkspaceJsonBounded,
   readWorkspaceFileBounded,
@@ -10,8 +10,8 @@ import { assessSkillCompatibility } from "@/lib/agent/skills/compatibility";
 import type { PiAgentSkillRuntimeCapsule } from "@/lib/agent/skills";
 import { createFinancePiAgentTools } from "@/lib/domains/finance/agent-tools/factory";
 import { QUANT_CAPABILITIES } from "@/lib/domains/finance/capabilities";
-import { getSkillsDashboardData } from "./skills-dashboard";
-import { inspectSkillInstallation } from "./skills-installation-status";
+import { getSkillsDashboardData } from "./dashboard";
+import { inspectSkillInstallation } from "./installation-status";
 
 export async function getSkillsMarketData(project?: {
   id: string;

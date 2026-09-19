@@ -16,7 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { formatCompactDate as formatDate } from '@/components/quant/console-primitives';
+import { formatCompactDate as formatDate } from '@/components/ui/console';
 import { getEvalEvaluatorOption } from '@/components/quant/eval-evaluator-view';
 import { EvalPagination, formatDuration } from '@/components/quant/eval-console-primitives';
 import type { EvalSet } from '@/components/quant/eval-console-primitives';

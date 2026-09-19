@@ -211,7 +211,7 @@ assertIncludes('services/market-data/src/quantpilot_market_data/services/indicat
   'build_technical_indicators',
   'read_cached_response',
 ]);
-assertIncludes('services/market-data/src/quantpilot_market_data/services/ingestion_jobs.py', [
+assertIncludes('services/market-data/src/quantpilot_market_data/services/ingestion/jobs.py', [
   'list_ingestion_jobs',
   'control_ingestion_job',
   'IngestionJobControlResponse',
@@ -331,8 +331,21 @@ if (generatedTracked.length > 0) {
 }
 
 const apiLines = lineCount('services/market-data/src/quantpilot_market_data/api.py');
-if (apiLines > 1800) {
-  warn(`api.py has ${apiLines} lines; new endpoints should move into routers/ and services/.`);
+if (apiLines > 220) {
+  fail(`api.py has ${apiLines} lines; keep the factory bounded and put use cases in services/.`);
+}
+for (const removed of ['ingestion_support.py', 'ingestion_jobs.py']) {
+  if (exists(`services/market-data/src/quantpilot_market_data/services/${removed}`)) {
+    fail(`${removed} was moved into services/ingestion/; do not restore a compatibility facade`);
+  }
+}
+try {
+  const result = execFileSync('python3', ['scripts/checks/check-backend-layers.py'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  info(result.trim());
+} catch (error) {
+  fail(`Python layer check failed: ${String(error.stdout || error.stderr || error.message).trim()}`);
 }
 
 for (const message of infos) {

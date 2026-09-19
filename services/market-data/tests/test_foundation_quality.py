@@ -8,7 +8,7 @@ from quantpilot_market_data.repositories.foundation import (
     _clickhouse_foundation_projection,
     _coverage_missing_fields,
 )
-from quantpilot_market_data.services.ingestion_support import missing_preflight_fields
+from quantpilot_market_data.services.ingestion.support import missing_preflight_fields
 
 
 def test_quality_scan_reports_only_the_incomplete_field() -> None:

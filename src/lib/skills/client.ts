@@ -1,4 +1,4 @@
-import type { SkillDiffData, SkillsPayload, SourceState } from '@/lib/quant/skills-management-types';
+import type { SkillDiffData, SkillsPayload, SourceState } from '@/lib/skills/contracts';
 
 async function parseSkillsResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
   const payload = await response.json().catch(() => ({}));

@@ -369,7 +369,7 @@
     {
       "id": "platform-ui-product-design",
       "name": "平台 UI 产品设计",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "status": "stable",
       "scope": "platform",
       "boundary": "QuantPilot 主平台页面、组件、控制台、设置、列表、导航、状态和响应式体验设计，不负责生成工作空间金融看板。",

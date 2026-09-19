@@ -14,7 +14,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { formatBytes, type SkillDiffData, type SkillsPayload } from '@/components/quant/skills-source-tree';
+import { formatBytes, type SkillDiffData, type SkillsPayload } from '@/components/skills/source-tree';
 
 export function SkillsVersionManagerDialog({
   open,

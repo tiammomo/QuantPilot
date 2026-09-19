@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { formatCompactDate as formatDate } from "@/components/quant/console-primitives";
+import { formatCompactDate as formatDate } from "@/components/ui/console";
 import { cn } from "@/lib/utils";
 import type { OpsLogEntry, OpsPlatformDashboard } from "@/lib/ops/ops-platform";
 import { formatBytes, OpsMetricCard, OpsSectionHeader, OpsStatusBadge } from "./OpsConsolePrimitives";

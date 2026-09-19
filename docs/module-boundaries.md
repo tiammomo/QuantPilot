@@ -15,8 +15,8 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `platform-core` | 项目、设置、Token、服务目录和外部集成 | `src/lib/platform/**`、核心 `src/lib/services/**` |
 | `agent-runtime` | PI Agent Provider、执行循环、上下文、类型化工具、Skills 编译和通用 Mission 机制 | `src/lib/agent/**`、通用运行服务 |
 | `data-agent-core` | 通用数据任务、实体、指标、Connector、Domain Pack、Agent Profile 与执行计划合同 | `src/lib/data-agent/**` |
-| `finance-domain` | 证券实体、金融能力目录、行情工具、金融 Mission、验证和可视化配置 | `src/lib/domains/finance/**` |
-| `quant-core` | 金融产品编排、LLM-first Query Rewrite、Resolver、运行规划、策略、证据、验证和数据预取 | `src/lib/quant/**`、策略平台/业务知识中心 |
+| `finance-domain` | 证券实体、Query Rewrite、研究计划、能力目录、行情工具、金融 Mission 与可视化规则 | `src/lib/domains/finance/**` |
+| `quant-core` | 金融产品编排、生成、策略、证据、验证和数据预取 | `src/lib/quant/**`、策略平台/业务知识中心 |
 | `eval-core` | 评测集、用例、运行、报告和 CI 质量门 | `src/lib/eval/**`、评测页面、评测脚本 |
 | `ops-core` | Docker、服务健康、日志和运维面板 | `src/lib/ops/**`、运行治理中心、观测配置 |
 | `market-data-backend` | FastAPI、行情、回测、TimescaleDB、Redis、ClickHouse | `services/market-data/**` |
@@ -24,6 +24,8 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `identity-core` | 认证、授权、权限与用量配额 | `src/lib/auth/**`、`src/lib/quota/**` |
 | `execution-isolation` | 生成代码环境过滤与 namespace 沙箱 | `src/lib/security/**` |
 | `frontend-shared` | 跨页面浏览器状态、设置与交互 | `src/contexts/**`、`src/hooks/**`、设置与弹窗组件 |
+| `skills-management` | 技能市场、草稿、发布、回退和多 Agent 部署 | `src/lib/skills/**`；复用运行合同，不依赖量化编排或页面 |
+| `skills-ui` | 技能发现、编辑与安装交互 | `src/app/skills/**`、`src/components/skills/**` |
 
 归属按最具体路径匹配：主题上下文属于 `ui-kit`，账号菜单属于导航层，账号页面壳属于 `product-shell`。金融页面的纯模板属于 `finance-domain`，工作空间写入器属于 `quant-core`。回合用量与上下文快照的纯合同迁入 `src/lib/contracts/`，由 `shared-kernel` 同时提供给运行时和界面。
 
@@ -44,16 +46,18 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 
 | 文件 | 当前问题 | 目标 |
 | --- | --- | --- |
-| `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 685 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
+| `src/lib/utils/scaffold.ts` | 基础/专用页面模板已迁入两个纯模板模块，writer 从 5715 行降至约 700 行 | 保持 writer 小于 900 行；模板继续走独立真实构建门禁 |
 | `src/app/[project_id]/chat/page.tsx` | 文件树、独立编辑状态与 React hook 已迁出；页面仍管理消息、生成、预览恢复与布局 | 拆成 generation controller、message transport、preview hook 和纯页面组件 |
 | `src/lib/agent/pi/run-engine.ts` | 上游 PI loop 适配仍集中承接工具治理、事件投影与终态封存 | 保持单一 PI loop，并继续拆分 adapter、tool governance、event projection 与 terminalization |
 | `src/lib/quant/validation.ts` | 已拆为 12 个职责模块，主入口 175 行 | 入口仅导出验证编排；准备、报告、修复等直接导入所属模块，单模块上限 500 行 |
-| `src/lib/quant/data-prefetch.ts` | 已拆为 9 个职责模块，主入口 262 行 | 保持规划、数据源、派生指标、图片证据与数据投影边界，单模块上限 500 行 |
+| `src/lib/quant/data-prefetch.ts` | 已拆为 9 个职责模块，主入口约 270 行 | 保持规划、数据源、派生指标、图片证据与数据投影边界，单模块上限 500 行 |
 | `src/app/strategy-platform/StrategyPlatformClient.tsx` | 已拆出 helpers、金融知识、股票池、K 线详情、板块资金、因子目录和基础组件视图；主 client 仍承载弹窗和部分扫描编排 | 继续拆成 dialogs、hooks、tables |
-| `src/lib/quant/strategies.ts` | 已拆出 `strategy-types`、`strategy-catalog`、`strategy-scan-repository`、`strategy-readiness` 和 `strategy-mappers`，公共入口从 1787 行降至约 1140 行 | 继续拆出 `strategy-market-client.ts` 和 `strategy-dashboard-service.ts` |
-| `src/lib/eval/runtime.ts` | cases/sets、paths、runtime-utils 和 report/database mappers 已拆出，runtime 当前约 1071 行 | 继续拆成 `src/lib/eval/runs.ts`、`queue.ts`、`repairs.ts`、`schedule.ts` |
+| `src/lib/quant/strategies.ts` | 已拆出 `strategy-types`、`strategy-catalog`、`strategy-scan-repository`、`strategy-readiness` 和 `strategy-mappers`，市场 API/client 与研究状态也已迁出，入口预算 400 行 | 保持编排入口和类型、数据读取、扫描持久化的职责分离 |
+| `src/lib/eval/runtime.ts` | cases/sets、paths、mappers、queue store/executor 已拆出，runtime 当前约 740 行 | 继续拆分报告读取、修复工单与计划编排；复用已有持久队列 |
 | `services/market-data/.../contracts/` | 已按 8 个领域拆分 Pydantic contract，最大模块 346 行 | 直接导入所属合同模块；每个模块上限 400 行 |
-| `services/market-data/.../api.py` | app factory 仍混有少量业务装配 | 只保留应用创建、依赖注入和 router 注册；旧 `database.py` 已删除且门禁禁止恢复 |
+| `services/market-data/.../api.py` | 已收敛为约 160 行应用装配；补数用例迁入 `services/ingestion/` | 硬上限 220 行；AST 门禁禁止内联路由、HTTP 依赖下沉和反向层依赖 |
+
+Skills 管理与界面分属 `skills-management` 和 `skills-ui`；通用控制台原语位于 `src/components/ui/console.tsx`，归属 `ui-kit`。量化应用可调用技能管理公开接口，技能管理不能反向依赖量化编排或 UI。
 
 这些债务暂时以 `largeFileBudgets` 形式进入质量门。超过硬上限会失败，超过目标线会警告。
 
@@ -61,7 +65,7 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 
 1. 继续拆 Chat Page Controller：Act route 已降为 HTTP 接纳与 dispatch，ChatLog 已拆为状态控制器、协议运行时和纯视图；页面级 generation controller、preview reconciliation 与布局仍是聊天主链最大热点。
 2. 验证与取数已完成职责拆分；保持编排单一入口，各领域能力直接导入，继续用真实 build/修复/沙箱合同控制行为变化。
-3. 市场数据 contracts 已拆分；继续收敛 app factory，并为新增数据持久化域建立独立 Docker PostgreSQL 回归。
+3. 市场数据 contracts、补数用例和 app factory 已拆分；继续拆 universe repository 的读写职责，并保持独立 Docker PostgreSQL 回归。
 4. 随后拆策略平台与 `eval-core`，并把 dashboard Delivery Pack 提取为独立注册能力。
 5. 最后把第二个真实非金融 Profile/Connector/handler 接入 Catalog，用跨领域评测证明通用边界，而不是增加示例空壳。
 

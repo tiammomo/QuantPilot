@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
-import { createSkillsAdministration } from '@/lib/quant/skills-admin';
+import { createSkillsAdministration } from '@/lib/skills/administration';
 import { SkillConflictError } from '@/lib/agent/skills/catalog-store';
-import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
+import { getSkillsDashboardData } from '@/lib/skills/dashboard';
 import { assertAuthorizedSkillMutation, PrivilegedRequestError } from '@/lib/server/privileged-request';
 
 export async function GET(request: Request) {

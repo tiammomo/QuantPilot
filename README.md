@@ -145,7 +145,10 @@ PI Agent 的实际执行读取平台保存的项目版本。Claude Code / Codex 
 ```text
 src/app/                 页面与 API 入口
 src/lib/data-agent/      通用任务、业务组合与交付合同
-src/lib/agent/           PI Agent 适配、执行治理与 Skills
+src/lib/agent/           PI Agent 适配、执行治理与 Skills 编译
+src/lib/domains/finance/ 金融语义、证券身份、研究规则与工具
+src/lib/skills/          技能市场、草稿、发布与多 Agent 部署
+src/components/skills/   技能界面；通用原语位于 components/ui/
 src/lib/quant/           量化研究、策略与交付验证
 src/lib/eval/            评测集、评测器与运行管理
 services/market-data/    Python / FastAPI 数据服务

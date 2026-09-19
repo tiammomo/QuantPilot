@@ -1,4 +1,4 @@
-import type { SkillsDashboardData } from '@/lib/quant/skills-dashboard';
+import type { SkillsDashboardData } from '@/lib/skills/dashboard';
 
 export type SkillsPayload = SkillsDashboardData;
 export type SourceFile = SkillsPayload['skills'][number]['source']['files'][number];

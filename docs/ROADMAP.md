@@ -12,6 +12,8 @@
 
 2026-09-19 规划失败纠偏批次：模型不可用、无效输出和证券解析服务故障独立记录为 planning 失败，贯通 Query Rewrite、Task、Plan、UserRequest 和 Worker Job；不再要求用户补充信息，也不作为完成研究。未配置模型不扣规划次数；显式幂等键重放失败响应，不重复调用或扣费。历史误标的系统故障不再继承为澄清上下文，刷新后显示具体失败原因。本批复用现有状态与配额设施，无新增服务、依赖或数据库迁移；真实模型研究质量和延迟仍需独立样本验证。
 
+2026-09-19 项目结构批次：Skills 管理与界面独立为两个模块，共用控制台组件归入 ui-kit；迁移全部调用方并禁止恢复旧路径。市场数据入口收敛为约 160 行应用装配，六个补数写接口及执行逻辑迁入 router/use case，新增 Python AST 依赖方向门禁。补数任务由应用生命周期持有，正常退出记录运行中任务的中断；尚不提供补数进程崩溃后的自动接管。UI 设计技能随目录地图更新为 0.4.1，并重新生成锁与发布包。
+
 ## 当前判断
 
 2026-09-19 效果与体验复查：工程门禁通过不能替代真实任务效果、用户满意度或延迟基线。本地最近 7 天研究请求为 0，完成率和 P95 均无样本，不能据此宣布整体体验优秀。本轮去除批量行情后的重复单标的请求，按任务限制两个标的并发，保持证据/主标的顺序与局部失败隔离；行情复用仍逐条检查身份和质量。取数进度写入现有生成状态，等待页面从服务端恢复阶段与摘要，移除按时间猜测构建阶段的文案。
@@ -127,9 +129,9 @@ QuantPilot 的主平台、市场数据后端、评测平台、策略平台和基
 | 生成脚手架 | `scaffold.ts`、`scaffold-base-templates.ts`、`scaffold-dashboard-templates.ts` | 基础模板和三类专用看板模板均已迁出并加入真实 Next build 门禁，writer 主文件从 5715 行降至约 685 行 | 继续拆 workspace writer、dependency planner、repair adapter，并压缩模板内部重复 helper |
 | 聊天页面 | `src/app/[project_id]/chat/page.tsx`、`src/components/chat/ChatLog.tsx` | 页面状态、消息渲染、运行时控制和附件交互耦合 | 拆 hooks、message timeline、runtime controls、files panel |
 | 验证链路 | `src/lib/quant/validation.ts` | 检查、报告、修复和恢复已独立，入口 175 行 | 保持直接能力导入和各模块 500 行预算 |
-| 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | response mappers 已迁出并有单测，API client、dashboard 编排和部分页面交互仍集中 | 继续拆 market client、dashboard service、hooks、dialogs |
-| 评测平台 | `src/lib/eval/runtime.ts` | report/database mappers 已迁出并有单测，当前约 1071 行，runs、queue、repairs、schedule 仍在运行时入口 | 继续拆 runs、queue、repairs、schedule |
-| 市场数据后端 | `contracts/`、`api.py`、`repositories/universes.py` | contracts 已拆为 8 个领域，最大 346 行；生命周期路由已迁出，universe repository 仍混合读取、写入、清洗 | 新契约模块预算 400 行；继续拆应用装配和 membership hygiene；旧 `models.py`、`database.py` 门面已删除 |
+| 策略平台 | `src/lib/quant/strategies.ts`、`src/app/strategy-platform/*` | mappers、market API、研究状态和扫描持久化已迁出，入口约 360 行，页面仍承载部分编排 | 继续拆页面 hooks、dialogs，保持入口职责收敛 |
+| 评测平台 | `src/lib/eval/runtime.ts` | mappers、queue store/executor 已迁出并有测试，入口约 740 行，报告、修复与计划编排仍集中 | 继续拆 runs、repairs、schedule |
+| 市场数据后端 | `contracts/`、`api.py`、`repositories/universes.py` | contracts 已拆为 8 个领域，最大 346 行；生命周期路由已迁出，universe repository 仍混合读取、写入、清洗 | 新契约模块预算 400 行；应用入口已收敛；继续拆 membership hygiene；旧 `models.py`、`database.py` 门面已删除 |
 
 ## P0：先让项目更容易被理解和发布
 

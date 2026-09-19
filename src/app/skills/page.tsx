@@ -1,4 +1,4 @@
-import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
+import { getSkillsDashboardData } from '@/lib/skills/dashboard';
 import SkillsManagementClient from './SkillsManagementClient';
 import type { Metadata } from 'next';
 

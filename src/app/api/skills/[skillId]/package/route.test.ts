@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), read: vi.fn() }));
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.auth }));
-vi.mock('@/lib/quant/skills-market', () => ({ readVerifiedSkillPackage: mocks.read }));
+vi.mock('@/lib/skills/market', () => ({ readVerifiedSkillPackage: mocks.read }));
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { GET } from './route';
 const download = (skillId = 'test-skill') => GET(new Request('http://localhost/package'), { params: Promise.resolve({ skillId }) });

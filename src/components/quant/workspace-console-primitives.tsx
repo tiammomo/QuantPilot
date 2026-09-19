@@ -21,7 +21,7 @@ import {
   ConsoleDetailRow as DetailRow,
   consoleRawStatusClass as rawStatusClass,
   formatCompactDate as formatDate,
-} from '@/components/quant/console-primitives';
+} from '@/components/ui/console';
 import {
   Sheet,
   SheetContent,

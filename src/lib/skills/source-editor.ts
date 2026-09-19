@@ -5,14 +5,14 @@ import {
   copyDir,
   unpackSkillPackage,
   withExtractedSkillArchive,
-} from "./skills-archives";
+} from "./archives";
 import fs from "fs/promises";
 import path from "path";
 import { JSON_SCHEMA, load as loadYaml } from "js-yaml";
 import {
   getSkillsDashboardData,
   type SkillsDashboardData,
-} from "@/lib/quant/skills-dashboard";
+} from "@/lib/skills/dashboard";
 
 type JsonRecord = Record<string, unknown>;
 

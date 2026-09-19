@@ -73,10 +73,10 @@
       "fileCount": 7
     },
     "platform-ui-product-design": {
-      "version": "0.4.0",
+      "version": "0.4.1",
       "packagePath": ".pi/skill-packages/platform-ui-product-design.tgz",
-      "sourceSha256": "d20885abf6c3a73250d154cb906f358de82497a333bcdecad8e2ef4ac6b64ef5",
-      "packageSha256": "cb2d73d8acca9232060b15e515c29a6b3f5393a48f9e9842b6f2c032a7515eb3",
+      "sourceSha256": "facd19093ba1cc8b4a2518e8620d4053d303cfa357a26517d05f473c2711d458",
+      "packageSha256": "7ea1da9991662dd1a299ea3ef684402cf407150345fe2922e940eadc2c8493de",
       "fileCount": 5
     },
     "query-rewrite": {

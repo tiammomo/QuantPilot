@@ -17,11 +17,11 @@ import {
 } from "@/lib/agent/skills/catalog-images";
 import { isCanonicalSkillId } from "@/lib/agent/skills/workspace-integrity";
 import { validateSkillCatalogMetadata } from "@/lib/agent/skills";
-import { createSkillSourceEditor } from "./skills-source-editor";
+import { createSkillSourceEditor } from "./source-editor";
 import {
   getSkillsDashboardData,
   type SkillSourceFile,
-} from "./skills-dashboard";
+} from "./dashboard";
 import {
   assertNewSkillVersion,
   readSkillMetadata,
@@ -30,13 +30,13 @@ import {
   skillReleaseIdentity,
   validateSkillPublication,
   writeSkillJson,
-} from "./skills-publication";
+} from "./publication";
 import type {
   SaveSkillSourceParams,
   PublishSkillVersionParams,
   SkillFolderParams,
   DeleteSkillFileParams,
-} from "./skills-source-editor";
+} from "./source-editor";
 
 export type SkillMutation = { expectedRevision: string; actor: string };
 const DEFINITION_FILE = "skill.definition.json";

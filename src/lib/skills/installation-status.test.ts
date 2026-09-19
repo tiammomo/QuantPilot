@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hashSkillDirectory, readSkillsInstallReceipt } from '@/lib/agent/skills/workspace-integrity';
-import { inspectSkillInstallation } from './skills-installation-status';
-import type { SkillItem } from './skills-dashboard';
+import { inspectSkillInstallation } from './installation-status';
+import type { SkillItem } from './dashboard';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true }))); });

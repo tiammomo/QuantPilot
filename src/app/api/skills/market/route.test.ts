@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), project: vi.fn(), workspace: vi
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.auth }));
 vi.mock('@/lib/services/project', () => ({ getProjectById: mocks.project }));
 vi.mock('@/lib/data-agent/workspace-path', async importOriginal => ({ ...await importOriginal<object>(), assertManagedWorkspaceExists: mocks.workspace }));
-vi.mock('@/lib/quant/skills-market', () => ({ getSkillsMarketData: mocks.market }));
+vi.mock('@/lib/skills/market', () => ({ getSkillsMarketData: mocks.market }));
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { GET } from './route';
 const request = (query = '') => new Request(`http://localhost/api/skills/market${query}`);

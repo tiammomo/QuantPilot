@@ -814,6 +814,15 @@
     "platform-ui-product-design": {
       "releases": [
         {
+          "version": "0.4.1",
+          "date": "2026-09-19",
+          "summary": "更新项目结构重构后的 UI 与 Skills 模块地图。",
+          "changes": [
+            "通用控制台组件归入 ui-kit；技能管理界面、浏览器调用与合同指向独立 Skills 目录。",
+            "保留既有状态、无障碍和浏览器验收要求。"
+          ]
+        },
+        {
           "version": "0.4.0",
           "date": "2026-09-18",
           "summary": "强化可信执行边界与离线行为验收。",

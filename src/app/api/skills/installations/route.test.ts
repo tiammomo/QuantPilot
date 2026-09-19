@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ auth: vi.fn(), project: vi.fn(), workspace: vi
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.auth }));
 vi.mock('@/lib/services/project', () => ({ getProjectById: mocks.project }));
 vi.mock('@/lib/data-agent/workspace-path', async (original) => ({ ...await original<object>(), assertManagedWorkspaceExists: mocks.workspace }));
-vi.mock('@/lib/quant/skills-deployment', () => ({ deployProjectSkills: mocks.deploy }));
+vi.mock('@/lib/skills/deployment', () => ({ deployProjectSkills: mocks.deploy }));
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { SkillConflictError } from '@/lib/agent/skills/catalog-store';
 import { POST } from './route';

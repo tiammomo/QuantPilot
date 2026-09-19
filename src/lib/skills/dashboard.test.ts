@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSkillsDashboardData } from './skills-dashboard';
+import { getSkillsDashboardData } from './dashboard';
 
 describe('skills dashboard package health', () => {
   it('reports every core Skill as a complete, immutable release package', async () => {

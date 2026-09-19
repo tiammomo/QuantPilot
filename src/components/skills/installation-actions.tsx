@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import type {
   SkillsMarketData,
   SkillsMarketSkill,
-} from "@/lib/quant/skills-market";
+} from "@/lib/skills/market";
 import type { SkillAgentTarget } from "@/lib/agent/skills/catalog-store";
 
 export function SkillsInstallationActions({

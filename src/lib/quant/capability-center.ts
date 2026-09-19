@@ -4,7 +4,7 @@ import {
   serializeQuantCapabilities,
 } from '@/lib/domains/finance/capabilities';
 import { getRuntimeDegradationConfig } from '@/lib/config/degradation';
-import { getSkillsDashboardData } from '@/lib/quant/skills-dashboard';
+import { getSkillsDashboardData } from '@/lib/skills/dashboard';
 
 type JsonRecord = Record<string, unknown>;
 

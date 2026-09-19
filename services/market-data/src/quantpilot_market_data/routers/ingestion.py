@@ -9,7 +9,7 @@ from quantpilot_market_data.contracts.ingestion import (
 )
 from quantpilot_market_data.database_core import DatabaseError
 from quantpilot_market_data.security import require_market_admin
-from quantpilot_market_data.services.ingestion_jobs import (
+from quantpilot_market_data.services.ingestion.jobs import (
     control_market_data_ingestion_job,
     get_market_data_ingestion_jobs,
 )

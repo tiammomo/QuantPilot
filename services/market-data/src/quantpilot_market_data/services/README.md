@@ -10,8 +10,8 @@
 
 设计约束：
 
-- Service 不直接依赖 FastAPI `Request`。
+- Service 不依赖 FastAPI、Starlette 或 router；HTTP 参数、鉴权和错误映射留在 Controller。
 - Service 可以依赖 provider protocol、repository 函数、cache 和 analytics adapter。
 - Service 中的降级路径需要能被测试覆盖。
 
-当前已落地 `analytics.py`、`registry.py`、`foundation.py`、`provider_candidates.py`、`backtests.py`、`indicators.py`、`fundamentals.py`、`events.py`、`quotes.py`、`context.py`、`research.py`、`ingestion_jobs.py` 和共享 `caching.py`。下一批迁移优先级：provider ingestion 执行流。
+当前已落地 `analytics.py`、`registry.py`、`foundation.py`、`provider_candidates.py`、`backtests.py`、`indicators.py`、`fundamentals.py`、`events.py`、`quotes.py`、`context.py`、`research.py`、`ingestion/` 和共享 `caching.py`。补数目录包括 `history.py`、`batch.py`、`snapshots.py`、`autofill.py`、`autofill_run.py`、`jobs.py`、`support.py` 与 `tasks.py`，不再保留旧平级转发入口。

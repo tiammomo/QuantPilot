@@ -3,7 +3,7 @@ import { requireAction } from '@/lib/auth/action';
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { authErrorResponse } from '@/lib/auth/http';
 import { isCanonicalSkillId } from '@/lib/agent/skills/workspace-integrity';
-import { readVerifiedSkillPackage } from '@/lib/quant/skills-market';
+import { readVerifiedSkillPackage } from '@/lib/skills/market';
 
 export async function GET(
   request: Request,

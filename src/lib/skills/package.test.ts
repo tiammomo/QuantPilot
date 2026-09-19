@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ dashboard: vi.fn(), read: vi.fn() }));
-vi.mock('./skills-dashboard', () => ({ getSkillsDashboardData: mocks.dashboard }));
+vi.mock('./dashboard', () => ({ getSkillsDashboardData: mocks.dashboard }));
 vi.mock('@/lib/data-agent/workspace-read', () => ({ readWorkspaceFileBounded: mocks.read, readWorkspaceJsonBounded: vi.fn() }));
-import { readVerifiedSkillPackage } from './skills-market';
+import { readVerifiedSkillPackage } from './market';
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.dashboard.mockResolvedValue({ skills: [{ id: 'test', version: '1.0.0', status: 'stable', health: { status: 'ok' }, package: { exists: true, path: '.pi/skill-packages/test.tgz' }, lock: { packageSha256: 'expected' } }] });

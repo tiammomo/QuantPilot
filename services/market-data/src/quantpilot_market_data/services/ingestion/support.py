@@ -103,9 +103,7 @@ def required_fields_for_target(
     fields = baostock_required_fields(request)
     if (target.get("asset_type") or "stock") != "stock":
         return [
-            field
-            for field in fields
-            if field not in {"pe_ttm", "pb_mrq", "ps_ttm", "pcf_ncf_ttm"}
+            field for field in fields if field not in {"pe_ttm", "pb_mrq", "ps_ttm", "pcf_ncf_ttm"}
         ]
     return fields
 
@@ -120,9 +118,8 @@ def missing_preflight_fields(
         return ["kline"]
     expected_rows = max(1, getattr(coverage, "expected_rows_since_cutoff", 0) or 0)
     observed_rows = coverage.rows_since_cutoff
-    if (
-        coverage.benchmark_last_ts is not None
-        and (coverage.last_ts is None or coverage.last_ts < coverage.benchmark_last_ts)
+    if coverage.benchmark_last_ts is not None and (
+        coverage.last_ts is None or coverage.last_ts < coverage.benchmark_last_ts
     ):
         missing.append("latest_trade_date")
     if coverage.rows_since_cutoff < expected_rows:

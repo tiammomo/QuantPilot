@@ -1,14 +1,14 @@
 "use client";
 
-import { SkillsInstallationActions } from './skills-installation-actions';
+import { SkillsInstallationActions } from './installation-actions';
 import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Package, Search, ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { SkillsMarketData } from "@/lib/quant/skills-market";
-import type { SkillInstallationState } from "@/lib/quant/skills-installation-status";
+import type { SkillsMarketData } from "@/lib/skills/market";
+import type { SkillInstallationState } from "@/lib/skills/installation-status";
 
 const PHASES = {
   planning: "规划",

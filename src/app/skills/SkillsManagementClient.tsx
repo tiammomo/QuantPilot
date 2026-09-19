@@ -47,7 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PlatformSwitcher } from "@/components/layout/PlatformSwitcher";
 import { Textarea } from "@/components/ui/textarea";
-import { formatCompactDate as formatTime } from "@/components/quant/console-primitives";
+import { formatCompactDate as formatTime } from "@/components/ui/console";
 import {
   SourceTree,
   SourceTreeActionMenuOverlay,
@@ -61,8 +61,8 @@ import {
   type SourceState,
   type SourceTreeActionMenu,
   type SourceTreeActionMenuRequest,
-} from "@/components/quant/skills-source-tree";
-import { SkillsVersionManagerDialog } from "@/components/quant/skills-version-manager-dialog";
+} from "@/components/skills/source-tree";
+import { SkillsVersionManagerDialog } from "@/components/skills/version-manager-dialog";
 import {
   createSkillFolder,
   deleteSkillFile,
@@ -75,11 +75,11 @@ import {
   rollbackSkillVersion,
   saveSkillFile,
   uploadSkillPackage,
-} from "@/lib/quant/skills-management-api";
+} from "@/lib/skills/client";
 import { cn } from "@/lib/utils";
-import type { SkillHealthStatus } from "@/lib/quant/skills-dashboard";
+import type { SkillHealthStatus } from "@/lib/skills/dashboard";
 
-import { SkillsMarket } from "@/components/quant/skills-market";
+import { SkillsMarket } from "@/components/skills/market";
 
 type ToastState = { type: "success" | "error"; message: string } | null;
 

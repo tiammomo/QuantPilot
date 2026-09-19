@@ -9,7 +9,7 @@ import {
 import { getProjectById } from '@/lib/services/project';
 import { SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
 import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
-import { getSkillsMarketData } from '@/lib/quant/skills-market';
+import { getSkillsMarketData } from '@/lib/skills/market';
 
 export async function GET(request: Request) {
   try {

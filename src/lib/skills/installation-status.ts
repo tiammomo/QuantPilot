@@ -6,7 +6,7 @@ import {
 import { readSkillAssetsReceipt, SKILL_AGENT_TARGETS } from '@/lib/agent/skills/workspace-install';
 import type { SkillAgentTarget } from '@/lib/agent/skills/catalog-store';
 import type { PiAgentSkillsLock } from '@/lib/agent/skills';
-import type { SkillItem } from "./skills-dashboard";
+import type { SkillItem } from "./dashboard";
 
 export type SkillInstallationState =
   | "current"

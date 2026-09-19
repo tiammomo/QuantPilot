@@ -48,7 +48,7 @@ flowchart LR
 
 | 目录或文件 | 角色 | 责任 |
 | --- | --- | --- |
-| `api.py` | Compatibility Facade | 保留历史入口，逐步只挂载 router，不承载新业务编排 |
+| `api.py` | Application Factory | 只装配应用、依赖、生命周期和 router；不承载业务执行 |
 | `routers/` | Controller | FastAPI route、参数校验、HTTP 错误转换、响应模型 |
 | `services/` | Use Case | 行情、K 线、财务、补数、股票池、基础组件、回测和分析编排 |
 | `providers/` | Provider Adapter | 外部行情源、财务源、公告源和候选信源适配 |
@@ -58,7 +58,7 @@ flowchart LR
 | `cache.py` | Cache Aside | 本地 JSON 缓存和 Redis 短 TTL 缓存 |
 | `contracts/` | Contract | Pydantic 请求/响应模型和共享枚举 |
 
-当前 `api.py` 仍承担应用装配和少量待迁移路由；旧 `database.py` 兼容门面已经删除。后续新增能力优先落到目标目录，再由 app factory 显式注册 router。
+当前 `api.py` 已收敛到约 160 行应用装配，所有 HTTP 端点均在 router 中；旧 `database.py` 兼容门面已经删除。新增能力放入所属层，再由 app factory 显式注入依赖。
 
 ## 基础组件职责
 
@@ -126,8 +126,8 @@ TimescaleDB 是事实主库，ClickHouse 是旁路分析层。ClickHouse 不替�
 - `providers/base.py` 已补充 `SymbolResolverProvider` 和 `RealtimeQuoteProvider` 协议，行情读取 use case 不再依赖具体 provider 类。
 - 研究股票池、成员分页、A 股/ETF 批量导入、本地 bars、覆盖率、板块资金和 A 股筛选器已抽到 `routers/research.py` 和 `services/research.py`。
 - `providers/base.py` 已补充 `ResearchUniverseProvider` 协议，股票池导入和证券解析不直接依赖东方财富实现。
-- ingestion jobs 控制面已抽到 `routers/ingestion.py` 和 `services/ingestion_jobs.py`，任务列表、暂停、恢复、停止不再留在 `api.py`。
-- `services/*`、`routers/*` 和 `api.py` 直接依赖领域 repository；已新增 `repositories/analytics.py`、`repositories/bars.py`、`repositories/coverage.py`、`repositories/foundation.py`、`repositories/ingestion.py`、`repositories/sector_flow.py`、`repositories/screener.py`、`repositories/universes.py`、`repositories/upserts.py` 和 `repositories/research.py`。旧 `database.py` 已删除，基础连接/转换函数位于 `database_core.py`。
+- ingestion jobs 控制面已抽到 `routers/ingestion.py` 和 `services/ingestion/jobs.py`，任务列表、暂停、恢复、停止不再留在 `api.py`。
+- `services/*` 依赖领域 repository，router 调用 use case，app factory 只组装依赖；已新增 `repositories/analytics.py`、`repositories/bars.py`、`repositories/coverage.py`、`repositories/foundation.py`、`repositories/ingestion.py`、`repositories/sector_flow.py`、`repositories/screener.py`、`repositories/universes.py`、`repositories/upserts.py` 和 `repositories/research.py`。旧 `database.py` 已删除，基础连接/转换函数位于 `database_core.py`。
 
 ## 提交前检查
 
@@ -140,3 +140,9 @@ cd services/market-data && uv run ruff check . && uv run pytest
 ```
 
 如果只改前端 UI，也不应该破坏这些后端边界文档和 npm script，因为它们是项目长期可维护性的护栏。
+
+## 补数执行边界
+
+六个补数写端点已迁入 `routers/ingestion_writes.py`，统一管理员验证和 HTTP 错误转换。`services/ingestion/` 分别管理历史、分批、自动补齐、实时快照、覆盖率与任务控制；它们不依赖 FastAPI。应用生命周期持有 `IngestionTaskGroup`，正常退出时取消并等待自动补齐任务，记录运行中父子任务的中断；这仍不是独立持久 Worker，不承诺崩溃自动恢复。
+
+`npm run check:backend-architecture` 同时运行 Python AST 检查，阻止反向依赖与业务层 HTTP 框架依赖；`api.py` 硬上限为 220 行。重构时对比 OpenAPI，并覆盖写接口鉴权、错误映射、局部失败、覆盖率跳过、停止和退出收尾。

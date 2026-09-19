@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), read: vi.fn(), save: vi.fn(), publish: vi.fn(), rollback: vi.fn(), studio: vi.fn(), dashboard: vi.fn() }));
 vi.mock('@/lib/auth/action', () => ({ requireAction: mocks.auth }));
-vi.mock('@/lib/quant/skills-admin', () => ({ createSkillsAdministration: () => ({ readSkillFile: mocks.read, saveSkillFile: mocks.save, publishSkillVersion: mocks.publish, rollbackSkillVersion: mocks.rollback, getStudioData: mocks.studio }) }));
-vi.mock('@/lib/quant/skills-dashboard', () => ({ getSkillsDashboardData: mocks.dashboard }));
+vi.mock('@/lib/skills/administration', () => ({ createSkillsAdministration: () => ({ readSkillFile: mocks.read, saveSkillFile: mocks.save, publishSkillVersion: mocks.publish, rollbackSkillVersion: mocks.rollback, getStudioData: mocks.studio }) }));
+vi.mock('@/lib/skills/dashboard', () => ({ getSkillsDashboardData: mocks.dashboard }));
 import { AuthorizationError } from '@/lib/auth/authorization';
 import { SkillConflictError } from '@/lib/agent/skills/catalog-store';
 import { GET, POST } from './route';
