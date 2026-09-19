@@ -81,9 +81,6 @@ jobs:
       - name: Judge calibration pipeline
         run: npm run check:eval-judge-calibration
 
-      - name: Eval schedule contract
-        run: npm run check:eval-schedule
-
       - name: Build
         run: npm run build
 
@@ -319,12 +316,13 @@ jobs:
           set -o pipefail
           npm run benchmark:quant:contract 2>&1 | tee tmp/contract-benchmark.log
 
-      - name: PiAgent PostgreSQL fencing integration
+      - name: PostgreSQL runtime and evaluation queue contracts
         env:
           PI_AGENT_TEST_DATABASE_URL: postgresql://quantpilot:quantpilot_dev_password@127.0.0.1:35433/quantpilot_integration?schema=public
         run: |
           docker exec ${{ job.services.timescaledb.id }} psql -U quantpilot -d quantpilot -v ON_ERROR_STOP=1 -c 'CREATE DATABASE quantpilot_integration;'
           npm run test:pi-agent:postgres
+          DATABASE_URL="$PI_AGENT_TEST_DATABASE_URL" npm run check:eval-schedule
 
       - name: Enforce contract gate
         run: npm run eval:ci -- --min-pass-rate 100 --min-average-score 90 --min-first-pass-rate 100 --max-repair-rate 0 --min-stability-rate 100 --min-stability-confidence-lower 75 --max-score-standard-deviation 0

@@ -340,6 +340,8 @@ generation dispatch 的关键配置是 `PI_AGENT_DISPATCH_LEASE_TTL_MS=120000`�
 
 评测采用独立的 `npm run worker:eval` 消费 PostgreSQL 队列，`npm run dev` 默认托管；外部管理时设置 `QUANTPILOT_DEV_MANAGE_EVAL_WORKER=0`。评测 Worker 与 Web 共享 `DATABASE_URL`、版本化迁移和持久化产物目录，不新增 Redis 队列或容器数据库。详见 [评测指南](evals-guide.md#持久化评测-worker)。
 
+Web 和评测 Worker 必须使用相同的 `QUANTPILOT_EVAL_ROOT`（完整发布目录绝对路径）。未配置时使用进程工作目录；standalone 会改变工作目录，因此生产 systemd 模板显式设为 `/opt/quantpilot/current`。根目录在进程启动时解析为真实路径，避免运行中切换 `current` 后执行不同版本代码；该目录的 `tmp/` 需挂载共享持久化产物存储。
+
 ## Secret 边界
 
 必须保持以下归属：

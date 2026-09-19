@@ -202,6 +202,8 @@ POST /api/evals
 action=simulate-flow
 ```
 
+Web 和评测 Worker 必须使用相同的 `QUANTPILOT_EVAL_ROOT`（完整发布目录绝对路径）。未配置时使用进程工作目录；standalone 会改变工作目录，因此生产 systemd 模板显式设为 `/opt/quantpilot/current`。根目录在进程启动时解析为真实路径，避免运行中切换 `current` 后执行不同版本代码；该目录的 `tmp/` 需挂载共享持久化产物存储。
+
 ## 命令行运行
 
 评测分为两条明确隔离的链路：

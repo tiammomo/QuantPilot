@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 require('tsconfig-paths/register');
+require('../shared/load-env').loadProjectEnvironment();
 
 const path = require('path');
 const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-eval-schedule.js'), {
@@ -8,6 +9,7 @@ const jiti = require('jiti')(path.join(process.cwd(), 'scripts/checks/check-eval
 });
 
 const { checkQuantEvalSchedule } = jiti('../../src/lib/eval/index.ts');
+const { prisma } = jiti('../../src/lib/db/client.ts');
 
 checkQuantEvalSchedule()
   .then((result) => {
@@ -20,4 +22,5 @@ checkQuantEvalSchedule()
   .catch((error) => {
     console.error('[eval-schedule] failed:', error);
     process.exitCode = 1;
-  });
+  })
+  .finally(() => prisma.$disconnect());
