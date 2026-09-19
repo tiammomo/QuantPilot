@@ -46,15 +46,9 @@ Docker Compose 默认读取进程变量与 `.env`，不会自动读取 `.env.loc
 
 ## 首次启动
 
-```bash
-npm install
-npm run ensure:env
-npm run db:up
-npm run db:init
-npm run dev
-```
+按[根 README 的快速启动](../README.md#快速启动)依次安装依赖、选择模型、启动本地 Docker 数据库与缓存、初始化并运行 `npm run dev`。该入口同时说明 Chromium、Linux 沙箱和 Worker 要求；详细判断方式见[本地启动与健康检查](learning/01-quick-start.md)，避免只完成 Web 安装就开始生成。
 
-此时仍需根据下面的模型模式，在 `.env.local` 中放入最小凭据。默认页面是 `http://localhost:3000`；端口占用时启动器会选择 `3000-3099` 中的可用端口并更新本地文件。
+根据下面的模型模式，在 `.env.local` 中放入最小凭据。默认页面是 `http://localhost:3000`；端口占用时启动器会选择 `3000-3099` 中的可用端口并更新本地文件。服务就绪后，用[新手实操](learning/first-research.md)检查一次真实任务。
 
 ## 模型接入方式
 

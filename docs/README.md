@@ -6,7 +6,8 @@
 
 | 你要做什么 | 从这里开始 | 继续阅读 |
 | --- | --- | --- |
-| 第一次运行项目 | [快速启动](../README.md#快速启动) | [配置指南](configuration.md)、[详细启动与健康检查](learning/01-quick-start.md) |
+| 第一次运行项目 | [快速启动](../README.md#快速启动) | [详细启动与健康检查](learning/01-quick-start.md)、[配置指南](configuration.md) |
+| 零基础完成第一项研究 | [新手实操：从零完成第一项研究](learning/first-research.md) | 学会选择模型、提交问题、检查证据与验收，再追问改进 |
 | 研究行情、指标或策略 | [策略平台](strategy-platform-guide.md) | [行情数据源](market-data-source-knowledge.md)、[数据字典](data-dictionary.md) |
 | 持续跟踪观察池与日报 | [研究自动化](research-automation-guide.md) | [工作空间交付契约](generated-workspace-contract.md) |
 | 安装、编辑、发布或回退 Skill | [Skills 治理](skills-governance.md) | [Skills 编写教程](learning/07-skills-authoring.md) |
@@ -64,7 +65,7 @@
 
 ## 按顺序学习
 
-第一次接手项目可按以下顺序阅读；已有明确问题时直接使用上方专题。课程说明与产品截图见 [教学目录](learning/README.md)。
+第一次使用产品，先完成[第一项研究实操](learning/first-research.md)，不必预先读懂全部架构。准备接手代码时，再按以下顺序学习；已有明确问题时直接使用上方专题。课程说明与产品截图见 [教学目录](learning/README.md)。
 
 1. [项目学习地图](learning/00-project-study-map.md)：建立产品、数据、生成与质量的整体认识。
 2. [本地启动与健康检查](learning/01-quick-start.md)：启动组件并判断是否可用。
