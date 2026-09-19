@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { spawn, type ChildProcess } from 'child_process';
+import type { Prisma } from '@prisma/client';
+import { evalQueueStore, queueCreateData } from './queue-store';
 import { prisma } from '@/lib/db/client';
 import { buildModelComparison, buildSkillVersionImpact } from './analysis';
 import { evaluateEvalJudgeCalibration, type EvalJudgeCalibrationSample } from './judge-calibration';
@@ -18,12 +19,10 @@ import {
   CASES_PATH,
   LOG_DIR,
   QUEUE_DIR,
-  QUEUE_PATH,
   REPAIRS_DIR,
   REPAIRS_PATH,
   REPORTS_DIR,
   ROOT,
-  SCHEDULE_PATH,
 } from './paths';
 import type {
   EvalCheckStatus,
@@ -34,7 +33,6 @@ import type {
   QuantEvalFlowSimulation,
   QuantEvalFlowStep,
   QuantEvalQueueItem,
-  QuantEvalQueueStatus,
   QuantEvalRepairTicket,
   QuantEvalResult,
   QuantEvalRun,
@@ -62,9 +60,7 @@ import {
 import { defaultScheduleConfig } from './schedule-defaults';
 import { PI_AGENT_DEFAULT_MODEL } from '@/lib/constants/models';
 import {
-  normalizeQueueStatus,
   mapDbEvalRun,
-  mapDbQueueItem,
   mapDbRepairTicket,
   mapDbSchedule,
   normalizeRun,
@@ -77,8 +73,6 @@ export {
   getQuantEvalSets,
 } from './cases';
 
-let queueKickoffInProgress = false;
-const runningChildren = new Map<string, ChildProcess>();
 const EVAL_CLI = 'pi';
 const EVAL_MODEL = PI_AGENT_DEFAULT_MODEL;
 
@@ -88,15 +82,6 @@ function normalizeExecutionMode(value: unknown): QuantEvalQueueItem['mode'] {
 
 function supportsReasoningEffort(cli: string | null | undefined): boolean {
   return EVAL_RUNTIME_OPTIONS.some((option) => option.cli === cli && option.supportsReasoningEffort);
-}
-
-function normalizeEvaluatorId(value: unknown): string {
-  const normalized = stringValue(value, DEFAULT_EVALUATOR_ID).trim();
-  try {
-    return getEvalEvaluatorDefinition(normalized || DEFAULT_EVALUATOR_ID).id;
-  } catch {
-    return DEFAULT_EVALUATOR_ID;
-  }
 }
 
 function normalizeEvalConcurrency(value: unknown): number {
@@ -159,117 +144,6 @@ async function listEvalRunsFromDatabase(limit: number): Promise<QuantEvalRun[]> 
   return records.map(mapDbEvalRun);
 }
 
-async function readQueue(): Promise<QuantEvalQueueItem[]> {
-  const dbItems = await prisma.evalQueueItem
-    .findMany({ orderBy: { createdAt: 'desc' }, take: 50 })
-    .then((items) => items.map((item) => ({
-      ...mapDbQueueItem(item),
-      cli: EVAL_CLI,
-      model: EVAL_MODEL,
-      reasoningEffort: '',
-    })))
-    .catch(() => []);
-  const parsed = await readJson(QUEUE_PATH).catch(() => []);
-  const items = Array.isArray(parsed) ? parsed : [];
-  const fileItems = items
-    .filter(isRecord)
-    .map((item): QuantEvalQueueItem => ({
-      id: stringValue(item.id),
-      status: normalizeQueueStatus(item.status),
-      createdAt: stringValue(item.createdAt, new Date().toISOString()),
-      startedAt: stringValue(item.startedAt) || null,
-      finishedAt: stringValue(item.finishedAt) || null,
-      cli: EVAL_CLI,
-      model: EVAL_MODEL,
-      reasoningEffort: '',
-      evaluatorId: normalizeEvaluatorId(item.evaluatorId),
-      concurrency: normalizeEvalConcurrency(item.concurrency),
-      repeat: normalizeEvalRepeat(item.repeat),
-      mode: normalizeExecutionMode(item.mode),
-      selectedCases: stringArray(item.selectedCases),
-      limit: typeof item.limit === 'number' ? item.limit : null,
-      keepProjects: booleanValue(item.keepProjects),
-      reportId: stringValue(item.reportId) || null,
-      reportPath: stringValue(item.reportPath) || null,
-      logPath: stringValue(item.logPath) || null,
-      pid: typeof item.pid === 'number' ? item.pid : null,
-      exitCode: typeof item.exitCode === 'number' ? item.exitCode : null,
-      error: stringValue(item.error) || null,
-    }))
-    .filter((item) => item.id);
-  const byId = new Map<string, QuantEvalQueueItem>();
-  for (const item of fileItems) byId.set(item.id, item);
-  for (const item of dbItems) {
-    const fileItem = byId.get(item.id);
-    byId.set(item.id, {
-      ...fileItem,
-      ...item,
-      evaluatorId: fileItem?.evaluatorId ?? item.evaluatorId,
-      concurrency: fileItem?.concurrency ?? item.concurrency,
-      repeat: fileItem?.repeat ?? item.repeat,
-      mode: fileItem?.mode ?? item.mode,
-    });
-  }
-  return Array.from(byId.values())
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 50);
-}
-
-async function writeQueue(items: QuantEvalQueueItem[]): Promise<void> {
-  const limited = items.slice(0, 80);
-  await Promise.all([
-    writeJson(QUEUE_PATH, limited).catch(() => undefined),
-    Promise.all(limited.map((item) => prisma.evalQueueItem.upsert({
-      where: { id: item.id },
-      update: {
-        status: item.status,
-        cli: item.cli,
-        model: item.model,
-        reasoningEffort: item.reasoningEffort,
-        evaluatorId: item.evaluatorId,
-        concurrency: item.concurrency,
-        repeat: item.repeat,
-        mode: item.mode,
-        selectedCases: jsonArray(item.selectedCases),
-        limit: item.limit,
-        keepProjects: item.keepProjects,
-        reportId: item.reportId,
-        reportPath: item.reportPath,
-        logPath: item.logPath,
-        pid: item.pid,
-        exitCode: item.exitCode,
-        error: item.error,
-        createdAt: dateOrNow(item.createdAt),
-        startedAt: toDate(item.startedAt),
-        finishedAt: toDate(item.finishedAt),
-      },
-      create: {
-        id: item.id,
-        status: item.status,
-        cli: item.cli,
-        model: item.model,
-        reasoningEffort: item.reasoningEffort,
-        evaluatorId: item.evaluatorId,
-        concurrency: item.concurrency,
-        repeat: item.repeat,
-        mode: item.mode,
-        selectedCases: jsonArray(item.selectedCases),
-        limit: item.limit,
-        keepProjects: item.keepProjects,
-        reportId: item.reportId,
-        reportPath: item.reportPath,
-        logPath: item.logPath,
-        pid: item.pid,
-        exitCode: item.exitCode,
-        error: item.error,
-        createdAt: dateOrNow(item.createdAt),
-        startedAt: toDate(item.startedAt),
-        finishedAt: toDate(item.finishedAt),
-      },
-    }))),
-  ]);
-}
-
 function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQueueItem {
   const selectedCases = Array.isArray(options.selectedCases)
     ? options.selectedCases.map(String).filter(Boolean)
@@ -308,20 +182,6 @@ function buildVirtualQueueItem(options: StartQuantEvalOptions = {}): QuantEvalQu
     exitCode: null,
     error: null,
   };
-}
-
-async function updateQueueItem(id: string, patch: Partial<QuantEvalQueueItem>): Promise<QuantEvalQueueItem | null> {
-  const queue = await readQueue();
-  const index = queue.findIndex((item) => item.id === id);
-  if (index < 0) return null;
-  queue[index] = { ...queue[index], ...patch };
-  await writeQueue(queue);
-  return queue[index];
-}
-
-async function latestReportAfter(startedAtMs: number, mode: QuantEvalQueueItem['mode']): Promise<QuantEvalRun | null> {
-  const runs = await getQuantEvalRuns(5);
-  return runs.find((run) => run.mtimeMs >= startedAtMs - 1000 && (run.metadata.suite?.mode ?? 'contract') === mode) ?? null;
 }
 
 async function readRepairTickets(): Promise<QuantEvalRepairTicket[]> {
@@ -422,7 +282,7 @@ function suggestedActionsForResult(result: QuantEvalResult): string[] {
   return Array.from(actions);
 }
 
-async function createRepairTicketsForRun(run: QuantEvalRun): Promise<QuantEvalRepairTicket[]> {
+export async function createRepairTicketsForRun(run: QuantEvalRun): Promise<QuantEvalRepairTicket[]> {
   if (run.passed) return readRepairTickets();
   const existing = await readRepairTickets();
   const existingKeys = new Set(existing.map((ticket) => `${ticket.runId}:${ticket.caseId}`));
@@ -458,86 +318,28 @@ async function createRepairTicketsForRun(run: QuantEvalRun): Promise<QuantEvalRe
   return merged;
 }
 
-async function readScheduleConfig(): Promise<QuantEvalScheduleConfig> {
-  const dbSchedule = await prisma.evalSchedule
-    .findUnique({ where: { id: 'default' } })
-    .then((record) => record ? mapDbSchedule(record) : null)
-    .catch(() => null);
-  if (dbSchedule) {
-    return {
-      ...dbSchedule,
-      cli: EVAL_CLI,
-      model: EVAL_MODEL,
-      reasoningEffort: '',
-    };
-  }
-
-  const parsed = await readJson(SCHEDULE_PATH).catch(() => null);
-  const record = isRecord(parsed) ? parsed : {};
-  return {
-    ...defaultScheduleConfig(),
-    enabled: booleanValue(record.enabled),
-    intervalHours:
-      typeof record.intervalHours === 'number' && Number.isFinite(record.intervalHours) && record.intervalHours > 0
-        ? Math.min(168, Math.max(1, Math.floor(record.intervalHours)))
-        : 24,
-    cli: EVAL_CLI,
-    model: EVAL_MODEL,
-    reasoningEffort: '',
-    selectedCases: stringArray(record.selectedCases),
-    limit: typeof record.limit === 'number' ? record.limit : null,
-    keepProjects: booleanValue(record.keepProjects),
-    nextRunAt: stringValue(record.nextRunAt) || null,
-    lastRunAt: stringValue(record.lastRunAt) || null,
-    lastQueuedRunId: stringValue(record.lastQueuedRunId) || null,
-    updatedAt: stringValue(record.updatedAt) || null,
-  };
+async function readScheduleConfig(tx: Prisma.TransactionClient = prisma): Promise<QuantEvalScheduleConfig> {
+  const record = await tx.evalSchedule.findUnique({ where: { id: 'default' } });
+  return record ? mapDbSchedule(record) : defaultScheduleConfig();
 }
 
-async function writeScheduleConfig(config: QuantEvalScheduleConfig): Promise<QuantEvalScheduleConfig> {
-  const lockedConfig = {
-    ...config,
-    cli: EVAL_CLI,
-    model: EVAL_MODEL,
-    reasoningEffort: '',
+async function writeScheduleConfig(
+  config: QuantEvalScheduleConfig,
+  tx: Prisma.TransactionClient,
+): Promise<QuantEvalScheduleConfig> {
+  const data = {
+    enabled: config.enabled, intervalHours: config.intervalHours,
+    cli: config.cli, model: config.model, reasoningEffort: config.reasoningEffort,
+    selectedCases: jsonArray(config.selectedCases), limit: config.limit,
+    keepProjects: config.keepProjects, nextRunAt: toDate(config.nextRunAt),
+    lastRunAt: toDate(config.lastRunAt), lastQueuedRunId: config.lastQueuedRunId,
   };
-  await Promise.all([
-    writeJson(SCHEDULE_PATH, lockedConfig).catch(() => undefined),
-    prisma.evalSchedule.upsert({
-      where: { id: 'default' },
-      update: {
-        enabled: config.enabled,
-        intervalHours: config.intervalHours,
-        cli: lockedConfig.cli,
-        model: lockedConfig.model,
-        reasoningEffort: lockedConfig.reasoningEffort,
-        selectedCases: jsonArray(config.selectedCases),
-        limit: config.limit,
-        keepProjects: config.keepProjects,
-        nextRunAt: toDate(config.nextRunAt),
-        lastRunAt: toDate(config.lastRunAt),
-        lastQueuedRunId: config.lastQueuedRunId,
-      },
-      create: {
-        id: 'default',
-        enabled: config.enabled,
-        intervalHours: config.intervalHours,
-        cli: lockedConfig.cli,
-        model: lockedConfig.model,
-        reasoningEffort: lockedConfig.reasoningEffort,
-        selectedCases: jsonArray(config.selectedCases),
-        limit: config.limit,
-        keepProjects: config.keepProjects,
-        nextRunAt: toDate(config.nextRunAt),
-        lastRunAt: toDate(config.lastRunAt),
-        lastQueuedRunId: config.lastQueuedRunId,
-      },
-    }),
-  ]);
-  return lockedConfig;
+  return mapDbSchedule(await tx.evalSchedule.upsert({
+    where: { id: 'default' }, update: data, create: { id: 'default', ...data },
+  }));
 }
 
-function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
+export function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
   const args = [
     'scripts/evals/run-quant-benchmarks.js',
     '--trigger=eval-backend',
@@ -562,110 +364,6 @@ function buildBenchmarkArgs(item: QuantEvalQueueItem): string[] {
     args.push('--keep-projects');
   }
   return args;
-}
-
-function runBenchmarkQueueItem(item: QuantEvalQueueItem) {
-  const startedAtMs = Date.now();
-  const logPath = path.join(LOG_DIR, `${item.id}.log`);
-  void (async () => {
-    await fs.mkdir(LOG_DIR, { recursive: true });
-    await updateQueueItem(item.id, {
-      status: 'running',
-      startedAt: new Date(startedAtMs).toISOString(),
-      logPath: path.relative(ROOT, logPath),
-      error: null,
-    });
-
-    const args = buildBenchmarkArgs(item);
-    const child = spawn(process.execPath, args, {
-      cwd: ROOT,
-      env: {
-        ...process.env,
-        QUANTPILOT_EVAL_TRIGGER: 'eval-backend',
-        QUANTPILOT_EVAL_EVALUATOR: item.evaluatorId,
-        QUANTPILOT_EVAL_CONCURRENCY: String(item.concurrency),
-        QUANTPILOT_EVAL_REPEAT: String(item.repeat),
-        QUANTPILOT_EVAL_MODE: item.mode,
-        QUANTPILOT_EVAL_CLI: item.cli,
-        QUANTPILOT_EVAL_MODEL: item.model,
-        ...(supportsReasoningEffort(item.cli) ? { QUANTPILOT_EVAL_REASONING_EFFORT: item.reasoningEffort || 'low' } : {}),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    runningChildren.set(item.id, child);
-    await updateQueueItem(item.id, { pid: child.pid ?? null });
-
-    const appendLog = async (chunk: Buffer | string) => {
-      await fs.appendFile(logPath, chunk);
-    };
-
-    child.stdout.on('data', (chunk) => {
-      void appendLog(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      void appendLog(chunk);
-    });
-    child.on('error', (error) => {
-      void (async () => {
-        const current = (await readQueue()).find((entry) => entry.id === item.id);
-        if (current?.status === 'cancelled') {
-          runningChildren.delete(item.id);
-          await processEvalQueue();
-          return;
-        }
-        await updateQueueItem(item.id, {
-          status: 'failed',
-          finishedAt: new Date().toISOString(),
-          exitCode: null,
-          error: error.message,
-        });
-        runningChildren.delete(item.id);
-        await processEvalQueue();
-      })();
-    });
-    child.on('close', (code, signal) => {
-      void (async () => {
-        const current = (await readQueue()).find((entry) => entry.id === item.id);
-        if (current?.status === 'cancelled') {
-          runningChildren.delete(item.id);
-          await processEvalQueue();
-          return;
-        }
-        const report = await latestReportAfter(startedAtMs, item.mode);
-        await updateQueueItem(item.id, {
-          status: code === 0 ? 'passed' : 'failed',
-          finishedAt: new Date().toISOString(),
-          exitCode: code,
-          reportId: report?.id ?? null,
-          reportPath: report?.filePath ?? null,
-          error: code === 0 ? null : `benchmark 退出码 ${code ?? signal ?? 'unknown'}`,
-        });
-        runningChildren.delete(item.id);
-        if (report && !report.passed) {
-          await createRepairTicketsForRun(report);
-        }
-        await processEvalQueue();
-      })();
-    });
-  })();
-}
-
-async function processEvalQueue(): Promise<void> {
-  if (queueKickoffInProgress) return;
-  queueKickoffInProgress = true;
-  try {
-    const queue = await readQueue();
-    if (queue.some((item) => item.status === 'running')) {
-      return;
-    }
-    const next = queue
-      .filter((item) => item.status === 'queued')
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
-    if (!next) return;
-    runBenchmarkQueueItem(next);
-  } finally {
-    queueKickoffInProgress = false;
-  }
 }
 
 export async function getQuantEvalRuns(limit = 30): Promise<QuantEvalRun[]> {
@@ -694,44 +392,11 @@ export async function getQuantEvalRuns(limit = 30): Promise<QuantEvalRun[]> {
 }
 
 export async function getQuantEvalQueue(): Promise<QuantEvalQueueItem[]> {
-  return readQueue();
+  return evalQueueStore.list();
 }
 
 export async function cancelQuantEvalRun(queueId: string): Promise<QuantEvalQueueItem> {
-  const queue = await readQueue();
-  const item = queue.find((entry) => entry.id === queueId);
-  if (!item) {
-    throw new Error('未找到评测队列任务。');
-  }
-  if (item.status !== 'queued' && item.status !== 'running') {
-    return item;
-  }
-
-  if (item.status === 'running') {
-    const child = runningChildren.get(item.id);
-    if (child && !child.killed) {
-      child.kill('SIGTERM');
-    } else if (item.pid) {
-      try {
-        process.kill(item.pid, 'SIGTERM');
-      } catch {
-        // 进程可能已经自然退出，队列状态仍然按取消处理。
-      }
-    }
-    runningChildren.delete(item.id);
-  }
-
-  const updated = await updateQueueItem(item.id, {
-    status: 'cancelled',
-    finishedAt: new Date().toISOString(),
-    error: '用户取消评测任务。',
-    exitCode: null,
-  });
-  await processEvalQueue();
-  if (!updated) {
-    throw new Error('取消评测任务失败。');
-  }
-  return updated;
+  return evalQueueStore.cancel(queueId);
 }
 
 export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {}): Promise<QuantEvalFlowSimulation> {
@@ -801,16 +466,22 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
     detail: path.relative(ROOT, benchmarkScript),
   });
 
-  const queueReady = await fs.mkdir(QUEUE_DIR, { recursive: true }).then(() => true).catch(() => false);
+  const queueReady = await prisma.evalQueueItem.findFirst({ select: { id: true, leaseToken: true } })
+    .then(() => true).catch(() => false);
+  pushStep({
+    id: 'queue-database', name: '持久化队列', status: queueReady ? 'passed' : 'failed',
+    summary: queueReady ? 'PostgreSQL 评测队列及租约字段可用。' : '评测队列不可用，请检查数据库连接和版本迁移。',
+    detail: null,
+  });
   const logReady = await fs.mkdir(LOG_DIR, { recursive: true }).then(() => true).catch(() => false);
   const reportReady = await fs.mkdir(REPORTS_DIR, { recursive: true }).then(() => true).catch(() => false);
   const repairReady = await fs.mkdir(REPAIRS_DIR, { recursive: true }).then(() => true).catch(() => false);
   pushStep({
     id: 'storage',
     name: '本地存储',
-    status: queueReady && logReady && reportReady && repairReady ? 'passed' : 'failed',
-    summary: queueReady && logReady && reportReady && repairReady
-      ? '队列、日志、报告和修复单目录可写。'
+    status: logReady && reportReady && repairReady ? 'passed' : 'failed',
+    summary: logReady && reportReady && repairReady
+      ? '日志、报告和修复单目录可写。'
       : '部分评测目录不可写。',
     detail: [QUEUE_DIR, LOG_DIR, REPORTS_DIR, REPAIRS_DIR].map((item) => path.relative(ROOT, item)).join(' · '),
   });
@@ -870,77 +541,72 @@ export async function simulateQuantEvalFlow(options: StartQuantEvalOptions = {})
 }
 
 export async function startQuantEvalRun(options: StartQuantEvalOptions = {}): Promise<QuantEvalQueueItem> {
-  const queue = await readQueue();
   const item: QuantEvalQueueItem = {
     ...buildVirtualQueueItem(options),
     id: uniqueId('eval-run'),
     createdAt: new Date().toISOString(),
   };
 
-  await writeQueue([item, ...queue]);
-  await processEvalQueue();
-  return item;
+  return evalQueueStore.enqueue(item);
 }
 
 export async function updateQuantEvalSchedule(input: UpdateQuantEvalScheduleInput): Promise<QuantEvalScheduleConfig> {
-  const current = await readScheduleConfig();
-  const intervalHours =
-    typeof input.intervalHours === 'number' && Number.isFinite(input.intervalHours) && input.intervalHours > 0
-      ? Math.min(168, Math.max(1, Math.floor(input.intervalHours)))
-      : current.intervalHours;
-  const enabled = typeof input.enabled === 'boolean' ? input.enabled : current.enabled;
-  const now = new Date();
-  const nextRunAt =
-    input.nextRunAt !== undefined
-      ? input.nextRunAt
-      : enabled
-        ? current.nextRunAt ?? addHours(now, intervalHours).toISOString()
-        : null;
-  return writeScheduleConfig({
-    ...current,
-    enabled,
-    intervalHours,
-    cli: EVAL_CLI,
-    model: EVAL_MODEL,
-    reasoningEffort: '',
-    selectedCases: Array.isArray(input.selectedCases) ? input.selectedCases.map(String).filter(Boolean) : current.selectedCases,
-    limit:
-      input.limit === null
-        ? null
-        : typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0
-          ? Math.floor(input.limit)
-          : current.limit,
-    keepProjects: typeof input.keepProjects === 'boolean' ? input.keepProjects : current.keepProjects,
-    nextRunAt,
-    updatedAt: now.toISOString(),
+  return evalQueueStore.withScheduleLock(async (tx) => {
+    const current = await readScheduleConfig(tx);
+    const intervalHours =
+      typeof input.intervalHours === 'number' && Number.isFinite(input.intervalHours) && input.intervalHours > 0
+        ? Math.min(168, Math.max(1, Math.floor(input.intervalHours)))
+        : current.intervalHours;
+    const enabled = typeof input.enabled === 'boolean' ? input.enabled : current.enabled;
+    const now = new Date();
+    const nextRunAt =
+      input.nextRunAt !== undefined
+        ? input.nextRunAt
+        : enabled
+          ? current.nextRunAt ?? addHours(now, intervalHours).toISOString()
+          : null;
+    return writeScheduleConfig({
+      ...current,
+      enabled,
+      intervalHours,
+      cli: EVAL_CLI,
+      model: EVAL_MODEL,
+      reasoningEffort: '',
+      selectedCases: Array.isArray(input.selectedCases) ? input.selectedCases.map(String).filter(Boolean) : current.selectedCases,
+      limit:
+        input.limit === null
+          ? null
+          : typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0
+            ? Math.floor(input.limit)
+            : current.limit,
+      keepProjects: typeof input.keepProjects === 'boolean' ? input.keepProjects : current.keepProjects,
+      nextRunAt,
+      updatedAt: now.toISOString(),
+    }, tx);
   });
 }
 
 export async function checkQuantEvalSchedule(): Promise<{ queued: boolean; schedule: QuantEvalScheduleConfig; item: QuantEvalQueueItem | null }> {
-  const schedule = await readScheduleConfig();
-  if (!schedule.enabled || !schedule.nextRunAt) {
-    return { queued: false, schedule, item: null };
-  }
-  const now = new Date();
-  if (new Date(schedule.nextRunAt).getTime() > now.getTime()) {
-    return { queued: false, schedule, item: null };
-  }
-  const item = await startQuantEvalRun({
-    cli: schedule.cli,
-    model: schedule.model,
-    reasoningEffort: schedule.reasoningEffort,
-    selectedCases: schedule.selectedCases,
-    limit: schedule.limit,
-    keepProjects: schedule.keepProjects,
+  return evalQueueStore.withScheduleLock(async (tx) => {
+    const schedule = await readScheduleConfig(tx);
+    const now = new Date();
+    if (!schedule.enabled || !schedule.nextRunAt || new Date(schedule.nextRunAt) > now) {
+      return { queued: false, schedule, item: null };
+    }
+    const item = {
+      ...buildVirtualQueueItem({
+        selectedCases: schedule.selectedCases, limit: schedule.limit, keepProjects: schedule.keepProjects,
+      }),
+      id: uniqueId('eval-run'), cli: schedule.cli, model: schedule.model,
+      reasoningEffort: schedule.reasoningEffort,
+    };
+    await tx.evalQueueItem.create({ data: queueCreateData(item) });
+    const updated = await writeScheduleConfig({
+      ...schedule, lastRunAt: now.toISOString(), lastQueuedRunId: item.id,
+      nextRunAt: addHours(now, schedule.intervalHours).toISOString(), updatedAt: now.toISOString(),
+    }, tx);
+    return { queued: true, schedule: updated, item };
   });
-  const updated = await writeScheduleConfig({
-    ...schedule,
-    lastRunAt: now.toISOString(),
-    lastQueuedRunId: item.id,
-    nextRunAt: addHours(now, schedule.intervalHours).toISOString(),
-    updatedAt: now.toISOString(),
-  });
-  return { queued: true, schedule: updated, item };
 }
 
 export async function getQuantEvalRun(runId: string): Promise<QuantEvalRun | null> {

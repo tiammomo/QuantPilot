@@ -143,20 +143,25 @@ function startGenerationWorkerIfNeeded() {
     console.log('↪️  Generation dispatch uses inline mode or an externally managed Worker.');
     return { child: null, managed: false };
   }
-  console.log('🚀 Starting durable Data Agent generation Worker');
+  return startWorker('generation');
+}
+
+function startEvaluationWorkerIfNeeded() {
+  if (!envFlag('QUANTPILOT_DEV_MANAGE_EVAL_WORKER', true)) {
+    return { child: null, managed: false };
+  }
+  return startWorker('evaluation');
+}
+
+function startWorker(kind) {
+  console.log(`🚀 Starting durable ${kind} Worker`);
   const child = spawn(
     process.execPath,
-    ['--import', 'tsx', 'scripts/workers/generation-worker.ts'],
-    {
-      cwd: rootDir,
-      stdio: 'inherit',
-      shell: false,
-      detached: !isWindows,
-      env: process.env,
-    }
+    ['--import', 'tsx', `scripts/workers/${kind}-worker.ts`],
+    { cwd: rootDir, stdio: 'inherit', shell: false, detached: !isWindows, env: process.env }
   );
   child.once('error', (error) => {
-    console.error(`❌ Failed to start generation Worker: ${error.message}`);
+    console.error(`❌ Failed to start ${kind} Worker: ${error.message}`);
   });
   return { child, managed: true };
 }
@@ -166,13 +171,16 @@ async function main() {
   const market = await startMarketApiIfNeeded();
   let web;
   let worker = { child: null, managed: false };
+  let evaluationWorker = { child: null, managed: false };
 
   try {
     web = await startWebDevServer({ preferredPort, passthrough, stdio: 'inherit' });
     worker = startGenerationWorkerIfNeeded();
+    evaluationWorker = startEvaluationWorkerIfNeeded();
   } catch (error) {
     if (market.managed) stopChild(market.child);
     if (worker.managed) stopChild(worker.child);
+    if (evaluationWorker.managed) stopChild(evaluationWorker.child);
     throw error;
   }
 
@@ -183,6 +191,7 @@ async function main() {
     stopChild(web.child);
     if (market.managed) stopChild(market.child);
     if (worker.managed) stopChild(worker.child);
+    if (evaluationWorker.managed) stopChild(evaluationWorker.child);
     setTimeout(() => process.exit(exitCode), 250).unref();
   };
 
@@ -200,10 +209,11 @@ async function main() {
       }
     });
   }
-  if (worker.managed) {
-    worker.child.on('exit', (code) => {
+  for (const [kind, managedWorker] of [['generation', worker], ['evaluation', evaluationWorker]]) {
+    if (!managedWorker.managed) continue;
+    managedWorker.child.on('exit', (code) => {
       if (!shuttingDown) {
-        console.error(`❌ generation Worker exited unexpectedly (code ${code ?? 'unknown'})`);
+        console.error(`❌ ${kind} Worker exited unexpectedly (code ${code ?? 'unknown'})`);
         shutdown(typeof code === 'number' && code !== 0 ? code : 1);
       }
     });
@@ -225,5 +235,6 @@ module.exports = {
   shouldRunMarketApi,
   shouldRunGenerationWorker,
   startGenerationWorkerIfNeeded,
+  startEvaluationWorkerIfNeeded,
   startMarketApiIfNeeded,
 };

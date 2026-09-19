@@ -263,6 +263,7 @@ export interface QuantEvalRun {
   durationMs: number;
   metadata: {
     trigger: string | null;
+    queue?: { id: string; leaseToken: string };
     reportSchemaVersion?: number | null;
     startedAt: string | null;
     finishedAt: string | null;

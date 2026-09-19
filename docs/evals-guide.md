@@ -176,6 +176,14 @@ npm run check:eval-judge-calibration
 
 评测的最终产物不只是分数，而是可复用的修复知识。一次失败如果只靠手工改页面解决，下次生成仍然可能再犯；一次失败如果沉淀到 skill、契约或数据源规则，后续所有工作空间都会受益。
 
+## 持久化评测 Worker
+
+评测面板通过 PostgreSQL `eval_queue_items` 提交任务，由 `npm run worker:eval` 独立消费。`npm run dev` 默认托管该 Worker；已有外部消费者时设置 `QUANTPILOT_DEV_MANAGE_EVAL_WORKER=0`。`npm run worker:eval:once` 只检查一次到期计划并尝试消费一个任务，适合运维验证。生产进程模板为 `deploy/systemd/quantpilot-evaluation-worker.service`，需与 Web 使用同一数据库、发布版本和工作目录/持久化产物挂载。
+
+队列和定时计划只以数据库为准，不再读取或写回 `queue.json` / `schedule.json`。既有数据库记录继续有效；文件独有的历史记录不会自动导入。Web 只负责提交、查询和取消，Worker 每轮空闲等待 2 秒，以数据库事务锁保持全局一个 benchmark 并发；任务有 60 秒租约、10 秒心跳，写入结果必须匹配未过期的租约。取消后最多等待一次心跳，由持有进程的 Worker 终止其进程组；禁止根据数据库里的历史 PID 杀进程。
+
+Worker 崩溃或数据库连接丢失后，过期任务会被下次调度标为失败，排队任务可继续领取。为避免重复模型计费，运行中断的评测不自动重跑，应检查日志后重新提交。报告使用独立文件名并绑定任务、租约、模式和模型，不按“最近生成的报告”猜测归属。定时计划的入队与下次执行时间在同一事务提交。此机制尚未冻结全部数据集和技能包版本；完整实验快照仍属于后续工作。
+
 ## 评测器 dry-run
 
 评测器的“模拟链路”不会真正启动 benchmark，它会验证：
@@ -183,7 +191,7 @@ npm run check:eval-judge-calibration
 - 选择范围是否可解析。
 - 运行器和模型是否存在。
 - benchmark 脚本是否可用。
-- 报告目录、队列目录和修复单目录是否可写。
+- PostgreSQL 队列及租约迁移是否可用，日志、报告和修复单目录是否可写。
 - 命令是否能构造。
 - 报告解析和修复单存储链路是否可达。
 

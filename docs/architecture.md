@@ -139,12 +139,14 @@ QuantPilot 当前采用 Python/Node 长期主线，不引入 Dubbo3 作为配置
 
 这相当于项目内的轻量注册表：足够支撑本地开发、单机部署、可降级组件和运维可视化。只有当后端演进成多服务多副本、跨机器部署、服务自动伸缩和统一流量治理时，才需要评估 Consul、etcd、Kubernetes service discovery 或更重的 RPC/注册中心方案。
 
+评测任务由 PostgreSQL 单独保存并由 evaluation Worker 消费；提交与取消不依赖 Web 内存。领取使用事务锁保持单任务并发，心跳与结果写入受租约约束，报告绑定任务和租约身份。评测失败不自动重新计费执行，过期租约由下一次调度收敛为失败。运行方式见 [评测指南](evals-guide.md#持久化评测-worker)。生成前的 Query Rewrite、Memory/Knowledge 和预取仍有 HTTP 生命周期依赖，尚未迁入同一个 durable task。
+
 ## 模块化单体
 
 QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续保持 `Next.js + Python market-data`，代码侧按模块治理：
 
-- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、platform-navigation-ui、product-shell、platform-core、agent-runtime、data-agent-core、finance-domain、quant-core、eval-core、ops-core 和 market-data-backend。
-- `npm run check:module-boundaries` 检查反向依赖、未声明跨模块依赖、依赖环、通用 UI 污染和大文件预算。
+- `config/module-boundaries.json` 定义 shared-kernel、ui-kit、platform-navigation-ui、product-shell、platform-core、agent-runtime、data-agent-core、finance-domain、quant-core、eval-core、ops-core、market-data-backend，以及 persistence-core、identity-core、execution-isolation、frontend-shared。
+- `npm run check:module-boundaries` 检查全部非测试源文件归属、反向依赖、跨模块公开接口、未声明依赖、依赖环、通用 UI 污染和大文件预算；通过 AST 解析导入，包含类型、动态导入与 require。
 - 领域模块不能反向依赖 `src/app/**` 页面层。
 - `ui-kit` 只能承载无领域知识组件，不直接依赖量化、运维或运行时服务。
 - Python 后端只通过 HTTP/API 契约和 Node 侧协作，不依赖 Next.js 源码。

@@ -338,6 +338,8 @@ generation dispatch 的关键配置是 `PI_AGENT_DISPATCH_LEASE_TTL_MS=120000`�
 
 独立 Worker 使用 `PI_AGENT_WORKER_CONCURRENCY` 控制单进程并发，用 `PI_AGENT_WORKER_GLOBAL_CONCURRENCY` 控制共享同一 PostgreSQL 的集群总并发；前者不得大于后者。全局容量由 `agent_worker_slots` 的 lease/fencing 实现，相关心跳为 `PI_AGENT_WORKER_SLOT_LEASE_TTL_MS` 与 `PI_AGENT_WORKER_SLOT_HEARTBEAT_INTERVAL_MS`。同一组 TTL/heartbeat 也保护 `agent_worker_instances` 进程注册：Worker 启动时在数据库 advisory lock 下清理过期注册，并核对所有存活进程的 global concurrency；配置不一致会直接退出，避免同一个槽位池被不同容量解释。多个 Worker 会按 actor 分轮选择 Job，但同一 Project 仍由 Mission、generation lease 和 workspace lease 强制单写。本地设置 `PI_AGENT_DISPATCH_MODE=worker` 后，`npm run dev` 默认同时托管一个 Worker；外部已经启动 Worker 时设置 `QUANTPILOT_DEV_MANAGE_GENERATION_WORKER=0`。`/ops-platform` 的“Data Agent 执行池”直接显示存活进程、进程容量、全局槽位、排队用户、最久等待和 24 小时完成/失败量。
 
+评测采用独立的 `npm run worker:eval` 消费 PostgreSQL 队列，`npm run dev` 默认托管；外部管理时设置 `QUANTPILOT_DEV_MANAGE_EVAL_WORKER=0`。评测 Worker 与 Web 共享 `DATABASE_URL`、版本化迁移和持久化产物目录，不新增 Redis 队列或容器数据库。详见 [评测指南](evals-guide.md#持久化评测-worker)。
+
 ## Secret 边界
 
 必须保持以下归属：

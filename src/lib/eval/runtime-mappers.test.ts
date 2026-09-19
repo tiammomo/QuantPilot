@@ -3,6 +3,7 @@ import {
   mapDbEvalRun,
   mapDbQueueItem,
   normalizeResult,
+  normalizeMetadata,
   normalizeCoverage,
   normalizeQueueStatus,
   normalizeRun,
@@ -10,6 +11,11 @@ import {
 } from './runtime-mappers';
 
 describe('evaluation runtime mappers', () => {
+  it('preserves Worker report ownership when normalizing for database storage', () => {
+    expect(normalizeMetadata({ metadata: { queue: { id: 'job-1', leaseToken: 'attempt-1' } } }, []))
+      .toMatchObject({ queue: { id: 'job-1', leaseToken: 'attempt-1' } });
+    expect(normalizeMetadata({ metadata: {} }, [])).not.toHaveProperty('queue');
+  });
   it('normalizes unknown queue states to a terminal failure', () => {
     expect(normalizeQueueStatus('running')).toBe('running');
     expect(normalizeQueueStatus('unexpected')).toBe('failed');

@@ -56,6 +56,8 @@
     "market:maintain:dry-run": "node scripts/ops/refresh-market-data.js --dry-run",
     "worker:generation": "node --import tsx scripts/workers/generation-worker.ts",
     "worker:generation:once": "node --import tsx scripts/workers/generation-worker.ts --once",
+    "worker:eval": "node --import tsx scripts/workers/evaluation-worker.ts",
+    "worker:eval:once": "node --import tsx scripts/workers/evaluation-worker.ts --once",
     "setup": "npm install && prisma generate && npm run db:init",
     "check:models": "node scripts/checks/check-deepseek-runtime.js",
     "check:ai-provider-boundary": "node scripts/checks/check-ai-provider-boundary.js",

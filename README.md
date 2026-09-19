@@ -99,7 +99,7 @@ docker compose up -d --wait
 npm run dev
 ```
 
-启动器会启动或复用市场数据服务，再启动 Web；使用 `PI_AGENT_DISPATCH_MODE=worker` 时还会托管本地 generation Worker。默认打开 **http://localhost:3000**；若端口占用，以终端输出为准，启动器会在 `3000–3099` 内选择可用端口。
+启动器会启动或复用市场数据服务，再启动 Web 和评测 Worker；使用 `PI_AGENT_DISPATCH_MODE=worker` 时还会托管本地 generation Worker。默认打开 **http://localhost:3000**；若端口占用，以终端输出为准，启动器会在 `3000–3099` 内选择可用端口。
 
 另开终端检查服务，Web 端口如有变化请相应替换：
 

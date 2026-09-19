@@ -114,11 +114,14 @@ npm run db:restore:release -- \
 - `quantpilot-web.service`：启动经过 production preflight 的 standalone Web；
 - `quantpilot-market-data.service`：按锁文件启动 market-data API；
 - `quantpilot-generation-worker.service`：消费 PostgreSQL generation job，执行领域 handler、自动验证和失败重试；
+- `quantpilot-evaluation-worker.service`：独立消费评测队列与到期评测计划，以租约和报告身份隔离各次执行；
 - `quantpilot-market-maintenance.timer`：工作日收盘后刷新交易日历、执行可恢复的 Baostock `daily/qfq` autofill，并运行新鲜度与标的覆盖门禁；
 - `quantpilot-auth-cleanup.timer`：每日清理过期会话、验证记录，并执行审计保留策略；
 - `quantpilot-backup.timer`：每 6 小时生成一次带校验清单的备份。
 
 部署时应把模板中的 `/opt/quantpilot/current`、运行用户、可写目录和二进制 PATH 与目标机器对齐，再执行 `systemd-analyze verify`。安装 service/timer 后仍需由基础设施层配置 HTTPS 反向代理、备份保留、异地复制、失败告警和磁盘容量告警。systemd 任务失败必须进入值班通知，不能只留在 journal。
+
+评测 Worker 首次发布包含 `20260919090000_eval_queue_leases` 加法迁移，应按 schema release 先备份、执行 `npm run prisma:deploy`，再同时更新 Web 与 Worker。切换前先停止旧 Web 发起新评测，并等旧进程中的评测结束或显式取消，避免旧消费者在没有租约的情况下继续执行。代码回滚不删除新增列；停止新 Worker 后才恢复旧消费者，防止两代调度器同时运行。
 
 ## GA 签字清单
 

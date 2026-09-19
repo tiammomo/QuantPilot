@@ -43,6 +43,7 @@ const testFiles = [
   'src/lib/services/pi-agent-tool-approval-store.integration.test.ts',
   'src/lib/ops/product-health.integration.test.ts',
   'src/lib/quant/market-freshness.integration.test.ts',
+  'src/lib/eval/queue-store.integration.test.ts',
 ];
 const result = spawnSync(process.execPath, [vitestBin, 'run', ...testFiles], {
   cwd: process.cwd(),

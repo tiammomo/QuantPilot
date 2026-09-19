@@ -1067,12 +1067,16 @@ model EvalQueueItem {
   pid             Int?
   exitCode        Int?      @map("exit_code")
   error           String?
+  leaseToken      String?   @map("lease_token")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  attemptCount    Int       @default(0) @map("attempt_count")
   createdAt       DateTime  @map("created_at")
   startedAt       DateTime? @map("started_at")
   finishedAt      DateTime? @map("finished_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
+  @@index([status, leaseExpiresAt])
   @@index([createdAt])
   @@map("eval_queue_items")
 }

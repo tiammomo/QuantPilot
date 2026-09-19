@@ -2622,6 +2622,12 @@ async function runCasesWithConcurrency(cases, concurrency, options) {
 }
 
 async function main() {
+  const workerReportId = process.env.QUANTPILOT_EVAL_REPORT_ID;
+  const queueId = process.env.QUANTPILOT_EVAL_QUEUE_ID;
+  const leaseToken = process.env.QUANTPILOT_EVAL_LEASE_TOKEN;
+  if ((workerReportId || queueId || leaseToken) && (
+    !/^report-\d{1,50}$/.test(workerReportId || '') || !queueId || !leaseToken
+  )) throw new Error('Invalid evaluation Worker report identity.');
   const args = parseArgs(process.argv.slice(2));
   const benchmarkStartedAt = new Date().toISOString();
   const allCases = await readJson(args.casesFile);
@@ -2740,6 +2746,7 @@ async function main() {
     schemaVersion: EVAL_REPORT_SCHEMA_VERSION,
     createdAt: reportCreatedAt,
     metadata: {
+      ...(workerReportId ? { queue: { id: queueId, leaseToken } } : {}),
       trigger: args.trigger,
       startedAt: benchmarkStartedAt,
       finishedAt: benchmarkFinishedAt,
@@ -2863,8 +2870,8 @@ async function main() {
     ? report.passed && releaseControls?.attestation?.passed === true
     : null;
 
-  const reportPath = path.join(REPORTS_DIR, `report-${Date.now()}.json`);
-  await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const reportPath = path.join(REPORTS_DIR, `${workerReportId || `report-${Date.now()}`}.json`);
+  await fs.writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
 
   // E2E evidence remains queryable for the subsequent CI gate. A later run's
   // deterministic project bootstrap deletes its own prior lineage. Contract

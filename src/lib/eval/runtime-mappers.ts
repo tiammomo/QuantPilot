@@ -83,6 +83,7 @@ export async function readCurrentSkillLockSnapshot(): Promise<QuantEvalRun['meta
 
 export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]): QuantEvalRun['metadata'] {
   const metadata = isRecord(report.metadata) ? report.metadata : {};
+  const queue = isRecord(metadata.queue) ? metadata.queue : {};
   const runtime = isRecord(metadata.runtime) ? metadata.runtime : {};
   const selection = isRecord(metadata.selection) ? metadata.selection : {};
   const evaluator = isRecord(metadata.evaluator) ? metadata.evaluator : {};
@@ -95,6 +96,8 @@ export function normalizeMetadata(report: JsonRecord, results: QuantEvalResult[]
 
   return {
     trigger: stringValue(metadata.trigger) || null,
+    ...(typeof queue.id === 'string' && typeof queue.leaseToken === 'string'
+      ? { queue: { id: queue.id, leaseToken: queue.leaseToken } } : {}),
     reportSchemaVersion: Number.isSafeInteger(report.schemaVersion)
       ? numberValue(report.schemaVersion)
       : null,
