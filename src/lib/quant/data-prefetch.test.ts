@@ -38,6 +38,37 @@ describe('quant trading-plan intent', () => {
 });
 
 describe('quant data-prefetch symbol candidates', () => {
+  it('uses one batch request for a multi-asset plan and persists matching quotes and progress', async () => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-prefetch-batch-'));
+    temporaryProjects.push(projectPath);
+    const quotes = ['510300', '510500'].map(symbol => ({
+      symbol, price: '4.1', asset_type: 'etf', source: 'fixture', fetched_at: '2026-09-18T08:00:00Z',
+    }));
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/v1/quotes/realtime')) return Response.json({ quotes });
+      throw new Error(`Unexpected single-asset fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const onProgress = vi.fn().mockResolvedValue(undefined);
+    const result = await prefetchQuantDataForRunPlan({
+      projectPath,
+      plan: {
+        schemaVersion: 1, runId: 'batch', status: 'planned', capabilityId: 'stock_diagnosis',
+        symbols: quotes.map(quote => quote.symbol), question: '研究两个 ETF', dataRequirements: [],
+        timeRange: null, visualization: { required: true, panels: [] },
+      } as unknown as QuantRunPlan,
+      onProgress,
+    });
+    expect(result.skipped).toBe(false);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(onProgress).toHaveBeenLastCalledWith({ completed: 2, total: 2, succeeded: 2, failed: 0 });
+    const data = JSON.parse(await fs.readFile(path.join(projectPath, result.finalDataPath!), 'utf8'));
+    expect(data.assets.map((asset: { quote: unknown }) => asset.quote)).toEqual(quotes);
+    for (const quote of quotes) {
+      expect(JSON.parse(await fs.readFile(path.join(projectPath, `data_file/raw/batch/${quote.symbol}/quote.json`), 'utf8'))).toEqual(quote);
+    }
+  });
+
   it('builds a selected-period cash-flow versus net-profit comparison from stable or raw API fields', () => {
     expect(buildFundamentalMetricComparison({
       symbol: '600111',

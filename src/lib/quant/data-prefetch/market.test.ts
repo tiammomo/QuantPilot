@@ -12,6 +12,42 @@ afterEach(async () => {
 });
 
 describe('backtest experiment artifacts', () => {
+  it('reuses validated batch quotes in both the final data and raw evidence', async () => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-batch-quote-'));
+    projects.push(projectPath);
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const quote = { symbol: '510300', price: '3.9', asset_type: 'etf', as_of: '2026-09-18' };
+    const result = await fetchSymbolDataset({
+      projectPath, runId: 'batch', symbol: '510300', quote, rawFiles: [], warnings: [],
+      plan: { dataRequirements: [] } as unknown as QuantRunPlan,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ symbol: '510300', asset_type: 'etf', as_of: quote.as_of, quote });
+    expect(JSON.parse(await fs.readFile(path.join(projectPath, 'data_file/raw/batch/510300/quote.json'), 'utf8'))).toEqual(quote);
+  });
+
+  it.each([
+    { symbol: '600519', price: 10 },
+    { symbol: '510300', price: -1 },
+    { symbol: '510300', price: null },
+    { symbol: '510300', price: 10, data_quality: { status: 'error' } },
+  ])('falls back from unusable batch rows instead of overwriting verified data: %j', async quote => {
+    const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-batch-fallback-'));
+    projects.push(projectPath);
+    const fallback = { symbol: '510300', price: '3.9', asset_type: 'etf' };
+    const fetcher = vi.fn().mockResolvedValue(Response.json(fallback));
+    vi.stubGlobal('fetch', fetcher);
+    const warnings: string[] = [];
+    const result = await fetchSymbolDataset({
+      projectPath, runId: 'batch', symbol: '510300', quote, rawFiles: [], warnings,
+      plan: { dataRequirements: [] } as unknown as QuantRunPlan,
+    });
+    expect(result.quote).toEqual(fallback);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(warnings[0]).toContain('批量行情不可用');
+  });
+
   it('keeps complete inputs in the raw artifact and only a reference in research context', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-backtest-artifact-'));
     projects.push(projectPath);

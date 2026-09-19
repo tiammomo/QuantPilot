@@ -9,7 +9,8 @@ import {
   isQuantAnalysisPlan,
   syncRunPlanSymbols,
 } from './data-prefetch/planning';
-import { fetchScreenerSeedSymbols, fetchSymbolDataset } from './data-prefetch/market';
+import { fetchScreenerSeedSymbols } from './data-prefetch/market';
+import { collectSymbolDatasets, type PrefetchProgress } from './data-prefetch/collection';
 import {
   buildComparisonSummary,
   buildConclusion,
@@ -35,6 +36,7 @@ import {
 export async function prefetchQuantDataForRunPlan(params: {
   projectPath: string;
   plan: QuantRunPlan;
+  onProgress?: (progress: PrefetchProgress) => Promise<void>;
 }): Promise<PrefetchResult> {
   if (
     params.plan.status === 'needs_clarification' ||
@@ -144,31 +146,22 @@ export async function prefetchQuantDataForRunPlan(params: {
     }
   }
 
-  const assets: JsonRecord[] = [];
-  for (const symbol of symbols) {
-    try {
-      const asset = await fetchSymbolDataset({
-        projectPath: params.projectPath,
-        runId,
-        symbol,
-        plan: params.plan,
-        rawFiles,
-        warnings,
-      });
-      if (quoteMap.has(symbol)) {
-        asset.quote = quoteMap.get(symbol);
-      }
-      if (
-        asRecord(asset.technicalIndicators) ||
-        extractBarsFromAsset(asset).length > 0
-      ) {
-        ensureTechnicalSummary(asset);
-      }
-      buildFinancialQuality(asset);
-      assets.push(asset);
-    } catch (error) {
-      warnings.push(`${symbol} 预取失败：${error instanceof Error ? error.message : String(error)}`);
+  const collected = await collectSymbolDatasets({
+    projectPath: params.projectPath,
+    runId,
+    plan: params.plan,
+    symbols,
+    quotes: quoteMap,
+    onProgress: params.onProgress,
+  });
+  rawFiles.push(...collected.rawFiles);
+  warnings.push(...collected.warnings);
+  const assets = collected.assets;
+  for (const asset of assets) {
+    if (asRecord(asset.technicalIndicators) || extractBarsFromAsset(asset).length > 0) {
+      ensureTechnicalSummary(asset);
     }
+    buildFinancialQuality(asset);
   }
 
   if (assets.length === 0) {

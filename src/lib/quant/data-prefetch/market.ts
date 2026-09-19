@@ -1,5 +1,6 @@
 import path from 'path';
 import { QuantRunPlan } from '@/lib/domains/finance/workspace';
+import { assessQuantDataResponse } from '@/lib/domains/finance/data-quality';
 import { type JsonRecord, asRecord } from './values';
 import {
   inferHistoryLimit,
@@ -142,10 +143,19 @@ export async function fetchSymbolDataset(params: {
   plan: QuantRunPlan;
   rawFiles: string[];
   warnings: string[];
+  quote?: JsonRecord;
 }): Promise<JsonRecord> {
   const symbolRawDir = path.join(params.projectPath, 'data_file', 'raw', params.runId, params.symbol);
   const historyLimit = inferHistoryLimit(params.plan);
-  const quote = await fetchJson(`/api/v1/quotes/realtime/${params.symbol}`);
+  const quoteEndpoint = `/api/v1/quotes/realtime/${params.symbol}`;
+  const batchQuoteUsable = params.quote && assessQuantDataResponse({
+    path: quoteEndpoint,
+    payload: params.quote,
+  }).usable;
+  if (params.quote && !batchQuoteUsable) {
+    params.warnings.push(`${params.symbol} 批量行情不可用，已尝试单独获取。`);
+  }
+  const quote = batchQuoteUsable ? params.quote! : await fetchJson(quoteEndpoint);
   const assetType = typeof quote.asset_type === 'string' ? quote.asset_type : 'stock';
   const quotePath = path.join(symbolRawDir, 'quote.json');
   await writeJson(quotePath, quote);
