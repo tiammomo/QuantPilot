@@ -51,6 +51,10 @@ export function planPreviewReconciliation(params: {
     return { action: 'wait' };
   }
 
+  // A running Mission has no receipt yet. Keep its actual preparation/execution
+  // phase visible; the controller still clears any provisional preview URL.
+  if (snapshot.status === 'running') return { action: 'wait' };
+
   if (
     snapshot.missionAcceptanceRequired &&
     !snapshot.missionAcceptanceSatisfied

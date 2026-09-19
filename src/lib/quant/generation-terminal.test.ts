@@ -37,6 +37,23 @@ const acceptedMission = (requestId: string, generationId = 'generation-1') => ({
 });
 
 describe('generation terminal snapshot', () => {
+  it('exposes only the active step summary for recovery after a browser reload', () => {
+    const snapshot = deriveQuantGenerationTerminalSnapshot({
+      generation: {
+        requestId: 'request-1', status: 'running', activeStep: 'data_prefetch',
+        steps: [
+          { id: 'planning', summary: '旧规划摘要' },
+          { id: 'data_prefetch', summary: '数据预取已处理 2/4 个标的' },
+        ],
+      },
+      validation: null, preview: preview('stopped', null),
+    });
+    expect(snapshot).toMatchObject({
+      status: 'running', activeStep: 'data_prefetch', stepSummary: '数据预取已处理 2/4 个标的',
+      previewUrl: null,
+    });
+  });
+
   it('projects a policy refusal as terminal without requiring validation or preview', () => {
     const snapshot = deriveQuantGenerationTerminalSnapshot({
       generation: {

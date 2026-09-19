@@ -26,6 +26,17 @@ function snapshot(
 }
 
 describe('planPreviewReconciliation', () => {
+  it('keeps an unaccepted running Mission in its actual phase without adopting a preview', () => {
+    expect(planPreviewReconciliation({
+      projectId: 'project-1',
+      snapshot: snapshot({
+        status: 'running', activeStep: 'data_prefetch', validationStatus: 'pending',
+        missionAcceptanceSatisfied: false, previewUrl: 'http://localhost:4100',
+      }),
+      currentPreviewUrl: null, attemptedRecoveryKey: null,
+    })).toEqual({ action: 'wait' });
+  });
+
   it('withholds even a contradictory ready URL until the Mission is accepted', () => {
     expect(
       planPreviewReconciliation({

@@ -208,7 +208,7 @@ function ChatWorkspace({ projectId }: { projectId: string }) {
   const deployment = useProjectDeployment(projectId);
   const { setShowPublishPanel, deploymentStatus } = deployment;
   const revealPreview = useCallback(() => { setShowPreview(true); setMobileWorkspaceView('preview'); }, []);
-  const { controller: previewController, previewUrl, isStartingPreview, previewInitializationMessage,
+  const { controller: previewController, previewUrl, isStartingPreview, previewInitializationMessage, activeStep,
     quantValidationState, quantValidationMessage, quantRepairPlan, isRunning, agentWorkComplete,
     currentRoute, setCurrentRoute, iframeRef, navigateToRoute, refreshPreview, start, stop,
     setIsRunning, setAgentWorkComplete, setPreviewInitializationMessage,
@@ -2026,6 +2026,7 @@ const persistProjectPreferences = useCallback(
                     {isStartingPreview ? (
                       <DashboardGenerationWaiting
                         mode="preview"
+                        step={activeStep}
                         message={previewInitializationMessage}
                         accentColor={activeBrandColor}
                       />
@@ -2040,6 +2041,7 @@ const persistProjectPreferences = useCallback(
                         {generationBusy ? (
                           <DashboardGenerationWaiting
                             mode="generating"
+                            step={activeStep}
                             message={previewInitializationMessage}
                             accentColor={activeBrandColor}
                           />

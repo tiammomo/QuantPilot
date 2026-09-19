@@ -571,6 +571,17 @@ export async function prepareFinanceActGeneration(
         const prefetch = await prefetchQuantDataForRunPlan({
           projectPath,
           plan: runPlan,
+          onProgress: async (progress) => {
+            await updateQuantGenerationStep({
+              projectPath,
+              projectId: project_id,
+              requestId,
+              stepId: "data_prefetch",
+              status: "running",
+              summary: `数据预取已处理 ${progress.completed}/${progress.total} 个标的，${progress.succeeded} 个取得数据${progress.failed ? `，${progress.failed} 个取数失败` : ""}；正在整理证据。`,
+              metadata: { progress },
+            });
+          },
         });
         if (quotaActorUserId && !prefetch.skipped) {
           const dataUnits = Math.max(1, prefetch.rawFiles?.length ?? 0);

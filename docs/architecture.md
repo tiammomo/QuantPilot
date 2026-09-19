@@ -141,6 +141,8 @@ QuantPilot 当前采用 Python/Node 长期主线，不引入 Dubbo3 作为配置
 
 评测任务由 PostgreSQL 单独保存并由 evaluation Worker 消费；提交与取消不依赖 Web 内存。领取使用事务锁保持单任务并发，心跳与结果写入受租约约束，报告绑定任务和租约身份。评测失败不自动重新计费执行，过期租约由下一次调度收敛为失败。运行方式见 [评测指南](evals-guide.md#持久化评测-worker)。生成前的 Query Rewrite、Memory/Knowledge 和预取仍有 HTTP 生命周期依赖，尚未迁入同一个 durable task。
 
+行情预取在单次任务内使用两个标的 Worker，每个标的内部接口顺序执行，避免无界请求放大。有效批量行情同时作为研究输入和原始证据；缺失、身份不符或不可用条目回退单标的获取。结果和警告按计划顺序归并，完成顺序不改变主标的。该限制不是跨项目全局供应商限流。已处理标的数（包含失败）串行写入现有生成状态；`generation/status` 返回当前步骤与摘要，浏览器据此恢复真实等待进度，预览仍必须经过 Mission 验收。
+
 ## 模块化单体
 
 QuantPilot 当前采用模块化单体，而不是微服务化。运行态继续保持 `Next.js + Python market-data`，代码侧按模块治理：

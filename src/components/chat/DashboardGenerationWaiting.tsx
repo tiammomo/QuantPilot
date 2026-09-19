@@ -41,7 +41,16 @@ export function getDashboardGenerationWaitingCopy(mode: DashboardGenerationWaiti
 export function resolveDashboardGenerationWaitingStage(
   mode: DashboardGenerationWaitingMode,
   message: string,
+  step?: string | null,
 ): DashboardGenerationWaitingStage & { index: number } {
+  const stagesByStep: Record<string, number> = {
+    request_received: 0, planning: 0, data_prefetch: 1, agent_execution: 2,
+    validation: 3, repair: 3, final_validation: 3, evidence_verification: 3, preview: 4,
+  };
+  if (step && Object.hasOwn(stagesByStep, step)) {
+    const index = stagesByStep[step];
+    return { ...WAITING_STAGES[index], index };
+  }
   const normalized = message.replace(/\s+/g, '');
   let index = 0;
 
@@ -64,15 +73,17 @@ export function resolveDashboardGenerationWaitingStage(
 function DashboardGenerationProgress({
   mode,
   message,
+  step,
   accentColor,
   reduceMotion,
 }: {
   mode: DashboardGenerationWaitingMode;
   message: string;
+  step?: string | null;
   accentColor: string;
   reduceMotion: boolean | null;
 }) {
-  const activeStage = resolveDashboardGenerationWaitingStage(mode, message);
+  const activeStage = resolveDashboardGenerationWaitingStage(mode, message, step);
   const progressWidth = `${(activeStage.index / (WAITING_STAGES.length - 1)) * 80}%`;
 
   return (
@@ -166,10 +177,12 @@ function DashboardGenerationProgress({
 export function DashboardGenerationWaiting({
   mode,
   message,
+  step,
   accentColor,
 }: {
   mode: DashboardGenerationWaitingMode;
   message: string;
+  step?: string | null;
   accentColor: string;
 }) {
   const reduceMotion = useReducedMotion();
@@ -265,6 +278,7 @@ export function DashboardGenerationWaiting({
         <DashboardGenerationProgress
           mode={mode}
           message={message}
+          step={step}
           accentColor={accentColor}
           reduceMotion={reduceMotion}
         />

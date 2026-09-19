@@ -1,3 +1,5 @@
+import type { QuantGenerationTerminalSnapshot } from '@/lib/quant/generation-terminal';
+
 export type QuantValidationState = 'unknown' | 'running' | 'passed' | 'failed';
 export type QuantValidationRepairPlan = {
   status: 'needed';
@@ -14,6 +16,7 @@ export type GenerationPreviewState = {
   quantRepairPlan: QuantValidationRepairPlan | null;
   isRunning: boolean;
   agentWorkComplete: boolean;
+  activeStep: NonNullable<QuantGenerationTerminalSnapshot['activeStep']> | null;
 };
 
 export const INITIAL_PREVIEW_STATE: GenerationPreviewState = {
@@ -25,6 +28,7 @@ export const INITIAL_PREVIEW_STATE: GenerationPreviewState = {
   quantRepairPlan: null,
   isRunning: false,
   agentWorkComplete: false,
+  activeStep: null,
 };
 
 type StatusUpdate = {
@@ -45,6 +49,7 @@ export function generationStatusUpdate(
     case 'validation_running':
       return {
         patch: {
+          activeStep: 'validation',
           isRunning: true,
           quantValidationState: 'running',
           quantRepairPlan: null,
@@ -59,6 +64,7 @@ export function generationStatusUpdate(
         patch: {
           isRunning: true,
           agentWorkComplete: false,
+          activeStep: 'validation',
           quantValidationState: 'running',
           quantValidationMessage: failed
             ? 'Agent 执行异常结束，正在验证已生成产物并尝试自动修复。'
@@ -73,6 +79,7 @@ export function generationStatusUpdate(
     case 'validation_repair_failed':
       return {
         patch: {
+          activeStep: 'repair',
           isRunning: true,
           quantValidationState: 'running',
           quantValidationMessage: message ?? '自动验证未通过，正在修复看板产物。',
@@ -83,6 +90,7 @@ export function generationStatusUpdate(
       return {
         reveal: true,
         patch: {
+          activeStep: 'preview',
           isRunning: true,
           quantValidationState: 'passed',
           quantValidationMessage: '自动验证通过，正在确认持久看板预览。',
@@ -135,6 +143,7 @@ export function generationStatusUpdate(
         reveal: hasPreview,
         reconcile: hasPreview,
         patch: {
+          activeStep: 'evidence_verification',
           quantValidationState: 'running',
           quantRepairPlan: null,
           quantValidationMessage:

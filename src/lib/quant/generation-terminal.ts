@@ -1,5 +1,5 @@
 import type { PiAgentAcceptedMissionSnapshot } from '@/lib/agent/mission';
-import type { QuantGenerationRunStatus } from '@/lib/quant/generation-state';
+import type { QuantGenerationRunStatus, QuantGenerationStepId } from '@/lib/quant/generation-state';
 import type { QuantValidationReport } from "@/lib/quant/validation/contracts";
 import type { PreviewInfo } from '@/lib/services/preview';
 
@@ -19,7 +19,10 @@ export type QuantGenerationTerminalGenerationInput = {
   requestId: string;
   status: QuantGenerationRunStatus;
   cliPreference?: string | null;
+  activeStep?: QuantGenerationStepId;
   steps?: Array<{
+    id?: QuantGenerationStepId;
+    summary?: string;
     metadata?: Record<string, unknown>;
   }>;
   error?: { message?: string | null } | null;
@@ -60,6 +63,8 @@ export interface QuantGenerationTerminalSnapshot {
   previewPort: number | null;
   persistedPreviewUrl: string | null;
   errorMessage: string | null;
+  activeStep?: QuantGenerationStepId | null;
+  stepSummary?: string | null;
 }
 
 function isValidationReportStale(report: ValidationReportInput): boolean {
@@ -216,6 +221,10 @@ export function deriveQuantGenerationTerminalSnapshot(params: {
   return {
     requestId,
     status,
+    activeStep: status === 'running' ? params.generation?.activeStep ?? null : null,
+    stepSummary: status === 'running'
+      ? params.generation?.steps?.find(step => step.id === params.generation?.activeStep)?.summary?.trim() || null
+      : null,
     terminal: ['ready', 'needs_revalidation', 'failed', 'cancelled', 'needs_clarification', 'refused'].includes(status),
     validationStatus: validationPassed
       ? 'passed'

@@ -6,6 +6,13 @@ import {
 } from './DashboardGenerationWaiting';
 
 describe('dashboard generation waiting copy', () => {
+  it.each([
+    ['planning', 'planning'], ['data_prefetch', 'data'], ['agent_execution', 'generation'],
+    ['repair', 'validation'], ['evidence_verification', 'validation'], ['preview', 'preview'],
+  ])('uses the server step %s even when the message mentions later stages', (step, expected) => {
+    expect(resolveDashboardGenerationWaitingStage('generating', '正在验证并准备预览', step).id).toBe(expected);
+  });
+
   it('keeps generation and preview states distinct', () => {
     expect(getDashboardGenerationWaitingCopy('generating').title).toContain('生成');
     expect(getDashboardGenerationWaitingCopy('preview').title).toContain('准备');

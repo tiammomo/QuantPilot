@@ -109,7 +109,8 @@ export class GenerationPreviewController {
       ...INITIAL_PREVIEW_STATE,
       isRunning: true,
       quantValidationState: 'running',
-      previewInitializationMessage: '正在准备数据和可视化看板，验证通过后自动展示...',
+      activeStep: 'request_received',
+      previewInitializationMessage: '正在接收研究请求并准备执行计划...',
     });
   };
   rejectRequest = (submittedRequestId: string) => {
@@ -127,10 +128,10 @@ export class GenerationPreviewController {
     this.terminalFailure = false;
     const operation = this.operation();
     this.starting = operation;
-    const timers: Array<ReturnType<typeof setTimeout>> = [];
     try {
       this.update({
         isStartingPreview: true,
+        activeStep: options.requireValidation ? 'validation' : 'preview',
         previewInitializationMessage: options.requireValidation ? '正在检查自动验证结果...' : '正在启动预览服务...',
       });
       const snapshot = options.acceptedSnapshot ?? (await this.snapshot(operation));
@@ -140,7 +141,7 @@ export class GenerationPreviewController {
         return false;
       }
       if (snapshot.missionAcceptanceRequired && !snapshot.missionAcceptanceSatisfied) {
-        this.update({ previewUrl: null, previewInitializationMessage: '正在等待 PI Agent 证据验收，暂不展示预览。' });
+        this.update({ activeStep: 'evidence_verification', previewUrl: null, previewInitializationMessage: '正在等待 PI Agent 证据验收，暂不展示预览。' });
         return false;
       }
       if (snapshot.validationStatus !== 'passed' || !snapshot.validationMatchesCurrentRun) {
@@ -160,16 +161,7 @@ export class GenerationPreviewController {
         this.update({ previewInitializationMessage: '持久看板预览尚未进入可恢复状态。' });
         return false;
       }
-      for (const [delay, message] of [
-        [1000, '正在检查依赖...'],
-        [2500, '正在构建和验证看板...'],
-      ] as const) {
-        timers.push(
-          setTimeout(() => {
-            if (this.current(operation)) this.update({ previewInitializationMessage: message });
-          }, delay)
-        );
-      }
+      this.update({ activeStep: 'preview', previewInitializationMessage: '正在启动并确认预览服务...' });
       const response = await this.request(operation, this.endpoint('preview/start'), { method: 'POST' });
       const payload = await response.json().catch(() => null);
       if (!this.current(operation)) return false;
@@ -188,7 +180,6 @@ export class GenerationPreviewController {
       }
       return false;
     } finally {
-      timers.forEach(clearTimeout);
       this.operations.delete(operation);
       if (this.starting === operation) {
         this.starting = null;
@@ -246,6 +237,7 @@ export class GenerationPreviewController {
           quantValidationState: 'running',
           quantValidationMessage: '自动检查已完成，正在等待 PI Agent 证据验收。',
           previewInitializationMessage: '证据验收通过后才会展示最终看板。',
+          activeStep: 'evidence_verification',
         });
         return;
       }
@@ -300,10 +292,11 @@ export class GenerationPreviewController {
           agentWorkComplete: false,
           quantValidationState: 'running',
           quantValidationMessage: '当前生成任务尚未完成，正在等待验证和预览终态。',
+          activeStep: snapshot.activeStep ?? null,
         });
         if (snapshot.validationStatus === 'pending') {
           this.update({ previewUrl: null });
-          if (!this.hasActiveRequests && this.current(operation))
+          if (!snapshot.activeStep && !this.hasActiveRequests && this.current(operation))
             await readPreviewValidation({
               projectId: this.options.projectId,
               isVisualCheck: this.options.isVisualCheck,
@@ -315,7 +308,7 @@ export class GenerationPreviewController {
             });
         }
         if (this.current(operation) && !this.state.previewUrl)
-          this.update({ previewInitializationMessage: '正在生成、验证并准备最终可视化看板...' });
+          this.update({ previewInitializationMessage: snapshot.stepSummary || '任务正在执行，等待最新阶段信息...' });
       } else if (snapshot.status === 'failed') {
         this.invalidate();
         this.expectedRequestId = null;

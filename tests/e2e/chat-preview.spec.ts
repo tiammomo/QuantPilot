@@ -1,7 +1,8 @@
 import { expect, test, type Page } from 'playwright/test';
 import type { QuantGenerationTerminalSnapshot } from '../../src/lib/quant/generation-terminal';
 
-async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnMetrics?: unknown) {
+async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnMetrics?: unknown,
+  initialSnapshot: Partial<QuantGenerationTerminalSnapshot> = {}) {
   let snapshot: QuantGenerationTerminalSnapshot = {
     requestId: 'request-1',
     status: 'ready',
@@ -17,6 +18,7 @@ async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnM
     previewPort: 4101,
     persistedPreviewUrl: '/fixture-preview',
     errorMessage: null,
+    ...initialSnapshot,
   };
   let reads = 0;
   let starts = 0;
@@ -94,6 +96,7 @@ async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnM
   });
   await page.goto('/preview-fixture/chat');
   return {
+    setSnapshot: (patch: Partial<QuantGenerationTerminalSnapshot>) => { snapshot = { ...snapshot, ...patch }; },
     get reads() {
       return reads;
     },
@@ -122,6 +125,28 @@ async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnM
 
 const preview = (page: Page) =>
   page.frameLocator('iframe[title="研究看板预览"]').getByRole('heading', { name: '已验收研究结果' });
+
+test('restores actual data progress after reload and follows server stage changes', async ({ page, isMobile }, testInfo) => {
+  const fixture = await openWorkspace(page, false, 1, undefined, {
+    status: 'running', terminal: false, validationStatus: 'pending', previewUrl: null,
+    activeStep: 'data_prefetch', stepSummary: '数据预取已处理 2/4 个标的，2 个取得数据；正在整理证据。',
+  });
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    if (isMobile) await page.getByRole('navigation', { name: '移动端工作区视图' })
+      .getByRole('button', { name: '看板', exact: true }).click();
+    const waiting = page.getByTestId('dashboard-generation-waiting-generating');
+    await expect(waiting).toContainText('数据预取已处理 2/4 个标的');
+    await expect(waiting.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '当前阶段：准备数据');
+  }
+  fixture.setSnapshot({ activeStep: 'agent_execution', stepSummary: '数据已准备，正在生成看板。' });
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '当前阶段：生成看板');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 2)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('generation-progress.png') });
+  expect(fixture.starts).toBe(0);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
 
 test('waits for Mission acceptance and preserves the selected file view on later ready polls', async ({
   page,

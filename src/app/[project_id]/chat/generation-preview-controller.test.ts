@@ -43,6 +43,33 @@ function controller(fetcher: typeof fetch, visual = false) {
 afterEach(() => vi.useRealTimers());
 
 describe('generation preview lifecycle', () => {
+  it('restores real collection progress without starting premature validation requests', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(snapshot({
+      status: 'running', terminal: false, previewUrl: null,
+      validationStatus: 'pending', activeStep: 'data_prefetch', stepSummary: '数据预取已处理 2/4 个标的',
+      missionAcceptanceSatisfied: false, acceptedReceiptId: null,
+    })));
+    const { engine } = controller(fetcher);
+    await engine.reconcile();
+    expect(engine.getSnapshot()).toMatchObject({
+      activeStep: 'data_prefetch', previewInitializationMessage: '数据预取已处理 2/4 个标的',
+      isRunning: true, previewUrl: null,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('does not invent preview build progress based on elapsed time', async () => {
+    vi.useFakeTimers();
+    const response = deferred<Response>();
+    const { engine } = controller(vi.fn<typeof fetch>().mockReturnValue(response.promise));
+    const start = engine.start({ acceptedSnapshot: pending() });
+    const initial = engine.getSnapshot().previewInitializationMessage;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.getSnapshot().previewInitializationMessage).toBe(initial);
+    response.resolve(json({ url: '/preview/ready' }));
+    expect(await start).toBe(true);
+  });
+
   it('withholds provisional previews until the current Mission is accepted', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(json(snapshot({ missionAcceptanceSatisfied: false })));
     const { engine, onReveal } = controller(fetcher);
