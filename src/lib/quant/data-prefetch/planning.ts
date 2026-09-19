@@ -68,14 +68,11 @@ export function inferPlannedSymbols(plan: QuantRunPlan): string[] {
 }
 
 export function isBroadStockScreenerPlan(plan: QuantRunPlan): boolean {
-  const normalized = `${plan.question} ${plan.dataRequirements.join(' ')}`.replace(/\s+/g, '');
-  return (
-    normalized.includes('/api/v1/research/screeners/a-share/short-term-candidates') ||
-    (
-      /(?:股票|个股|A股|全A|股票池)/.test(normalized) &&
-      /全A|A股股票池|股票池|选股|筛选|候选|短线候选|次日|明日|明天|今日|今天|要买|买股|买入策略|短线|推荐\d*(?:只|个)?(?:股票|个股)|(?:股票|个股).{0,12}推荐|推荐.{0,18}(?:股票|个股)/.test(normalized)
-    )
-  );
+  // A negative semantic decision is authoritative too. Legacy plans can opt in
+  // through an explicit endpoint, but the execution layer never re-routes prose.
+  if (plan.queryRewrite && !plan.queryRewrite.broadUniverse) return false;
+  return plan.dataRequirements.some((endpoint) =>
+    endpoint.includes('/api/v1/research/screeners/a-share/short-term-candidates'));
 }
 
 export function pickScreenerCandidateCode(value: unknown): string | null {
@@ -161,7 +158,19 @@ export function screenerTradeDateForQuestion(question: string): string | null {
 }
 
 export function inferHistoryLimit(plan: QuantRunPlan): number {
-  const source = `${plan.timeRange ?? ''} ${plan.question}`.replace(/\s+/g, '');
+  const range = plan.queryRewrite?.timeRange;
+  if (range?.value && Number.isSafeInteger(range.value) && range.value > 0) {
+    const tradingDaysPerUnit = {
+      trading_day: 1, day: 1, week: 5, month: 21, quarter: 63, year: 252,
+    };
+    if (range.unit in tradingDaysPerUnit) {
+      const multiplier = tradingDaysPerUnit[range.unit as keyof typeof tradingDaysPerUnit];
+      return Math.min(Math.max(range.value * multiplier, 20), 500);
+    }
+  }
+  // Only the accepted label is a compatibility fallback. Unrelated numbers in
+  // the original question must not override a rewritten or inherited range.
+  const source = (range?.label ?? plan.timeRange ?? '').replace(/\s+/g, '');
   const dayMatch = source.match(/最近(\d+)(?:个)?(?:交易日|日|天)/);
   let rawDays = dayMatch?.[1] ? Number.parseInt(dayMatch[1], 10) : 120;
   if (!dayMatch) {

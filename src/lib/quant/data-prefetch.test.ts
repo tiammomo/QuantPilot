@@ -9,7 +9,7 @@ import {
 } from '@/lib/domains/finance';
 import { getProjectLlmConfig } from '@/lib/config/llm';
 import { buildFundamentalMetricComparison } from "./data-prefetch/fundamentals";
-import { hasExplicitTradingPlanIntent, inferHistoryLimit } from "./data-prefetch/planning";
+import { hasExplicitTradingPlanIntent, inferHistoryLimit, isBroadStockScreenerPlan } from "./data-prefetch/planning";
 import { prefetchQuantDataForRunPlan } from "./data-prefetch";
 
 const temporaryProjects: string[] = [];
@@ -70,6 +70,31 @@ describe('quant data-prefetch symbol candidates', () => {
       timeRange: '去年下半年',
       question: '比较北方稀土和宁德时代',
     } as QuantRunPlan)).toBe(126);
+  });
+
+  it('uses accepted numeric ranges instead of a conflicting question', () => {
+    expect(inferHistoryLimit({
+      timeRange: '最近 120 个交易日',
+      question: '不要使用最近500日，改成近2个月',
+      queryRewrite: { timeRange: { label: '近2个月', value: 2, unit: 'month', source: 'explicit' } },
+    } as QuantRunPlan)).toBe(42);
+    expect(inferHistoryLimit({
+      timeRange: '最近 120 个交易日', question: '最近500日',
+    } as QuantRunPlan)).toBe(120);
+  });
+
+  it('does not turn a rejected universe into a screener from prose or endpoints', () => {
+    const plan = {
+      question: '有哪些股票值得关注',
+      dataRequirements: ['/api/v1/research/screeners/a-share/short-term-candidates'],
+      queryRewrite: { broadUniverse: false },
+    } as QuantRunPlan;
+    expect(isBroadStockScreenerPlan(plan)).toBe(false);
+    expect(isBroadStockScreenerPlan({ ...plan, queryRewrite: undefined })).toBe(true);
+    expect(isBroadStockScreenerPlan({ ...plan, queryRewrite: undefined, dataRequirements: [] })).toBe(false);
+    expect(isBroadStockScreenerPlan({
+      ...plan, queryRewrite: { ...plan.queryRewrite!, broadUniverse: true }, dataRequirements: [],
+    })).toBe(false);
   });
 
   it('does not parse symbols from the question after Query Rewrite has produced the run plan', async () => {

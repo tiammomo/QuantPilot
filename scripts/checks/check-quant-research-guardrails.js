@@ -27,11 +27,12 @@ async function writeJson(filePath, value) {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function researchPlan(question) {
+function researchPlan(question, timeRange = null) {
   return {
     schemaVersion: 1,
     capabilityId: 'asset_comparison',
     question,
+    timeRange,
     symbols: ['600519', '000858'],
     dataRequirements: [
       'GET /api/v1/symbols/resolve',
@@ -185,9 +186,10 @@ async function main() {
 
   assert(!hasExplicitTradingPlanIntent(researchQuestion), 'research prompt should not imply trading plan intent');
   assert(hasExplicitTradingPlanIntent('贵州茅台接下来怎么操作？给我买入区间、止损和目标价。'), 'trading prompt should imply trading plan intent');
-  assert(inferHistoryLimit(researchPlan(researchQuestion)) === 252, '近一年 should map to 252 trading days');
-  assert(inferHistoryLimit(researchPlan('最近半年沪深300走势如何？')) === 126, '半年 should map to 126 trading days');
-  assert(inferHistoryLimit(researchPlan('最近80个交易日沪深300走势如何？')) === 80, 'explicit trading days should win');
+  assert(inferHistoryLimit(researchPlan(researchQuestion, '近一年')) === 252, 'accepted 近一年 should map to 252 trading days');
+  assert(inferHistoryLimit(researchPlan('最近半年沪深300走势如何？', '最近半年')) === 126, 'accepted 半年 should map to 126 trading days');
+  assert(inferHistoryLimit(researchPlan('最近80个交易日沪深300走势如何？', '最近80个交易日')) === 80, 'accepted trading days should win');
+  assert(inferHistoryLimit(researchPlan(researchQuestion, '最近80个交易日')) === 80, 'question must not override the accepted plan');
 
   const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'quantpilot-research-guardrails-'));
 
