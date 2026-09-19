@@ -184,6 +184,10 @@ export async function executeFinanceResearchPreparation(
             projectId: job.projectId,
             requestId: job.requestId,
             status: preparation.response.status < 400 ? "completed" : "failed",
+            errorCode:
+              preparation.response.status >= 400 && typeof preparation.response.body.error === "string"
+                ? preparation.response.body.error
+                : undefined,
             errorMessage:
               preparation.response.status >= 400
                 ? String(

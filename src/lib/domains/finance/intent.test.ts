@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { rewriteQuantQuery } from './query-rewrite';
 import {
   assessQuantIntentForClarification,
   buildClarificationContinuation,
 } from './intent';
 
 describe('quant intent clarification', () => {
+  it('does not treat a legacy model outage as a clarification continuation', async () => {
+    const instruction = '帮我对比几只股票，生成看板。';
+    const rewrite = await rewriteQuantQuery(instruction, {
+      semanticRewriter: async () => ({ ok: false, code: 'LLM_NOT_CONFIGURED', retryable: false }),
+    });
+    expect(buildClarificationContinuation({
+      previousPlan: {
+        runId: 'old-outage', status: 'needs_clarification', capabilityId: 'asset_comparison',
+        question: instruction,
+        clarification: assessQuantIntentForClarification({ instruction, capabilityId: 'asset_comparison' }),
+        queryRewrite: { ...rewrite, status: 'needs_clarification' },
+      },
+      instruction: '分析贵州茅台',
+      capabilityId: 'asset_comparison',
+    })).toBeNull();
+  });
   it.each([
     ['中信证券最近怎么样', '中信证券'],
     ['招商证券近期走势如何', '招商证券'],

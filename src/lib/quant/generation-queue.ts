@@ -379,6 +379,7 @@ export async function finishQuantGenerationQueueItem(params: {
   projectId: string;
   requestId: string;
   status: Exclude<QuantGenerationQueueStatus, "queued" | "running">;
+  errorCode?: string | null;
   errorMessage?: string | null;
 }) {
   if (params.status === "cancelled") {
@@ -394,7 +395,7 @@ export async function finishQuantGenerationQueueItem(params: {
     projectId: params.projectId,
     requestId: params.requestId,
     status: params.status,
-    errorCode: params.status === "failed" ? "GENERATION_FAILED" : null,
+    errorCode: params.status === "failed" ? params.errorCode ?? "GENERATION_FAILED" : null,
     errorMessage: params.errorMessage,
     fence: currentPiAgentGenerationDispatchFence(),
   });

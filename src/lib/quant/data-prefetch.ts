@@ -24,6 +24,7 @@ import {
   buildImageExtractionEvidence,
 } from './data-prefetch/image-evidence';
 import { fetchJson, writeJson } from './data-prefetch/transport';
+import { getQuantQueryRewriteFailure } from '@/lib/domains/finance/query-rewrite';
 import { ensureTechnicalSummary } from './data-prefetch/technical';
 import { buildFinancialQuality, buildFinancialQualitySummary } from './data-prefetch/fundamentals';
 import {
@@ -40,6 +41,9 @@ export async function prefetchQuantDataForRunPlan(params: {
   assertActive?: () => Promise<void>;
 }): Promise<PrefetchResult> {
   await params.assertActive?.();
+  if (params.plan.status === 'failed' || getQuantQueryRewriteFailure(params.plan.queryRewrite)) {
+    return { skipped: true, summary: '研究规划失败，未执行数据预取。' };
+  }
   if (
     params.plan.status === 'needs_clarification' ||
     params.plan.status === 'refused' ||

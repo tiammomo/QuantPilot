@@ -2095,12 +2095,12 @@ const persistProjectPreferences = useCallback(
                             </button>
 
                             <h3 className="text-2xl font-bold text-slate-900 mb-3">
-                              {quantValidationState === 'failed' ? '看板验证未通过' : '看板待生成'}
+                              {quantValidationState === 'failed' ? '研究未完成' : '看板待生成'}
                             </h3>
 
                             <p className="text-slate-600 max-w-lg mx-auto">
                               {quantValidationState === 'failed'
-                                ? quantValidationMessage ?? '自动验证未通过，暂不展示可视化看板。'
+                                ? quantValidationMessage ?? '研究任务未完成，请查看执行摘要。'
                                 : quantValidationState === 'running'
                                 ? '正在执行自动验证，验证通过后会自动展示最终可视化结果'
                                 : '数据获取、页面生成和验证完成后会自动展示最终可视化结果'}

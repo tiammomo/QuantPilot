@@ -106,7 +106,8 @@
 因此 `preview` 不再是无模型的关键词预判。聊天输入框不会在用户输入期间频繁调用 preview，正式提交后才执行改写。
 LLM 通过 Tool Schema 解析标的原文、时间范围、分析重点和输出意图；时间、宽域范围和 answer-only 意图必须携带原文字面证据。模型只允许返回用户原文中的候选标的文本，
 标准代码仍由 `/api/v1/symbols/resolve` 确认。LLM 超时、未配置、网络失败或 Schema/证据不合法时返回
-`llm_unavailable` 与 `QUERY_REWRITE_LLM_UNAVAILABLE`，规划和预取随即停止，不会改用关键词或正则结果继续执行。确定性涨停、必赚或保证收益请求返回
+HTTP 503、`success=false`、`data.status=failed`、`meta.strategy=llm_unavailable` 与 `error.code=QUERY_REWRITE_LLM_UNAVAILABLE`，保留完整 `data`/`meta` 合同。证券解析服务故障同样返回 503，错误码为 `SYMBOL_RESOLVER_UNAVAILABLE`；标的查无结果或歧义仍为正常澄清。规划失败不进入预取或 Agent 执行，未配置模型的规划次数配额结算为 0。
+显式 `Idempotency-Key` 或 `requestId` 会缓存本次失败响应，重放不重复执行或扣费；服务恢复后使用新键发起新请求。确定性涨停、必赚或保证收益请求返回
 `status=refused` 与 `safety.code=GUARANTEED_RETURN_REQUEST`，不会进入取数或 Agent 执行。
 
 ### Skills、设置和集成

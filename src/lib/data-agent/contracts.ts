@@ -82,7 +82,7 @@ export interface DataAgentTask {
   timeRange: DataAgentTimeRange | null;
   output: DataAgentOutputKind;
   domainHints: string[];
-  status: 'ready' | 'partial' | 'needs_clarification' | 'refused';
+  status: 'ready' | 'partial' | 'needs_clarification' | 'refused' | 'failed';
   issues: Array<{
     code: string;
     message: string;
@@ -121,7 +121,7 @@ export interface DataAgentDatasetManifest {
 export interface DataAgentExecutionPlan {
   schemaVersion: 1;
   runId: string;
-  status: 'planned' | 'needs_clarification' | 'refused';
+  status: 'planned' | 'needs_clarification' | 'refused' | 'failed';
   profile: {
     id: string;
     version: string;

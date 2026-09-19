@@ -7,6 +7,8 @@ import {
 import { buildQuantProjectSettings, getExecutionQuantCapability, getQuantCapability } from '@/lib/domains/finance/capabilities';
 import {
   rewriteQuantQuery,
+  getQuantQueryRewriteFailure,
+  type QuantPlanningFailure,
   type QuantQueryRewriteResult,
 } from '@/lib/domains/finance/query-rewrite';
 import {
@@ -40,7 +42,7 @@ import {
   FINANCE_RUN_PLAN_RELATIVE_PATH,
 } from '@/lib/domains/finance/workspace-artifacts';
 
-type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification' | 'refused';
+type RunPlanStatus = 'pending' | 'planned' | 'needs_clarification' | 'refused' | 'failed';
 
 export interface QuantRunPlan {
   schemaVersion: 1;
@@ -77,6 +79,7 @@ export interface QuantRunPlan {
     finalDataContract?: string[];
   };
   clarification?: QuantIntentClarification;
+  failure?: QuantPlanningFailure;
   refusal?: {
     code: 'GUARANTEED_RETURN_REQUEST';
     message: string;
@@ -181,20 +184,6 @@ function mergeQueryRewriteClarification(params: {
 }): QuantIntentClarification {
   if (params.hasImageAttachments || params.queryRewrite.broadUniverse) return params.base;
 
-  const rewriteUnavailable = params.queryRewrite.issues.find(
-    (issue) => issue.code === 'QUERY_REWRITE_LLM_UNAVAILABLE',
-  );
-  if (rewriteUnavailable) {
-    return {
-      required: true,
-      reason: rewriteUnavailable.message,
-      missing: [],
-      questions: [rewriteUnavailable.message],
-      confidence: 0,
-      defaults: params.base.defaults,
-    };
-  }
-
   const actionableIssues = params.queryRewrite.issues.filter(
     (issue) => issue.code === 'TARGET_NOT_FOUND' || issue.code === 'TARGET_AMBIGUOUS',
   );
@@ -298,7 +287,7 @@ function shouldInheritPreviousPlanContext(params: {
   hasImageAttachments?: boolean;
 }): boolean {
   const previousSymbols = uniqueSymbolList(params.previousPlan?.symbols);
-  if (!params.previousPlan || params.previousPlan.status === 'needs_clarification') {
+  if (!params.previousPlan || params.previousPlan.status !== 'planned' || getQuantQueryRewriteFailure(params.previousPlan.queryRewrite)) {
     return false;
   }
   if (params.explicitSymbols.length > 0 || previousSymbols.length === 0) {
@@ -554,7 +543,8 @@ export async function writeInitialRunPlan(params: {
     hasImageAttachments: params.hasImageAttachments,
   });
   const refused = queryRewrite.safety.decision === 'refuse';
-  const timeRange = clarification.required || refused
+  const failure = getQuantQueryRewriteFailure(queryRewrite);
+  const timeRange = clarification.required || refused || failure
     ? requestedTimeRange
     : requestedTimeRange ?? inferDefaultTimeRange(capability.id);
   const dataRequirements = Array.from(
@@ -593,7 +583,9 @@ export async function writeInitialRunPlan(params: {
     runId: params.requestId,
     status: refused
       ? 'refused'
-      : clarification.required
+      : failure
+        ? 'failed'
+        : clarification.required
         ? 'needs_clarification'
         : 'planned',
     capabilityId: capability.id,
@@ -608,8 +600,10 @@ export async function writeInitialRunPlan(params: {
     queryRewrite,
     symbols,
     timeRange,
-    dataRequirements,
-    analysisSteps: refused
+    dataRequirements: failure ? [] : dataRequirements,
+    analysisSteps: failure
+      ? [failure.message]
+      : refused
       ? ['停止执行取数和生成任务，返回确定性安全说明。']
       : clarification.required
       ? [
@@ -624,6 +618,7 @@ export async function writeInitialRunPlan(params: {
     visualization: {
       required:
         !refused &&
+        !failure &&
         !clarification.required &&
         queryRewrite.outputIntent === 'dashboard',
       templateId: visualizationTemplate.templateId,
@@ -643,14 +638,15 @@ export async function writeInitialRunPlan(params: {
       dataSignals: visualizationTemplate.dataSignals,
       finalDataContract: visualizationTemplate.finalDataContract,
     },
-    clarification: !refused && clarification.required ? clarification : undefined,
+    clarification: !refused && !failure && clarification.required ? clarification : undefined,
+    failure: failure ?? undefined,
     refusal: refused && queryRewrite.safety.code && queryRewrite.safety.message
       ? {
           code: queryRewrite.safety.code,
           message: queryRewrite.safety.message,
         }
       : undefined,
-    expectedArtifacts: clarification.required || refused
+    expectedArtifacts: clarification.required || refused || failure
       ? ['.data-agent/finance-run-plan.json', '.data-agent/events.jsonl']
       : expectedArtifacts,
     validationRules,
@@ -702,12 +698,12 @@ export async function writeInitialRunPlan(params: {
   await appendQuantWorkspaceEvent(params.projectPath, {
     event_type: 'query_rewritten',
     stage: 'planning',
-    status: queryRewrite.status === 'ready' || queryRewrite.status === 'refused'
+    status: failure ? 'error' : queryRewrite.status === 'ready' || queryRewrite.status === 'refused'
       ? 'success'
       : 'warning',
     run_id: params.requestId,
     artifact_path: '.data-agent/finance-query-rewrite.json',
-    summary: queryRewrite.status === 'refused'
+    summary: failure ? failure.message : queryRewrite.status === 'refused'
       ? `问题改写完成，安全策略拒绝执行：${queryRewrite.safety.message}`
       : queryRewrite.status === 'ready'
         ? `已将用户问题改写为结构化查询，并解析 ${queryRewrite.resolvedSymbols.length} 个标的。`
@@ -716,16 +712,16 @@ export async function writeInitialRunPlan(params: {
   });
 
   await appendQuantWorkspaceEvent(params.projectPath, {
-    event_type: refused
+    event_type: failure ? 'planning_failed' : refused
       ? 'intent_refused'
       : clarification.required
         ? 'intent_clarification_required'
         : 'run_planned',
     stage: 'planning',
-    status: clarification.required || refused ? 'warning' : 'success',
+    status: failure ? 'error' : clarification.required || refused ? 'warning' : 'success',
     run_id: params.requestId,
     artifact_path: '.data-agent/finance-run-plan.json',
-    summary: refused
+    summary: failure ? failure.message : refused
       ? queryRewrite.safety.message ?? '任务已被安全策略拒绝。'
       : clarification.required
         ? `任务缺少关键输入，需要先向用户澄清：${clarification.questions.join('；')}`

@@ -155,6 +155,12 @@ describe('POST /api/quant/query/rewrite', () => {
       strategy: 'llm_unavailable',
       llmStatus: 'skipped_unconfigured',
     });
+    expect(response.status).toBe(503);
+    expect(payload).toMatchObject({
+      success: false,
+      error: { code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable: false },
+      data: { status: 'failed', execution: { llm: { attempted: false } } },
+    });
     expect(mocks.requireAction).toHaveBeenCalledWith({
       headers: expect.any(Headers),
       action: 'quant.query.rewrite.llm',
@@ -255,6 +261,34 @@ describe('POST /api/quant/query/rewrite', () => {
     expect(response.headers.get('Idempotency-Replayed')).toBe('true');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.reserveQuota).not.toHaveBeenCalled();
+  });
+
+  it('persists and replays an unconfigured-model failure without charging or repeating the model', async () => {
+    mocks.requireAction.mockResolvedValue({ session: { user: { id: 'member-1' } } });
+    const body = { query: '分析贵州茅台' };
+    const first = await POST(request(body, 'unconfigured-rewrite'));
+    const payload = await first.json();
+    expect(first.status).toBe(503);
+    expect(payload).toMatchObject({ success: false, data: { status: 'failed' } });
+    expect(mocks.settleQuotaReservation).toHaveBeenCalledWith(expect.objectContaining({ actualQuantity: 0 }));
+    expect(mocks.recordQuotaUsage).not.toHaveBeenCalled();
+    expect(mocks.completeApiOperation).toHaveBeenCalledWith(expect.objectContaining({
+      responseStatus: 503, responseBody: payload,
+    }));
+    expect(mocks.failApiOperation).not.toHaveBeenCalled();
+    mocks.claimApiOperation.mockResolvedValueOnce({
+      state: 'completed', responseStatus: 503, responseBody: payload, responseAvailable: true,
+    });
+    mocks.rewriteQuantQuery.mockClear();
+    mocks.reserveQuota.mockClear();
+    mocks.settleQuotaReservation.mockClear();
+    const replay = await POST(request(body, 'unconfigured-rewrite'));
+    expect(replay.status).toBe(503);
+    expect(replay.headers.get('Idempotency-Replayed')).toBe('true');
+    expect(await replay.json()).toEqual(payload);
+    expect(mocks.rewriteQuantQuery).not.toHaveBeenCalled();
+    expect(mocks.reserveQuota).not.toHaveBeenCalled();
+    expect(mocks.settleQuotaReservation).not.toHaveBeenCalled();
   });
 
   it('rejects reuse of an explicit key with a different query', async () => {

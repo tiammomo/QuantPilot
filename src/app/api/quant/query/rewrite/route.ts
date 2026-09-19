@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAction } from '@/lib/auth/action';
 import { authErrorResponse } from '@/lib/auth/http';
-import { rewriteQuantQuery } from '@/lib/domains/finance/query-rewrite';
+import { rewriteQuantQuery, getQuantQueryRewriteFailure } from '@/lib/domains/finance/query-rewrite';
 import {
   ApiIdempotencyConflictError,
   claimApiOperation,
@@ -174,8 +174,11 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
+  const planningFailure = getQuantQueryRewriteFailure(data);
+  const responseStatus = planningFailure ? 503 : 200;
   const responseBody = {
-    success: true,
+    success: !planningFailure,
+    ...(planningFailure ? { error: planningFailure } : {}),
     data,
     meta: {
       schemaVersion: data.schemaVersion,
@@ -193,7 +196,7 @@ export async function POST(request: NextRequest) {
     try {
       await completeApiOperation({
         handle: operationHandle,
-        responseStatus: 200,
+        responseStatus,
         responseBody,
         cacheResponse: hasExplicitIdempotencyKey,
         ...(quotaReservationId && actionContext.session
@@ -281,12 +284,12 @@ export async function POST(request: NextRequest) {
         });
       }
     } catch (error) {
-      // The LLM call has already completed. Returning a successful rewrite
-      // avoids charging again on a client retry; idempotent keys support repair.
+      // Preserve the original outcome, including failure. Idempotent keys
+      // keep accounting repair from invoking the model again.
       console.error('[Quota] Failed to settle Query Rewrite usage:', error);
     }
   }
-  return NextResponse.json(responseBody);
+  return NextResponse.json(responseBody, { status: responseStatus });
 }
 
 export const runtime = 'nodejs';

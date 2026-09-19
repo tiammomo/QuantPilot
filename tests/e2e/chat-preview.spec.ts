@@ -126,6 +126,29 @@ async function openWorkspace(page: Page, accepted = true, activeCount = 0, turnM
 const preview = (page: Page) =>
   page.frameLocator('iframe[title="研究看板预览"]').getByRole('heading', { name: '已验收研究结果' });
 
+test('restores planning failure after reload without requesting clarification or starting a preview', async ({ page, isMobile }) => {
+  const message = '当前模型尚未配置，无法开始研究。请配置可用模型后重新发起研究。';
+  const fixture = await openWorkspace(page, false, 0, undefined, {
+    status: 'failed', validationStatus: 'pending', validationRunId: null,
+    validationMatchesCurrentRun: false, previewStatus: 'stopped',
+    previewUrl: null, previewPort: null, persistedPreviewUrl: null, errorMessage: message,
+  });
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    if (isMobile) await page.getByRole('navigation', { name: '移动端工作区视图' })
+      .getByRole('button', { name: '看板', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '研究未完成', exact: true })).toBeVisible();
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    await expect(page.getByText('看板验证未通过', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('补充关键信息', { exact: true })).toHaveCount(0);
+    await expect(page.locator('iframe[title="研究看板预览"]')).toHaveCount(0);
+    await expect(page.getByRole('progressbar')).toHaveCount(0);
+  }
+  expect(fixture.starts).toBe(0);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('restores actual data progress after reload and follows server stage changes', async ({ page, isMobile }, testInfo) => {
   const fixture = await openWorkspace(page, false, 1, undefined, {
     status: 'running', terminal: false, validationStatus: 'pending', previewUrl: null,

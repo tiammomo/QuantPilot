@@ -55,7 +55,8 @@ flowchart LR
 
 1. 用户输入问题，必要时上传截图。Worker 模式下，Web 只完成鉴权、配额、附件与请求持久化；准备信封和 job/outbox 提交后即返回 HTTP 202。独立 Worker 取得容量和 dispatch 租约，再在项目 generation lease 与 workspace lock 内执行下列准备步骤。
 2. 平台使用项目当前模型生成通用 `.data-agent/task.json` 与金融 `.data-agent/finance-query-rewrite.json`；模型负责语义，标的代码由 `/api/v1/symbols/resolve` 独立确认。
-3. 模型未配置、超时、失败或输出缺少原文字面证据时返回 `llm_unavailable` 并停止；不执行关键词降级。
+3. 模型未配置、超时、失败或输出缺少原文字面证据，以及证券解析服务不可用时，Query Rewrite、Task 与 Plan 均记录 `failed`，在 planning 阶段停止；UserRequest 和 Worker Job 保留失败终态与原因，不进入数据预取、Knowledge 或 Mission 生成。只有用户输入缺失、标的查无结果或歧义才进入 `needs_clarification`。模型未配置时 `execution.llm.attempted=false`，规划次数配额结算为 0；实际发起的失败调用仍计数。历史误标为澄清的故障记录也不能作为下一轮澄清上下文。
+   `POST /api/quant/query/rewrite` 对上述系统故障返回 HTTP 503、`success:false` 和结构化 `error`，同时保留 `data`、`meta`。显式幂等键缓存同次失败响应，重放不会再次调用模型或扣减配额；修复模型配置后应以新请求 ID 重试。Worker 模式的 `/act` 仍先返回 HTTP 202，随后通过任务状态呈现规划失败。
 4. `run-planner` 消费 Query Rewrite，信息不足时进入澄清；信息完整后同时生成 `.data-agent/plan.json` 和金融 `.data-agent/finance-run-plan.json`。
 5. 平台按固定 Space、purpose 和预算从 AKEP 预取可选 ContextPack，并保存 Citation/Exposure 证据；Memory Recall 与 Knowledge Preparation 随 generation envelope 固化，执行时不重复检索。
 6. 平台根据 run plan 调用 `8000` 后端获取真实数据。

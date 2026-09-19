@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QuantRunPlan } from '@/lib/domains/finance/workspace';
+import { rewriteQuantQuery } from '@/lib/domains/finance/query-rewrite';
 import {
   createQuantPilotDataAgentRegistry,
   QUANTPILOT_AGENT_PROFILE_ID,
@@ -38,6 +39,19 @@ describe('quant trading-plan intent', () => {
 });
 
 describe('quant data-prefetch symbol candidates', () => {
+  it('skips legacy plans with a system failure even when symbols and attachments are present', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const queryRewrite = await rewriteQuantQuery('分析贵州茅台', {
+      semanticRewriter: async () => ({ ok: false, code: 'LLM_NOT_CONFIGURED', retryable: false }),
+    });
+    const result = await prefetchQuantDataForRunPlan({
+      projectPath: '/unused-failed-plan',
+      plan: { status: 'planned', symbols: ['600519'], queryRewrite: { ...queryRewrite, status: 'needs_clarification' } } as QuantRunPlan,
+    });
+    expect(result).toMatchObject({ skipped: true, summary: '研究规划失败，未执行数据预取。' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('uses one batch request for a multi-asset plan and persists matching quotes and progress', async () => {
     const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'qp-prefetch-batch-'));
     temporaryProjects.push(projectPath);

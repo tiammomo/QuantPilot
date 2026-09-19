@@ -9,6 +9,7 @@ export type QuantQueryRewriteStatus =
   | 'ready'
   | 'partial'
   | 'needs_clarification'
+  | 'failed'
   | 'refused';
 
 export interface QuantQueryRewriteSafety {
@@ -127,6 +128,27 @@ export interface QuantQueryRewriteResult {
   safety: QuantQueryRewriteSafety;
   issues: QuantQueryRewriteIssue[];
   execution: QuantQueryRewriteExecution;
+}
+
+export interface QuantPlanningFailure {
+  code: 'QUERY_REWRITE_LLM_UNAVAILABLE' | 'SYMBOL_RESOLVER_UNAVAILABLE';
+  message: string;
+  retryable: boolean;
+}
+
+/** Also recognizes stored contracts that used to label system failures as clarification. */
+export function getQuantQueryRewriteFailure(
+  rewrite: QuantQueryRewriteResult | null | undefined,
+): QuantPlanningFailure | null {
+  const issue = rewrite?.issues?.find(item =>
+    item.code === 'QUERY_REWRITE_LLM_UNAVAILABLE' || item.code === 'SYMBOL_RESOLVER_UNAVAILABLE');
+  if (issue && (issue.code === 'QUERY_REWRITE_LLM_UNAVAILABLE' || issue.code === 'SYMBOL_RESOLVER_UNAVAILABLE')) {
+    return { code: issue.code, message: issue.message, retryable: issue.retryable };
+  }
+  if (rewrite?.status === 'failed' || rewrite?.execution?.strategy === 'llm_unavailable') {
+    return { code: 'QUERY_REWRITE_LLM_UNAVAILABLE', message: '研究规划未完成，请检查模型服务后重新发起研究。', retryable: false };
+  }
+  return null;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -434,11 +456,11 @@ async function resolveTargetSet(params: {
           retryable: false,
         });
       }
-    } catch (error) {
+    } catch {
       unresolvedTargets.push(target);
       issues.push({
         code: 'SYMBOL_RESOLVER_UNAVAILABLE',
-        message: `证券解析服务暂不可用：${error instanceof Error ? error.message : String(error)}`,
+        message: '证券解析服务暂不可用，无法核实研究标的，请稍后重新发起研究。',
         target,
         retryable: true,
       });
@@ -731,6 +753,7 @@ export async function rewriteQuantQuery(
   let semanticDraft: QuantQuerySemanticDraft | null = null;
   let llmRetryable = true;
   if (!llmResult.outcome.ok) {
+    llmExecution.attempted = llmResult.outcome.code !== 'LLM_NOT_CONFIGURED';
     llmExecution.provider = llmResult.outcome.provider ?? null;
     llmExecution.model = llmResult.outcome.model ?? null;
     llmExecution.errorCode = llmResult.outcome.code;
@@ -767,14 +790,18 @@ export async function rewriteQuantQuery(
 
   if (!semanticDraft) {
     const unavailableMessage = llmExecution.status === 'skipped_unconfigured'
-      ? 'Query Rewrite 大模型未配置，任务已暂停；请配置可用模型后重试。'
-      : 'Query Rewrite 大模型暂时不可用或返回了无效结果，任务已暂停；请稍后重试。';
+      ? '当前模型尚未配置，无法开始研究。请配置可用模型后重新发起研究。'
+      : llmExecution.status === 'timed_out'
+        ? '模型响应超时，研究规划未完成，请稍后重新发起研究。'
+        : llmExecution.status === 'invalid_output'
+          ? '模型未能生成有效的研究计划，请重试或选择其他可用模型。'
+          : '模型服务暂时不可用，研究规划未完成，请检查服务后重新发起研究。';
     return {
       schemaVersion: QUANT_QUERY_REWRITE_SCHEMA_VERSION,
       originalQuery,
       normalizedQuery,
       rewrittenQuery: unavailableMessage,
-      status: 'needs_clarification',
+      status: 'failed',
       confidence: 0,
       capabilityHint: options.requestedCapabilityId ?? 'stock_diagnosis',
       targetCandidates: [],
@@ -814,12 +841,14 @@ export async function rewriteQuantQuery(
     `${item.name}（${item.symbol}${item.market ? `.${item.market}` : ''}）`,
   );
   const status: QuantQueryRewriteStatus =
-    ambiguousTargets.length > 0 ||
-    (targetCandidates.length === 0 && !semanticDraft.broadUniverse)
-      ? 'needs_clarification'
-      : unresolvedTargets.length > 0
-        ? resolvedSymbols.length > 0 ? 'partial' : 'needs_clarification'
-        : 'ready';
+    issues.some(issue => issue.code === 'SYMBOL_RESOLVER_UNAVAILABLE')
+      ? 'failed'
+      : ambiguousTargets.length > 0 ||
+        (targetCandidates.length === 0 && !semanticDraft.broadUniverse)
+        ? 'needs_clarification'
+        : unresolvedTargets.length > 0
+          ? resolvedSymbols.length > 0 ? 'partial' : 'needs_clarification'
+          : 'ready';
   const confidence = status === 'ready'
     ? resolvedSymbols.length > 0
       ? Math.min(

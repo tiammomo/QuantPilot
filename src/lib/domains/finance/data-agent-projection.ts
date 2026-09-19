@@ -9,7 +9,7 @@ import {
   QUANTPILOT_AGENT_PROFILE,
 } from './agent-profile';
 import { FINANCE_RUN_PLAN_RELATIVE_PATH } from './workspace-artifacts';
-import type { QuantQueryRewriteResult } from './query-rewrite';
+import { getQuantQueryRewriteFailure, type QuantQueryRewriteResult } from './query-rewrite';
 import type { QuantRunPlan } from './workspace';
 
 /** Projects the Finance Domain contract into the provider-neutral Data Agent task. */
@@ -42,7 +42,7 @@ export function projectFinanceRewriteToDataAgentTask(
       : null,
     output: rewrite.outputIntent,
     domainHints: ['finance.quant', rewrite.capabilityHint],
-    status: rewrite.status,
+    status: getQuantQueryRewriteFailure(rewrite) ? 'failed' : rewrite.status,
     issues: rewrite.issues.map((issue) => ({
       code: issue.code,
       message: issue.message,
@@ -66,7 +66,9 @@ export function projectFinancePlanToDataAgentPlan(plan: QuantRunPlan): DataAgent
   return {
     schemaVersion: 1,
     runId: plan.runId,
-    status: plan.status === 'planned'
+    status: plan.status === 'failed' || getQuantQueryRewriteFailure(plan.queryRewrite)
+      ? 'failed'
+      : plan.status === 'planned'
       ? 'planned'
       : plan.status === 'refused'
         ? 'refused'

@@ -71,6 +71,28 @@ async function buildRewrite(params: {
 }
 
 describe('writeInitialRunPlan', () => {
+  it.each([false, true])('persists a failed plan and task despite image attachments=%s', async hasImageAttachments => {
+    const projectPath = await createProject();
+    const instruction = '分析贵州茅台';
+    const previousRewrite = await buildRewrite({ query: instruction, targets: ['贵州茅台'], symbolByTarget: { 贵州茅台: '600519' } });
+    const previousPlan = await writeInitialRunPlan({ projectPath, instruction, requestId: 'previous', queryRewrite: previousRewrite });
+    const queryRewrite = await rewriteQuantQuery(instruction, {
+      semanticRewriter: async () => ({ ok: false, code: 'LLM_NOT_CONFIGURED', retryable: false }),
+    });
+    const plan = await writeInitialRunPlan({ projectPath, instruction, requestId: 'failed', queryRewrite, previousPlan, hasImageAttachments });
+    expect(plan).toMatchObject({
+      status: 'failed',
+      failure: { code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable: false },
+      dataRequirements: [],
+      visualization: { required: false },
+    });
+    expect(plan.clarification).toBeUndefined();
+    for (const file of ['task.json', 'plan.json']) {
+      const artifact = JSON.parse(await fs.readFile(path.join(projectPath, '.data-agent', file), 'utf8'));
+      expect(artifact.status).toBe('failed');
+    }
+  });
+
   it('keeps the prior plan when cancellation or a lost lease rejects the new model result', async () => {
     const projectPath = await createProject();
     const instruction = '分析贵州茅台';
@@ -250,10 +272,10 @@ describe('writeInitialRunPlan', () => {
     });
 
     expect(plan).toMatchObject({
-      status: 'needs_clarification',
+      status: 'failed',
       symbols: [],
       visualization: { required: false },
-      clarification: { confidence: 0 },
+      failure: { code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable: true },
     });
   });
 

@@ -42,6 +42,7 @@ import {
   type GovernedKnowledgePreparation,
 } from "@/lib/platform/knowledge";
 import { getProjectIntegrationScope } from "@/lib/platform/context/integration-scope";
+import { getQuantQueryRewriteFailure } from "@/lib/domains/finance/query-rewrite";
 import {
   QuantPreparationError,
   canUsePrefetchedSelectionDashboard,
@@ -157,6 +158,7 @@ export async function prepareFinanceActGenerationUnderLease(
       let marketDataToolCallId: string | undefined;
       let dashboardVisualizationToolCallId: string | undefined;
       let queryRewriteQuotaReservationId: string | null = null;
+      let preparationStep: "planning" | "data_prefetch" = "planning";
       try {
         await updateQuantGenerationStep({
           projectPath,
@@ -270,6 +272,14 @@ export async function prepareFinanceActGenerationUnderLease(
         }
 
         await input.assertActive?.();
+        const planningFailure = runPlan.failure ?? getQuantQueryRewriteFailure(runPlan.queryRewrite);
+        if (planningFailure) {
+          throw new QuantPreparationError(
+            planningFailure.code,
+            planningFailure.message,
+            planningFailure.retryable,
+          );
+        }
         await publishQuantPipelineToolMessage({
           projectId: project_id,
           requestId,
@@ -568,6 +578,7 @@ export async function prepareFinanceActGenerationUnderLease(
             timeRange: runPlan.timeRange,
           },
         });
+        preparationStep = "data_prefetch";
         await updateQuantGenerationStep({
           projectPath,
           projectId: project_id,
@@ -939,11 +950,15 @@ export async function prepareFinanceActGenerationUnderLease(
           projectPath,
           projectId: project_id,
           requestId,
-          stepId: "data_prefetch",
+          stepId: preparationStep,
           status: "failed",
-          summary: "生成计划或数据预取失败。",
+          summary: preparationStep === "planning" ? "研究规划失败。" : "数据预取失败。",
           runStatus: "failed",
           errorMessage: preparationMessage,
+          metadata: {
+            errorCode: typedPreparationError?.code ?? "QUANT_DATA_PREPARATION_FAILED",
+            retryable: typedPreparationError?.retryable ?? false,
+          },
         });
         await markUserRequestAsFailed(
           project_id,

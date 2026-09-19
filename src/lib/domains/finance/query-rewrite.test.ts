@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  getQuantQueryRewriteFailure,
   rankQuantSymbolCandidates,
   rewriteQuantQuery,
   type QuantQueryLlmSemantics,
@@ -203,7 +204,7 @@ describe('quant query rewrite schema v4', () => {
 
     expect(resolver).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      status: 'needs_clarification',
+      status: 'failed',
       targetCandidates: [],
       resolvedSymbols: [],
       issues: [{ code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable: true }],
@@ -288,7 +289,7 @@ describe('quant query rewrite schema v4', () => {
     });
 
     expect(result).toMatchObject({
-      status: 'needs_clarification',
+      status: 'failed',
       issues: [{ code: 'QUERY_REWRITE_LLM_UNAVAILABLE' }],
       execution: {
         strategy: 'llm_unavailable',
@@ -308,6 +309,44 @@ describe('quant query rewrite schema v4', () => {
     });
 
     expect(result.outputIntent).toBe('answer');
+  });
+
+  it.each([
+    ['LLM_NOT_CONFIGURED', 'skipped_unconfigured', false, false],
+    ['LLM_TIMEOUT', 'timed_out', true, true],
+  ] as const)('reports %s as a planning failure with accurate invocation accounting', async (code, status, attempted, retryable) => {
+    const resolver = vi.fn();
+    const result = await rewriteQuantQuery('分析大位科技', {
+      semanticRewriter: async () => ({ ok: false, code, retryable }),
+      resolver,
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      execution: { llm: { status, attempted, applied: false, usage: null } },
+    });
+    expect(getQuantQueryRewriteFailure(result)).toMatchObject({
+      code: 'QUERY_REWRITE_LLM_UNAVAILABLE', retryable,
+    });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(getQuantQueryRewriteFailure({ ...result, status: 'needs_clarification' }))
+      .toEqual(getQuantQueryRewriteFailure(result));
+  });
+
+  it('fails a comparison when one resolver is unavailable without exposing its raw error', async () => {
+    const result = await rewriteQuantQuery('比较大位科技和北方稀土', {
+      semanticRewriter: successfulRewrite(semanticData({ targetCandidates: ['大位科技', '北方稀土'] })),
+      resolver: async target => {
+        if (target === '北方稀土') throw new Error('internal endpoint and credentials');
+        return resolvedSecurity(target);
+      },
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      resolvedSymbols: [{ symbol: '600589' }],
+      issues: [{ code: 'SYMBOL_RESOLVER_UNAVAILABLE', target: '北方稀土', retryable: true }],
+    });
+    expect(JSON.stringify(result)).not.toContain('internal endpoint');
+    expect(getQuantQueryRewriteFailure(result)?.code).toBe('SYMBOL_RESOLVER_UNAVAILABLE');
   });
 
   it('returns an actionable issue when the authoritative resolver misses', async () => {

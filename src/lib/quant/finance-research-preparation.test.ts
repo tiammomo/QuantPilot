@@ -242,6 +242,19 @@ describe("durable research preparation", () => {
     expect(mocks.failed).not.toHaveBeenCalled();
   });
 
+  it("preserves a planning failure code in the durable job without checkpointing", async () => {
+    mocks.prepare.mockResolvedValue({
+      response: { status: 503, body: { error: 'QUERY_REWRITE_LLM_UNAVAILABLE', message: '模型尚未配置' } },
+      missionContext: null,
+    });
+    await createApplicationGenerationRuntime().execute(job);
+    expect(mocks.finish).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed', errorCode: 'QUERY_REWRITE_LLM_UNAVAILABLE', errorMessage: '模型尚未配置',
+    }));
+    expect(mocks.checkpoint).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
   it("does not publish stale failure when the dispatch lease is replaced", async () => {
     mocks.recall.mockImplementation(async () => {
       mocks.readClaimed.mockRejectedValue(new Error("lease lost"));

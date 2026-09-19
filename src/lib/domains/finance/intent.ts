@@ -4,6 +4,7 @@ import {
 } from '@/lib/domains/finance/symbol-aliases';
 
 export { stripConversationalSecurityReferenceSuffix } from '@/lib/domains/finance/query-rewrite';
+import { getQuantQueryRewriteFailure, type QuantQueryRewriteResult } from '@/lib/domains/finance/query-rewrite';
 
 export type ClarificationMissingField =
   | 'target'
@@ -37,6 +38,7 @@ interface PreviousClarificationPlan {
   executionCapabilityId?: string | null;
   question?: string | null;
   clarification?: QuantIntentClarification;
+  queryRewrite?: QuantQueryRewriteResult;
 }
 
 export interface QuantClarificationContinuation {
@@ -251,6 +253,7 @@ export function buildClarificationContinuation(params: {
   if (
     !previousPlan ||
     previousPlan.status !== 'needs_clarification' ||
+    getQuantQueryRewriteFailure(previousPlan.queryRewrite) ||
     !previousPlan.clarification?.required ||
     !originalQuestion ||
     !userResponse

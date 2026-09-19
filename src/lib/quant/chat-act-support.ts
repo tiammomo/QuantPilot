@@ -11,6 +11,7 @@ import { resolveManagedWorkspacePath } from "@/lib/data-agent";
 export class QuantPreparationError extends Error {
   constructor(
     readonly code:
+      | "QUERY_REWRITE_LLM_UNAVAILABLE"
       | "SYMBOL_RESOLVER_UNAVAILABLE"
       | "QUANT_ARTIFACT_PREPARATION_FAILED",
     message: string,
