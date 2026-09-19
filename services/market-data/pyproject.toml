@@ -43,6 +43,8 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 python-preference = "managed"
+# CVE-2026-63374 / CVE-2026-64847: keep the transitive runtime above the fixed release.
+constraint-dependencies = ["anyio>=4.14.2"]
 
 [tool.ruff]
 line-length = 100
