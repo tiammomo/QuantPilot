@@ -5,7 +5,7 @@ import {
   formatPiAgentTokens,
   parsePiAgentTurnMetrics,
   type PiAgentTurnMetrics,
-} from './turn-metrics';
+} from './agent-turn-metrics';
 
 function metrics(overrides: Partial<PiAgentTurnMetrics> = {}): PiAgentTurnMetrics {
   return {

@@ -5,7 +5,7 @@
  * tools, and product code should only exchange the types in this module.
  */
 
-import type { PiAgentContextSnapshot } from './context/usage-snapshot';
+import type { PiAgentContextSnapshot } from '@/lib/contracts/agent-context-snapshot';
 
 export type Awaitable<T> = T | Promise<T>;
 

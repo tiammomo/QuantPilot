@@ -20,6 +20,12 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 | `eval-core` | 评测集、用例、运行、报告和 CI 质量门 | `src/lib/eval/**`、评测页面、评测脚本 |
 | `ops-core` | Docker、服务健康、日志和运维面板 | `src/lib/ops/**`、运行治理中心、观测配置 |
 | `market-data-backend` | FastAPI、行情、回测、TimescaleDB、Redis、ClickHouse | `services/market-data/**` |
+| `persistence-core` | 应用数据库连接与 schema 就绪检查 | `src/lib/db/**` |
+| `identity-core` | 认证、授权、权限与用量配额 | `src/lib/auth/**`、`src/lib/quota/**` |
+| `execution-isolation` | 生成代码环境过滤与 namespace 沙箱 | `src/lib/security/**` |
+| `frontend-shared` | 跨页面浏览器状态、设置与交互 | `src/contexts/**`、`src/hooks/**`、设置与弹窗组件 |
+
+归属按最具体路径匹配：主题上下文属于 `ui-kit`，账号菜单属于导航层，账号页面壳属于 `product-shell`。金融页面的纯模板属于 `finance-domain`，工作空间写入器属于 `quant-core`。回合用量与上下文快照的纯合同迁入 `src/lib/contracts/`，由 `shared-kernel` 同时提供给运行时和界面。
 
 ## 依赖原则
 
@@ -27,11 +33,12 @@ QuantPilot 目前不适合拆成多语言微服务，也不需要引入 Java/Dub
 2. `ui-kit` 不能依赖 `quant-core`、`ops-core`、`agent-runtime` 或 `src/app/**`。
 3. Python 后端不能依赖 Next.js 源码。
 4. 新能力先找模块归属，再决定文件位置；不要把新业务继续塞进现有最大文件。
-5. 跨模块调用优先走 public surface，避免深层私有文件互相引用。
+5. 跨模块调用必须使用目标模块 `publicSurface` 列出的文件级接口；相对路径、动态导入、类型导入与 `require` 均不能绕过检查。空列表表示该模块没有对外接口。
 6. `agent-runtime` 不认识任何业务 Domain；`data-agent-core` 只认识注册合同；业务能力由 `finance-domain` 等 Domain Pack 向上注入。
 7. LLM 负责 Query Rewrite 的语义理解，领域 Resolver 只核验实体身份，不能退化为关键词路由。
 8. 每个可解析的跨模块 import 都必须出现在源模块的 `dependsOn` 中，依赖图不得成环；检查脚本不是只校验配置格式。
 9. `agent-runtime` 只定义通用 HITL 决策合同和安全持久化；哪些业务动作需要批准、公开哪些参数，由受信 Domain/Application composition 注入，插件不能自带持久化 projector。
+10. `src` 中所有非测试 TypeScript/JavaScript 源文件必须声明模块归属。白盒测试可以访问内部实现，生产代码不能通过导入测试绕过边界。导入解析使用 TypeScript AST，不将注释、模板字符串里的示例代码当作实际依赖。
 
 ## 当前迁移债务
 
@@ -62,7 +69,7 @@ Data Agent 的完整分层、工作空间合同和新 Domain Pack 开发流程�
 
 ## 发布标准
 
-- `npm run check:module-boundaries` 必须通过；未声明跨模块 import 和依赖环都属于发布阻断。
+- `npm run check:module-boundaries` 必须通过；无归属源文件、未声明依赖、私有接口导入、错误公开接口和依赖环都属于发布阻断。
 - 门禁同时拒绝恢复已删除的 runtime/session 路径、Act 旧字段兼容和 `legacy:unknown` workspace 身份默认值。
 - 新增模块必须更新 `config/module-boundaries.json` 和本文档。
 - 新增大文件超过目标线时，必须写明拆分计划。

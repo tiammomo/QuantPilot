@@ -1,4 +1,4 @@
-import { parsePiAgentContextSnapshot, type PiAgentContextSnapshot } from '@/lib/agent/context/usage-snapshot';
+import { parsePiAgentContextSnapshot, type PiAgentContextSnapshot } from '@/lib/contracts/agent-context-snapshot';
 
 export const PI_AGENT_TURN_METRICS_SCHEMA_VERSION = 1 as const;
 

@@ -10,13 +10,46 @@
         "src/types/**",
         "src/lib/config/**",
         "src/lib/utils.ts",
-        "src/lib/runtime-degradation.ts"
+        "src/lib/runtime-degradation.ts",
+        "src/lib/contracts/**",
+        "src/lib/constants/**",
+        "src/lib/crypto.ts",
+        "src/lib/serializers/**",
+        "src/lib/server/env-contract.ts",
+        "src/lib/server/image-assets.ts",
+        "src/lib/server/privileged-request.ts",
+        "src/lib/server/websocket-manager.ts",
+        "src/lib/utils/*.ts"
       ],
       "dependsOn": [],
       "publicSurface": [
-        "@/types/shared",
-        "@/lib/utils",
-        "@/lib/config/constants"
+        "@/lib/config/auth",
+        "@/lib/config/constants",
+        "@/lib/config/data-agent",
+        "@/lib/config/degradation",
+        "@/lib/config/llm",
+        "@/lib/constants/cli",
+        "@/lib/constants/models",
+        "@/lib/contracts/agent-context-snapshot",
+        "@/lib/contracts/agent-turn-metrics",
+        "@/lib/crypto",
+        "@/lib/serializers/chat",
+        "@/lib/serializers/client/chat",
+        "@/lib/serializers/project",
+        "@/lib/server/env-contract",
+        "@/lib/server/image-assets",
+        "@/lib/server/privileged-request",
+        "@/lib/server/websocket-manager",
+        "@/lib/utils/api-response",
+        "@/lib/utils/cliOptions",
+        "@/lib/utils/index",
+        "@/lib/utils/path",
+        "@/lib/utils/ports",
+        "@/types/backend/index",
+        "@/types/cli",
+        "@/types/index",
+        "@/types/project",
+        "@/types/shared/index"
       ]
     },
     {
@@ -25,15 +58,26 @@
       "summary": "按钮、输入、弹窗、选择器等无领域知识的基础 UI。",
       "owner": "frontend-platform",
       "paths": [
-        "src/components/ui/**"
+        "src/components/ui/**",
+        "src/contexts/ThemeContext.tsx"
       ],
       "dependsOn": [
         "shared-kernel"
       ],
       "publicSurface": [
+        "@/components/ui/alert-dialog",
+        "@/components/ui/badge",
         "@/components/ui/button",
+        "@/components/ui/card",
+        "@/components/ui/empty-state",
         "@/components/ui/input",
-        "@/components/ui/select"
+        "@/components/ui/label",
+        "@/components/ui/select",
+        "@/components/ui/sheet",
+        "@/components/ui/skeleton",
+        "@/components/ui/textarea",
+        "@/components/ui/theme-toggle",
+        "@/contexts/ThemeContext"
       ]
     },
     {
@@ -42,17 +86,20 @@
       "summary": "跨业务页面复用的页头、平台切换、子导航与路由加载状态。",
       "owner": "frontend-platform",
       "paths": [
-        "src/components/layout/**"
+        "src/components/layout/**",
+        "src/components/auth/AuthUserMenu.tsx"
       ],
       "dependsOn": [
+        "frontend-shared",
         "shared-kernel",
         "ui-kit"
       ],
       "publicSurface": [
+        "@/components/auth/AuthUserMenu",
         "@/components/layout/PageHeader",
+        "@/components/layout/PlatformRouteLoading",
         "@/components/layout/PlatformSwitcher",
-        "@/components/layout/SubNav",
-        "@/components/layout/PlatformRouteLoading"
+        "@/components/layout/SubNav"
       ]
     },
     {
@@ -67,20 +114,28 @@
         "src/app/error.tsx",
         "src/app/global-error.tsx",
         "src/app/not-found.tsx",
-        "src/components/theme/**"
+        "src/components/theme/**",
+        "src/app/**",
+        "src/pages/**",
+        "src/proxy.ts",
+        "src/components/task/**",
+        "src/components/account/**"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "ui-kit",
-        "platform-navigation-ui",
+        "agent-runtime",
+        "data-agent-core",
+        "finance-domain",
+        "frontend-shared",
+        "identity-core",
+        "ops-core",
+        "persistence-core",
         "platform-core",
+        "platform-navigation-ui",
         "quant-core",
-        "finance-domain"
+        "shared-kernel",
+        "ui-kit"
       ],
-      "publicSurface": [
-        "@/components/layout/PageHeader",
-        "@/components/layout/SubNav"
-      ]
+      "publicSurface": []
     },
     {
       "id": "platform-core",
@@ -96,15 +151,30 @@
         "src/lib/services/supabase.ts",
         "src/app/api/settings/**",
         "src/app/api/tokens/**",
-        "src/app/api/infrastructure/**"
+        "src/app/api/infrastructure/**",
+        "src/lib/integrations/**",
+        "src/lib/server/api-idempotency*.ts"
       ],
       "dependsOn": [
+        "identity-core",
+        "persistence-core",
         "shared-kernel"
       ],
       "publicSurface": [
+        "@/lib/integrations/github-repository",
+        "@/lib/platform/context/integration-scope",
+        "@/lib/platform/context/use-manifest",
+        "@/lib/platform/knowledge/index",
+        "@/lib/platform/knowledge/types",
+        "@/lib/platform/memory/candidate",
+        "@/lib/platform/memory/candidate-types",
+        "@/lib/platform/memory/index",
         "@/lib/platform/service-catalog",
-        "@/lib/platform/memory",
-        "@/lib/services/settings"
+        "@/lib/server/api-idempotency",
+        "@/lib/services/git",
+        "@/lib/services/project-services",
+        "@/lib/services/supabase",
+        "@/lib/services/tokens"
       ],
       "migrationNotes": [
         "金融项目创建服务已归入 quant-core；后续新增通用 ProjectCatalog，不把默认 Domain Pack 写回平台核心。"
@@ -131,19 +201,57 @@
         "src/lib/services/pi-agent-provenance*.ts",
         "src/lib/services/pi-agent-recovery*.ts",
         "src/lib/services/pi-agent-run-store*.ts",
-        "src/lib/services/pi-agent-turn-metrics*.ts"
+        "src/lib/services/pi-agent-turn-metrics*.ts",
+        "src/lib/services/pi-agent-tool-approval-store*.ts",
+        "src/lib/services/terminal-callbacks.ts"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "platform-core"
+        "identity-core",
+        "persistence-core",
+        "shared-kernel"
       ],
       "publicSurface": [
-        "@/lib/services/agent-runtime",
-        "@/lib/agent/core",
+        "@/lib/agent/context/index",
+        "@/lib/agent/core/index",
+        "@/lib/agent/core/tool-arguments",
+        "@/lib/agent/framework-identity",
+        "@/lib/agent/input-policy",
+        "@/lib/agent/mission/index",
+        "@/lib/agent/pi/run-engine",
         "@/lib/agent/providers/deepseek",
+        "@/lib/agent/providers/deterministic-tool-plan",
         "@/lib/agent/providers/openai-compatible",
-        "@/lib/agent/tools",
-        "@/lib/agent/skills"
+        "@/lib/agent/runtime/workspace-resource-lock",
+        "@/lib/agent/skills/catalog-images",
+        "@/lib/agent/skills/catalog-store",
+        "@/lib/agent/skills/compatibility",
+        "@/lib/agent/skills/index",
+        "@/lib/agent/skills/workspace-install",
+        "@/lib/agent/skills/workspace-integrity",
+        "@/lib/agent/tools/errors",
+        "@/lib/agent/tools/filesystem",
+        "@/lib/agent/tools/index",
+        "@/lib/agent/tools/input",
+        "@/lib/agent/tools/path-policy",
+        "@/lib/agent/tools/runtime",
+        "@/lib/agent/types",
+        "@/lib/services/agent-runtime",
+        "@/lib/services/message",
+        "@/lib/services/pi-agent-candidate",
+        "@/lib/services/pi-agent-execution-error",
+        "@/lib/services/pi-agent-generation-dispatch-session",
+        "@/lib/services/pi-agent-generation-dispatch-store",
+        "@/lib/services/pi-agent-generation-lease-session",
+        "@/lib/services/pi-agent-generation-lease-store",
+        "@/lib/services/pi-agent-mission-store",
+        "@/lib/services/pi-agent-mission-verification-session",
+        "@/lib/services/pi-agent-provenance",
+        "@/lib/services/pi-agent-recovery",
+        "@/lib/services/pi-agent-run-store",
+        "@/lib/services/pi-agent-tool-approval-store",
+        "@/lib/services/pi-agent-turn-metrics",
+        "@/lib/services/stream",
+        "@/lib/services/user-requests"
       ]
     },
     {
@@ -155,11 +263,16 @@
         "src/lib/data-agent/**"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "agent-runtime"
+        "agent-runtime",
+        "shared-kernel"
       ],
       "publicSurface": [
-        "@/lib/data-agent"
+        "@/lib/data-agent/contracts",
+        "@/lib/data-agent/index",
+        "@/lib/data-agent/workspace-files",
+        "@/lib/data-agent/workspace-layout",
+        "@/lib/data-agent/workspace-path",
+        "@/lib/data-agent/workspace-read"
       ]
     },
     {
@@ -168,16 +281,32 @@
       "summary": "金融能力目录、证券 Resolver、行情工具、金融 Mission 合同与金融可视化配置。",
       "owner": "quant-platform",
       "paths": [
-        "src/lib/domains/finance/**"
+        "src/lib/domains/finance/**",
+        "src/lib/utils/scaffold-*.ts"
       ],
       "dependsOn": [
-        "shared-kernel",
         "agent-runtime",
         "data-agent-core",
-        "platform-core"
+        "platform-core",
+        "shared-kernel"
       ],
       "publicSurface": [
-        "@/lib/domains/finance"
+        "@/lib/domains/finance/agent-profile",
+        "@/lib/domains/finance/agent-tools/dashboard-spec",
+        "@/lib/domains/finance/agent-tools/factory",
+        "@/lib/domains/finance/capabilities",
+        "@/lib/domains/finance/data-identity",
+        "@/lib/domains/finance/data-quality",
+        "@/lib/domains/finance/evidence-quality",
+        "@/lib/domains/finance/index",
+        "@/lib/domains/finance/intent",
+        "@/lib/domains/finance/query-rewrite",
+        "@/lib/domains/finance/visualization-templates",
+        "@/lib/domains/finance/workspace",
+        "@/lib/domains/finance/workspace-artifacts",
+        "@/lib/utils/scaffold-base-templates",
+        "@/lib/utils/scaffold-config",
+        "@/lib/utils/scaffold-dashboard-templates"
       ]
     },
     {
@@ -208,25 +337,49 @@
         "src/components/quant/skills-*.tsx",
         "src/components/quant/workspace-*.tsx",
         "src/components/quant/console-primitives.tsx",
-        "src/components/chat/**"
+        "src/components/chat/**",
+        "src/lib/utils/scaffold*.ts",
+        "src/lib/services/preview-stop-intent*.ts"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "platform-core",
         "agent-runtime",
         "data-agent-core",
+        "execution-isolation",
         "finance-domain",
-        "ui-kit",
-        "platform-navigation-ui"
+        "frontend-shared",
+        "identity-core",
+        "persistence-core",
+        "platform-core",
+        "platform-navigation-ui",
+        "shared-kernel",
+        "ui-kit"
       ],
       "publicSurface": [
-        "@/lib/domains/finance",
-        "@/lib/services/project",
-        "@/lib/services/cli/pi-agent",
-        "@/lib/quant/research-reports",
+        "@/app/api/projects/[project_id]/memory/route-error",
+        "@/components/chat/question-composer",
+        "@/components/quant/console-primitives",
+        "@/components/quant/skills-market",
+        "@/components/quant/skills-source-tree",
+        "@/components/quant/skills-version-manager-dialog",
+        "@/components/quant/workspace-console-primitives",
+        "@/lib/quant/capability-center",
+        "@/lib/quant/generation-observability",
+        "@/lib/quant/generation-state",
+        "@/lib/quant/skills-admin",
+        "@/lib/quant/skills-dashboard",
+        "@/lib/quant/skills-deployment",
+        "@/lib/quant/skills-management-api",
+        "@/lib/quant/skills-market",
         "@/lib/quant/strategies",
-        "@/lib/domains/finance",
-        "@/lib/quant/validation"
+        "@/lib/quant/validation/contracts",
+        "@/lib/quant/validation/recovery",
+        "@/lib/quant/validation/repair",
+        "@/lib/quant/workspace-health",
+        "@/lib/services/env",
+        "@/lib/services/file-browser",
+        "@/lib/services/github",
+        "@/lib/services/project",
+        "@/lib/services/vercel"
       ],
       "migrationNotes": [
         "strategies.ts 已拆出 strategy-types / strategy-catalog / strategy-scan-repository / strategy-readiness / strategy-mappers；StrategyPlatformClient 已拆出 helpers、FinancialKnowledgeView、UniverseView、StockKlineDetail、SectorCapitalFlowView、FactorCatalogView、FoundationView，后续继续拆 dialogs、hooks、market API client 和 dashboard service。"
@@ -248,19 +401,17 @@
         "docs/evals-guide.md"
       ],
       "dependsOn": [
-        "shared-kernel",
-        "platform-core",
-        "quant-core",
         "agent-runtime",
         "data-agent-core",
         "finance-domain",
+        "identity-core",
+        "persistence-core",
         "platform-navigation-ui",
+        "quant-core",
+        "shared-kernel",
         "ui-kit"
       ],
-      "publicSurface": [
-        "@/lib/eval",
-        "@/components/quant/eval-console-primitives"
-      ],
+      "publicSurface": [],
       "migrationNotes": [
         "eval-core 已迁出 quant 目录；cases/sets、paths、runtime-utils 和 runtime-mappers 已拆分。runtime.ts 后续继续拆 runs / queue / repairs / scheduling。"
       ]
@@ -280,15 +431,16 @@
         "deploy/observability/**"
       ],
       "dependsOn": [
-        "shared-kernel",
+        "identity-core",
+        "persistence-core",
         "platform-core",
-        "quant-core",
         "platform-navigation-ui",
+        "quant-core",
+        "shared-kernel",
         "ui-kit"
       ],
       "publicSurface": [
-        "@/lib/ops/ops-platform",
-        "@/lib/ops/infrastructure-health"
+        "@/lib/ops/readiness"
       ]
     },
     {
@@ -301,12 +453,103 @@
       ],
       "dependsOn": [],
       "publicSurface": [
-        "services/market-data/src/quantpilot_market_data/routers",
-        "services/market-data/src/quantpilot_market_data/services",
-        "services/market-data/src/quantpilot_market_data/repositories"
+        "services/market-data/src/quantpilot_market_data/routers"
       ],
       "migrationNotes": [
         "旧 database.py 兼容门面已删除；连接与转换工具只进入 database_core.py，业务 SQL 只进入对应 repository。"
+      ]
+    },
+    {
+      "id": "persistence-core",
+      "name": "应用持久化",
+      "summary": "Prisma 连接与应用 schema 就绪检查，不编排业务任务。",
+      "owner": "platform",
+      "paths": [
+        "src/lib/db/**"
+      ],
+      "dependsOn": [],
+      "publicSurface": [
+        "@/lib/db/client",
+        "@/lib/db/pi-agent-schema-readiness"
+      ]
+    },
+    {
+      "id": "identity-core",
+      "name": "身份与配额",
+      "summary": "认证、授权、权限和用量配额的服务端合同。",
+      "owner": "platform",
+      "paths": [
+        "src/lib/auth/**",
+        "src/lib/quota/**"
+      ],
+      "dependsOn": [
+        "persistence-core",
+        "shared-kernel"
+      ],
+      "publicSurface": [
+        "@/lib/auth/access",
+        "@/lib/auth/access-management",
+        "@/lib/auth/action",
+        "@/lib/auth/audit",
+        "@/lib/auth/authorization",
+        "@/lib/auth/client",
+        "@/lib/auth/http",
+        "@/lib/auth/login-identity",
+        "@/lib/auth/password",
+        "@/lib/auth/permissions",
+        "@/lib/auth/project-route-action",
+        "@/lib/auth/server",
+        "@/lib/quota/allocation-reconciliation",
+        "@/lib/quota/defaults",
+        "@/lib/quota/index",
+        "@/lib/quota/service"
+      ]
+    },
+    {
+      "id": "execution-isolation",
+      "name": "执行隔离",
+      "summary": "生成代码的运行环境过滤与 Linux namespace 沙箱适配。",
+      "owner": "agent-platform",
+      "paths": [
+        "src/lib/security/**"
+      ],
+      "dependsOn": [],
+      "publicSurface": [
+        "@/lib/security/generated-project-sandbox"
+      ]
+    },
+    {
+      "id": "frontend-shared",
+      "name": "共享前端状态与设置",
+      "summary": "跨页面复用的浏览器状态、账号、设置和交互组件。",
+      "owner": "frontend-platform",
+      "paths": [
+        "src/contexts/**",
+        "src/hooks/**",
+        "src/components/settings/**",
+        "src/components/modals/**",
+        "src/components/auth/**",
+        "src/components/ErrorBoundary.tsx",
+        "src/lib/motion.ts",
+        "src/lib/chat/**"
+      ],
+      "dependsOn": [
+        "identity-core",
+        "platform-core",
+        "shared-kernel"
+      ],
+      "publicSurface": [
+        "@/components/ErrorBoundary",
+        "@/components/settings/GlobalSettings",
+        "@/components/settings/ProjectSettings",
+        "@/contexts/AuthContext",
+        "@/contexts/GlobalSettingsContext",
+        "@/hooks/useCLI",
+        "@/hooks/useUserRequests",
+        "@/hooks/useWebSocket",
+        "@/lib/chat/chat-message-runtime",
+        "@/lib/chat/tool-activity",
+        "@/lib/motion"
       ]
     }
   ],
@@ -827,7 +1070,7 @@
         "nextAction": "保持用量与上下文口径独立、来源显式；缺失信息不能伪装为精确零值。"
       },
       {
-        "path": "src/lib/agent/context/usage-snapshot.ts",
+        "path": "src/lib/contracts/agent-context-snapshot.ts",
         "maxLines": 150,
         "targetLines": 150,
         "nextAction": "保持用量与上下文口径独立、来源显式；缺失信息不能伪装为精确零值。"

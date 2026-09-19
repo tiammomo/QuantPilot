@@ -1,4 +1,4 @@
-import type { PiAgentTurnMetrics } from '@/lib/chat/turn-metrics';
+import type { PiAgentTurnMetrics } from '@/lib/contracts/agent-turn-metrics';
 
 /**
  * Chat-related types

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { createPiAgentOperationId } from '../core/operation-id';
-import { parsePiAgentContextSnapshot } from '../context/usage-snapshot';
+import { parsePiAgentContextSnapshot } from '@/lib/contracts/agent-context-snapshot';
 import type {
   PiAgentEvent,
   PiAgentTokenUsage,

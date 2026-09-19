@@ -61,7 +61,7 @@ import type {
   PiAgentToolResult,
 } from '../types';
 import type { PiAgentRunEngineOptions } from './options';
-import type { PiAgentContextSnapshot } from '../context/usage-snapshot';
+import type { PiAgentContextSnapshot } from '@/lib/contracts/agent-context-snapshot';
 import { EMPTY_USAGE, EMPTY_PI_USAGE, addUsage, usageFromPi, usageToPi, estimateUnreportedUsage } from './token-usage';
 export {
   PI_AGENT_CORE_PACKAGE,

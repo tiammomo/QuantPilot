@@ -8,7 +8,7 @@ import React, {
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { ChatMessage } from "@/types";
-import { parsePiAgentTurnMetrics } from "@/lib/chat/turn-metrics";
+import { parsePiAgentTurnMetrics } from "@/lib/contracts/agent-turn-metrics";
 import { normalizeChatContent } from "@/lib/serializers/client/chat";
 import { toRelativePath } from "@/lib/utils/path";
 import type { ToolExpansionState } from "@/lib/chat/chat-message-runtime";

@@ -1,4 +1,4 @@
-import { formatPiAgentDuration, formatPiAgentTokens, type PiAgentTurnMetrics } from '@/lib/chat/turn-metrics';
+import { formatPiAgentDuration, formatPiAgentTokens, type PiAgentTurnMetrics } from '@/lib/contracts/agent-turn-metrics';
 
 export default function TurnMetricsFooter({ metrics }: { metrics: PiAgentTurnMetrics }) {
   const approximate = metrics.tokenAccounting !== 'provider';

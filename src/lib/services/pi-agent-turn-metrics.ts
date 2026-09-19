@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/db/client';
-import { parsePiAgentContextSnapshot } from '@/lib/agent/context/usage-snapshot';
+import { parsePiAgentContextSnapshot } from '@/lib/contracts/agent-context-snapshot';
 import {
   PI_AGENT_TURN_METRICS_SCHEMA_VERSION,
   type PiAgentTokenAccounting,
   type PiAgentTurnMetrics,
-} from '@/lib/chat/turn-metrics';
+} from '@/lib/contracts/agent-turn-metrics';
 
 const MAX_RELATED_REQUEST_IDS = 64;
 const ACTIVE_RUN_STATUSES = new Set(['pending', 'running', 'reconciling', 'waiting']);

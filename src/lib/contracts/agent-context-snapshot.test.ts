@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePiAgentContextSnapshot } from './usage-snapshot';
+import { parsePiAgentContextSnapshot } from './agent-context-snapshot';
 
 const snapshot = {
   schemaVersion: 1,

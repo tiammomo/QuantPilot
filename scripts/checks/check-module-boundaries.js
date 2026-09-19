@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 
 const ROOT = process.cwd();
 const CONFIG_PATH = 'config/module-boundaries.json';
@@ -138,17 +139,30 @@ function owningModule(file, modules) {
   return matches[0].boundaryModule;
 }
 
-function importedSpecifiers(source) {
+function importedSpecifiers(source, fileName = 'source.tsx') {
   const specifiers = new Set();
-  const staticImportPattern =
-    /(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g;
-  const dynamicImportPattern = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
-  for (const pattern of [staticImportPattern, dynamicImportPattern]) {
-    for (const match of source.matchAll(pattern)) {
-      specifiers.add(match[1]);
-    }
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  function literal(node) {
+    if (node && ts.isStringLiteralLike(node)) specifiers.add(node.text);
   }
+  function visit(node) {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) literal(node.moduleSpecifier);
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      literal(node.moduleReference.expression);
+    }
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) literal(node.argument.literal);
+    if (ts.isCallExpression(node) && (
+      node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'require')
+    )) literal(node.arguments[0]);
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
   return [...specifiers];
+}
+
+function isProductionSource(file) {
+  return !/\.(test|spec)\.[cm]?[jt]sx?$/.test(file);
 }
 
 function validateConfig(config) {
@@ -174,8 +188,7 @@ function validateConfig(config) {
       fail(`${boundaryModule.id} dependsOn must be an array`);
     }
     if (
-      !Array.isArray(boundaryModule.publicSurface) ||
-      boundaryModule.publicSurface.length === 0
+      !Array.isArray(boundaryModule.publicSurface)
     ) {
       fail(`${boundaryModule.id} must declare a public surface`);
     }
@@ -217,7 +230,7 @@ function validateForbiddenImports(config) {
   const forbiddenImports = config.rules?.forbiddenImports ?? [];
   for (const file of sourceFiles) {
     const content = read(file);
-    const specs = importedSpecifiers(content);
+    const specs = importedSpecifiers(content, file);
     for (const specifier of specs) {
       const target = resolveImportPath(file, specifier);
       if (!target) continue;
@@ -230,24 +243,48 @@ function validateForbiddenImports(config) {
   }
 }
 
-function validateDeclaredDependencies(config) {
-  const sourceFiles = walkFiles('src', ['.ts', '.tsx', '.js', '.jsx']);
+function validateDeclaredDependencies(config, sources) {
+  const sourceFiles = sources ? [...sources.keys()] : walkFiles('src', ['.ts', '.tsx', '.js', '.jsx']);
+  const issues = [];
+  const report = (message) => issues.push(message);
+  const readSource = (file) => sources ? sources.get(file) : read(file);
   const sourceFileSet = new Set(sourceFiles);
-  for (const file of sourceFiles) {
+  const publicFiles = new Map(config.modules.map((boundaryModule) => [
+    boundaryModule.id,
+    new Set(boundaryModule.publicSurface.filter((specifier) => specifier.startsWith('@/')).map((specifier) => {
+      const file = resolveImportFile('src/index.ts', specifier, sourceFileSet);
+      if (!file || owningModule(file, config.modules)?.id !== boundaryModule.id) {
+        report(`${boundaryModule.id} exports missing or foreign module ${specifier}`);
+      }
+      return file;
+    })),
+  ]));
+  for (const file of sourceFiles.filter(isProductionSource)) {
     const sourceOwner = owningModule(file, config.modules);
-    if (!sourceOwner) continue;
-    for (const specifier of importedSpecifiers(read(file))) {
+    if (!sourceOwner) {
+      report(`${file} has no module ownership`);
+      continue;
+    }
+    for (const specifier of importedSpecifiers(readSource(file), file)) {
       const targetFile = resolveImportFile(file, specifier, sourceFileSet);
       if (!targetFile) continue;
+      if (!isProductionSource(targetFile)) {
+        report(`${file} imports test-only module ${specifier}`);
+        continue;
+      }
       const targetOwner = owningModule(targetFile, config.modules);
       if (!targetOwner || targetOwner.id === sourceOwner.id) continue;
       if (!sourceOwner.dependsOn.includes(targetOwner.id)) {
-        fail(
+        report(
           `${file} (${sourceOwner.id}) imports ${specifier} (${targetOwner.id}) without declaring dependsOn`
         );
       }
+      if (!publicFiles.get(targetOwner.id)?.has(targetFile)) {
+        report(`${file} imports private module ${specifier} from ${targetOwner.id}`);
+      }
     }
   }
+  return issues;
 }
 
 function validateRemovedPaths(config) {
@@ -313,27 +350,31 @@ function validateDocs(config) {
   }
 }
 
-const config = readJson(CONFIG_PATH);
-validateConfig(config);
-validateForbiddenImports(config);
-validateDeclaredDependencies(config);
-validateRemovedPaths(config);
-validateForbiddenContent(config);
-validateLargeFiles(config);
-validateDocs(config);
+if (require.main === module) {
+  const config = readJson(CONFIG_PATH);
+  validateConfig(config);
+  validateForbiddenImports(config);
+  failures.push(...validateDeclaredDependencies(config));
+  validateRemovedPaths(config);
+  validateForbiddenContent(config);
+  validateLargeFiles(config);
+  validateDocs(config);
 
-for (const warning of warnings) {
-  console.warn(`warning: ${warning}`);
-}
-
-if (failures.length) {
-  console.error('Module boundary check failed:');
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
+  for (const warning of warnings) {
+    console.warn(`warning: ${warning}`);
   }
-  process.exit(1);
+
+  if (failures.length) {
+    console.error('Module boundary check failed:');
+    for (const failure of failures) {
+      console.error(`- ${failure}`);
+    }
+    process.exit(1);
+  }
+
+  console.log(
+    `[module-boundaries] ok: ${config.modules.length} modules, ${config.rules?.forbiddenImports?.length ?? 0} forbidden import rules, ${config.rules?.removedPaths?.length ?? 0} removed path rules, ${config.rules?.forbiddenContent?.length ?? 0} current-contract rules`
+  );
 }
 
-console.log(
-  `[module-boundaries] ok: ${config.modules.length} modules, ${config.rules?.forbiddenImports?.length ?? 0} forbidden import rules, ${config.rules?.removedPaths?.length ?? 0} removed path rules, ${config.rules?.forbiddenContent?.length ?? 0} current-contract rules`
-);
+module.exports = { importedSpecifiers, owningModule, isProductionSource, resolveImportFile, validateDeclaredDependencies };
